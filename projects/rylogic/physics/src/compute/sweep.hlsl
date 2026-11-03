@@ -11,6 +11,7 @@
 #include "pr/hlsl/spatial_algebra.hlsli"
 #include "pr/hlsl/bounding_box.hlsli"
 #include "physics/src/compute/physics_types.hlsli"
+#include "physics/src/compute/body_twist.hlsli"
 
 #ifdef __cplusplus
 namespace pr::physics {
@@ -129,10 +130,17 @@ odr bool CollisionExcluded(int body_idx_a, int body_idx_b)
 // Returns false when the pair buffer is full, telling the caller to stop emitting.
 odr bool StorePair(int rbA_idx, int rbB_idx, in_(GpuRigidBody) rb, in_(GpuRigidBody) other_rb, bool filter_connected)
 {
+	// Collision filters are a cheap bit test, so check them before the exclusion table lookup
+	if (!CollisionFilterPasses(rb.collision_layer, rb.collision_mask, other_rb.collision_layer, other_rb.collision_mask))
+		return true;
 	if (filter_connected && CollisionExcluded(rbA_idx, rbB_idx))
 		return true;
 
-	if (!EffectiveAwake(rb) && !EffectiveAwake(other_rb))
+	// Contacts need at least one body that the solver can move, so static and kinematic bodies never pair with each other.
+	// A pair is also skipped when nothing in it moves. A moving kinematic body counts as moving, so it can push undisturbed sleepers.
+	if (!DynamicBody(rb) && !DynamicBody(other_rb))
+		return true;
+	if (!EffectiveAwake(rb) && !EffectiveAwake(other_rb) && !MovingKinematicBody(rb) && !MovingKinematicBody(other_rb))
 		return true;
 
 	int idxA = min(rbA_idx, rbB_idx);

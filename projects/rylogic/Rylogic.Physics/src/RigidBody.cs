@@ -60,7 +60,9 @@ public sealed class RigidBody :IDisposable
 			state.m_gravity,
 			state.m_user_tag,
 			state.m_motion_type,
-			state.m_flags);
+			state.m_flags,
+			state.m_collision_layer,
+			state.m_collision_mask);
 	}
 
 	/// <summary>Replace the complete current body state outside a pending step.</summary>
@@ -81,8 +83,16 @@ public sealed class RigidBody :IDisposable
 			m_user_tag = state.m_user_tag,
 			m_motion_type = state.m_motion_type,
 			m_flags = state.m_flags,
+			m_collision_layer = state.m_collision_layer,
+			m_collision_mask = state.m_collision_mask,
 		};
 		Native.Check(Native.Physics_BodyStateSet(Engine.Handle, m_handle.Value, &native));
+	}
+
+	/// <summary>Stop or resume contacts between this body and 'other'. See Engine.SetCollisionIgnored.</summary>
+	public void SetCollisionIgnored(RigidBody other, bool ignore)
+	{
+		Engine.SetCollisionIgnored(this, other, ignore);
 	}
 
 	/// <summary>Destroy this body and release its native reference to the shape.</summary>

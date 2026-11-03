@@ -94,6 +94,9 @@ namespace physics_sandbox::scene_loader
 	//                 "rotation": [rx, ry, rz],             // Optional, Euler angles in degrees (X, Y, Z order)
 	//                 "velocity": [vx, vy, vz],             // Optional
 	//                 "angular_velocity": [wx, wy, wz],     // Optional
+	//                 "kinematic": true,                    // Optional: move at 'velocity'/'angular_velocity' regardless of contacts
+	//                 "collision_layer": 1,                 // Optional: layer bits the body is in (default 1)
+	//                 "collision_mask": 4294967295,         // Optional: layer bits the body collides with (default all)
 	//                 "sleeping": true                      // Optional
 	//             },
 	//             { "name": "s1", "shape": { "type": "sphere", "radius": 1.0 }, ... },
@@ -104,6 +107,7 @@ namespace physics_sandbox::scene_loader
 	//                 { "type": "box", "dimensions": [2, 1, 1], "position": [0, 0, 0], "rotation": [0, 0, 0] }, // Optional child position/rotation in body space
 	//                 { "type": "sphere", "radius": 0.8, "position": [1, 0, 0] } ] }, ... }
 	//         ],
+	//         "collision_ignore_pairs": [["box1", "s1"]], // Optional: pairs of rigid bodies, by name, that never make contacts with each other
 	//         "body_generators": [
 	//             {
 	//                 "name": "heavy_box_#",                 // '#' is replaced by the generated body index
@@ -150,8 +154,11 @@ namespace physics_sandbox::scene_loader
 		std::optional<v4> z_axis = {}; // Optional world direction for the body's local Z axis
 		v4 velocity = Zero<v4>();
 		v4 angular_velocity = Zero<v4>();
+		bool kinematic = false; // Moves at 'velocity' and 'angular_velocity' (at the centre of mass) with infinite mass
 		bool sleeping = false;
 		bool never_sleep = false;
+		uint32_t collision_layer = 1U;          // See RigidBody::CollisionFilter
+		uint32_t collision_mask = 0xFFFFFFFFU;  // See RigidBody::CollisionFilter
 	};
 
 	// Identifies the dynamics object referenced by one persistent-constraint endpoint.
@@ -401,6 +408,8 @@ namespace physics_sandbox::scene_loader
 		// Bodies in the scene
 		std::vector<BodyDesc> bodies;
 
+		// Pairs of rigid bodies, by name, that never make contacts with each other.
+		std::vector<std::pair<std::string, std::string>> collision_ignore_pairs;
 		// Reduced-coordinate trees and persistent constraints in the scene
 		std::vector<ArticulationDesc> articulations;
 		std::vector<ConstraintDesc> constraints;

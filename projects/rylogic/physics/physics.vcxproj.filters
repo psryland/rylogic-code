@@ -514,6 +514,9 @@
     <None Include="src\compute\physics_types.hlsli">
       <Filter>src\compute</Filter>
     </None>
+    <None Include="src\compute\body_twist.hlsli">
+      <Filter>src\compute</Filter>
+    </None>
     <None Include="src\buoyancy\buoyancy_sampler.hlsli">
       <Filter>src\buoyancy</Filter>
     </None>

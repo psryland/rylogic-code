@@ -4,6 +4,7 @@
 //*********************************************
 #include "pr/physics/collision/broadphase_brute.h"
 #include "pr/physics/rigid_body/rigid_body.h"
+#include "src/compute/physics_types.hlsli"
 
 namespace pr::physics
 {
@@ -32,7 +33,7 @@ namespace pr::physics
 		m_entity.erase(at);
 	}
 
-	// Enumerate all pairs of entities whose bounding boxes overlap
+	// Enumerate all pairs of entities whose bounding boxes overlap and whose collision filters allow contact
 	void BroadphaseBrute::EnumOverlappingPairs(std::function<void(RigidBody const&, RigidBody const&)> cb) const
 	{
 		for (int i = 0, iend = int(m_entity.size()); i != iend; ++i)
@@ -41,6 +42,9 @@ namespace pr::physics
 			{
 				auto& objA = *m_entity[i];
 				auto& objB = *m_entity[j];
+				if (!CollisionFilterPasses(objA.CollisionLayer(), objA.CollisionMask(), objB.CollisionLayer(), objB.CollisionMask()))
+					continue;
+
 				auto bboxA = objA.BBoxWS();
 				auto bboxB = objB.BBoxWS();
 				if (!geometry::intersect::BBoxVsBBox(bboxA, bboxB)) continue;

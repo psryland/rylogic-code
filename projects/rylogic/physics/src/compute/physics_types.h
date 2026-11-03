@@ -74,7 +74,7 @@ namespace pr::physics
 	static_assert(sizeof(GpuFrameOutputHeader) == 64);
 	static_assert(sizeof(GpuCoupledConstraintFailureState) == 32);
 	static_assert(sizeof(GpuSubstepOutputState) == 16);
-	static_assert(sizeof(GpuCollisionEvent) == 240);
+	static_assert(sizeof(GpuCollisionEvent) == 256);
 	static_assert((sizeof(GpuSelectiveRefreshMetrics) & 0xf) == 0);
 	static_assert((sizeof(GpuMaterial) & 0xf) == 0);
 
@@ -212,8 +212,11 @@ namespace pr::physics
 			.data = v4::Zero(),
 		};
 	}
-	inline GpuShape PackShape(collision::Shape const& shape, std::vector<v4>& vertex_buffer, std::vector<GpuPolytopeFace>* face_buffer = nullptr, std::vector<GpuPolytopeEdge>* edge_buffer = nullptr, m4x4 const& p2rb = m4x4::Identity())
+	// Pack a shape, appending its geometry to caller-owned growable buffers.
+	template <typename VertexBuffer, typename FaceBuffer = std::vector<GpuPolytopeFace>, typename EdgeBuffer = std::vector<GpuPolytopeEdge>>
+	inline GpuShape PackShape(collision::Shape const& shape, VertexBuffer& vertex_buffer, FaceBuffer* face_buffer = nullptr, EdgeBuffer* edge_buffer = nullptr, m4x4 const& p2rb = m4x4::Identity())
 	{
+		// Shape-specific packing uses only buffer size and append operations, not a particular container's ownership.
 		using namespace collision;
 
 		switch (shape.m_type)
@@ -415,6 +418,8 @@ namespace pr::physics
 				.generation = rb.m_sleep.m_generation,
 				.flags = rb.m_sleep.m_flags,
 			},
+			.collision_layer = rb.m_collision_layer,
+			.collision_mask = rb.m_collision_mask,
 		};
 	}
 	inline void UnpackDynamics(GpuRigidBody const& dyn, RigidBody& rb)
@@ -428,8 +433,8 @@ namespace pr::physics
 		// Forces are zeroed by the integrator after the second half-kick
 		rb.m_ws_force = v8force{};
 
-		// Preserve the state flags
-		rb.m_state_flags = static_cast<ERigidBodyStateFlags>(dyn.state_flags);
+		// Preserve the state flags. A warm-start reset applies only to the step that just ran.
+		rb.m_state_flags = SetBits(static_cast<ERigidBodyStateFlags>(dyn.state_flags), ERigidBodyStateFlags::ResetWarmStart, false);
 
 		// Preserve the sleeping state
 		rb.m_sleep = SleepData{

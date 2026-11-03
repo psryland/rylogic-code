@@ -45,6 +45,7 @@
 #include "pr/hlsl/vector.hlsli"
 #include "pr/hlsl/spatial_algebra.hlsli"
 #include "physics/src/compute/physics_types.hlsli"
+#include "physics/src/compute/body_twist.hlsli"
 
 // HLSL flow control hints; expand to nothing in C++ replay builds.
 #ifdef __cplusplus
@@ -229,8 +230,8 @@ float3x3 OsInverseInertia(GpuRigidBody body)
 	return inv_mass * build_symmetric_3x3(body.inertia_inv_diagonal.xyz, body.inertia_inv_products.xyz);
 }
 
-// Extrapolate a body's o2w transform by dt using current momentum and forces.
-// Mirrors the CPU ExtrapolateO2W: S = S0 + 0.5*dt * I^(2*momentum + force*dt).
+// Extrapolate a body's o2w transform by dt using current velocity and forces.
+// Mirrors the CPU ExtrapolateO2W: S = S0 + dt * v + 0.5*dt^2 * I^f.
 // Used to rewind bodies to the estimated collision time.
 float4x4 ExtrapolateO2W(GpuRigidBody body, float dt)
 {
@@ -240,12 +241,11 @@ float4x4 ExtrapolateO2W(GpuRigidBody body, float dt)
 	float3x3 rot = (float3x3)body.o2w;
 	float3x3 ws_iinv = rotate_inertia_inv(os_iinv, rot);
 
-	// Spatial displacement: dx = 0.5 * dt * I^(2*h + f*dt). This is only used over a small sub-step rewind/advance, so the linearised rotation below is
-	// preferable to a heavier quaternion/exponential-map update here.
-	float3 h_ang = 2.0f * body.momentum_ang.xyz + dt * body.force_ang.xyz;
-	float3 h_lin = 2.0f * body.momentum_lin.xyz + dt * body.force_lin.xyz;
-	float3 dx_ang = 0.5f * dt * mul(ws_iinv, h_ang);
-	float3 dx_lin = 0.5f * dt * inv_mass * h_lin;
+	// Spatial displacement: dx = dt * v + 0.5 * dt^2 * I^f. This is only used over a small sub-step rewind/advance, so the linearised rotation below is
+	// preferable to a heavier quaternion/exponential-map update here. Kinematic bodies have infinite mass, so only their twist moves them.
+	BodyTwist twist = BodyTwistWS(body);
+	float3 dx_ang = dt * twist.ang + 0.5f * dt * dt * mul(ws_iinv, body.force_ang.xyz);
+	float3 dx_lin = dt * twist.lin + 0.5f * dt * dt * inv_mass * body.force_lin.xyz;
 
 	// Update the CoM and then reconstruct the object origin from the new CoM and new rotation. This matters for shapes whose object origin is not their CoM.
 	float3 com_ws = body.o2w[3].xyz + mul(os_com, rot);
@@ -266,17 +266,15 @@ float4x4 ExtrapolateO2W(GpuRigidBody body, float dt)
 
 // Compute a body's velocity at a point, expressed in A's object space.
 // 'rot_a' is body A's object-to-world rotation.
-float3 BodyVelocityAtPoint(GpuRigidBody body, float3x3 os_iinv, float3 pt_in_a, float3 com_in_a, float3x3 rot_a)
+float3 BodyVelocityAtPoint(GpuRigidBody body, float3 pt_in_a, float3 com_in_a, float3x3 rot_a)
 {
-	float inv_mass = body.os_com_and_invmass.w;
-	float3x3 ws_iinv = rotate_inertia_inv(os_iinv, (float3x3)body.o2w);
-
 	// World→body A: with HLSL row_major matrices (rows = body axes in world), mul(rot_a, v_world)
 	// applies the world→body transformation directly. Using transpose(rot_a) here would give
 	// the (geometrically meaningless) sum of body-axes-in-world weighted by world components,
 	// which yields wrong body-frame velocities for any non-axis-aligned rotation.
-	float3 omega_in_a = mul(rot_a, mul(ws_iinv, body.momentum_ang.xyz));
-	float3 v_com_in_a = mul(rot_a, inv_mass * body.momentum_lin.xyz);
+	BodyTwist twist = BodyTwistWS(body);
+	float3 omega_in_a = mul(rot_a, twist.ang);
+	float3 v_com_in_a = mul(rot_a, twist.lin);
 
 	// Velocity is returned in body A space because contacts store their centroid/normal in A space. Keeping all contact math in one frame avoids repeated
 	// world<->object conversions and keeps the normal impulse direction consistent with c.axis.
@@ -284,17 +282,17 @@ float3 BodyVelocityAtPoint(GpuRigidBody body, float3x3 os_iinv, float3 pt_in_a, 
 }
 
 // Compute the relative velocity of B w.r.t. A at point 'pt' (in A's object space).
-float3 RelativeVelocityAtPoint(GpuRigidBody bodyA, GpuRigidBody bodyB, float3 pt, float3x3 os_iinv_a, float3x3 os_iinv_b, float3x3 rot_a, float3 com_a_in_a, float3 com_b_in_a)
+float3 RelativeVelocityAtPoint(GpuRigidBody bodyA, GpuRigidBody bodyB, float3 pt, float3x3 rot_a, float3 com_a_in_a, float3 com_b_in_a)
 {
-	float3 v_a = BodyVelocityAtPoint(bodyA, os_iinv_a, pt, com_a_in_a, rot_a);
-	float3 v_b = BodyVelocityAtPoint(bodyB, os_iinv_b, pt, com_b_in_a, rot_a);
+	float3 v_a = BodyVelocityAtPoint(bodyA, pt, com_a_in_a, rot_a);
+	float3 v_b = BodyVelocityAtPoint(bodyB, pt, com_b_in_a, rot_a);
 	return v_b - v_a;
 }
 
 // Convenience wrapper: relative velocity at the contact centroid.
-float3 RelativeVelocityAtContact(GpuResolveContact c, GpuRigidBody bodyA, GpuRigidBody bodyB,	float3x3 os_iinv_a, float3x3 os_iinv_b, float3x3 rot_a, float3 com_a_in_a, float3 com_b_in_a)
+float3 RelativeVelocityAtContact(GpuResolveContact c, GpuRigidBody bodyA, GpuRigidBody bodyB, float3x3 rot_a, float3 com_a_in_a, float3 com_b_in_a)
 {
-	return RelativeVelocityAtPoint(bodyA, bodyB, c.contact_point.xyz, os_iinv_a, os_iinv_b, rot_a, com_a_in_a, com_b_in_a);
+	return RelativeVelocityAtPoint(bodyA, bodyB, c.contact_point.xyz, rot_a, com_a_in_a, com_b_in_a);
 }
 
 // Build the 3x3 collision mass matrix from lever arms and inverse inertias.
@@ -376,22 +374,19 @@ float3 ApplyImpulseWithEnergyGuard(
 	float ke_before = KineticEnergy(bodyA) + KineticEnergy(bodyB);
 
 	// Apply impulses to body momenta
-	bodyA.momentum_ang.xyz += torqueA_ws;
-	bodyA.momentum_lin.xyz += forceA_ws;
-	bodyB.momentum_ang.xyz += torqueB_ws;
-	bodyB.momentum_lin.xyz += forceB_ws;
+	AddBodyMomentumWS(bodyA, torqueA_ws, forceA_ws);
+	AddBodyMomentumWS(bodyB, torqueB_ws, forceB_ws);
 
 	// Energy conservation guard: if KE increased, scale the impulse down. Bias impulses disable this because they are pseudo-impulses whose purpose is to
-	// remove positional error, not conserve physical kinetic energy.
+	// remove positional error, not conserve physical kinetic energy. A moving kinematic body correctly adds energy when it pushes, so the guard is off for
+	// contacts with a kinematic body.
 	float ke_after = KineticEnergy(bodyA) + KineticEnergy(bodyB);
 	float delta = ke_after - ke_before;
-	if (enable_energy_guard && delta > 0 && A > 1e-12f)
+	if (enable_energy_guard && !KinematicBody(bodyA) && !KinematicBody(bodyB) && delta > 0 && A > 1e-12f)
 	{
 		float correction = 1.0f - clamp((A - delta) / A, 0.0f, 1.0f);
-		bodyA.momentum_ang.xyz -= correction * torqueA_ws;
-		bodyA.momentum_lin.xyz -= correction * forceA_ws;
-		bodyB.momentum_ang.xyz -= correction * torqueB_ws;
-		bodyB.momentum_lin.xyz -= correction * forceB_ws;
+		AddBodyMomentumWS(bodyA, -correction * torqueA_ws, -correction * forceA_ws);
+		AddBodyMomentumWS(bodyB, -correction * torqueB_ws, -correction * forceB_ws);
 		return (1.0f - correction) * impulse;
 	}
 
@@ -402,8 +397,8 @@ float3 ApplyImpulseWithEnergyGuard(
 float3 ApplyLinearBiasImpulse(inout_(GpuRigidBody) bodyA, inout_(GpuRigidBody) bodyB, float3 impulse, float3x3 rot_a)
 {
 	float3 impulse_ws = mul(impulse, rot_a);
-	bodyA.momentum_lin.xyz -= impulse_ws;
-	bodyB.momentum_lin.xyz += impulse_ws;
+	AddBodyMomentumWS(bodyA, float3(0, 0, 0), -impulse_ws);
+	AddBodyMomentumWS(bodyB, float3(0, 0, 0), impulse_ws);
 	return impulse;
 }
 
@@ -416,11 +411,22 @@ float3 WarmStartNormalImpulse(GpuResolveContact c, float3 impulse)
 	return normal_impulse > 1e-6f ? normal_impulse * c.axis.xyz : float3(0, 0, 0);
 }
 
+// Return true when 'body_idx' changed motion type since the last step, so impulses cached against its old mass are not valid.
+bool ResetsWarmStart(int body_idx)
+{
+	// Only bodies in the body buffer carry state flags. World endpoints never reset.
+	return body_idx >= 0 && body_idx < g.body_count && AllSet(g_bodies[body_idx].state_flags, ERigidBodyStateFlags_ResetWarmStart);
+}
+
 // Looks up the previous-frame normal impulse for this canonical body pair and projects it onto the current contact normal.
 bool LoadWarmStartImpulse(GpuResolveContact c, out_(float3) impulse)
 {
 	impulse = float3(0, 0, 0);
 	if (g.warm_start_capacity <= 0 || g.warm_start_scale <= 0.0f)
+		return false;
+
+	// A body whose motion type changed starts its contacts cold, because the cached impulse was computed for its old mass.
+	if (ResetsWarmStart(c.body_idx_a) || ResetsWarmStart(c.body_idx_b))
 		return false;
 
 	uint key = WarmStartKey(c);
@@ -481,7 +487,7 @@ float3 ContactRelativeVelocity(GpuResolveContact c)
 	float3x3 rot_a = (float3x3)bodyA.o2w;
 	float3x3 b2a_rot = (float3x3)c.b2a;
 	float3 com_b_in_a = c.b2a[3].xyz + mul(os_com_b, b2a_rot);
-	return RelativeVelocityAtContact(c, bodyA, bodyB, OsInverseInertia(bodyA), OsInverseInertia(bodyB), rot_a, os_com_a, com_b_in_a);
+	return RelativeVelocityAtContact(c, bodyA, bodyB, rot_a, os_com_a, com_b_in_a);
 }
 
 // Estimate the sub-step collision time for a contact with relative contact velocity 'rel_vel' (see ContactRelativeVelocity).
@@ -546,17 +552,18 @@ float PropagationSortKey(GpuResolveContact c, GpuRigidBody bodyA, GpuRigidBody b
 
 	// Lower support_height means "lower in the gravity stack", so bottom contacts sort earlier.
 	// Source momentum and closing/depth terms pull high-demand contacts earlier within that height ordering.
-	float3x3 os_iinv_a = OsInverseInertia(bodyA);
-	float3x3 os_iinv_b = OsInverseInertia(bodyB);
+	// Kinematic bodies store a twist rather than momentum in the momentum slots, so they add no source momentum; their motion still raises the closing speed.
 	float3x3 b2a_rot = (float3x3)c.b2a;
 	float3 com_a_in_a = bodyA.os_com_and_invmass.xyz;
 	float3 com_b_in_a = c.b2a[3].xyz + mul(bodyB.os_com_and_invmass.xyz, b2a_rot);
-	float3 v_a = BodyVelocityAtPoint(bodyA, os_iinv_a, c.contact_point.xyz, com_a_in_a, rot_a);
-	float3 v_b = BodyVelocityAtPoint(bodyB, os_iinv_b, c.contact_point.xyz, com_b_in_a, rot_a);
+	float3 v_a = BodyVelocityAtPoint(bodyA, c.contact_point.xyz, com_a_in_a, rot_a);
+	float3 v_b = BodyVelocityAtPoint(bodyB, c.contact_point.xyz, com_b_in_a, rot_a);
 	float3 v_rel = v_b - v_a;
 	float3 axis_ws = mul(c.axis.xyz, rot_a);
 	float closing_speed = max(0.0f, -dot(v_rel, c.axis.xyz));
-	float source_momentum = max(abs(dot(bodyA.momentum_lin.xyz, axis_ws)), abs(dot(bodyB.momentum_lin.xyz, axis_ws)));
+	float source_momentum_a = KinematicBody(bodyA) ? 0.0f : abs(dot(bodyA.momentum_lin.xyz, axis_ws));
+	float source_momentum_b = KinematicBody(bodyB) ? 0.0f : abs(dot(bodyB.momentum_lin.xyz, axis_ws));
+	float source_momentum = max(source_momentum_a, source_momentum_b);
 
 	return support_height - source_momentum - 0.05f * closing_speed - 0.50f * c.depth;
 }
@@ -568,12 +575,10 @@ float ContactNormalDemand(GpuResolveContact c, GpuRigidBody bodyA, GpuRigidBody 
 	// This is the seed strength for shock-priority propagation. Closing contacts and deeply penetrating contacts are the places where an early impulse is
 	// most likely to help neighbouring contacts in a dependency chain.
 	float3x3 rot_a = (float3x3)bodyA.o2w;
-	float3x3 os_iinv_a = OsInverseInertia(bodyA);
-	float3x3 os_iinv_b = OsInverseInertia(bodyB);
 	float3x3 b2a_rot = (float3x3)c.b2a;
 	float3 com_a_in_a = bodyA.os_com_and_invmass.xyz;
 	float3 com_b_in_a = c.b2a[3].xyz + mul(bodyB.os_com_and_invmass.xyz, b2a_rot);
-	float3 v_rel = RelativeVelocityAtContact(c, bodyA, bodyB, os_iinv_a, os_iinv_b, rot_a, com_a_in_a, com_b_in_a);
+	float3 v_rel = RelativeVelocityAtContact(c, bodyA, bodyB, rot_a, com_a_in_a, com_b_in_a);
 	float closing_speed = max(0.0f, -dot(v_rel, c.axis.xyz));
 	bool support_contact = SupportContact(c, bodyA);
 	float bias_speed = (g.velocity_baumgarte / max(g.dt, 1e-6f)) *
@@ -1209,8 +1214,7 @@ void ResolveContact(uint idx)
 	// Friction is left to Phase 3 so that all tangent impulse is limited by the accumulated normal impulse of this solve.
 	{
 		float3 pt = c.contact_point.xyz;
-		float3 V_rel = RelativeVelocityAtPoint(bodyA, bodyB, pt,
-			os_iinv_a, os_iinv_b, rot_a, com_a_in_a, com_b_in_a);
+		float3 V_rel = RelativeVelocityAtPoint(bodyA, bodyB, pt, rot_a, com_a_in_a, com_b_in_a);
 
 		// Adjust the contact point to the estimated collision time along the normal only.
 		// Tangential components in V_rel would shift the point sideways, creating a
@@ -1254,8 +1258,8 @@ void ResolveContact(uint idx)
 			float k_n_c = inv_mass_a + inv_mass_b;
 			if (bias > 0.0f && k_n_c > 1e-12f)
 			{
-				float3 v_com_a = mul(rot_a, inv_mass_a * bodyA.momentum_lin.xyz);
-				float3 v_com_b = mul(rot_a, inv_mass_b * bodyB.momentum_lin.xyz);
+				float3 v_com_a = mul(rot_a, BodyTwistWS(bodyA).lin);
+				float3 v_com_b = mul(rot_a, BodyTwistWS(bodyB).lin);
 				float vn_com = dot(v_com_b - v_com_a, axis);
 				Jn_delta = max(Jn_delta, -max(vn_com - bias, 0.0f) / k_n_c);
 			}
@@ -1280,8 +1284,8 @@ void ResolveContact(uint idx)
 	if (bias > 0.0f)
 	{
 		float k_n_c = inv_mass_a + inv_mass_b;
-		float3 v_com_a = mul(rot_a, inv_mass_a * bodyA.momentum_lin.xyz);
-		float3 v_com_b = mul(rot_a, inv_mass_b * bodyB.momentum_lin.xyz);
+		float3 v_com_a = mul(rot_a, BodyTwistWS(bodyA).lin);
+		float3 v_com_b = mul(rot_a, BodyTwistWS(bodyB).lin);
 		float vn_now = dot(v_com_b - v_com_a, axis);
 		float Jn_bias_centroid = (k_n_c > 1e-12f) ? max(0.0f, (bias - vn_now) / k_n_c) : 0.0f;
 
@@ -1294,7 +1298,8 @@ void ResolveContact(uint idx)
 			float3 applied_bias_impulse = ApplyLinearBiasImpulse(bodyA, bodyB, Jn_bias_centroid * axis, rot_a);
 
 			// Baumgarte bias is a one-frame positional correction, not a reusable support impulse. Persisting it into the warm-start cache replays stale
-			// push-out on the next frame and can keep resting contact networks subtly energised.
+			// push-out on the next frame and can keep resting contact networks subtly energised. It still changes momentum, so record it for contact reports.
+			c.bias_impulse += dot(applied_bias_impulse, axis);
 			any_impulse = any_impulse || any(applied_bias_impulse != float3(0, 0, 0));
 		}
 	}
@@ -1314,8 +1319,7 @@ void ResolveContact(uint idx)
 
 			// Re-read velocities after earlier points so the bounded deltas converge without replaying already applied friction.
 			float3 pt = (point_count > 1) ? c.manifold[pi].xyz : c.contact_point.xyz;
-			float3 V_rel = RelativeVelocityAtPoint(bodyA, bodyB, pt,
-				os_iinv_a, os_iinv_b, rot_a, com_a_in_a, com_b_in_a);
+			float3 V_rel = RelativeVelocityAtPoint(bodyA, bodyB, pt, rot_a, com_a_in_a, com_b_in_a);
 			float3x3 col_I_pt = CollisionMassMatrix(
 				pt - com_a_in_a, pt - com_b_in_a,
 				inv_mass_a, inv_mass_b,

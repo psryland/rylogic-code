@@ -381,6 +381,8 @@ namespace pr::physics
 						.generation = 0,
 						.flags = 0,
 					},
+					.collision_layer = DefaultCollisionLayer,
+					.collision_mask = DefaultCollisionMask,
 				});
 			}
 		}

@@ -603,7 +603,10 @@ void CSBuoyancySurfaceSamples(uint3 GID(group_id), uint3 GTID(group_thread_id))
 							// Acting along the normal, the pressure gives the exact torque for any sample count.
 							float depth = hg.x - signed_height;
 							float wet_depth = wet_fraction < 1.0f ? 0.5f * (depth + 0.5f * cell_height) : depth;
-							float depth_area = wet_weight * wet_depth;
+
+							// A zero-thickness triangle carries surface drag only. It cannot supply pressure, water columns, or waterline stiffness.
+							float pressure_weight = prim.m_type != BUOY_PRIM_TRIANGLE ? wet_weight : 0.0f;
+							float depth_area = pressure_weight * wet_depth;
 
 							// The vertical water column between this sample and the surface has signed volume depth_area*(-n.up).
 							// These columns sum to the wet volume (divergence theorem; there is no pressure at the waterplane), so they
@@ -615,7 +618,7 @@ void CSBuoyancySurfaceSamples(uint3 GID(group_id), uint3 GTID(group_thread_id))
 							// exceed the body's true moments, which makes the volume damping inject spin.
 							float col_clip = max(0.0f, hg.x - s_hull_top);
 							float col_len = max(0.0f, wet_depth - col_clip);
-							float dvol = -n_up * wet_weight * col_len;
+							float dvol = -n_up * pressure_weight * col_len;
 							float3 r_col = r + (0.5f * col_len) * up;
 							float3 grad_ws = hg.yzw;
 							float grad_up = dot(grad_ws, up);
@@ -660,9 +663,9 @@ void CSBuoyancySurfaceSamples(uint3 GID(group_id), uint3 GTID(group_thread_id))
 							// passes through the centre of a sphere. The predictor is the change in this waterline force over the step
 							// for the point's velocity relative to the moving water surface, and the heave rate is the same rate for the
 							// body's linear velocity only (see ApplyImplicitResponse).
-							float stiffness = rho_g * wet_weight * -n_up;
+							float stiffness = rho_g * pressure_weight * -n_up;
 							float3 r_up = cross(r, up);
-							float3 k_torque = -rho_g * wet_weight * cross(r, normal_ws);
+							float3 k_torque = -rho_g * pressure_weight * cross(r, normal_ws);
 							float3 surface_normal = up - slope_ws;
 							float rise_rate = -g.time_step_s * (dot(v_point, surface_normal) - surface_rates.z);
 							AddWaterlineStiffness(sums, r_up, stiffness, k_torque);

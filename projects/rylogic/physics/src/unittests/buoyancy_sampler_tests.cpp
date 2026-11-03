@@ -473,6 +473,42 @@ namespace pr::physics::tests
 			PR_EXPECT(Length(r.m_buoyancy_torque_ws) < 1e-3f * weight * radius);
 		}
 
+		// A zero-thickness triangle has no displaced volume or pressure response, while its wet and dry surface drag retains the analytic area.
+		PRUnitTestMethod(TriangleIsDragOnly, Quick)
+		{
+			// Reverse the winding to ensure neither sign of the open surface creates a fictitious water column.
+			for (auto reversed : {false, true})
+			{
+				// The horizontal triangle has area 1 m^2, so a uniform point velocity gives a known surface drag.
+				auto triangle = ShapeTriangle(v4{-1, 0, 0, 1}, reversed ? v4{0, 1, 0, 1} : v4{1, 0, 0, 1}, reversed ? v4{1, 0, 0, 1} : v4{0, 1, 0, 1});
+				auto const normal = reversed ? -v4::ZAxis() : v4::ZAxis();
+				for (auto height : {-10.0f, -3.0f, 0.0f, 3.0f})
+				{
+					// Nonzero volume coefficients and a sloping water field must not add forces to a drag-only surface.
+					auto const body = BodyState{.m_o2w = m4x4::Translation(0, 0, height), .m_vel_lin_ws = 2.0f * (normal + v4::XAxis())};
+					auto const cfg = SamplerConfig{
+						.m_linear_drag_time_constant_s = 0.3f,
+						.m_angular_drag_time_constant_s = 0.4f,
+						.m_quadratic_drag_coefficient = 1.0f,
+						.m_tangential_drag_coefficient = 1.0f,
+						.m_air_density = 1.2f,
+						.m_added_mass_coefficient = 0.8f,
+					};
+					auto const field = height == 0.0f ? TestField{} : TestField{.m_a = 0.1f, .m_b = 0.2f};
+					auto const result = SampleHull(triangle.m_base, body, WaterFrame{}, field, cfg);
+					auto const wet_fraction = height < 0.0f ? 1.0f : height == 0.0f ? 0.5f : 0.0f;
+					auto const expected_drag = -2000.0f * wet_fraction * (normal + v4::XAxis()) - 2.4f * (1.0f - wet_fraction) * normal;
+					PR_EXPECT(!result.m_valid);
+					PR_EXPECT(result.m_volume_m3 == 0.0f);
+					PR_EXPECT(All(result.m_centre_buoyancy_ws == v4::Zero()));
+					PR_EXPECT(All(result.m_buoyancy_force_ws == v4::Zero()));
+					PR_EXPECT(All(result.m_buoyancy_torque_ws == v4::Zero()));
+					PR_EXPECT(FEqlAbsolute(result.m_drag_force_ws, expected_drag, 0.01f));
+					PR_EXPECT(FEqlAbsolute(result.m_drag_torque_ws, Cross(v4{0, 1.0f / 3.0f, 0, 0}, expected_drag), 0.01f));
+				}
+			}
+		}
+
 		// Fully-submerged box, flat water: buoyancy force is exactly rho*g*V*up (all samples wet, zero
 		// gradient), volume is exact, and the centre of buoyancy is at the box centre.
 		PRUnitTestMethod(BoxFullySubmergedFlatWater, Extended)

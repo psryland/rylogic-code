@@ -3,6 +3,7 @@
 //  Copyright (C) Rylogic Ltd 2016
 //*********************************************
 #pragma once
+#include <cstdint>
 
 namespace pr::compute::shader_cache
 {
@@ -112,5 +113,10 @@ namespace pr::physics
 		float selective_refresh_closing_speed_slop = 0.02f;
 		float selective_refresh_support_alignment = 0.65f;
 		float selective_refresh_aabb_margin = 0.03f;
+
+		// Collision filter of the world surfaces (terrain and cylindrical boundary). A body touches them only when its own filter passes
+		// against this one (see CollisionFilterPasses). Bit values have no built-in meaning; the defaults match the default body filter.
+		std::uint32_t world_collision_layer = 1U;
+		std::uint32_t world_collision_mask = 0xFFFFFFFFU;
 	};
 }

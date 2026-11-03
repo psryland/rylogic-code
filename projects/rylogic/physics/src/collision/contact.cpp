@@ -32,6 +32,7 @@ namespace pr::physics
 	RbContact::RbContact()
 		: m_b2a()
 		, m_velocity()
+		, m_impulse()
 		, m_point_at_t()
 		, m_objA()
 		, m_objB()
@@ -53,6 +54,7 @@ namespace pr::physics
 		:RbContact(objA, objB)
 	{
 		AssignGpuContact(*this, contact);
+		m_impulse = contact.warmstart_impulse.w0() + contact.bias_impulse * contact.axis.w0();
 		Update(contact.collision_time);
 	}
 
@@ -66,6 +68,7 @@ namespace pr::physics
 		AssignGpuContact(*this, collision_event);
 		m_b2a = collision_event.b2a;
 		m_velocity = v8motion{collision_event.relative_velocity_ang, collision_event.relative_velocity_lin};
+		m_impulse = collision_event.impulse.w0();
 		m_time = collision_event.collision_time;
 		auto const point = Point();
 		m_point_at_t = point + 0.5f * m_time * m_velocity.LinAt(point);
@@ -118,6 +121,9 @@ namespace pr::physics
 		// Transform the retained relative state so flipping a published event does not consult caller bodies that have not been unpacked yet.
 		c.m_b2a = a2b;
 		c.m_velocity = -(a2b * c.m_velocity);
+
+		// The impulse on the new B is the reaction of the impulse on the old B
+		c.m_impulse = a2b * (-c.m_impulse);
 		auto const point = c.Point();
 		c.m_point_at_t = point + 0.5f * c.m_time * c.m_velocity.LinAt(point);
 	}

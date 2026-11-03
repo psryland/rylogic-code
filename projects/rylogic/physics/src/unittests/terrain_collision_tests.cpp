@@ -129,7 +129,7 @@ namespace pr::physics::tests
 			auto bodies = std::array{PackDynamics(body, index)};
 			auto pipeline = GpuWorldContactPipeline(gpu, &SharedTestShaderCache());
 			auto world = GpuWorldContacts(gpu, pipeline, FlatTerrain(), surface::DefaultSpacing, CylindricalBoundaryConfig{});
-			world.Upload(gpu.m_job, cache, bodies, 1);
+			world.Upload(gpu.m_job, cache, bodies, 1, DefaultCollisionLayer, DefaultCollisionMask);
 			gpu.m_job.Run();
 			auto terrain_count = world.m_ranges[index].m_sample_count;
 			auto wall_count = world.m_ranges[index + world.m_boundary_plan_offset].m_sample_count;
@@ -144,11 +144,11 @@ namespace pr::physics::tests
 			cache.m_changed = false;
 			body.O2W(m4x4::Translation(10, 0, 20));
 			bodies[0] = PackDynamics(body, index);
-			world.Upload(gpu.m_job, cache, bodies, 1);
+			world.Upload(gpu.m_job, cache, bodies, 1, DefaultCollisionLayer, DefaultCollisionMask);
 			gpu.m_job.Run();
 			PR_EXPECT(world.m_plans.get() == plans && world.m_patch_buffer.get() == patches && world.m_patches.data() == patch_data);
 			auto terrain_only = GpuWorldContacts(gpu, pipeline, FlatTerrain(), surface::DefaultSpacing);
-			terrain_only.Upload(gpu.m_job, cache, bodies, 1);
+			terrain_only.Upload(gpu.m_job, cache, bodies, 1, DefaultCollisionLayer, DefaultCollisionMask);
 			gpu.m_job.Run();
 			PR_EXPECT(terrain_only.m_ranges[index].m_sample_count == terrain_count);
 			log_stream() << std::format("Cylinder density 1m sphere: terrain_spacing=0.16 samples={} wall_spacing=0.05 samples={}; cache reused\n", terrain_count, wall_count);

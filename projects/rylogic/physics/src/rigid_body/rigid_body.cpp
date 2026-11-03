@@ -5,6 +5,7 @@
 #include "pr/physics/rigid_body/rigid_body.h"
 #include "pr/physics/shape/shape_mass.h"
 #include "pr/physics/utility/misc.h"
+#include "src/compute/physics_types.hlsli"
 
 namespace pr::physics
 {
@@ -38,9 +39,13 @@ namespace pr::physics
 		,m_ws_force()
 		,m_ws_gravity()
 		,m_os_inertia_inv()
+		,m_dynamic_inertia_inv()
+		,m_motion(ERigidBodyMotion::Dynamic)
 		,m_shape(collision::shape_cast(shape))
 		,m_state_flags(ERigidBodyStateFlags::None)
 		,m_sleep()
+		,m_collision_layer(DefaultCollisionLayer)
+		,m_collision_mask(DefaultCollisionMask)
 	{
 		SetMassProperties(inertia);
 	}
@@ -123,11 +128,11 @@ namespace pr::physics
 		Wake(); // For performance, assume any o2w change is a wake-up signal as well
 	}
 
-	// Extrapolate the position based on the current momentum and forces
+	// Extrapolate the position based on the current velocity and forces. Kinematic bodies have zero solver inertia, so forces do not accelerate them.
 	m4x4 RigidBody::O2W(float dt) const
 	{
 		return Abs(dt) > math::tiny<float>
-			? ExtrapolateO2W(O2W(), CentreOfMassOS(), MomentumWS(), ForceWS(), InertiaInvWS(), dt)
+			? ExtrapolateO2W(O2W(), CentreOfMassOS(), VelocityWS(), InertiaInvWS() * ForceWS(), dt)
 			: O2W();
 	}
 
@@ -145,10 +150,12 @@ namespace pr::physics
 	}
 	void RigidBody::Mass(float mass)
 	{
-		if (!FEql(m_os_inertia_inv.Mass(), mass))
+		// Change the body's own mass, then derive the solver inertia from it
+		if (!FEql(m_dynamic_inertia_inv.Mass(), mass))
 			Wake();
 
-		m_os_inertia_inv.Mass(mass);
+		m_dynamic_inertia_inv.Mass(mass);
+		UpdateSolverInertia();
 	}
 	float RigidBody::InvMass() const
 	{
@@ -156,10 +163,12 @@ namespace pr::physics
 	}
 	void RigidBody::InvMass(float invmass)
 	{
-		if (!FEql(m_os_inertia_inv.InvMass(), invmass))
+		// Change the body's own mass, then derive the solver inertia from it
+		if (!FEql(m_dynamic_inertia_inv.InvMass(), invmass))
 			Wake();
 
-		m_os_inertia_inv.InvMass(invmass);
+		m_dynamic_inertia_inv.InvMass(invmass);
+		UpdateSolverInertia();
 	}
 
 	// Return the model-origin-to-centre-of-mass offset in object space.
@@ -229,9 +238,96 @@ namespace pr::physics
 		return InertiaInvOS(o2a.rot, o2a.pos);
 	}
 
+	// The body's own mass properties, measured at the centre of mass.
+	InertiaInv RigidBody::DynamicInertiaInvOS() const
+	{
+		return m_dynamic_inertia_inv;
+	}
+
+	// Get/Set how the body moves.
+	ERigidBodyMotion RigidBody::Motion() const
+	{
+		if (AllSet(m_state_flags, ERigidBodyStateFlags::Kinematic))
+			return ERigidBodyMotion::Kinematic;
+		if (AllSet(m_state_flags, ERigidBodyStateFlags::Static))
+			return ERigidBodyMotion::Static;
+
+		return ERigidBodyMotion::Dynamic;
+	}
+	void RigidBody::Motion(ERigidBodyMotion motion, v8motion const& ws_velocity)
+	{
+		// Every switch starts from a clean motion state. Island membership changes with the motion type, so it is invalidated by Wake.
+		m_ws_momentum = v8force{};
+		m_ws_force = v8force{};
+		m_motion = motion;
+		switch (motion)
+		{
+			case ERigidBodyMotion::Static:
+			{
+				// Keep the body's own mass properties for a later switch, but do not move
+				assert("Static bodies cannot have a velocity" && FEql(ws_velocity, v8motion{}));
+				UpdateSolverInertia();
+				break;
+			}
+			case ERigidBodyMotion::Dynamic:
+			{
+				// Use the body's own mass properties again, and convert the release velocity to momentum
+				assert("Dynamic bodies need finite mass properties" && m_dynamic_inertia_inv.InvMass() > 0.0f);
+				UpdateSolverInertia();
+				m_ws_momentum = InertiaWS() * ws_velocity;
+				break;
+			}
+			case ERigidBodyMotion::Kinematic:
+			{
+				// Keep the body's own mass properties and move at the given twist
+				UpdateSolverInertia();
+				m_ws_momentum = v8force{ws_velocity.ang, ws_velocity.lin};
+				break;
+			}
+			default:
+			{
+				throw std::invalid_argument("Unknown rigid body motion type");
+			}
+		}
+
+		// Start the new motion type awake and outside any sleep island. Cached contact impulses were computed for the old mass, so the next step ignores them.
+		// The rest of a sleeping island loses a member, so the engine wakes it in the next step.
+		if (Sleeping() && m_sleep.m_island_id >= 0)
+			m_sleep.m_left_island_id = m_sleep.m_island_id;
+
+		m_state_flags = SetBits(m_state_flags, ERigidBodyStateFlags::ResetWarmStart, true);
+		Wake();
+	}
+	bool RigidBody::Kinematic() const
+	{
+		return AllSet(m_state_flags, ERigidBodyStateFlags::Kinematic);
+	}
+
+	// Get/Set the velocity of a kinematic body.
+	v8motion RigidBody::KinematicTwistWS() const
+	{
+		// Kinematic bodies store their twist in the unused momentum slot
+		assert("Only kinematic bodies have a twist" && Kinematic());
+		return v8motion{m_ws_momentum.ang, m_ws_momentum.lin};
+	}
+	void RigidBody::KinematicTwistWS(v8motion const& ws_twist)
+	{
+		// Kinematic bodies store their twist in the unused momentum slot
+		assert("Only kinematic bodies have a twist" && Kinematic());
+		auto twist = v8force{ws_twist.ang, ws_twist.lin};
+		if (!FEql(m_ws_momentum, twist))
+			Wake();
+
+		m_ws_momentum = twist;
+	}
+
 	// Get/Set the momentum of the rigid body
 	v8force RigidBody::MomentumWS() const
 	{
+		// Kinematic bodies have no meaningful momentum; their slot holds the twist
+		if (Kinematic())
+			return v8force{};
+
 		return m_ws_momentum;
 	}
 	v8force RigidBody::MomentumOS() const
@@ -240,6 +336,8 @@ namespace pr::physics
 	}
 	void RigidBody::MomentumWS(v8force const& ws_momentum)
 	{
+		// Kinematic bodies are moved only by their twist
+		assert("Kinematic bodies have no momentum" && !Kinematic());
 		if (!FEql(m_ws_momentum, ws_momentum))
 			Wake();
 
@@ -254,6 +352,10 @@ namespace pr::physics
 	// Get/Set the velocity
 	v8motion RigidBody::VelocityWS() const
 	{
+		// Kinematic bodies move at their twist; everything else derives velocity from momentum
+		if (Kinematic())
+			return KinematicTwistWS();
+
 		auto ws_velocity = InertiaInvWS() * MomentumWS();
 		return ws_velocity;
 	}
@@ -263,6 +365,13 @@ namespace pr::physics
 	}
 	void RigidBody::VelocityWS(v8motion const& ws_velocity)
 	{
+		// Kinematic bodies take the velocity directly as their twist
+		if (Kinematic())
+		{
+			KinematicTwistWS(ws_velocity);
+			return;
+		}
+
 		auto ws_momentum = InertiaWS() * ws_velocity;
 		MomentumWS(ws_momentum);
 	}
@@ -295,7 +404,8 @@ namespace pr::physics
 	}
 	void RigidBody::ZeroMomentum()
 	{
-		MomentumWS(v8force{});
+		// Stop the body, whichever way it is moved
+		VelocityWS(v8motion{});
 	}
 
 	// Get/Set the gravitational acceleration acting on the body.
@@ -370,6 +480,26 @@ namespace pr::physics
 			Wake();
 
 		m_state_flags = SetBits(m_state_flags, ERigidBodyStateFlags::NeverSleep, never_sleep);
+	}
+
+	// Get/Set the collision filter.
+	uint32_t RigidBody::CollisionLayer() const
+	{
+		return m_collision_layer;
+	}
+	uint32_t RigidBody::CollisionMask() const
+	{
+		return m_collision_mask;
+	}
+	void RigidBody::CollisionFilter(uint32_t layer, uint32_t mask)
+	{
+		// A change can add or remove contacts that a sleeping body depends on, so the body must be awake to find its new contacts
+		if (layer == m_collision_layer && mask == m_collision_mask)
+			return;
+
+		m_collision_layer = layer;
+		m_collision_mask = mask;
+		Wake();
 	}
 
 	// Invalidate cached sleep island membership.
@@ -464,17 +594,48 @@ namespace pr::physics
 
 		// Object space inverse inertia, measured at the CoM
 		auto inertia_inv = Invert(inertia);
-		auto changed = !FEql(m_os_inertia_inv, inertia_inv) || !FEql(m_os_com, os_model_to_com);
+		auto changed = !FEql(m_dynamic_inertia_inv, inertia_inv) || !FEql(m_os_com, os_model_to_com);
 		if (changed)
 			Wake();
 
-		m_os_inertia_inv = inertia_inv;
+		m_dynamic_inertia_inv = inertia_inv;
 
 		// Position of the centre of mass (in object space)
 		m_os_com = os_model_to_com;
 
-		// Set state flags
-		m_state_flags = SetBits(m_state_flags, ERigidBodyStateFlags::Static, inertia.InvMass() == 0.0f);
+		// Derive the solver inertia and state flags
+		UpdateSolverInertia();
+	}
+
+	// Set the solver inertia and the Static and Kinematic flags from the motion type and the dynamic mass properties.
+	void RigidBody::UpdateSolverInertia()
+	{
+		// Static and kinematic bodies are immovable to the solver. Dynamic bodies are static exactly when their own mass is infinite.
+		auto movable = false;
+		switch (m_motion)
+		{
+			case ERigidBodyMotion::Static:
+			case ERigidBodyMotion::Kinematic:
+			{
+				movable = false;
+				break;
+			}
+			case ERigidBodyMotion::Dynamic:
+			{
+				movable = m_dynamic_inertia_inv.InvMass() != 0.0f;
+				break;
+			}
+			default:
+			{
+				throw std::invalid_argument("Unknown rigid body motion type");
+			}
+		}
+
+		// Derive the solver state the integrator and the GPU read
+		auto kinematic = m_motion == ERigidBodyMotion::Kinematic;
+		m_os_inertia_inv = movable ? m_dynamic_inertia_inv : InertiaInv::Zero();
+		m_state_flags = SetBits(m_state_flags, ERigidBodyStateFlags::Kinematic, kinematic);
+		m_state_flags = SetBits(m_state_flags, ERigidBodyStateFlags::Static, !movable && !kinematic);
 	}
 
 	// Return the kinetic energy of the body

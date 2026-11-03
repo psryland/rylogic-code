@@ -6,6 +6,7 @@
 #include <cstring>
 #include <filesystem>
 #include <format>
+#include <mutex>
 #include <thread>
 #include <unknwn.h>
 #include "pr/physics/physics-dll.h"
@@ -54,6 +55,8 @@ namespace pr::unittests
 			decltype(&Physics_BodyStateGet) BodyStateGet;
 			decltype(&Physics_BodyStateSet) BodyStateSet;
 			decltype(&Physics_CommandsApply) CommandsApply;
+			decltype(&Physics_BodyCollisionIgnoreSet) BodyCollisionIgnoreSet;
+			decltype(&Physics_BodyCollisionIgnoreCopy) BodyCollisionIgnoreCopy;
 			decltype(&Physics_ArticulationCreate) ArticulationCreate;
 			decltype(&Physics_ArticulationDestroy) ArticulationDestroy;
 			decltype(&Physics_ArticulationStateGet) ArticulationStateGet;
@@ -131,6 +134,8 @@ namespace pr::unittests
 				, BodyStateGet(m_module.Proc<decltype(BodyStateGet)>("Physics_BodyStateGet"))
 				, BodyStateSet(m_module.Proc<decltype(BodyStateSet)>("Physics_BodyStateSet"))
 				, CommandsApply(m_module.Proc<decltype(CommandsApply)>("Physics_CommandsApply"))
+				, BodyCollisionIgnoreSet(m_module.Proc<decltype(BodyCollisionIgnoreSet)>("Physics_BodyCollisionIgnoreSet"))
+				, BodyCollisionIgnoreCopy(m_module.Proc<decltype(BodyCollisionIgnoreCopy)>("Physics_BodyCollisionIgnoreCopy"))
 				, ArticulationCreate(m_module.Proc<decltype(ArticulationCreate)>("Physics_ArticulationCreate"))
 				, ArticulationDestroy(m_module.Proc<decltype(ArticulationDestroy)>("Physics_ArticulationDestroy"))
 				, ArticulationStateGet(m_module.Proc<decltype(ArticulationStateGet)>("Physics_ArticulationStateGet"))
@@ -227,14 +232,17 @@ namespace pr::unittests
 		}
 
 		// Retain an ordinary process context so context-owned GPU backends survive independently executed test methods.
+		// Test classes run in parallel, so all access to the retaining token is serialized.
 		struct SharedPhysicsContextStorage
 		{
 			PhysicsApi m_api;
 			DllHandle m_context;
+			std::mutex m_mutex;
 
 			SharedPhysicsContextStorage()
 				: m_api()
 				, m_context()
+				, m_mutex()
 			{}
 			~SharedPhysicsContextStorage()
 			{
@@ -246,11 +254,15 @@ namespace pr::unittests
 			// Add one fixture-owned initialisation token while ensuring the retaining token exists first.
 			DllHandle Acquire(PhysicsApi const& api)
 			{
-				if (m_context == nullptr)
-				m_context = m_api.Initialise(ReportErrorCB{{}, &SwallowError});
+				// Create the retaining token once; an unserialized check would let racing threads each create one and leak all but the last.
+				{
+					auto lock = std::lock_guard{m_mutex};
+					if (m_context == nullptr)
+						m_context = m_api.Initialise(ReportErrorCB{{}, &SwallowError});
 
-				if (m_context == nullptr)
-					throw std::runtime_error("Failed to retain the shared Physics DLL test context");
+					if (m_context == nullptr)
+						throw std::runtime_error("Failed to retain the shared Physics DLL test context");
+				}
 
 				auto context = api.Initialise(ReportErrorCB{{}, &SwallowError});
 				if (context == nullptr)
@@ -262,6 +274,8 @@ namespace pr::unittests
 			// Release the retaining token so final-shutdown behavior can be tested in isolation.
 			void Release()
 			{
+				// Release the token under the same lock that creates it.
+				auto lock = std::lock_guard{m_mutex};
 				if (m_context == nullptr)
 					return;
 
@@ -369,6 +383,8 @@ namespace pr::unittests
 				.mass_mode = EMassMode::Density,
 				.mass_or_density = 1.0f,
 				.flags = EBodyFlags::Enabled,
+				.collision_layer = 1,
+				.collision_mask = 0xFFFFFFFFU,
 			};
 
 			auto body = BodyHandle{};
@@ -476,8 +492,8 @@ namespace pr::unittests
 			return checkpoint;
 		}
 
-		// Test-only mirror of the version-three checkpoint prefix used to construct semantically invalid but checksummed input.
-		struct CheckpointHeaderV3
+		// Test-only mirror of the version-four checkpoint prefix used to construct semantically invalid but checksummed input.
+		struct CheckpointHeaderV4
 		{
 			std::uint64_t m_magic;
 			std::uint32_t m_version;
@@ -488,18 +504,24 @@ namespace pr::unittests
 			std::uint16_t m_reserved0;
 			std::uint32_t m_shape_count;
 			std::uint32_t m_body_count;
-			std::uint32_t m_reserved1;
+			std::uint32_t m_ignore_pair_count;
 			std::uint64_t m_submitted_step;
 			std::uint64_t m_completed_step;
 			pr::physics::Config m_config;
 		};
 
-		// Test-only mirror of each variable-width shape prefix in a version-three checkpoint.
-		struct CheckpointShapeV3
+		// Test-only mirror of each variable-width shape prefix in a version-four checkpoint.
+		struct CheckpointShapeV4
 		{
 			ShapeHandle m_handle;
 			std::uint32_t m_size;
 			std::uint32_t m_child_count;
+		};
+
+		// Test-only mirror of each body entry in a version-four checkpoint.
+		struct CheckpointBodyV4
+		{
+			BodyState m_state;
 		};
 
 		// Replace the namespace component of one stable child handle without changing its slot or generation.
@@ -511,7 +533,7 @@ namespace pr::unittests
 		// Recompute the payload checksum after a test deliberately changes semantically meaningful fields.
 		void UpdateCheckpointChecksum(std::vector<std::byte>& checkpoint)
 		{
-			auto header = CheckpointHeaderV3{};
+			auto header = CheckpointHeaderV4{};
 			memcpy(&header, checkpoint.data(), sizeof(header));
 
 			auto hash = std::uint64_t{14695981039346656037ULL};
@@ -527,10 +549,10 @@ namespace pr::unittests
 		// Rewrite an otherwise valid checkpoint so it claims an in-flight step while retaining a valid payload checksum.
 		void SetCheckpointPending(std::vector<std::byte>& checkpoint)
 		{
-			if (checkpoint.size() < sizeof(CheckpointHeaderV3))
-				throw std::runtime_error("Checkpoint is too small for its version-three header");
+			if (checkpoint.size() < sizeof(CheckpointHeaderV4))
+				throw std::runtime_error("Checkpoint is too small for its version-four header");
 
-			auto header = CheckpointHeaderV3{};
+			auto header = CheckpointHeaderV4{};
 			memcpy(&header, checkpoint.data(), sizeof(header));
 			if (header.m_submitted_step == 0)
 				throw std::runtime_error("Checkpoint must contain a completed step");
@@ -543,16 +565,16 @@ namespace pr::unittests
 		// Rewrite every serialized child identity so a restored engine can claim a selected namespace.
 		void SetCheckpointCookie(std::vector<std::byte>& checkpoint, std::uint16_t cookie)
 		{
-			constexpr auto checkpoint_material_count_v3 = std::size_t{32};
-			auto header = CheckpointHeaderV3{};
+			constexpr auto checkpoint_material_count_v4 = std::size_t{32};
+			auto header = CheckpointHeaderV4{};
 			memcpy(&header, checkpoint.data(), sizeof(header));
 			header.m_engine_cookie = cookie;
 			memcpy(checkpoint.data(), &header, sizeof(header));
 
-			auto offset = sizeof(header) + checkpoint_material_count_v3 * sizeof(MaterialProperties);
+			auto offset = sizeof(header) + checkpoint_material_count_v4 * sizeof(MaterialProperties);
 			for (auto shape_index = std::uint32_t{}; shape_index != header.m_shape_count; ++shape_index)
 			{
-				auto shape = CheckpointShapeV3{};
+				auto shape = CheckpointShapeV4{};
 				memcpy(&shape, checkpoint.data() + offset, sizeof(shape));
 				shape.m_handle = WithCheckpointCookie(shape.m_handle, cookie);
 				memcpy(checkpoint.data() + offset, &shape, sizeof(shape));
@@ -568,12 +590,22 @@ namespace pr::unittests
 			}
 			for (auto body_index = std::uint32_t{}; body_index != header.m_body_count; ++body_index)
 			{
-				auto state = BodyState{};
-				memcpy(&state, checkpoint.data() + offset, sizeof(state));
-				state.body = WithCheckpointCookie(state.body, cookie);
-				state.shape = WithCheckpointCookie(state.shape, cookie);
-				memcpy(checkpoint.data() + offset, &state, sizeof(state));
-				offset += sizeof(state);
+				auto entry = CheckpointBodyV4{};
+				memcpy(&entry, checkpoint.data() + offset, sizeof(entry));
+				entry.m_state.body = WithCheckpointCookie(entry.m_state.body, cookie);
+				entry.m_state.shape = WithCheckpointCookie(entry.m_state.shape, cookie);
+				memcpy(checkpoint.data() + offset, &entry, sizeof(entry));
+				offset += sizeof(entry);
+			}
+			for (auto pair_index = std::uint32_t{}; pair_index != header.m_ignore_pair_count; ++pair_index)
+			{
+				// Changing the cookie keeps the pair order because the cookie is the same in both handles
+				auto pair = BodyPair{};
+				memcpy(&pair, checkpoint.data() + offset, sizeof(pair));
+				pair.body_a = WithCheckpointCookie(pair.body_a, cookie);
+				pair.body_b = WithCheckpointCookie(pair.body_b, cookie);
+				memcpy(checkpoint.data() + offset, &pair, sizeof(pair));
+				offset += sizeof(pair);
 			}
 			if (offset != checkpoint.size())
 				throw std::runtime_error("Checkpoint test mirror did not consume the complete payload");
@@ -976,13 +1008,21 @@ namespace pr::unittests
 			PR_EXPECT(fix.m_api.ShapeDestroy(fix.m_engine, shape) == EStatus::Success);
 
 			// Claim the namespace that a naive monotonic allocator would otherwise issue to the next engine.
-			auto restored_cookie = static_cast<std::uint16_t>((shape >> 48) + 1);
-			if (restored_cookie == 0)
-				restored_cookie = 1;
-			SetCheckpointCookie(checkpoint, restored_cookie);
+			// Engines created by tests running in parallel may already hold that cookie, so try successive cookies until one restores.
+			auto restored_cookie = static_cast<std::uint16_t>(shape >> 48);
+			auto restored = false;
+			for (auto attempt = 0; !restored && attempt != 256; ++attempt)
+			{
+				restored_cookie = static_cast<std::uint16_t>(restored_cookie + 1);
+				if (restored_cookie == 0)
+					restored_cookie = 1;
+
+				SetCheckpointCookie(checkpoint, restored_cookie);
+				restored = fix.m_api.CheckpointRead(fix.m_engine, checkpoint.data(), checkpoint.size()) == EStatus::Success;
+			}
+			PR_EXPECT(restored);
 			auto const restored_shape = WithCheckpointCookie(shape, restored_cookie);
 			auto const restored_body = WithCheckpointCookie(body, restored_cookie);
-			PR_EXPECT(fix.m_api.CheckpointRead(fix.m_engine, checkpoint.data(), checkpoint.size()) == EStatus::Success);
 
 			auto other = EngineHandle{};
 			PR_EXPECT(fix.m_api.EngineCreate(fix.m_context, nullptr, fix.m_external_device, &other) == EStatus::Success);
@@ -993,6 +1033,827 @@ namespace pr::unittests
 
 			PR_EXPECT(fix.m_api.BodyDestroy(fix.m_engine, restored_body) == EStatus::Success);
 			PR_EXPECT(fix.m_api.ShapeDestroy(fix.m_engine, restored_shape) == EStatus::Success);
+		}
+	};
+
+	// Verify the public kinematic motion type: creation, state round trips, command rules, and release to dynamic.
+	PRUnitTestClass(PhysicsDllKinematicTests)
+	{
+		PRUnitTestMethod(CreateStepAndCommands, Extended)
+		{
+			// A kinematic box created with finite mass, with gravity set and sleeping disabled
+			auto fix = PhysicsFixture{};
+			auto shape = MakeBox(fix.m_api, fix.m_engine, {0.5f, 0.5f, 0.5f, 0});
+			auto body = MakeBody(fix.m_api, fix.m_engine, shape, Translation(0, 0, 2), EMotionType::Kinematic);
+			auto state = BodyState{};
+			PR_EXPECT(fix.m_api.BodyStateGet(fix.m_engine, body, &state) == EStatus::Success);
+			PR_EXPECT(state.motion_type == EMotionType::Kinematic);
+			PR_EXPECT(state.inertia.centre_of_mass_and_mass.w > 0.0f && state.inertia.centre_of_mass_and_mass.w < 1.0e6f);
+			state.gravity = {0, 0, -9.8f, 0};
+			state.flags = static_cast<EBodyFlags>(static_cast<std::uint32_t>(state.flags) | static_cast<std::uint32_t>(EBodyFlags::NeverSleep));
+			PR_EXPECT(fix.m_api.BodyStateSet(fix.m_engine, body, &state) == EStatus::Success);
+
+			// Gravity does not move a kinematic body
+			for (auto i = 0; i != 30; ++i)
+				PR_EXPECT(fix.m_api.Step(fix.m_engine, 1.0f / 60.0f, 0.0, nullptr, 0) == EStatus::Success);
+
+			PR_EXPECT(fix.m_api.BodyStateGet(fix.m_engine, body, &state) == EStatus::Success);
+			PR_EXPECT(state.motion_type == EMotionType::Kinematic);
+			PR_EXPECT(FEqlAbsolute(state.object_to_world.w.z, 2.0f, 1e-6f));
+
+			// Snapshots report the motion type
+			auto count = std::uint32_t{1};
+			auto snapshot = BodySnapshot{};
+			PR_EXPECT(fix.m_api.SnapshotCopy(fix.m_engine, &snapshot, 1, &count) == EStatus::Success);
+			PR_EXPECT(count == 1 && snapshot.body == body && snapshot.motion_type == EMotionType::Kinematic);
+
+			// Momentum, force and impulse commands are rejected for kinematic bodies
+			for (auto type : {ECommand::SetMomentum, ECommand::SetForce, ECommand::ApplyForce, ECommand::ApplyImpulse})
+			{
+				// Each command would change momentum, which a kinematic body does not have
+				auto command = BodyCommand{
+					.header = {sizeof(BodyCommand), PHYSICS_STRUCT_VERSION},
+					.body = body,
+					.type = type,
+					.value = {.angular = {0, 0, 0, 0}, .linear = {1, 0, 0, 0}},
+					.at = {0, 0, 0, 0},
+				};
+				PR_EXPECT(fix.m_api.CommandsApply(fix.m_engine, &command, 1) == EStatus::InvalidArgument);
+			}
+
+			// The kinematic target command is accepted for a kinematic body, and is rejected for a dynamic body.
+			// The body moves to the target during the next step, so the pose is unchanged until then.
+			auto other = MakeBody(fix.m_api, fix.m_engine, shape, Translation(5, 0, 0), EMotionType::Dynamic);
+			auto move = BodyCommand{
+				.header = {sizeof(BodyCommand), PHYSICS_STRUCT_VERSION},
+				.body = body,
+				.type = ECommand::SetKinematicTarget,
+				.transform = Translation(1, 0, 2),
+			};
+			PR_EXPECT(fix.m_api.CommandsApply(fix.m_engine, &move, 1) == EStatus::Success);
+			PR_EXPECT(fix.m_api.BodyStateGet(fix.m_engine, body, &state) == EStatus::Success);
+			PR_EXPECT(FEqlAbsolute(state.object_to_world.w.x, 0.0f, 1e-6f));
+			move.body = other;
+			PR_EXPECT(fix.m_api.CommandsApply(fix.m_engine, &move, 1) == EStatus::InvalidArgument);
+
+			// Kinematic bodies are created at rest
+			auto desc = BodyDesc{
+				.header = {sizeof(BodyDesc), PHYSICS_STRUCT_VERSION},
+				.shape = shape,
+				.object_to_world = Identity(),
+				.momentum = {.angular = {0, 0, 0, 0}, .linear = {1, 0, 0, 0}},
+				.motion_type = EMotionType::Kinematic,
+				.mass_mode = EMassMode::Density,
+				.mass_or_density = 1.0f,
+				.flags = EBodyFlags::Enabled,
+			};
+			auto rejected = BodyHandle{};
+			PR_EXPECT(fix.m_api.BodyCreate(fix.m_engine, &desc, &rejected) == EStatus::InvalidArgument);
+
+			PR_EXPECT(fix.m_api.BodyDestroy(fix.m_engine, other) == EStatus::Success);
+			PR_EXPECT(fix.m_api.BodyDestroy(fix.m_engine, body) == EStatus::Success);
+			PR_EXPECT(fix.m_api.ShapeDestroy(fix.m_engine, shape) == EStatus::Success);
+		}
+		PRUnitTestMethod(StateSwitchKeepsMassAndReleases, Extended)
+		{
+			// A dynamic body with known mass
+			auto fix = PhysicsFixture{};
+			auto shape = MakeBox(fix.m_api, fix.m_engine, {0.5f, 0.5f, 0.5f, 0});
+			auto body = MakeBody(fix.m_api, fix.m_engine, shape, Identity(), EMotionType::Dynamic);
+			auto state = BodyState{};
+			PR_EXPECT(fix.m_api.BodyStateGet(fix.m_engine, body, &state) == EStatus::Success);
+			auto const inertia = state.inertia;
+			auto const mass = inertia.centre_of_mass_and_mass.w;
+
+			// Switch to kinematic with a twist. The body keeps its mass and has no momentum.
+			state.motion_type = EMotionType::Kinematic;
+			state.momentum = {.angular = {0, 0, 0, 0}, .linear = {3, 0, 0, 0}};
+			state.velocity = {.angular = {0, 0, 0.5f, 0}, .linear = {1, 0, 0, 0}};
+			PR_EXPECT(fix.m_api.BodyStateSet(fix.m_engine, body, &state) == EStatus::Success);
+			PR_EXPECT(fix.m_api.BodyStateGet(fix.m_engine, body, &state) == EStatus::Success);
+			PR_EXPECT(state.motion_type == EMotionType::Kinematic);
+			PR_EXPECT(FEqlRelative(state.inertia.centre_of_mass_and_mass.w, mass, 1e-5f) && FEqlRelative(state.inertia.diagonal.x, inertia.diagonal.x, 1e-5f));
+			PR_EXPECT(state.momentum.linear.x == 0.0f && state.momentum.angular.z == 0.0f);
+			PR_EXPECT(state.velocity.linear.x == 1.0f && state.velocity.angular.z == 0.5f);
+
+			// Release to dynamic. The new velocity comes only from the given momentum.
+			state.motion_type = EMotionType::Dynamic;
+			state.momentum = {.angular = {0, 0, 0, 0}, .linear = {0, 2 * mass, 0, 0}};
+			PR_EXPECT(fix.m_api.BodyStateSet(fix.m_engine, body, &state) == EStatus::Success);
+			PR_EXPECT(fix.m_api.BodyStateGet(fix.m_engine, body, &state) == EStatus::Success);
+			PR_EXPECT(state.motion_type == EMotionType::Dynamic);
+			PR_EXPECT(FEqlRelative(state.inertia.centre_of_mass_and_mass.w, mass, 1e-5f) && FEqlRelative(state.inertia.diagonal.x, inertia.diagonal.x, 1e-5f));
+			PR_EXPECT(FEqlAbsolute(state.velocity.linear.x, 0.0f, 1e-6f) && FEqlAbsolute(state.velocity.linear.y, 2.0f, 1e-5f));
+			PR_EXPECT(FEqlAbsolute(state.velocity.angular.z, 0.0f, 1e-6f));
+
+			// A dynamic state needs a finite, positive mass
+			state.inertia.centre_of_mass_and_mass.w = 0.0f;
+			PR_EXPECT(fix.m_api.BodyStateSet(fix.m_engine, body, &state) == EStatus::InvalidArgument);
+
+			PR_EXPECT(fix.m_api.BodyDestroy(fix.m_engine, body) == EStatus::Success);
+			PR_EXPECT(fix.m_api.ShapeDestroy(fix.m_engine, shape) == EStatus::Success);
+		}
+
+		// A kinematic target is reached exactly at the end of the step for any substep count. The body reports the derived twist as its velocity,
+		// and keeps moving at that twist when no new target is given.
+		PRUnitTestMethod(TargetReachedWithSubsteps, Extended)
+		{
+			// A target that is translated and turned about z
+			auto const elapsed = 1.0f / 60.0f;
+			auto const angle = 0.6f;
+			auto target = Translation(1.0f, -0.5f, 2.3f);
+			target.x = {std::cos(angle), std::sin(angle), 0, 0};
+			target.y = {-std::sin(angle), std::cos(angle), 0, 0};
+
+			for (auto substeps : {1U, 4U, 8U})
+			{
+				// A fresh kinematic box for each substep count
+				auto fix = PhysicsFixture{};
+				auto shape = MakeBox(fix.m_api, fix.m_engine, {0.5f, 0.5f, 0.5f, 0});
+				auto body = MakeBody(fix.m_api, fix.m_engine, shape, Translation(0, 0, 2), EMotionType::Kinematic);
+				auto command = BodyCommand{
+					.header = {sizeof(BodyCommand), PHYSICS_STRUCT_VERSION},
+					.body = body,
+					.type = ECommand::SetKinematicTarget,
+					.transform = target,
+				};
+				PR_EXPECT(fix.m_api.StepEx(fix.m_engine, elapsed, 0.0, substeps, &command, 1) == EStatus::Success);
+
+				// The body is at the target
+				auto state = BodyState{};
+				PR_EXPECT(fix.m_api.BodyStateGet(fix.m_engine, body, &state) == EStatus::Success);
+				auto const& o2w = state.object_to_world;
+				PR_EXPECT(FEqlAbsolute(o2w.x.x, target.x.x, 1e-5f) && FEqlAbsolute(o2w.x.y, target.x.y, 1e-5f) && FEqlAbsolute(o2w.y.x, target.y.x, 1e-5f));
+				PR_EXPECT(FEqlAbsolute(o2w.w.x, 1.0f, 1e-5f) && FEqlAbsolute(o2w.w.y, -0.5f, 1e-5f) && FEqlAbsolute(o2w.w.z, 2.3f, 1e-5f));
+
+				// The snapshot velocity is the twist that reached the target
+				auto count = std::uint32_t{1};
+				auto snapshot = BodySnapshot{};
+				PR_EXPECT(fix.m_api.SnapshotCopy(fix.m_engine, &snapshot, 1, &count) == EStatus::Success);
+				PR_EXPECT(FEqlRelative(snapshot.velocity.linear.x, 1.0f / elapsed, 1e-4f));
+				PR_EXPECT(FEqlRelative(snapshot.velocity.linear.y, -0.5f / elapsed, 1e-4f));
+				PR_EXPECT(FEqlRelative(snapshot.velocity.linear.z, 0.3f / elapsed, 1e-4f));
+				PR_EXPECT(FEqlRelative(snapshot.velocity.angular.z, angle / elapsed, 1e-4f));
+				PR_EXPECT(FEqlAbsolute(snapshot.velocity.angular.x, 0.0f, 1e-3f) && FEqlAbsolute(snapshot.velocity.angular.y, 0.0f, 1e-3f));
+
+				// With no new target, the body keeps moving at the same twist
+				PR_EXPECT(fix.m_api.StepEx(fix.m_engine, elapsed, elapsed, substeps, nullptr, 0) == EStatus::Success);
+				PR_EXPECT(fix.m_api.BodyStateGet(fix.m_engine, body, &state) == EStatus::Success);
+				PR_EXPECT(FEqlAbsolute(state.object_to_world.w.x, 2.0f, 1e-4f) && FEqlAbsolute(state.object_to_world.w.z, 2.6f, 1e-4f));
+				PR_EXPECT(FEqlAbsolute(state.object_to_world.x.x, std::cos(2 * angle), 1e-4f) && FEqlAbsolute(state.object_to_world.x.y, std::sin(2 * angle), 1e-4f));
+
+				PR_EXPECT(fix.m_api.BodyDestroy(fix.m_engine, body) == EStatus::Success);
+				PR_EXPECT(fix.m_api.ShapeDestroy(fix.m_engine, shape) == EStatus::Success);
+			}
+		}
+
+		// Friction on a moving kinematic platform carries a resting dynamic box along with it.
+		PRUnitTestMethod(PlatformCarriesBoxByFriction, Extended)
+		{
+			// A wide kinematic platform with a dynamic box resting on its top face. The default material is frictionless and elastic, so use a grippy, inelastic one.
+			auto fix = PhysicsFixture{};
+			auto const material = MaterialProperties{
+				.header = {sizeof(MaterialProperties), PHYSICS_STRUCT_VERSION},
+				.id = 0,
+				.static_friction = 0.8f,
+				.normal_elasticity = 0.0f,
+				.tangential_elasticity = 0.0f,
+				.torsional_elasticity = 0.0f,
+				.density = 1000.0f,
+			};
+			PR_EXPECT(fix.m_api.MaterialSet(fix.m_engine, &material) == EStatus::Success);
+			auto platform_shape = MakeBox(fix.m_api, fix.m_engine, {8.0f, 8.0f, 0.5f, 0});
+			auto box_shape = MakeBox(fix.m_api, fix.m_engine, {0.5f, 0.5f, 0.5f, 0});
+			auto platform = MakeBody(fix.m_api, fix.m_engine, platform_shape, Identity(), EMotionType::Kinematic);
+			auto box = MakeBody(fix.m_api, fix.m_engine, box_shape, Translation(0, 0, 0.5f), EMotionType::Dynamic);
+
+			// Give the box gravity and move the platform along +x
+			auto const speed = 1.0f;
+			BodyCommand const commands[] = {
+				BodyCommand{
+					.header = {sizeof(BodyCommand), PHYSICS_STRUCT_VERSION},
+					.body = box,
+					.type = ECommand::SetGravity,
+					.value = {.angular = {0, 0, 0, 0}, .linear = {0, 0, -9.8f, 0}},
+				},
+				BodyCommand{
+					.header = {sizeof(BodyCommand), PHYSICS_STRUCT_VERSION},
+					.body = platform,
+					.type = ECommand::SetVelocity,
+					.value = {.angular = {0, 0, 0, 0}, .linear = {speed, 0, 0, 0}},
+				},
+			};
+			PR_EXPECT(fix.m_api.Step(fix.m_engine, 1.0f / 60.0f, 0.0, commands, 2) == EStatus::Success);
+			for (auto i = 1; i != 60; ++i)
+				PR_EXPECT(fix.m_api.Step(fix.m_engine, 1.0f / 60.0f, i / 60.0, nullptr, 0) == EStatus::Success);
+
+			// The box rides on the platform at the platform's speed
+			auto platform_state = BodyState{};
+			auto box_state = BodyState{};
+			PR_EXPECT(fix.m_api.BodyStateGet(fix.m_engine, platform, &platform_state) == EStatus::Success);
+			PR_EXPECT(fix.m_api.BodyStateGet(fix.m_engine, box, &box_state) == EStatus::Success);
+			PR_EXPECT(FEqlAbsolute(platform_state.object_to_world.w.x, speed, 1e-4f));
+			PR_EXPECT(FEqlAbsolute(box_state.velocity.linear.x, speed, 0.05f));
+			PR_EXPECT(FEqlAbsolute(box_state.object_to_world.w.z, 0.5f, 0.02f));
+			PR_EXPECT(box_state.object_to_world.w.x > 0.5f * speed);
+
+			PR_EXPECT(fix.m_api.BodyDestroy(fix.m_engine, box) == EStatus::Success);
+			PR_EXPECT(fix.m_api.BodyDestroy(fix.m_engine, platform) == EStatus::Success);
+			PR_EXPECT(fix.m_api.ShapeDestroy(fix.m_engine, box_shape) == EStatus::Success);
+			PR_EXPECT(fix.m_api.ShapeDestroy(fix.m_engine, platform_shape) == EStatus::Success);
+		}
+
+		// The SetMotionType command switches a body between motion types, keeping its mass, and later commands in the same batch see the new type.
+		PRUnitTestMethod(SetMotionTypeCommand, Extended)
+		{
+			// A dynamic box with known mass
+			auto fix = PhysicsFixture{};
+			auto shape = MakeBox(fix.m_api, fix.m_engine, {0.5f, 0.5f, 0.5f, 0});
+			auto body = MakeBody(fix.m_api, fix.m_engine, shape, Identity(), EMotionType::Dynamic);
+			auto state = BodyState{};
+			PR_EXPECT(fix.m_api.BodyStateGet(fix.m_engine, body, &state) == EStatus::Success);
+			auto const mass = state.inertia.centre_of_mass_and_mass.w;
+			auto const switch_to = [&](BodyHandle target, EMotionType motion, SpatialVector value)
+			{
+				return BodyCommand{
+					.header = {sizeof(BodyCommand), PHYSICS_STRUCT_VERSION},
+					.body = target,
+					.type = ECommand::SetMotionType,
+					.flags = static_cast<std::uint32_t>(motion),
+					.value = value,
+				};
+			};
+
+			// Switch to kinematic and give a target in the same batch. The step moves the body to the target.
+			BodyCommand const hold[] = {
+				switch_to(body, EMotionType::Kinematic, {}),
+				BodyCommand{
+					.header = {sizeof(BodyCommand), PHYSICS_STRUCT_VERSION},
+					.body = body,
+					.type = ECommand::SetKinematicTarget,
+					.transform = Translation(0.5f, 0, 0),
+				},
+			};
+			PR_EXPECT(fix.m_api.Step(fix.m_engine, 1.0f / 60.0f, 0.0, hold, 2) == EStatus::Success);
+			PR_EXPECT(fix.m_api.BodyStateGet(fix.m_engine, body, &state) == EStatus::Success);
+			PR_EXPECT(state.motion_type == EMotionType::Kinematic);
+			PR_EXPECT(FEqlAbsolute(state.object_to_world.w.x, 0.5f, 1e-5f));
+			PR_EXPECT(FEqlRelative(state.inertia.centre_of_mass_and_mass.w, mass, 1e-5f));
+
+			// Release it with a chosen velocity. The velocity is exactly the release velocity, and the mass is unchanged.
+			auto const release = switch_to(body, EMotionType::Dynamic, {.angular = {0, 0, 1, 0}, .linear = {0, 2, 0, 0}});
+			PR_EXPECT(fix.m_api.CommandsApply(fix.m_engine, &release, 1) == EStatus::Success);
+			PR_EXPECT(fix.m_api.BodyStateGet(fix.m_engine, body, &state) == EStatus::Success);
+			PR_EXPECT(state.motion_type == EMotionType::Dynamic);
+			PR_EXPECT(FEqlRelative(state.inertia.centre_of_mass_and_mass.w, mass, 1e-5f));
+			PR_EXPECT(FEqlAbsolute(state.velocity.linear.x, 0.0f, 1e-6f) && FEqlAbsolute(state.velocity.linear.y, 2.0f, 1e-5f));
+			PR_EXPECT(FEqlAbsolute(state.velocity.angular.z, 1.0f, 1e-5f));
+
+			// A switch to Static cannot take a velocity. Without one, the body becomes static and can switch back to Dynamic with its own mass.
+			auto fix_static = switch_to(body, EMotionType::Static, {.angular = {0, 0, 0, 0}, .linear = {1, 0, 0, 0}});
+			PR_EXPECT(fix.m_api.CommandsApply(fix.m_engine, &fix_static, 1) == EStatus::InvalidArgument);
+			fix_static.value = {};
+			PR_EXPECT(fix.m_api.CommandsApply(fix.m_engine, &fix_static, 1) == EStatus::Success);
+			PR_EXPECT(fix.m_api.BodyStateGet(fix.m_engine, body, &state) == EStatus::Success);
+			PR_EXPECT(state.motion_type == EMotionType::Static);
+			auto const unfix = switch_to(body, EMotionType::Dynamic, {});
+			PR_EXPECT(fix.m_api.CommandsApply(fix.m_engine, &unfix, 1) == EStatus::Success);
+			PR_EXPECT(fix.m_api.BodyStateGet(fix.m_engine, body, &state) == EStatus::Success);
+			PR_EXPECT(state.motion_type == EMotionType::Dynamic);
+			PR_EXPECT(FEqlRelative(state.inertia.centre_of_mass_and_mass.w, mass, 1e-5f));
+
+			// A target after a switch away from Kinematic is rejected, and the failed batch has no effect
+			BodyCommand const bad_batch[] = {
+				switch_to(body, EMotionType::Kinematic, {}),
+				switch_to(body, EMotionType::Dynamic, {}),
+				hold[1],
+			};
+			PR_EXPECT(fix.m_api.CommandsApply(fix.m_engine, bad_batch, 3) == EStatus::InvalidArgument);
+			PR_EXPECT(fix.m_api.BodyStateGet(fix.m_engine, body, &state) == EStatus::Success);
+			PR_EXPECT(state.motion_type == EMotionType::Dynamic);
+
+			// Unknown motion types are rejected
+			auto unknown = switch_to(body, static_cast<EMotionType>(99), {});
+			PR_EXPECT(fix.m_api.CommandsApply(fix.m_engine, &unknown, 1) == EStatus::InvalidArgument);
+
+			// A static body created without mass settings cannot become dynamic, and static bodies are created at rest
+			auto desc = BodyDesc{
+				.header = {sizeof(BodyDesc), PHYSICS_STRUCT_VERSION},
+				.shape = shape,
+				.object_to_world = Translation(5, 0, 0),
+				.motion_type = EMotionType::Static,
+				.mass_mode = EMassMode::ExplicitInertia,
+				.flags = EBodyFlags::Enabled,
+			};
+			auto massless = BodyHandle{};
+			PR_EXPECT(fix.m_api.BodyCreate(fix.m_engine, &desc, &massless) == EStatus::Success);
+			auto const promote = switch_to(massless, EMotionType::Dynamic, {});
+			PR_EXPECT(fix.m_api.CommandsApply(fix.m_engine, &promote, 1) == EStatus::InvalidArgument);
+			desc.momentum = {.angular = {0, 0, 0, 0}, .linear = {1, 0, 0, 0}};
+			auto rejected = BodyHandle{};
+			PR_EXPECT(fix.m_api.BodyCreate(fix.m_engine, &desc, &rejected) == EStatus::InvalidArgument);
+
+			// A static body created with mass settings keeps them, and can become dynamic
+			auto const anchored = MakeBody(fix.m_api, fix.m_engine, shape, Translation(-5, 0, 0), EMotionType::Static);
+			PR_EXPECT(fix.m_api.BodyStateGet(fix.m_engine, anchored, &state) == EStatus::Success);
+			PR_EXPECT(state.motion_type == EMotionType::Static);
+			PR_EXPECT(FEqlRelative(state.inertia.centre_of_mass_and_mass.w, mass, 1e-5f));
+			auto const promote_anchored = switch_to(anchored, EMotionType::Dynamic, {});
+			PR_EXPECT(fix.m_api.CommandsApply(fix.m_engine, &promote_anchored, 1) == EStatus::Success);
+
+			PR_EXPECT(fix.m_api.BodyDestroy(fix.m_engine, anchored) == EStatus::Success);
+			PR_EXPECT(fix.m_api.BodyDestroy(fix.m_engine, massless) == EStatus::Success);
+			PR_EXPECT(fix.m_api.BodyDestroy(fix.m_engine, body) == EStatus::Success);
+			PR_EXPECT(fix.m_api.ShapeDestroy(fix.m_engine, shape) == EStatus::Success);
+		}
+	};
+
+	// Verify per-pair collision filtering through the public ABI.
+	PRUnitTestClass(PhysicsDllCollisionFilterTests)
+	{
+		// Count the contact events between two bodies from the last completed step.
+		static int CountContacts(PhysicsApi const& api, EngineHandle engine, BodyHandle body_a, BodyHandle body_b)
+		{
+			// Size the event buffer, then copy and count the matching contacts in either order
+			auto required = std::uint32_t{};
+			auto probe = api.EventsCopy(engine, nullptr, 0, &required);
+			PR_EXPECT(probe == EStatus::Success || probe == EStatus::BufferTooSmall);
+			auto events = std::vector<Event>(required);
+			PR_EXPECT(api.EventsCopy(engine, events.data(), required, &required) == EStatus::Success);
+			return static_cast<int>(std::ranges::count_if(events, [&](Event const& event)
+			{
+				// Match the pair in either order
+				return event.type == EEvent::Contact && ((event.body_a == body_a && event.body_b == body_b) || (event.body_a == body_b && event.body_b == body_a));
+			}));
+		}
+
+		// Read all ignore pairs.
+		static std::vector<BodyPair> CopyPairs(PhysicsApi const& api, EngineHandle engine)
+		{
+			// Size the buffer, then copy
+			auto required = std::uint32_t{};
+			auto probe = api.BodyCollisionIgnoreCopy(engine, nullptr, 0, &required);
+			PR_EXPECT(probe == EStatus::Success || probe == EStatus::BufferTooSmall);
+			auto pairs = std::vector<BodyPair>(required);
+			PR_EXPECT(api.BodyCollisionIgnoreCopy(engine, pairs.data(), required, &required) == EStatus::Success);
+			return pairs;
+		}
+
+		// Overlapping bodies in an ignore pair make no contacts, and removing the pair restores contacts. This also holds for a kinematic body.
+		PRUnitTestMethod(IgnorePairSuppressesContacts, Extended)
+		{
+			// Two overlapping dynamic boxes, and a kinematic box that overlaps the second one
+			auto fix = PhysicsFixture{};
+			auto shape = MakeBox(fix.m_api, fix.m_engine, {1, 1, 1, 0});
+			auto box_a = MakeBody(fix.m_api, fix.m_engine, shape, Translation(0, 0, 0), EMotionType::Dynamic);
+			auto box_b = MakeBody(fix.m_api, fix.m_engine, shape, Translation(0.5f, 0, 0), EMotionType::Dynamic);
+			auto pusher = MakeBody(fix.m_api, fix.m_engine, shape, Translation(1.0f, 0, 0), EMotionType::Kinematic);
+
+			// Invalid requests are rejected
+			PR_EXPECT(fix.m_api.BodyCollisionIgnoreSet(fix.m_engine, box_a, box_a, 1) == EStatus::InvalidArgument);
+			PR_EXPECT(fix.m_api.BodyCollisionIgnoreSet(fix.m_engine, box_a, box_b, 2) == EStatus::InvalidArgument);
+			PR_EXPECT(fix.m_api.BodyCollisionIgnoreSet(fix.m_engine, box_a, BodyHandle{}, 1) != EStatus::Success);
+			auto required = std::uint32_t{};
+			PR_EXPECT(fix.m_api.BodyCollisionIgnoreCopy(fix.m_engine, nullptr, 0, nullptr) == EStatus::InvalidArgument);
+			PR_EXPECT(fix.m_api.BodyCollisionIgnoreCopy(fix.m_engine, nullptr, 0, &required) == EStatus::Success);
+			PR_EXPECT(required == 0);
+
+			// Ignore every overlapping pair. Pairs are unordered and setting twice has no extra effect.
+			PR_EXPECT(fix.m_api.BodyCollisionIgnoreSet(fix.m_engine, box_b, box_a, 1) == EStatus::Success);
+			PR_EXPECT(fix.m_api.BodyCollisionIgnoreSet(fix.m_engine, box_a, box_b, 1) == EStatus::Success);
+			PR_EXPECT(fix.m_api.BodyCollisionIgnoreSet(fix.m_engine, pusher, box_b, 1) == EStatus::Success);
+			PR_EXPECT(fix.m_api.BodyCollisionIgnoreSet(fix.m_engine, box_a, pusher, 1) == EStatus::Success);
+			PR_EXPECT(fix.m_api.BodyCollisionIgnoreCopy(fix.m_engine, nullptr, 0, &required) == EStatus::BufferTooSmall);
+			PR_EXPECT(required == 3);
+			auto pairs = CopyPairs(fix.m_api, fix.m_engine);
+			PR_EXPECT(pairs.size() == 3);
+			for (auto i = 0; i != isize(pairs); ++i)
+			{
+				// Each pair is canonical and the list is sorted
+				PR_EXPECT(pairs[i].body_a < pairs[i].body_b);
+				if (i != 0)
+				{
+					// Order by the first handle, then the second
+					auto prev = std::make_pair(pairs[i - 1].body_a, pairs[i - 1].body_b);
+					auto curr = std::make_pair(pairs[i].body_a, pairs[i].body_b);
+					PR_EXPECT(prev < curr);
+				}
+			}
+
+			// No contacts, so the overlapping bodies stay at rest
+			for (auto i = 0; i != 3; ++i)
+			{
+				// Every step must be contact free
+				PR_EXPECT(fix.m_api.Step(fix.m_engine, 1.0f / 60.0f, i / 60.0, nullptr, 0) == EStatus::Success);
+				PR_EXPECT(CountContacts(fix.m_api, fix.m_engine, box_a, box_b) == 0);
+				PR_EXPECT(CountContacts(fix.m_api, fix.m_engine, pusher, box_b) == 0);
+			}
+			auto state = BodyState{};
+			PR_EXPECT(fix.m_api.BodyStateGet(fix.m_engine, box_b, &state) == EStatus::Success);
+			PR_EXPECT(FEqlAbsolute(state.object_to_world.w.x, 0.5f, 1e-5f));
+
+			// Removing a pair restores its contacts. Removing it again has no effect.
+			PR_EXPECT(fix.m_api.BodyCollisionIgnoreSet(fix.m_engine, box_b, pusher, 0) == EStatus::Success);
+			PR_EXPECT(fix.m_api.BodyCollisionIgnoreSet(fix.m_engine, box_b, pusher, 0) == EStatus::Success);
+			PR_EXPECT(CopyPairs(fix.m_api, fix.m_engine).size() == 2);
+			PR_EXPECT(fix.m_api.Step(fix.m_engine, 1.0f / 60.0f, 3 / 60.0, nullptr, 0) == EStatus::Success);
+			PR_EXPECT(CountContacts(fix.m_api, fix.m_engine, pusher, box_b) != 0);
+			PR_EXPECT(CountContacts(fix.m_api, fix.m_engine, box_a, box_b) == 0);
+			PR_EXPECT(fix.m_api.BodyCollisionIgnoreSet(fix.m_engine, box_a, box_b, 0) == EStatus::Success);
+			PR_EXPECT(fix.m_api.Step(fix.m_engine, 1.0f / 60.0f, 4 / 60.0, nullptr, 0) == EStatus::Success);
+			PR_EXPECT(CountContacts(fix.m_api, fix.m_engine, box_a, box_b) != 0);
+
+			PR_EXPECT(fix.m_api.BodyDestroy(fix.m_engine, pusher) == EStatus::Success);
+			PR_EXPECT(fix.m_api.BodyDestroy(fix.m_engine, box_b) == EStatus::Success);
+			PR_EXPECT(fix.m_api.BodyDestroy(fix.m_engine, box_a) == EStatus::Success);
+			PR_EXPECT(fix.m_api.ShapeDestroy(fix.m_engine, shape) == EStatus::Success);
+		}
+
+		// A checkpoint keeps the ignore pairs, the collision filters and the twist of a drifting kinematic body. A restored engine continues exactly like the
+		// original. Every body overlaps another but is kept contact free by a pair or a filter, so no warm-start cache is involved.
+		PRUnitTestMethod(CheckpointKeepsFilterAndKinematicState, Extended)
+		{
+			// Overlapping boxes: 'a' and 'b' ignore each other, and the layer filter keeps 'c' away from both. A far kinematic box gets a one-step target.
+			auto fix = PhysicsFixture{};
+			auto const elapsed = 1.0f / 60.0f;
+			auto shape = MakeBox(fix.m_api, fix.m_engine, {1, 1, 1, 0});
+			auto box_a = MakeBody(fix.m_api, fix.m_engine, shape, Translation(0, 0, 0), EMotionType::Dynamic);
+			auto box_b = MakeBody(fix.m_api, fix.m_engine, shape, Translation(0.5f, 0, 0), EMotionType::Dynamic);
+			auto box_c = MakeBody(fix.m_api, fix.m_engine, shape, Translation(0, 0.5f, 0), EMotionType::Dynamic);
+			auto mover = MakeBody(fix.m_api, fix.m_engine, shape, Translation(10, 0, 0), EMotionType::Kinematic);
+			auto bodies = std::array{box_a, box_b, box_c, mover};
+			PR_EXPECT(fix.m_api.BodyCollisionIgnoreSet(fix.m_engine, box_a, box_b, 1) == EStatus::Success);
+			auto state = BodyState{};
+			PR_EXPECT(fix.m_api.BodyStateGet(fix.m_engine, box_c, &state) == EStatus::Success);
+			state.collision_layer = 0x2;
+			state.collision_mask = 0x2;
+			PR_EXPECT(fix.m_api.BodyStateSet(fix.m_engine, box_c, &state) == EStatus::Success);
+			auto command = BodyCommand{
+				.header = {sizeof(BodyCommand), PHYSICS_STRUCT_VERSION},
+				.body = mover,
+				.type = ECommand::SetKinematicTarget,
+				.transform = Translation(10, 0.1f, 0),
+			};
+			PR_EXPECT(fix.m_api.Step(fix.m_engine, elapsed, 0.0, &command, 1) == EStatus::Success);
+			auto checkpoint = WriteCheckpoint(fix.m_api, fix.m_engine);
+
+			// Run the original on and record where every body ends up
+			auto const run = [&]
+			{
+				// The bodies stay contact free while the kinematic box keeps its twist
+				auto positions = std::vector<Vector4>{};
+				for (auto i = 1; i != 4; ++i)
+				{
+					PR_EXPECT(fix.m_api.Step(fix.m_engine, elapsed, i * elapsed, nullptr, 0) == EStatus::Success);
+					PR_EXPECT(CountContacts(fix.m_api, fix.m_engine, box_a, box_b) == 0);
+					PR_EXPECT(CountContacts(fix.m_api, fix.m_engine, box_a, box_c) == 0);
+					PR_EXPECT(CountContacts(fix.m_api, fix.m_engine, box_b, box_c) == 0);
+				}
+				for (auto body : bodies)
+				{
+					// Final positions
+					auto body_state = BodyState{};
+					PR_EXPECT(fix.m_api.BodyStateGet(fix.m_engine, body, &body_state) == EStatus::Success);
+					positions.push_back(body_state.object_to_world.w);
+				}
+				return positions;
+			};
+			auto expected = run();
+			PR_EXPECT(FEqlAbsolute(expected[3].y, 0.4f, 1e-4f));
+
+			// Clear the engine so the checkpoint can claim its identity again
+			for (auto body : bodies)
+				PR_EXPECT(fix.m_api.BodyDestroy(fix.m_engine, body) == EStatus::Success);
+
+			PR_EXPECT(fix.m_api.ShapeDestroy(fix.m_engine, shape) == EStatus::Success);
+
+			// A pair that is not in canonical order is rejected, and the engine stays empty
+			auto corrupt = checkpoint;
+			auto pair = BodyPair{};
+			memcpy(&pair, corrupt.data() + corrupt.size() - sizeof(pair), sizeof(pair));
+			std::swap(pair.body_a, pair.body_b);
+			memcpy(corrupt.data() + corrupt.size() - sizeof(pair), &pair, sizeof(pair));
+			UpdateCheckpointChecksum(corrupt);
+			PR_EXPECT(fix.m_api.CheckpointRead(fix.m_engine, corrupt.data(), corrupt.size()) == EStatus::InvalidArgument);
+			PR_EXPECT(fix.m_api.BodyStateGet(fix.m_engine, box_a, &state) != EStatus::Success);
+
+			// The restored engine has the same pairs and filters, and repeats the same motion
+			PR_EXPECT(fix.m_api.CheckpointRead(fix.m_engine, checkpoint.data(), checkpoint.size()) == EStatus::Success);
+			auto pairs = CopyPairs(fix.m_api, fix.m_engine);
+			PR_EXPECT(pairs.size() == 1 && pairs[0].body_a == std::min(box_a, box_b) && pairs[0].body_b == std::max(box_a, box_b));
+			PR_EXPECT(fix.m_api.BodyStateGet(fix.m_engine, box_c, &state) == EStatus::Success);
+			PR_EXPECT(state.collision_layer == 0x2 && state.collision_mask == 0x2);
+			auto actual = run();
+			for (auto i = 0; i != isize(bodies); ++i)
+			{
+				// Same end positions as the original run
+				PR_EXPECT(FEqlAbsolute(actual[i].x, expected[i].x, 1e-5f) && FEqlAbsolute(actual[i].y, expected[i].y, 1e-5f) && FEqlAbsolute(actual[i].z, expected[i].z, 1e-5f));
+			}
+
+			for (auto body : bodies)
+				PR_EXPECT(fix.m_api.BodyDestroy(fix.m_engine, body) == EStatus::Success);
+
+			PR_EXPECT(fix.m_api.ShapeDestroy(fix.m_engine, shape) == EStatus::Success);
+		}
+
+		// Destroying a body removes its ignore pairs, so a new body that reuses the slot collides normally.
+		PRUnitTestMethod(DestroyRemovesIgnorePairs, Extended)
+		{
+			// Two overlapping boxes that ignore each other
+			auto fix = PhysicsFixture{};
+			auto shape = MakeBox(fix.m_api, fix.m_engine, {1, 1, 1, 0});
+			auto box_a = MakeBody(fix.m_api, fix.m_engine, shape, Translation(0, 0, 0), EMotionType::Dynamic);
+			auto box_b = MakeBody(fix.m_api, fix.m_engine, shape, Translation(0.5f, 0, 0), EMotionType::Dynamic);
+			PR_EXPECT(fix.m_api.BodyCollisionIgnoreSet(fix.m_engine, box_a, box_b, 1) == EStatus::Success);
+
+			// Destroying either body removes the pair, and its stale handle can no longer be used in a pair
+			PR_EXPECT(fix.m_api.BodyDestroy(fix.m_engine, box_b) == EStatus::Success);
+			PR_EXPECT(CopyPairs(fix.m_api, fix.m_engine).empty());
+			PR_EXPECT(fix.m_api.BodyCollisionIgnoreSet(fix.m_engine, box_a, box_b, 1) == EStatus::StaleHandle);
+
+			// A replacement body in the same place does not inherit the pair
+			auto box_c = MakeBody(fix.m_api, fix.m_engine, shape, Translation(0.5f, 0, 0), EMotionType::Dynamic);
+			PR_EXPECT(box_c != box_b);
+			PR_EXPECT(fix.m_api.Step(fix.m_engine, 1.0f / 60.0f, 0.0, nullptr, 0) == EStatus::Success);
+			PR_EXPECT(CountContacts(fix.m_api, fix.m_engine, box_a, box_c) != 0);
+
+			PR_EXPECT(fix.m_api.BodyDestroy(fix.m_engine, box_c) == EStatus::Success);
+			PR_EXPECT(fix.m_api.BodyDestroy(fix.m_engine, box_a) == EStatus::Success);
+			PR_EXPECT(fix.m_api.ShapeDestroy(fix.m_engine, shape) == EStatus::Success);
+		}
+
+		// Two bodies collide only when each one's layer is in the other's mask. The world surfaces use the engine's world filter in the same way.
+		PRUnitTestMethod(LayerMaskMatrix, Extended)
+		{
+			// Set a body's collision filter through the full body state, and check that it reads back
+			auto fix = PhysicsFixture{};
+			auto set_filter = [&](BodyHandle body, std::uint32_t layer, std::uint32_t mask)
+			{
+				// Round trip the state so only the filter changes
+				auto state = BodyState{};
+				PR_EXPECT(fix.m_api.BodyStateGet(fix.m_engine, body, &state) == EStatus::Success);
+				state.collision_layer = layer;
+				state.collision_mask = mask;
+				PR_EXPECT(fix.m_api.BodyStateSet(fix.m_engine, body, &state) == EStatus::Success);
+				auto readback = BodyState{};
+				PR_EXPECT(fix.m_api.BodyStateGet(fix.m_engine, body, &readback) == EStatus::Success);
+				PR_EXPECT(readback.collision_layer == layer && readback.collision_mask == mask);
+			};
+
+			// One overlapping pair per filter combination, far enough apart that pairs cannot touch each other
+			struct Case { std::uint32_t layer_a, mask_a, layer_b, mask_b; bool collides; };
+			auto const cases = std::array{
+				Case{.layer_a = 1, .mask_a = 2, .layer_b = 2, .mask_b = 1, .collides = true},
+				Case{.layer_a = 1, .mask_a = 2, .layer_b = 2, .mask_b = 0, .collides = false},
+				Case{.layer_a = 1, .mask_a = 0, .layer_b = 2, .mask_b = 1, .collides = false},
+				Case{.layer_a = 1, .mask_a = 1, .layer_b = 2, .mask_b = 2, .collides = false},
+			};
+			auto shape = MakeBox(fix.m_api, fix.m_engine, {1, 1, 1, 0});
+			auto bodies = std::vector<std::pair<BodyHandle, BodyHandle>>{};
+			for (auto i = 0; i != isize(cases); ++i)
+			{
+				// Create the pair and apply its filters
+				auto const x = 10.0f * i;
+				auto body_a = MakeBody(fix.m_api, fix.m_engine, shape, Translation(x, 0, 0), EMotionType::Dynamic);
+				auto body_b = MakeBody(fix.m_api, fix.m_engine, shape, Translation(x + 0.5f, 0, 0), EMotionType::Dynamic);
+				set_filter(body_a, cases[i].layer_a, cases[i].mask_a);
+				set_filter(body_b, cases[i].layer_b, cases[i].mask_b);
+				bodies.push_back(std::make_pair(body_a, body_b));
+			}
+
+			// Only the pair whose filters accept each other makes contacts
+			PR_EXPECT(fix.m_api.Step(fix.m_engine, 1.0f / 60.0f, 0.0, nullptr, 0) == EStatus::Success);
+			for (auto i = 0; i != isize(cases); ++i)
+			{
+				// Compare the contact count with the expected result
+				auto const contacts = CountContacts(fix.m_api, fix.m_engine, bodies[i].first, bodies[i].second);
+				PR_EXPECT((contacts != 0) == cases[i].collides);
+			}
+
+			// Snapshots report the filter too
+			auto required = std::uint32_t{};
+			auto probe = fix.m_api.SnapshotCopy(fix.m_engine, nullptr, 0, &required);
+			PR_EXPECT(probe == EStatus::Success || probe == EStatus::BufferTooSmall);
+			auto snapshots = std::vector<BodySnapshot>(required);
+			PR_EXPECT(fix.m_api.SnapshotCopy(fix.m_engine, snapshots.data(), required, &required) == EStatus::Success);
+			auto const snapshot = std::ranges::find_if(snapshots, [&](BodySnapshot const& s) { return s.body == bodies[0].first; });
+			PR_EXPECT(snapshot != snapshots.end() && snapshot->collision_layer == 1 && snapshot->collision_mask == 2);
+
+			for (auto const& [body_a, body_b] : bodies)
+			{
+				// Release the pair
+				PR_EXPECT(fix.m_api.BodyDestroy(fix.m_engine, body_a) == EStatus::Success);
+				PR_EXPECT(fix.m_api.BodyDestroy(fix.m_engine, body_b) == EStatus::Success);
+			}
+			PR_EXPECT(fix.m_api.ShapeDestroy(fix.m_engine, shape) == EStatus::Success);
+
+			// A sphere pressed into the cylindrical boundary on layer 2
+			auto boundary = CylindricalBoundaryDesc{
+				.header = {sizeof(CylindricalBoundaryDesc), PHYSICS_STRUCT_VERSION},
+				.radius = 100,
+				.surface_spacing = 0.05f,
+			};
+			PR_EXPECT(fix.m_api.EngineCylindricalBoundarySet(fix.m_engine, &boundary) == EStatus::Success);
+			auto sphere = SphereShape{.common = MakeCommon(), .radius = 0.5f};
+			sphere.common.header.size = sizeof(sphere);
+			auto sphere_shape = ShapeHandle{};
+			PR_EXPECT(fix.m_api.ShapeCreateSphere(fix.m_engine, &sphere, &sphere_shape) == EStatus::Success);
+			auto ball = MakeBody(fix.m_api, fix.m_engine, sphere_shape, Translation(99.51f, 0, 0), EMotionType::Dynamic);
+			set_filter(ball, 2, 0xFFFFFFFFU);
+
+			// Count the world contacts from the last step
+			auto world_contacts = [&]
+			{
+				// Size the event buffer, then copy and count
+				auto count = std::uint32_t{};
+				auto status = fix.m_api.EventsCopy(fix.m_engine, nullptr, 0, &count);
+				PR_EXPECT(status == EStatus::Success || status == EStatus::BufferTooSmall);
+				auto events = std::vector<Event>(count);
+				PR_EXPECT(fix.m_api.EventsCopy(fix.m_engine, events.data(), count, &count) == EStatus::Success);
+				return std::ranges::count_if(events, [](Event const& e) { return e.type == EEvent::WorldContact; });
+			};
+
+			// The world mask decides whether the ball touches the boundary. Each step re-places the ball, because a contact pushes it away.
+			auto config = pr::physics::Config{};
+			PR_EXPECT(fix.m_api.EngineConfigGet(fix.m_engine, &config) == EStatus::Success);
+			PR_EXPECT(config.world_collision_layer == 1 && config.world_collision_mask == 0xFFFFFFFFU);
+			auto step_time = 1.0 / 60.0;
+			for (auto const [world_mask, touches] : {std::make_pair(1U, false), std::make_pair(3U, true)})
+			{
+				// Set the world filter, then step once
+				config.world_collision_mask = world_mask;
+				PR_EXPECT(fix.m_api.EngineConfigSet(fix.m_engine, &config) == EStatus::Success);
+				auto state = BodyState{};
+				PR_EXPECT(fix.m_api.BodyStateGet(fix.m_engine, ball, &state) == EStatus::Success);
+				state.object_to_world = Translation(99.51f, 0, 0);
+				state.momentum = {};
+				PR_EXPECT(fix.m_api.BodyStateSet(fix.m_engine, ball, &state) == EStatus::Success);
+				PR_EXPECT(fix.m_api.Step(fix.m_engine, 1.0f / 60.0f, step_time, nullptr, 0) == EStatus::Success);
+				PR_EXPECT((world_contacts() != 0) == touches);
+				step_time += 1.0 / 60.0;
+			}
+
+			PR_EXPECT(fix.m_api.BodyDestroy(fix.m_engine, ball) == EStatus::Success);
+			PR_EXPECT(fix.m_api.ShapeDestroy(fix.m_engine, sphere_shape) == EStatus::Success);
+		}
+	};
+
+	// Verify the impulse and relative velocity reported by contact events.
+	PRUnitTestClass(PhysicsDllEventImpulseTests)
+	{
+		// Copy the contact events between two bodies from the last completed step, in either order.
+		static std::vector<Event> PairContacts(PhysicsApi const& api, EngineHandle engine, BodyHandle body_a, BodyHandle body_b)
+		{
+			// Size the event buffer, then copy and keep the matching contacts
+			auto required = std::uint32_t{};
+			auto probe = api.EventsCopy(engine, nullptr, 0, &required);
+			PR_EXPECT(probe == EStatus::Success || probe == EStatus::BufferTooSmall);
+			auto events = std::vector<Event>(required);
+			PR_EXPECT(api.EventsCopy(engine, events.data(), required, &required) == EStatus::Success);
+			std::erase_if(events, [&](Event const& event)
+			{
+				// Keep only contacts of this pair
+				return event.type != EEvent::Contact || !((event.body_a == body_a && event.body_b == body_b) || (event.body_a == body_b && event.body_b == body_a));
+			});
+			return events;
+		}
+
+		// Stop a body from sleeping so it keeps making contacts while at rest.
+		static void NeverSleep(PhysicsApi const& api, EngineHandle engine, BodyHandle body)
+		{
+			// Read, set the flag, write back
+			auto state = BodyState{};
+			PR_EXPECT(api.BodyStateGet(engine, body, &state) == EStatus::Success);
+			state.flags = static_cast<EBodyFlags>(static_cast<std::uint32_t>(state.flags) | static_cast<std::uint32_t>(EBodyFlags::NeverSleep));
+			PR_EXPECT(api.BodyStateSet(engine, body, &state) == EStatus::Success);
+		}
+
+		// A box resting on a platform reports normal impulses that balance its weight, with no friction impulse or sideways motion.
+		PRUnitTestMethod(RestingBoxReportsWeight, Extended)
+		{
+			// A box resting on a stationary kinematic platform. Use a grippy, inelastic material so the box settles.
+			auto fix = PhysicsFixture{};
+			auto const material = MaterialProperties{
+				.header = {sizeof(MaterialProperties), PHYSICS_STRUCT_VERSION},
+				.id = 0,
+				.static_friction = 0.8f,
+				.normal_elasticity = 0.0f,
+				.tangential_elasticity = 0.0f,
+				.torsional_elasticity = 0.0f,
+				.density = 1000.0f,
+			};
+			PR_EXPECT(fix.m_api.MaterialSet(fix.m_engine, &material) == EStatus::Success);
+			auto platform_shape = MakeBox(fix.m_api, fix.m_engine, {8.0f, 8.0f, 0.5f, 0});
+			auto box_shape = MakeBox(fix.m_api, fix.m_engine, {0.5f, 0.5f, 0.5f, 0});
+			auto platform = MakeBody(fix.m_api, fix.m_engine, platform_shape, Identity(), EMotionType::Kinematic);
+			auto box = MakeBody(fix.m_api, fix.m_engine, box_shape, Translation(0, 0, 0.5f), EMotionType::Dynamic);
+			NeverSleep(fix.m_api, fix.m_engine, box);
+			auto box_state = BodyState{};
+			PR_EXPECT(fix.m_api.BodyStateGet(fix.m_engine, box, &box_state) == EStatus::Success);
+			auto const mass = box_state.inertia.centre_of_mass_and_mass.w;
+			PR_EXPECT(mass > 0.0f);
+
+			// Settle under gravity, re-applied every step because it lasts for one step
+			auto const g = 9.8f;
+			auto const dt = 1.0f / 60.0f;
+			auto const substeps = 4U;
+			auto const gravity = BodyCommand{
+				.header = {sizeof(BodyCommand), PHYSICS_STRUCT_VERSION},
+				.body = box,
+				.type = ECommand::SetGravity,
+				.value = {.angular = {0, 0, 0, 0}, .linear = {0, 0, -g, 0}},
+			};
+			for (auto i = 0; i != 30; ++i)
+				PR_EXPECT(fix.m_api.StepEx(fix.m_engine, dt, i * dt, substeps, &gravity, 1) == EStatus::Success);
+
+			// Over a window of steps, the support impulse balances gravity plus the box's change in momentum. Contacts
+			// at rest come and go between substeps, so compare whole-window totals rather than single substeps.
+			PR_EXPECT(fix.m_api.BodyStateGet(fix.m_engine, box, &box_state) == EStatus::Success);
+			auto const vz_start = box_state.velocity.linear.z;
+			auto const window = 30;
+			auto total_normal_impulse = 0.0f;
+			for (auto i = 0; i != window; ++i)
+			{
+				// Step and add up the support from every contact of the pair. There is no friction impulse because nothing slides.
+				PR_EXPECT(fix.m_api.StepEx(fix.m_engine, dt, (30 + i) * dt, substeps, &gravity, 1) == EStatus::Success);
+				for (auto const& contact : PairContacts(fix.m_api, fix.m_engine, platform, box))
+				{
+					// Every contact pushes the box up, with no friction
+					auto const& t = contact.tangent_impulse;
+					PR_EXPECT(contact.substep_index >= 0 && contact.substep_index < static_cast<int>(substeps));
+					PR_EXPECT(contact.normal_impulse >= 0.0f);
+					PR_EXPECT(std::abs(contact.normal.z) > 0.99f);
+					PR_EXPECT(std::sqrt(t.x * t.x + t.y * t.y + t.z * t.z) < 0.01f * mass * g * dt);
+					PR_EXPECT(std::abs(contact.relative_velocity.x) < 1e-3f && std::abs(contact.relative_velocity.y) < 1e-3f);
+					total_normal_impulse += contact.normal_impulse;
+				}
+			}
+			PR_EXPECT(fix.m_api.BodyStateGet(fix.m_engine, box, &box_state) == EStatus::Success);
+			auto const vz_end = box_state.velocity.linear.z;
+			auto const expected = mass * (vz_end - vz_start) + mass * g * window * dt;
+			if (!FEqlRelative(total_normal_impulse, expected, 0.02f))
+				log_stream() << "Total normal impulse " << total_normal_impulse << ", expected " << expected << '\n';
+
+			PR_EXPECT(FEqlRelative(total_normal_impulse, expected, 0.02f));
+
+			PR_EXPECT(fix.m_api.BodyDestroy(fix.m_engine, box) == EStatus::Success);
+			PR_EXPECT(fix.m_api.BodyDestroy(fix.m_engine, platform) == EStatus::Success);
+			PR_EXPECT(fix.m_api.ShapeDestroy(fix.m_engine, box_shape) == EStatus::Success);
+			PR_EXPECT(fix.m_api.ShapeDestroy(fix.m_engine, platform_shape) == EStatus::Success);
+		}
+
+		// A moving kinematic box hits a resting dynamic box. The event reports the impulse that changed the dynamic box's momentum, and the relative velocity after the solve.
+		PRUnitTestMethod(KinematicHitReportsImpulseAndVelocity, Extended)
+		{
+			// A kinematic box moving along +x towards a resting dynamic box. The default material is elastic, so the boxes separate after the hit.
+			auto fix = PhysicsFixture{};
+			auto shape = MakeBox(fix.m_api, fix.m_engine, {1, 1, 1, 0});
+			auto pusher = MakeBody(fix.m_api, fix.m_engine, shape, Translation(-1.2f, 0, 0), EMotionType::Kinematic);
+			auto box = MakeBody(fix.m_api, fix.m_engine, shape, Identity(), EMotionType::Dynamic);
+			auto box_state = BodyState{};
+			PR_EXPECT(fix.m_api.BodyStateGet(fix.m_engine, box, &box_state) == EStatus::Success);
+			auto const mass = box_state.inertia.centre_of_mass_and_mass.w;
+			auto const speed = 2.0f;
+			auto const velocity = BodyCommand{
+				.header = {sizeof(BodyCommand), PHYSICS_STRUCT_VERSION},
+				.body = pusher,
+				.type = ECommand::SetVelocity,
+				.value = {.angular = {0, 0, 0, 0}, .linear = {speed, 0, 0, 0}},
+			};
+
+			// Step with one substep until the first contact, so the event velocity is the final velocity of the step
+			auto const dt = 1.0f / 60.0f;
+			auto contacts = std::vector<Event>{};
+			for (auto i = 0; i != 30 && contacts.empty(); ++i)
+			{
+				// The pusher keeps its twist after the first command
+				PR_EXPECT(fix.m_api.StepEx(fix.m_engine, dt, i * dt, 1, i == 0 ? &velocity : nullptr, i == 0 ? 1U : 0U) == EStatus::Success);
+				contacts = PairContacts(fix.m_api, fix.m_engine, pusher, box);
+			}
+			PR_EXPECT(contacts.size() == 1);
+			auto const& contact = contacts.front();
+
+			// The normal impulse is the dynamic box's change in momentum, all along the contact normal
+			PR_EXPECT(fix.m_api.BodyStateGet(fix.m_engine, box, &box_state) == EStatus::Success);
+			auto pusher_state = BodyState{};
+			PR_EXPECT(fix.m_api.BodyStateGet(fix.m_engine, pusher, &pusher_state) == EStatus::Success);
+			auto const box_speed = box_state.velocity.linear.x;
+			PR_EXPECT(box_speed > speed);
+			PR_EXPECT(FEqlRelative(contact.normal_impulse, mass * box_speed, 0.02f));
+			PR_EXPECT(std::abs(contact.normal.x) > 0.99f);
+			auto const& t = contact.tangent_impulse;
+			PR_EXPECT(std::sqrt(t.x * t.x + t.y * t.y + t.z * t.z) < 0.01f * contact.normal_impulse);
+
+			// The relative velocity is B's velocity minus A's after the solve, so swap the sign when the box is A
+			auto const sign = contact.body_b == box ? 1.0f : -1.0f;
+			auto const relative_x = sign * (box_state.velocity.linear.x - pusher_state.velocity.linear.x);
+			PR_EXPECT(FEqlAbsolute(contact.relative_velocity.x, relative_x, 1e-3f));
+			PR_EXPECT(FEqlAbsolute(contact.relative_velocity.y, 0.0f, 1e-3f));
+			PR_EXPECT(FEqlAbsolute(contact.relative_velocity.z, 0.0f, 1e-3f));
+
+			PR_EXPECT(fix.m_api.BodyDestroy(fix.m_engine, box) == EStatus::Success);
+			PR_EXPECT(fix.m_api.BodyDestroy(fix.m_engine, pusher) == EStatus::Success);
+			PR_EXPECT(fix.m_api.ShapeDestroy(fix.m_engine, shape) == EStatus::Success);
 		}
 	};
 
@@ -1553,7 +2414,8 @@ namespace pr::unittests
 	};
 
 	// Verify cleanup and separate-engine concurrency using only public lifetime and stepping calls.
-	PRUnitTestClass(PhysicsDllConcurrencyTests)
+	// Serial because 'AbandonAndFinalShutdown' releases the process-wide shared physics context, which other classes use while they run.
+	PRUnitTestClass(PhysicsDllConcurrencyTests, Serial)
 	{
 		PRUnitTestMethod(AbandonAndFinalShutdown, Extended)
 		{
@@ -1629,6 +2491,8 @@ namespace pr::unittests
 						.mass_mode = EMassMode::Density,
 						.mass_or_density = 1.0f,
 						.flags = EBodyFlags::Enabled,
+						.collision_layer = 1,
+						.collision_mask = 0xFFFFFFFFU,
 					};
 					ok(api.BodyCreate(engine, &desc, &body));
 				}

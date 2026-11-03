@@ -31,7 +31,7 @@ namespace pr::physics
 		// Unregister a body
 		void Remove(RigidBody const& obj);
 
-		// Enumerate all pairs of entities whose bounding boxes overlap
+		// Enumerate all pairs of entities whose bounding boxes overlap and whose collision filters allow contact (see RigidBody::CollisionFilter)
 		void EnumOverlappingPairs(std::function<void(RigidBody const&, RigidBody const&)> cb) const;
 	};
 }
