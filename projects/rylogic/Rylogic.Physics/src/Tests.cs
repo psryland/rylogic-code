@@ -474,6 +474,31 @@ public sealed class TestPhysics
 		Assert.Equal(EMotionType.Dynamic, body.GetState().m_motion_type);
 	}
 
+	/// <summary>MaterialDensity bodies take each compound leaf's mass from its own material density.</summary>
+	[Test]
+	public void MaterialDensityCompound()
+	{
+		using var runtime = new Physics();
+		using var engine = runtime.CreateEngine();
+		engine.SetMaterial(new Material(1, 0.5f, 0.1f, 0.0f, 0.0f, 9000.0f));
+		engine.SetMaterial(new Material(2, 0.5f, 0.1f, 0.0f, 0.0f, 1000.0f));
+
+		// Two equal cubes of 0.001 m³ on either side of the origin, one nine times denser than the other.
+		using var heavy = engine.CreateBox(new v4(0.1f, 0.1f, 0.1f, 0.0f), new ShapeOptions { ShapeToRoot = m4x4.Translation(+1.0f, 0.0f, 0.0f), MaterialId = 1 });
+		using var light = engine.CreateBox(new v4(0.1f, 0.1f, 0.1f, 0.0f), new ShapeOptions { ShapeToRoot = m4x4.Translation(-1.0f, 0.0f, 0.0f), MaterialId = 2 });
+		using var compound = engine.CreateCompound(new[] { heavy, light });
+		using var body = engine.CreateBody(compound, new BodyOptions { Gravity = v4.Zero, MassMode = EMassMode.MaterialDensity });
+
+		// The masses add, and the centre of mass sits at (9·(+1) + 1·(-1)) / 10 = 0.8.
+		var inertia = body.GetState().m_inertia.m_centre_of_mass_and_mass;
+		if (Math.Abs(inertia.w - 10.0f) > 1e-3f || Math.Abs(inertia.x - 0.8f) > 1e-4f || Math.Abs(inertia.y) > 1e-5f || Math.Abs(inertia.z) > 1e-5f)
+			throw new Exception($"MaterialDensity compound mass properties are wrong: {inertia}");
+
+		// A material without positive density cannot give a leaf mass.
+		engine.SetMaterial(new Material(2, 0.5f, 0.1f, 0.0f, 0.0f, 0.0f));
+		ExpectStatus(EStatus.InvalidArgument, () => engine.CreateBody(compound, new BodyOptions { MassMode = EMassMode.MaterialDensity }));
+	}
+
 	/// <summary>Exercise articulation state, persistent endpoint ownership, internal substeps, diagnostics, and stale generations.</summary>
 	[Test]
 	public unsafe void ArticulationAndConstraintLifecycle()

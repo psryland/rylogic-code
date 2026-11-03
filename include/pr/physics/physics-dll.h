@@ -307,15 +307,19 @@ namespace pr::physics
 		Kinematic = 2,
 	};
 
+	// How a dynamic body's mass properties are established. 'Mass' scales the shape's uniform-density mass properties to 'mass_or_density'.
+	// 'Density' uses 'mass_or_density' as the density of every leaf shape. 'MaterialDensity' uses the density of each leaf shape's material,
+	// so the leaves of a compound can have different densities; 'mass_or_density' is ignored. Densities follow 'EBodyMassDistribution'.
 	enum class EMassMode : std::int32_t
 	{
 		ExplicitInertia = 0,
 		Mass = 1,
 		Density = 2,
+		MaterialDensity = 3,
 	};
 
 	// How mass derived from the shape is spread (ignored for ExplicitInertia). 'Shell' places the mass in a thin skin on the shape surface,
-	// so a Density 'mass_or_density' is in kg/m². Shell requires shapes that enclose a volume (sphere, box, capsule, polytope, or compounds of them).
+	// so a Density 'mass_or_density', or a MaterialDensity material density, is in kg/m². Shell requires shapes that enclose a volume (sphere, box, capsule, polytope, or compounds of them).
 	enum class EBodyMassDistribution : std::int32_t
 	{
 		Solid = 0,
