@@ -50,6 +50,13 @@ namespace pr::physics
 			uint32_t m_valid;
 		};
 
+		// A cached primitive plan and the last full replan that used it.
+		struct CachedPlan
+		{
+			surface::Plan m_plan;
+			uint64_t m_generation;
+		};
+
 		Gpu& m_gpu;
 		GpuWorldContactPipeline& m_pipeline;
 		std::optional<terrain::landscape::BaselineSurface> m_surface;
@@ -64,6 +71,8 @@ namespace pr::physics
 		std::vector<Instance> m_instances;
 		std::vector<Shape const*> m_sources;
 		std::vector<bool> m_planned;
+		std::unordered_map<std::string, CachedPlan> m_plan_cache; // Primitive plans keyed by plan-relevant shape content and spacing (see PlanFor).
+		uint64_t m_plan_generation = 0;                            // Incremented on every full replan; entries not used by the latest one are dropped.
 		size_t m_shape_count = 0;
 		uint32_t m_max_samples[2] = {}; // Largest per-instance sample count for terrain (0) and cylinder (1) plans in this frame.
 		D3DPtr<ID3D12Resource> m_recipe, m_plans, m_patch_buffer, m_instance_buffer, m_status, m_candidates;
@@ -91,6 +100,9 @@ namespace pr::physics
 
 		// Return terrain queue time only after this frame's submitted work has completed.
 		double GpuTimeMs() const;
+
+		// Return the plan for a primitive leaf at 'spacing', building it only when no leaf with the same geometry has one.
+		surface::Plan const& PlanFor(Shape const& shape, float spacing);
 
 		// Record one surface-contact dispatch using the current poses and cached sampled streams.
 		void Dispatch(GpuJob& job, int mode, int endpoint, int max_contacts, bool sleeping_enabled, int island_count, ID3D12Resource* sleep_islands,
