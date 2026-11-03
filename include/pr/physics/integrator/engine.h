@@ -428,6 +428,10 @@ namespace pr::physics
 		// single engine via SharedEngine().
 		void ResetCaches();
 
+		// Forget cached data derived from 'shape' before the caller destroys it, so a shape later created at the same address is never
+		// mistaken for it. No body or articulation may still use the shape. Other cached state, such as warm starts, is kept.
+		void ForgetShape(collision::Shape const& shape);
+
 		// Refresh cached data derived from a leaf shape's transform after the caller changed its 'm_s2r' in place.
 		// Bodies that use the shape collide with the new placement from the next step. Mass properties are not
 		// derived from shapes, so they are unchanged; callers update them with 'RigidBody::SetMassProperties' if needed.

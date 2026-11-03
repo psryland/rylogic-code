@@ -7,6 +7,7 @@
 #include "pr/view3d-12/forward.h"
 #include "pr/view3d-12/instance/instance.h"
 #include "pr/view3d-12/model/model.h"
+#include "pr/view3d-12/model/nugget.h"
 
 namespace pr::rdr12
 {
@@ -273,6 +274,7 @@ namespace pr::rdr12
 		vector<List> m_lists;                        // The visible lists, grouped by prototype, then ordered by LOD.
 		float m_block_near;                          // Blocks whose furthest point is nearer than this hold no visible instances: the nearest fade-in start over all prototypes.
 		float m_block_far;                           // Blocks whose closest point is further than this hold no visible instances: the furthest draw limit over all prototypes. Infinite means unlimited.
+		ESortGroup m_sort_group;                     // The sort group of every draw of the population. Replaces the group of the LOD nuggets' sort keys.
 		int m_instance_capacity;                     // The number of instance slots.
 		int m_payload_size;                          // The size of the caller payload buffer in bytes. Zero means no payload.
 		D3DPtr<ID3D12Resource> m_instances;          // StructuredBuffer<View3DPopulationInstance>[m_instance_capacity]
@@ -294,8 +296,9 @@ namespace pr::rdr12
 		std::mutex m_mutex;
 
 		// Create a population of 'prototypes' with fixed instance, block, and payload capacities. Instances select a prototype by its index in
-		// 'prototypes'. Resources are created up front, so admission fails here, not mid-frame.
-		Population(Renderer& rdr, std::span<PopulationPrototypePtr const> prototypes, int instance_capacity, int block_capacity, int payload_size);
+		// 'prototypes'. Resources are created up front, so admission fails here, not mid-frame. 'sort_group' orders the population's draws relative to
+		// the scene's other draws, as for objects: opaque groups are drawn in increasing order, and draws in a lower group can hide the pixels of later ones.
+		Population(Renderer& rdr, std::span<PopulationPrototypePtr const> prototypes, int instance_capacity, int block_capacity, int payload_size, ESortGroup sort_group);
 		Population(Population const&) = delete;
 		Population& operator =(Population const&) = delete;
 		~Population();
@@ -438,7 +441,28 @@ namespace pr::rdr12
 	void Validate(Population const* population);
 
 	// Return the nuggets of a LOD that draw for 'step': the default dependents of each top-level nugget, that are not hidden and have a material pass.
-	void PopulationNuggets(Model const& model, ERenderStep step, std::function<void(Nugget const&)> fn);
+	// 'fn' is called with each nugget. This is a template so callers' capturing lambdas are not wrapped in an allocating 'std::function'.
+	template <typename Fn> void PopulationNuggets(Model const& model, ERenderStep step, Fn&& fn)
+	{
+		// Populations draw the default variant of each nugget, in the same way as an instance without overrides.
+		// Nuggets that do not cast shadows are skipped in the shadow pass, as they are for ordinary instances.
+		for (auto& nug : Enumerate(model.m_nuggets))
+		{
+			for (auto const& dep : nug.Dependents())
+			{
+				if (dep.m_variant != DefaultNugget)
+					continue;
+				if (AllSet(dep.m_nflags, ENuggetFlag::Hidden))
+					continue;
+				if (step == ERenderStep::ShadowMap && AllSet(dep.m_nflags, ENuggetFlag::ShadowCastExclude))
+					continue;
+				if (dep.mat().Pass(step) == nullptr)
+					continue;
+
+				fn(dep);
+			}
+		}
+	}
 
 	// Return the overlay whose vertex shader 'material' applies for 'step', or null if the stock vertex shader is used.
 	// Population admission only accepts procedural overlays here, and their vertex shaders place population vertices themselves (see population.hlsli).

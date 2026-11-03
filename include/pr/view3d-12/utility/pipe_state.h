@@ -75,11 +75,13 @@ namespace pr::rdr12
 	struct PipeState
 	{
 		using field_t = struct { uint16_t size, ofs; };
-		using state_t = union { uint64_t local; void* heap; };
-		
+
+		// The largest changeable PSO description field is a render target blend description. Every field is stored inline,
+		// so pipe state changes are trivially copyable and never allocate.
+		static constexpr size_t MaxFieldSize = sizeof(D3D12_RENDER_TARGET_BLEND_DESC);
+		using state_t = struct alignas(8) { std::byte bytes[MaxFieldSize]; };
+
 		state_t m_value;  // The data that replaces the PSO description field
-		uint16_t m_size;  // The size of the data in 'm_value'
-		uint16_t m_align; // The alignment of the data in 'm_value'
 		union {
 		EPipeState m_id;  // Identifies the offset and size of the field in the PSO description.
 		field_t m_field;  // Ofs/Size into the PSO description. (this is how 'EPipeState' is encoded)
@@ -89,70 +91,12 @@ namespace pr::rdr12
 
 		template <typename TState> PipeState(EPipeState ps, TState const& value)
 			: m_value()
-			, m_size(sizeof(value))
-			, m_align(alignof(TState))
 			, m_id(ps)
 		{
 			static_assert(std::is_trivially_copyable_v<TState>, "TState must be trivially copyable");
-			static_assert(sizeof(value) <=  std::numeric_limits<uint16_t>::max(), "TState is too large");
-			if constexpr (sizeof(TState) <= sizeof(state_t) && alignof(TState) <= alignof(state_t))
-			{
-				memcpy(&m_value.local, &value, sizeof(TState));
-			}
-			else
-			{
-				m_value.heap = _aligned_malloc(m_size, m_align);
-				memcpy(m_value.heap, &value, sizeof(TState));
-			}
-		}
-		PipeState(PipeState&& rhs) noexcept
-			: m_value(rhs.m_value)
-			, m_size(rhs.m_size)
-			, m_align(rhs.m_align)
-			, m_id(rhs.m_id)
-		{
-			rhs.m_value.local = 0;
-			rhs.m_size = 0;
-		}
-		PipeState(PipeState const& rhs)
-			: m_value(rhs.m_value)
-			, m_size(rhs.m_size)
-			, m_align(rhs.m_align)
-			, m_id(rhs.m_id)
-		{
-			if (rhs.is_local()) return;
-			m_value.heap = _aligned_malloc(m_size, m_align);
-			if (m_value.heap == nullptr)
-				throw std::runtime_error("_aligned_malloc failed");
-			
-			memcpy(m_value.heap, rhs.m_value.heap, m_size);
-		}
-		PipeState& operator=(PipeState&& rhs) noexcept
-		{
-			if (this == &rhs) return *this;
-			std::swap(m_value, rhs.m_value);
-			std::swap(m_size, rhs.m_size);
-			std::swap(m_align, rhs.m_align);
-			std::swap(m_id, rhs.m_id);
-			return *this;
-		}
-		PipeState& operator=(PipeState const& rhs)
-		{
-			// Copy first so a failed allocation leaves '*this' unchanged, then swap the copy in
-			if (this == &rhs) return *this;
-			auto copy = PipeState(rhs);
-			return *this = std::move(copy);
-		}
-		~PipeState()
-		{
-			if (is_local()) return;
-			_aligned_free(m_value.heap);
-		}
-
-		// Is the data stored locally?
-		constexpr bool is_local() const
-		{
-			return m_size <= sizeof(state_t) && m_align <= alignof(state_t);
+			static_assert(sizeof(TState) <= sizeof(state_t) && alignof(TState) <= alignof(state_t), "TState is too large for a pipe state field");
+			assert(m_field.size == sizeof(TState) && "Value type does not match the pipe state field");
+			memcpy(&m_value, &value, sizeof(TState));
 		}
 
 		// Returns a pointer into 'desc' for this pipe state field
@@ -166,7 +110,7 @@ namespace pr::rdr12
 		}
 		void const* value() const
 		{
-			return is_local() ? &m_value.local : m_value.heap;
+			return &m_value;
 		}
 		int size() const
 		{
@@ -311,8 +255,9 @@ namespace pr::rdr12
 		// Return the current value of a pipeline state member
 		template <EPipeState PS> pipe_state_field_t<PS> const& Get() const
 		{
-			PipeState ps(PS, pipe_state_field_t<PS>{});
-			return *static_cast<pipe_state_field_t<PS> const*>(ps.ptr(m_desc));
+			// The field's byte offset is encoded in the upper half of the enum value
+			auto const ofs = s_cast<uint32_t>(PS) >> 16;
+			return *reinterpret_cast<pipe_state_field_t<PS> const*>(byte_ptr(&m_desc) + ofs);
 		}
 
 		// Convert to a pointer for passing to functions

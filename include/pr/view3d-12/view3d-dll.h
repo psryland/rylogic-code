@@ -908,6 +908,7 @@ namespace pr
 			float m_slope_bias;             // Depth bias scaled by the depth slope of each triangle
 			float m_normal_bias;            // Receiver offset along the surface normal (in shadow texels)
 			BOOL  m_cache_views;            // Re-render shadow views only when their content changes
+			int   m_far_cascade_refresh_interval; // Frames between content refreshes of each directional cascade after the first. A cascade whose view moves is rendered at once. Zero or one means every frame
 		};
 		struct TextureOptions
 		{
@@ -1640,6 +1641,11 @@ extern "C"
 	VIEW3D_API pr::view3d::ShadowSettings __stdcall View3D_ShadowSettingsGet(pr::view3d::Window window);
 	VIEW3D_API void __stdcall View3D_ShadowSettingsSet(pr::view3d::Window window, pr::view3d::ShadowSettings const& settings);
 
+	// Get/Set the shadow settings used when rendering environment map faces (View3D_WindowEnvMapCapture and the environment map probe).
+	// Shadow cascades are fitted to each face's view, so every captured face renders its own shadow maps. Defaults to the default shadow settings.
+	VIEW3D_API pr::view3d::ShadowSettings __stdcall View3D_EnvMapCaptureShadowsGet(pr::view3d::Window window);
+	VIEW3D_API void __stdcall View3D_EnvMapCaptureShadowsSet(pr::view3d::Window window, pr::view3d::ShadowSettings const& settings);
+
 	// Objects ********************************
 
 	// Notes:
@@ -1779,8 +1785,10 @@ extern "C"
 	// Create a population of the 'prototype_count' prototypes in 'prototypes', with fixed capacities. Each instance selects its prototype by index, and the
 	// whole population is classified once per view, so grouping many prototypes in one population is cheaper than one population per prototype.
 	// GPU resources are created here, so later updates do not allocate. 'payload_size' is the size in bytes of an optional caller payload buffer for
-	// custom shaders; zero means no payload, and it must be a multiple of 4. Release using View3D_PopulationRelease. Returns null on failure.
-	VIEW3D_API pr::view3d::Population __stdcall View3D_PopulationCreate(pr::view3d::PopulationPrototype const* prototypes, int prototype_count, int instance_capacity, int block_capacity, int payload_size);
+	// custom shaders; zero means no payload, and it must be a multiple of 4. 'sort_group' orders the population's draws relative to the scene's other
+	// draws, as for objects; drawing near opaque populations before the terrain and sky lets depth testing skip the pixels that they hide.
+	// Release using View3D_PopulationRelease. Returns null on failure.
+	VIEW3D_API pr::view3d::Population __stdcall View3D_PopulationCreate(pr::view3d::PopulationPrototype const* prototypes, int prototype_count, int instance_capacity, int block_capacity, int payload_size, pr::view3d::ESortGroup sort_group);
 	VIEW3D_API void __stdcall View3D_PopulationRelease(pr::view3d::Population population);
 
 	// Define block 'index' as the instance slots [first, first + capacity), of which the first 'live_count' are drawn. 'bbox' is a world-space bound that

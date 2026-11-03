@@ -492,149 +492,167 @@ namespace pr::view3d::ui
 		return true;
 	}
 
-	std::vector<std::uint32_t> GraphemeBoundaries(std::string_view text)
+	namespace
 	{
-		std::vector<std::uint32_t> boundaries;
-		boundaries.reserve(text.size() + 1);
-		boundaries.push_back(0);
-
-		auto previous = EGraphemeBreak::Other;
-		auto have_previous = false;
-		auto regional_run = 0;      // consecutive regional indicators immediately before the cursor (GB12/GB13)
-		auto pictographic_run = false; // inside an Extended_Pictographic Extend* sequence (GB11)
-		auto conjunct_consonant = false; // an InCB=Consonant has been seen with only InCB Extend/Linker since (GB9c)
-		auto conjunct_linker = false;    // ...and at least one of those was an InCB=Linker
-
-		for (auto offset = std::uint32_t(0); offset < text.size();)
+		// Call 'emit(offset)' for each extended grapheme cluster boundary of 'text' in increasing order. The leading boundary (0) and the trailing
+		// boundary (text.size()) are always included, and empty text has a single boundary. Callers that only need a summary avoid building a list.
+		template <typename Emit>
+		void SegmentGraphemes(std::string_view text, Emit&& emit)
 		{
-			char32_t cp = 0;
-			std::uint32_t length = 0;
-			if (!Utf8Decode(text, offset, cp, length))
-			{
-				// Segmentation must stay total even for a malformed buffer, so an undecodable byte
-				// forms its own cluster and resets every stateful rule.
-				if (offset != 0)
-					boundaries.push_back(offset);
+			emit(std::uint32_t(0));
+			auto last = std::uint32_t(0);
 
-				offset += 1;
-				have_previous = false;
-				regional_run = 0;
-				pictographic_run = false;
-				conjunct_consonant = false;
-				conjunct_linker = false;
-				continue;
-			}
+			auto previous = EGraphemeBreak::Other;
+			auto have_previous = false;
+			auto regional_run = 0;      // consecutive regional indicators immediately before the cursor (GB12/GB13)
+			auto pictographic_run = false; // inside an Extended_Pictographic Extend* sequence (GB11)
+			auto conjunct_consonant = false; // an InCB=Consonant has been seen with only InCB Extend/Linker since (GB9c)
+			auto conjunct_linker = false;    // ...and at least one of those was an InCB=Linker
 
-			auto const current = GraphemeBreakOf(cp);
-			auto const conjunct = IndicConjunctBreakOf(cp);
-			auto brk = true;
-			if (!have_previous)
+			for (auto offset = std::uint32_t(0); offset < text.size();)
 			{
-				brk = false; // GB1: the leading boundary is already recorded
-			}
-			else if (previous == EGraphemeBreak::CR && current == EGraphemeBreak::LF)
-			{
-				brk = false; // GB3
-			}
-			else if (previous == EGraphemeBreak::Control || previous == EGraphemeBreak::CR || previous == EGraphemeBreak::LF)
-			{
-				brk = true; // GB4
-			}
-			else if (current == EGraphemeBreak::Control || current == EGraphemeBreak::CR || current == EGraphemeBreak::LF)
-			{
-				brk = true; // GB5
-			}
-			else if (previous == EGraphemeBreak::HangulL && (current == EGraphemeBreak::HangulL || current == EGraphemeBreak::HangulV || current == EGraphemeBreak::HangulLV || current == EGraphemeBreak::HangulLVT))
-			{
-				brk = false; // GB6
-			}
-			else if ((previous == EGraphemeBreak::HangulLV || previous == EGraphemeBreak::HangulV) && (current == EGraphemeBreak::HangulV || current == EGraphemeBreak::HangulT))
-			{
-				brk = false; // GB7
-			}
-			else if ((previous == EGraphemeBreak::HangulLVT || previous == EGraphemeBreak::HangulT) && current == EGraphemeBreak::HangulT)
-			{
-				brk = false; // GB8
-			}
-			else if (current == EGraphemeBreak::Extend || current == EGraphemeBreak::ZWJ)
-			{
-				brk = false; // GB9
-			}
-			else if (current == EGraphemeBreak::SpacingMark)
-			{
-				brk = false; // GB9a
-			}
-			else if (previous == EGraphemeBreak::Prepend)
-			{
-				brk = false; // GB9b
-			}
-			else if (conjunct == EIndicConjunctBreak::Consonant && conjunct_consonant && conjunct_linker)
-			{
-				brk = false; // GB9c: a consonant reached through a virama continues the conjunct cluster
-			}
-			else if (previous == EGraphemeBreak::ZWJ && current == EGraphemeBreak::ExtendedPictographic && pictographic_run)
-			{
-				brk = false; // GB11: emoji ZWJ sequences stay one cluster
-			}
-			else if (previous == EGraphemeBreak::RegionalIndicator && current == EGraphemeBreak::RegionalIndicator && (regional_run % 2) == 1)
-			{
-				brk = false; // GB12/GB13: flags pair up two regional indicators at a time
-			}
-
-			if (brk)
-				boundaries.push_back(offset);
-
-			// GB11 tracks an Extended_Pictographic followed by any number of Extend characters and
-			// then a ZWJ; any other character ends the sequence.
-			if (current == EGraphemeBreak::ExtendedPictographic)
-				pictographic_run = true;
-			else if (current != EGraphemeBreak::Extend && current != EGraphemeBreak::ZWJ)
-				pictographic_run = false;
-
-			regional_run = current == EGraphemeBreak::RegionalIndicator ? regional_run + 1 : 0;
-
-			// GB9c tracks a consonant followed only by InCB Extend/Linker characters; a consonant
-			// restarts the sequence, an Extend/Linker continues it (recording whether a linker has
-			// been seen), and anything else ends it.
-			switch (conjunct)
-			{
-				case EIndicConjunctBreak::Consonant:
+				char32_t cp = 0;
+				std::uint32_t length = 0;
+				if (!Utf8Decode(text, offset, cp, length))
 				{
-					conjunct_consonant = true;
-					conjunct_linker = false;
-					break;
-				}
-				case EIndicConjunctBreak::Linker:
-				{
-					conjunct_linker = conjunct_consonant;
-					break;
-				}
-				case EIndicConjunctBreak::Extend:
-				{
-					break;
-				}
-				case EIndicConjunctBreak::None:
-				{
+					// Segmentation must stay total even for a malformed buffer, so an undecodable byte
+					// forms its own cluster and resets every stateful rule.
+					if (offset != 0)
+					{
+						emit(offset);
+						last = offset;
+					}
+
+					offset += 1;
+					have_previous = false;
+					regional_run = 0;
+					pictographic_run = false;
 					conjunct_consonant = false;
 					conjunct_linker = false;
-					break;
+					continue;
 				}
-				default:
+
+				auto const current = GraphemeBreakOf(cp);
+				auto const conjunct = IndicConjunctBreakOf(cp);
+				auto brk = true;
+				if (!have_previous)
 				{
-					throw EngineException(EStatus::InternalError, "unknown Indic_Conjunct_Break class");
+					brk = false; // GB1: the leading boundary is already recorded
 				}
+				else if (previous == EGraphemeBreak::CR && current == EGraphemeBreak::LF)
+				{
+					brk = false; // GB3
+				}
+				else if (previous == EGraphemeBreak::Control || previous == EGraphemeBreak::CR || previous == EGraphemeBreak::LF)
+				{
+					brk = true; // GB4
+				}
+				else if (current == EGraphemeBreak::Control || current == EGraphemeBreak::CR || current == EGraphemeBreak::LF)
+				{
+					brk = true; // GB5
+				}
+				else if (previous == EGraphemeBreak::HangulL && (current == EGraphemeBreak::HangulL || current == EGraphemeBreak::HangulV || current == EGraphemeBreak::HangulLV || current == EGraphemeBreak::HangulLVT))
+				{
+					brk = false; // GB6
+				}
+				else if ((previous == EGraphemeBreak::HangulLV || previous == EGraphemeBreak::HangulV) && (current == EGraphemeBreak::HangulV || current == EGraphemeBreak::HangulT))
+				{
+					brk = false; // GB7
+				}
+				else if ((previous == EGraphemeBreak::HangulLVT || previous == EGraphemeBreak::HangulT) && current == EGraphemeBreak::HangulT)
+				{
+					brk = false; // GB8
+				}
+				else if (current == EGraphemeBreak::Extend || current == EGraphemeBreak::ZWJ)
+				{
+					brk = false; // GB9
+				}
+				else if (current == EGraphemeBreak::SpacingMark)
+				{
+					brk = false; // GB9a
+				}
+				else if (previous == EGraphemeBreak::Prepend)
+				{
+					brk = false; // GB9b
+				}
+				else if (conjunct == EIndicConjunctBreak::Consonant && conjunct_consonant && conjunct_linker)
+				{
+					brk = false; // GB9c: a consonant reached through a virama continues the conjunct cluster
+				}
+				else if (previous == EGraphemeBreak::ZWJ && current == EGraphemeBreak::ExtendedPictographic && pictographic_run)
+				{
+					brk = false; // GB11: emoji ZWJ sequences stay one cluster
+				}
+				else if (previous == EGraphemeBreak::RegionalIndicator && current == EGraphemeBreak::RegionalIndicator && (regional_run % 2) == 1)
+				{
+					brk = false; // GB12/GB13: flags pair up two regional indicators at a time
+				}
+
+				if (brk)
+				{
+					emit(offset);
+					last = offset;
+				}
+
+				// GB11 tracks an Extended_Pictographic followed by any number of Extend characters and
+				// then a ZWJ; any other character ends the sequence.
+				if (current == EGraphemeBreak::ExtendedPictographic)
+					pictographic_run = true;
+				else if (current != EGraphemeBreak::Extend && current != EGraphemeBreak::ZWJ)
+					pictographic_run = false;
+
+				regional_run = current == EGraphemeBreak::RegionalIndicator ? regional_run + 1 : 0;
+
+				// GB9c tracks a consonant followed only by InCB Extend/Linker characters; a consonant
+				// restarts the sequence, an Extend/Linker continues it (recording whether a linker has
+				// been seen), and anything else ends it.
+				switch (conjunct)
+				{
+					case EIndicConjunctBreak::Consonant:
+					{
+						conjunct_consonant = true;
+						conjunct_linker = false;
+						break;
+					}
+					case EIndicConjunctBreak::Linker:
+					{
+						conjunct_linker = conjunct_consonant;
+						break;
+					}
+					case EIndicConjunctBreak::Extend:
+					{
+						break;
+					}
+					case EIndicConjunctBreak::None:
+					{
+						conjunct_consonant = false;
+						conjunct_linker = false;
+						break;
+					}
+					default:
+					{
+						throw EngineException(EStatus::InternalError, "unknown Indic_Conjunct_Break class");
+					}
+				}
+
+				previous = current;
+				have_previous = true;
+				offset += length;
 			}
 
-			previous = current;
-			have_previous = true;
-			offset += length;
+			// For empty text the leading and trailing boundary are the same position, so recording it
+			// twice would report one cluster where there are none.
+			if (last != text.size())
+				emit(static_cast<std::uint32_t>(text.size()));
 		}
+	}
 
-		// For empty text the leading and trailing boundary are the same position, so recording it
-		// twice would report one cluster where there are none.
-		if (boundaries.back() != text.size())
-			boundaries.push_back(static_cast<std::uint32_t>(text.size()));
-
+	std::vector<std::uint32_t> GraphemeBoundaries(std::string_view text)
+	{
+		// Record every boundary. There is at most one per byte plus the trailing one.
+		std::vector<std::uint32_t> boundaries;
+		boundaries.reserve(text.size() + 1);
+		SegmentGraphemes(text, [&](std::uint32_t offset) { boundaries.push_back(offset); });
 		return boundaries;
 	}
 
@@ -705,9 +723,22 @@ namespace pr::view3d::ui
 
 	std::uint32_t GraphemeCount(std::string_view text)
 	{
-		// GraphemeBoundaries always contains both the leading and trailing boundary, so the cluster
-		// count is one less than the boundary count.
-		return static_cast<std::uint32_t>(GraphemeBoundaries(text).size() - 1);
+		// ASCII text has a cluster boundary between every pair of characters except CR LF (GB3), so it can be counted without property lookups.
+		if (std::ranges::all_of(text, [](char c) { return static_cast<unsigned char>(c) < 0x80; }))
+		{
+			auto count = static_cast<std::uint32_t>(text.size());
+			for (size_t i = 1; i < text.size(); ++i)
+			{
+				if (text[i - 1] == '\r' && text[i] == '\n')
+					--count;
+			}
+			return count;
+		}
+
+		// Count the boundaries without storing them. The leading and trailing boundaries are both counted, so the cluster count is one less.
+		auto count = std::uint32_t(0);
+		SegmentGraphemes(text, [&](std::uint32_t) { ++count; });
+		return count - 1;
 	}
 
 	std::uint32_t GraphemeOffsetAt(std::string_view text, std::uint32_t index)

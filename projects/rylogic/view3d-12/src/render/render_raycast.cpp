@@ -441,8 +441,7 @@ namespace pr::rdr12
 				.m_shader = &m_shader,
 				.m_default_tex = nullptr,
 				.m_default_sam = nullptr,
-				.m_last_tex = nullptr,
-				.m_last_sam = nullptr,
+				.m_bound = nullptr,
 			};
 			pass->Bind(ctx);
 

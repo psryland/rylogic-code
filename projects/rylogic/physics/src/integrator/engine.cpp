@@ -581,7 +581,21 @@ namespace pr::physics
 
 		// Water geometry is flattened from the same shapes.
 		if (m_gpu_water)
-			m_gpu_water->Reset();
+			m_gpu_water->RefreshTransform(shape);
+	}
+
+	// Drop the cached data of one caller-owned shape before it is destroyed.
+	void Engine::ForgetShape(collision::Shape const& shape)
+	{
+		// The packed shape buffer is read by an in-flight step, so it can only change between steps.
+		if (m_pending_step.m_active)
+			throw std::runtime_error("Engine::ForgetShape cannot run while a step is pending");
+
+		// Only the address-keyed caches can confuse a later shape with this one. World-contact plans are keyed by shape content and replan
+		// when the shape cache changes, and no body uses the shape, so no contact or warm start refers to it.
+		m_cache->m_shape_cache.Evict(shape);
+		if (m_gpu_water)
+			m_gpu_water->ForgetShape(shape);
 	}
 
 	// Drop all internally-cached references to caller-supplied data.
@@ -795,8 +809,10 @@ namespace pr::physics
 		m_colour_sweep_contact_estimate = m_last_collision_stats.m_max_contacts != 0 ? m_last_collision_stats.m_contact_count : std::numeric_limits<int>::max();
 		m_last_collision_stats = {};
 		{
-			// Keep the step marker balanced even if command recording fails before submission.
-			auto pix_step = pr::compute::pix::EventScope<ID3D12GraphicsCommandList>(m_gpu->m_job.m_cmd_list.get(), 0xFF45BCF2, "Physics::Step");
+			// Keep the step marker balanced even if command recording fails before submission. Each flushed segment carries its own marker,
+			// because a command list's events must begin and end within that list.
+			auto pix_step = std::optional<pr::compute::pix::EventScope<ID3D12GraphicsCommandList>>{};
+			pix_step.emplace(m_gpu->m_job.m_cmd_list.get(), 0xFF45BCF2, "Physics::Step");
 			pr::compute::pix::DetailMarker(m_gpu->m_job.m_cmd_list.get(), "engine=%p time_s=%.9f dt=%.9f substeps=%d", this, input.m_time_s, input.m_elapsed_seconds, input.m_substep_count);
 
 			{
@@ -1056,10 +1072,19 @@ namespace pr::physics
 			auto const capture_substep_state = !bodies.empty() || articulation_contacts_active;
 			m_gpu_frame_output->BeginFrame(m_gpu->m_job, m_cache->RigidBodyCount(), event_capacity, input.m_substep_count, articulation_output, constraint_break_output, coupled_failure_output, capture_substep_state);
 
-			// Record every substep into the step's single submission, with GPU-resident state, warm starts, and counters. Callers overlap the GPU work with
-			// their own CPU work, so splitting the step into separately submitted segments would only add list close, state restore, and submission costs.
+			// Record every substep with GPU-resident state, warm starts, and counters. Each recorded substep is submitted before the next one is recorded,
+			// so the GPU starts executing early instead of waiting for the whole step. The queue's submit-to-execute latency is then hidden behind recording,
+			// which shortens the wait for step completion by more than the extra list close and state restore costs.
 			for (int substep_index = 0; substep_index != input.m_substep_count; ++substep_index)
 			{
+				// Submit the previous substep. The last substep is submitted with the readback by 'SubmitGpuJob'.
+				if (substep_index != 0)
+				{
+					pix_step.reset();
+					m_gpu->m_job.Flush();
+					pix_step.emplace(m_gpu->m_job.m_cmd_list.get(), 0xFF45BCF2, "Physics::Step");
+				}
+
 				// Keep each internal integration pass distinct within the submission.
 				auto pix_substep = pr::compute::pix::EventScope<ID3D12GraphicsCommandList>(m_gpu->m_job.m_cmd_list.get(), 0xFF7EB8E5, "Physics::Substep");
 				pr::compute::pix::DetailMarker(m_gpu->m_job.m_cmd_list.get(), "substep=%d", substep_index);

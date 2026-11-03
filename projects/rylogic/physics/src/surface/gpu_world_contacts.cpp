@@ -146,6 +146,26 @@ namespace pr::physics
 		m_shape_count = 0;
 	}
 
+	// Return the plan for a primitive leaf, sharing it between every leaf with identical plan-relevant content.
+	surface::Plan const& GpuWorldContacts::PlanFor(Shape const& shape, float spacing)
+	{
+		// A plan depends only on the leaf type, the spacing, and the type-specific data after the shape header. It does not depend on the
+		// shape's address, transform, bounds or material, so keying on content stays valid when shapes are repacked, reset or reallocated.
+		auto const data_size = static_cast<size_t>(shape.m_size) - sizeof(Shape);
+		auto key = std::string(sizeof(shape.m_type) + sizeof(spacing) + data_size, '\0');
+		memcpy(key.data(), &shape.m_type, sizeof(shape.m_type));
+		memcpy(key.data() + sizeof(shape.m_type), &spacing, sizeof(spacing));
+		memcpy(key.data() + sizeof(shape.m_type) + sizeof(spacing), reinterpret_cast<std::byte const*>(&shape) + sizeof(Shape), data_size);
+
+		// Build missing plans once, inserting only after a successful build, and mark every lookup as used by the current replan generation.
+		auto it = m_plan_cache.find(key);
+		if (it == m_plan_cache.end())
+			it = m_plan_cache.emplace(std::move(key), CachedPlan{.m_plan = surface::BuildPlan(shape, spacing), .m_generation = 0}).first;
+
+		it->second.m_generation = m_plan_generation;
+		return it->second.m_plan;
+	}
+
 	// Prepare cached primitive plans, this frame's instances, and timing capacity for the requested substeps.
 	void GpuWorldContacts::Upload(GpuJob& job, ShapeCache const& shapes, std::span<GpuRigidBody const> bodies, int substeps, uint32_t world_layer, uint32_t world_mask)
 	{
@@ -172,8 +192,12 @@ namespace pr::physics
 
 		// ShapeCache invalidates packed indices on reset/eviction; immutable plans follow that same lifetime.
 		auto upload_plans = shapes.m_changed || m_shape_count != shapes.m_shapes.size();
+		auto const full_replan = upload_plans;
 		if (upload_plans)
 		{
+			// Plans outlive packed indices, so a new generation only marks which cached plans the current bodies still use.
+			++m_plan_generation;
+
 			// Different source densities retain independent ranges in the same cached patch stream.
 			m_boundary_plan_offset = m_surface && m_boundary && m_spacing != m_boundary->m_surface_spacing ? s_cast<uint32_t>(shapes.m_shapes.size()) : 0;
 			if (shapes.m_shapes.size() + m_boundary_plan_offset > INT_MAX / sizeof(Range))
@@ -208,7 +232,7 @@ namespace pr::physics
 			}
 
 			// Append each physical leaf in the same order as the packed shape cache.
-			auto const plan = surface::BuildPlan(shape, spacing);
+			auto const& plan = PlanFor(shape, spacing);
 			if ((m_patches.size() + plan.m_patches.size()) * sizeof(surface::SurfacePatch) > INT_MAX)
 				throw std::runtime_error("World-contact patch stream exceeds addressable resource size");
 
@@ -265,6 +289,10 @@ namespace pr::physics
 				}
 			}
 		}
+
+		// Every current dynamic shape has now been planned, so cached plans that no current body uses belong to retired geometry.
+		if (full_replan)
+			std::erase_if(m_plan_cache, [this](auto const& entry) { return entry.second.m_generation != m_plan_generation; });
 
 		// Reserve one candidate slot per sample for every instance, using the larger of the two plans' strides.
 		// Each dispatch's 64-sample blocks must also fit within the API's Y-dimension limit.

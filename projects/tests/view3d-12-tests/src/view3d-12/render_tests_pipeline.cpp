@@ -62,43 +62,48 @@ namespace render_tests
 		};
 		auto heap = Heap{};
 		auto commands = Commands{};
-		auto last = Descriptor{};
+		auto bound = BoundDescriptors{};
+		auto& last = bound.m_slots[0];
 		auto source = Descriptor(0, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, {64}, 1);
-		Require(BindMaterialDescriptor(commands, heap, 0U, source, &last), "First descriptor was skipped");
+		Require(BindMaterialDescriptor(commands, heap, 0U, source, &bound), "First descriptor was skipped");
 		for (auto i = 0; i != 1000; ++i)
-			Require(!BindMaterialDescriptor(commands, heap, 0U, source, &last), "Unchanged descriptor was rebound");
+			Require(!BindMaterialDescriptor(commands, heap, 0U, source, &bound), "Unchanged descriptor was rebound");
 
 		Require(heap.m_calls == 1 && commands.m_calls == 1, "Unchanged draws performed heap lookups or bindings");
 
 		// Reusing the same CPU slot must rebind; the saved identity must not alias the mutable source descriptor.
 		++source.m_generation;
-		Require(BindMaterialDescriptor(commands, heap, 0U, source, &last), "Recycled descriptor slot was skipped");
+		Require(BindMaterialDescriptor(commands, heap, 0U, source, &bound), "Recycled descriptor slot was skipped");
 		Require(heap.m_calls == 2 && commands.m_calls == 2, "Generation change did not reach both boundaries");
 		for (auto changed : {Descriptor(1, source.m_type, source.m_cpu, source.m_generation), Descriptor(source.m_index, source.m_type, {128}, source.m_generation), Descriptor(source.m_index, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, source.m_cpu, source.m_generation)})
 			Require(changed != source, "Descriptor identity omitted a field");
 
-		// An untracked secondary root slot must not replace the diffuse slot's saved identity.
+		// Each root slot is tracked independently, so binding another slot neither replaces nor invalidates slot 0's saved identity.
 		auto secondary = Descriptor(2, source.m_type, {256}, 3);
-		BindMaterialDescriptor(commands, heap, 1U, secondary, nullptr);
-		BindMaterialDescriptor(commands, heap, 1U, secondary, nullptr);
-		Require(last == source && heap.m_calls == 4, "Untracked root slot polluted diffuse tracking");
-		Require(!BindMaterialDescriptor(commands, heap, 0U, source, &last), "Secondary root slot forced a diffuse lookup");
+		Require(BindMaterialDescriptor(commands, heap, 1U, secondary, &bound), "First secondary descriptor was skipped");
+		Require(!BindMaterialDescriptor(commands, heap, 1U, secondary, &bound), "Unchanged secondary descriptor was rebound");
+		Require(last == source && bound.m_slots[1] == secondary && heap.m_calls == 3, "Root slots share tracking");
+		Require(!BindMaterialDescriptor(commands, heap, 0U, source, &bound), "Secondary root slot forced a slot 0 lookup");
 
-		// A new batch or invalidated root signature/heap must discard the previous binding.
-		last = {};
-		Require(BindMaterialDescriptor(commands, heap, 0U, source, &last), "Reset tracking did not rebind");
+		// Untracked binds always reach the command list.
+		BindMaterialDescriptor(commands, heap, 1U, secondary, nullptr);
+		Require(heap.m_calls == 4 && commands.m_calls == 4, "Untracked bind was skipped");
+
+		// A new batch or invalidated root signature/heap must discard the previous bindings.
+		bound.Reset();
+		Require(BindMaterialDescriptor(commands, heap, 0U, source, &bound), "Reset tracking did not rebind");
 		Require(heap.m_calls == 5 && commands.m_calls == 5, "Reset did not reach the command list");
 
 		// Failed lookups must neither publish a source identity nor issue a root binding.
 		heap.m_fail = true;
 		auto rejected = false;
-		try { BindMaterialDescriptor(commands, heap, 0U, secondary, &last); }
+		try { BindMaterialDescriptor(commands, heap, 0U, secondary, &bound); }
 		catch (std::runtime_error const&) { rejected = true; }
 		Require(rejected && last == source && commands.m_calls == 5, "Failed lookup changed binding state");
 		heap.m_fail = false;
-		last = {};
+		bound.Reset();
 		rejected = false;
-		try { BindMaterialDescriptor(commands, heap, 0U, Descriptor{}, &last); }
+		try { BindMaterialDescriptor(commands, heap, 0U, Descriptor{}, &bound); }
 		catch (std::runtime_error const&) { rejected = true; }
 		Require(rejected, "Empty tracking suppressed invalid-source validation");
 		std::cout << "PASS descriptor lookup counts, identity reuse, independent roots, invalidation, and failure handling\n";

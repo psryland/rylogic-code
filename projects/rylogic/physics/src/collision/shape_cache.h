@@ -37,6 +37,7 @@ namespace pr::physics
 		std::unordered_map<Shape const*, Entry> m_entries; // Shape pointer → cache entry
 		int m_frame;                                       // Current frame counter
 		bool m_changed;                                    // True if shapes were added/removed since last upload
+		bool m_orphaned;                                   // True if evicted shapes left unreferenced data in the packed arrays
 
 		ShapeCache()
 			: m_shapes()
@@ -46,6 +47,7 @@ namespace pr::physics
 			, m_entries()
 			, m_frame(0)
 			, m_changed(true)
+			, m_orphaned(false)
 		{}
 
 		// Begin a new frame. Must be called before any GetOrAdd() calls.
@@ -72,6 +74,15 @@ namespace pr::physics
 			m_entries.clear();
 			m_frame = 0;
 			m_changed = true;
+			m_orphaned = false;
+		}
+
+		// Forget 'shape' before its caller destroys it, so a later shape at the same address is packed from its own data.
+		void Evict(Shape const& shape)
+		{
+			// The packed data of other entries keeps its indices. The evicted data stays in the arrays, unreferenced, until the next Flush compacts them.
+			if (m_entries.erase(&shape) != 0)
+				m_orphaned = true;
 		}
 
 		// Get the GPU shape index for a collision shape, adding it to the cache if new.
@@ -130,11 +141,11 @@ namespace pr::physics
 
 		// Evict shapes that haven't been used for StaleFrameLimit frames.
 		// This is called periodically (not every frame) to keep the cache compact.
-		// After eviction, the shape/vert arrays are rebuilt from surviving entries.
+		// After eviction, the shape/vert arrays are rebuilt from surviving entries, which also drops the data of shapes removed by 'Evict'.
 		void Flush()
 		{
 			// Check if any entries are stale
-			bool has_stale = false;
+			bool has_stale = m_orphaned;
 			for (auto& [ptr, entry] : m_entries)
 			{
 				if (m_frame - entry.last_used > StaleFrameLimit)
@@ -180,6 +191,7 @@ namespace pr::physics
 				};
 			}
 			m_changed = true;
+			m_orphaned = false;
 		}
 	};
 }

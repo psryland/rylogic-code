@@ -264,6 +264,32 @@ namespace pr::physics
 		m_diagnostics.clear();
 	}
 
+	// Update the cached data of a leaf shape after its transform changed.
+	void GpuWater::RefreshTransform(collision::Shape const& shape)
+	{
+		// A leaf shape is one primitive whose surface plan is in the primitive's own frame, and a single primitive has no siblings to cull
+		// against. So only the primitive's transform and the root-space bounds depend on 'm_s2r'.
+		assert(shape.m_type != collision::EShape::Array && "Compound shapes keep absolute child transforms; refresh is for leaf shapes");
+		auto iter = m_shapes.find(&shape);
+		if (iter == m_shapes.end())
+			return;
+
+		auto& data = *iter->second;
+		m_prims.m_cpu[data.m_prim_base].m_s2r = shape.m_s2r;
+		m_prims.m_uploaded = std::min(m_prims.m_uploaded, data.m_prim_base);
+		data.m_bbox_os = collision::CalcBBox(shape);
+		data.m_eps = buoyancy::HullInsideSlack(shape);
+	}
+
+	// Forget the cached data of a shape that is about to be destroyed.
+	void GpuWater::ForgetShape(collision::Shape const& shape)
+	{
+		// Only shapes of wet dynamic bodies are cached, so this is rare. Their geometry is appended to shared resident arrays that cannot drop one
+		// shape's range, so the whole cache is rebuilt from the shapes still in use.
+		if (m_shapes.contains(&shape))
+			ClearShapes();
+	}
+
 	// Forget every cached shape and its resident geometry.
 	void GpuWater::ClearShapes()
 	{
@@ -742,7 +768,8 @@ namespace pr::physics
 		if (arr.m_uploaded == count)
 			return;
 
-		// Copy only the tail. Earlier entries are unchanged, so work already recorded that reads them is unaffected.
+		// Copy only the tail. Earlier entries are unchanged, so work already recorded that reads them is unaffected. Entries changed in place
+		// lower 'm_uploaded', which only happens between steps.
 		auto const added = count - arr.m_uploaded;
 		auto upload = job.m_upload.Alloc<T>(added);
 		memcpy(upload.ptr<T>(), arr.m_cpu.data() + arr.m_uploaded, added * sizeof(T));

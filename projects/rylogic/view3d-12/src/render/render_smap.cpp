@@ -78,6 +78,7 @@ namespace pr::rdr12
 		, m_cache()
 		, m_element_views()
 		, m_dirty()
+		, m_frame_number()
 		, m_volatile()
 		, m_casters()
 	{
@@ -223,10 +224,27 @@ namespace pr::rdr12
 		}
 
 		// Find the world space bounds and the content hash of each element, and the bounds of all casters. Elements whose bounds
-		// cannot be known (skinned, non-affine, or without a valid model bbox) are drawn into every view.
+		// cannot be known (posed without a skin, non-affine, or without a valid model bbox) are drawn into every view.
 		auto caster_bounds = BBox::Reset();
 		pr::vector<ElementInfo> elements;
 		{
+			// Skinned bounds can need a CPU pose evaluation, and the nuggets of one model share a pose, so evaluate each model/pose pair once.
+			struct PosedBBox { Model const* m_model; Pose const* m_pose; std::optional<BBox> m_bbox; };
+			pr::vector<PosedBBox, 8> posed_bboxes;
+			auto PosedModelBBox = [&](Model const& model, Pose const& pose) -> std::optional<BBox>
+			{
+				// Reuse the bounds of an earlier nugget with the same model and pose
+				for (auto const& posed : posed_bboxes)
+				{
+					if (posed.m_model == &model && posed.m_pose == &pose)
+						return posed.m_bbox;
+				}
+
+				auto bbox = rdr().SkinnedModelBBox(model, pose);
+				posed_bboxes.push_back(PosedBBox{ .m_model = &model, .m_pose = &pose, .m_bbox = bbox });
+				return bbox;
+			};
+
 			auto drawlist = m_drawlist.lock();
 			elements.resize(drawlist->size());
 			for (int e = 0, eend = isize(*drawlist); e != eend; ++e)
@@ -261,11 +279,20 @@ namespace pr::rdr12
 				if (!mbox.valid() || !IsAffine(i2w))
 					continue;
 
-				// Skinned models can move outside their bind pose bounds, so they contribute to the caster bounds but are never culled
+				// Skinned models are bounded by their current pose, so views that cannot see them do not re-render when they animate. Posed models
+				// without a skin, or without pose bounds, can move outside their rest bounds, so they contribute to the caster bounds but are never culled.
 				auto bbox = i2w * mbox;
-				Grow(caster_bounds, bbox);
 				if (pose != nullptr)
-					continue;
+				{
+					auto posed = nugget.m_model->m_skin ? PosedModelBBox(*nugget.m_model, *pose.get()) : std::optional<BBox>{};
+					if (!posed)
+					{
+						Grow(caster_bounds, bbox);
+						continue;
+					}
+					bbox = i2w * *posed;
+				}
+				Grow(caster_bounds, bbox);
 
 				info.m_lower = bbox.Lower();
 				info.m_upper = bbox.Upper();
@@ -353,19 +380,21 @@ namespace pr::rdr12
 	// Find the views that each element can see, and the views whose content has changed since they were last rendered
 	void RenderSmap::FindDirtyViews(std::span<ElementInfo const> elements)
 	{
-		// Start each view's content hash from the view itself. A change of transform or atlas region changes the content.
+		// Hash each view's transform separately from its content. A change of transform makes the atlas content invalid at once, but a change of
+		// content can wait when the view is deferred. The atlas region is compared by the view cache.
 		auto const view_count = isize(m_views.m_views);
 		auto const all_views = view_count == 32 ? ~0U : (1U << view_count) - 1;
+		std::array<uint64_t, MaxShadowViews> view_hashes;
 		std::array<uint64_t, MaxShadowViews> hashes;
 		std::array<IRect, MaxShadowViews> rects;
 		pr::vector<ShadowViewVolume, MaxShadowViews> volumes;
 		for (int v = 0; v != view_count; ++v)
 		{
 			auto const& view = m_views.m_views[v];
+			view_hashes[v] = HashSeed;
+			HashMix(view_hashes[v], view.m_w2s);
+			HashMix(view_hashes[v], view.m_clamp_depth);
 			hashes[v] = HashSeed;
-			HashMix(hashes[v], view.m_w2s);
-			HashMix(hashes[v], view.m_atlas_rect);
-			HashMix(hashes[v], view.m_clamp_depth);
 			rects[v] = view.m_atlas_rect;
 
 			// Clamped views also see casters in front of their near plane
@@ -429,8 +458,30 @@ namespace pr::rdr12
 				forced |= caster.m_views;
 		}
 
+		// Directional cascades after the first refresh changed content only on their turn. Their texels are coarse and they are far from the camera,
+		// so a few frames of delay is not visible. Cascade 'c' takes its turn when the frame number modulo the interval is 'c - 1' modulo the interval,
+		// which spreads the cascades across frames. A cascade whose view moves is not deferred, because its old content no longer matches its view.
+		++m_frame_number;
+		auto deferred = uint32_t(0);
+		if (auto const interval = m_settings.m_far_cascade_refresh_interval; interval > 1)
+		{
+			auto const lights = scn().ResolvedLights();
+			for (int v = 0; v != view_count; ++v)
+			{
+				// Only far cascades wait for their turn
+				auto const& view = m_views.m_views[v];
+				if (lights[view.m_light_index].m_type != ELight::Directional || view.m_face == 0)
+					continue;
+				if (m_frame_number % interval == s_cast<uint64_t>((view.m_face - 1) % interval))
+					continue;
+
+				deferred |= 1U << v;
+			}
+		}
+
 		// Compare with the content already in the atlas
-		m_dirty = m_cache.Update({ rects.data(), s_cast<size_t>(view_count) }, { hashes.data(), s_cast<size_t>(view_count) }, m_settings.m_cache_views) | forced;
+		auto const count = s_cast<size_t>(view_count);
+		m_dirty = m_cache.Update({ rects.data(), count }, { view_hashes.data(), count }, { hashes.data(), count }, deferred, m_settings.m_cache_views) | (forced & ~deferred);
 	}
 
 	// Perform the render step
@@ -546,7 +597,7 @@ namespace pr::rdr12
 
 		// Remember the bound material descriptors so that consecutive elements sharing a texture or sampler skip redundant binds.
 		// The draw list is sorted by texture, so most elements reuse the previous descriptors.
-		Descriptor last_tex = {}, last_sam = {};
+		auto bound = BoundDescriptors{};
 
 		// Render the views in batches, one viewport per view in the batch. Depth clamping is part of the pipeline state,
 		// so a batch only contains views with the same clamp mode.
@@ -579,6 +630,9 @@ namespace pr::rdr12
 			}
 
 			// Draw each element once, with one instance per view in this batch that can see it
+			auto pix_elements = std::optional<pix::DetailScope<ID3D12GraphicsCommandList>>{};
+			pix_elements.emplace(m_cmd_list.get(), "View3D::ShadowElements");
+			pix::DetailMarker(m_cmd_list.get(), "views %d-%d of %d", batch_beg, batch_end, count);
 			auto drawlist = m_drawlist.lock();
 			assert(m_element_views.size() == drawlist->size() && "Draw list changed between Prepare and Execute");
 			for (int e = 0, eend = isize(*drawlist); e != eend; ++e)
@@ -635,8 +689,7 @@ namespace pr::rdr12
 					.m_shader = &m_shader,
 					.m_default_tex = m_default_tex.get(),
 					.m_default_sam = m_default_sam.get(),
-					.m_last_tex = &last_tex,
-					.m_last_sam = &last_sam,
+					.m_bound = &bound,
 				};
 				pass->Bind(ctx);
 				pass->ApplyPipeline(ctx);
@@ -644,8 +697,7 @@ namespace pr::rdr12
 				// A root signature change invalidates the bound descriptor tables
 				if (ctx.m_root_signature_changed)
 				{
-					last_tex = {};
-					last_sam = {};
+					bound.Reset();
 				}
 
 				// Remember nuggets drawn with a custom vertex shader, because the view content hash cannot detect changes to their geometry
@@ -656,6 +708,7 @@ namespace pr::rdr12
 				desc.Apply(PSO<EPipeState::DepthClipEnable>(clamp_depth ? FALSE : TRUE));
 
 				// Bind the views and draw one instance per view
+				auto pix_draw = pix::DetailScope<ID3D12GraphicsCommandList>(m_cmd_list.get(), nugget.m_model->m_name.c_str());
 				m_shader.SetupDrawViews(m_cmd_list.get(), batch_views, batch_beg);
 				m_cmd_list.SetPipelineState(m_pipe_state_pool.Get(desc));
 				if (!nugget.m_irange.empty())
@@ -666,8 +719,10 @@ namespace pr::rdr12
 
 			// Draw the populations classified for the views in this batch. A classification belongs to one view, so its draws render into that view only.
 			// The population element table replaces the draw list table for these draws, then the draw list table is restored for the next batch.
+			pix_elements.reset();
 			if (std::ranges::any_of(pop_shadows, [&](PopulationShadow const& s) { return s.m_view >= batch_beg && s.m_view < batch_end; }))
 			{
+				auto pix_pops = pix::DetailScope<ID3D12GraphicsCommandList>(m_cmd_list.get(), "View3D::ShadowPopulations");
 				m_shader.SetupFrame(m_cmd_list.get(), views_gpu, pop_elements_gpu);
 				for (int g_beg = 0, g_end = 0, gcount = isize(pop_shadows); g_beg != gcount; g_beg = g_end)
 				{
@@ -727,15 +782,13 @@ namespace pr::rdr12
 							.m_shader = &m_shader,
 							.m_default_tex = m_default_tex.get(),
 							.m_default_sam = m_default_sam.get(),
-							.m_last_tex = &last_tex,
-							.m_last_sam = &last_sam,
+							.m_bound = &bound,
 						};
 						pass->Bind(ctx);
 						pass->ApplyPipeline(ctx);
 						if (ctx.m_root_signature_changed)
 						{
-							last_tex = {};
-							last_sam = {};
+							bound.Reset();
 						}
 
 						// Procedural vertex shader overlays (accepted by population admission) place population vertices themselves, so they are kept.

@@ -329,12 +329,11 @@ namespace pr::rdr12
 			}
 			bind_render_targets();
 
-			// Draw the opaques, then the populations, which are opaque. Without a K-buffer, sorted alpha draws follow on this list after the populations.
+			// Draw the opaques and the populations, which are opaque. Without a K-buffer, sorted alpha draws follow on this list after the populations.
 			auto drawlist = m_drawlist.lock();
 			auto alpha_start = boundaries[ESortGroup::Alpha];
 			auto pix_opaque = pix::EventScope<ID3D12GraphicsCommandList>(m_cmd_list.get(), 0xFF7EB8E5, "View3D::Opaque");
-			DrawNuggets(frame, m_cmd_list, pipe_state, std::span{ *drawlist }.subspan(0, s_cast<size_t>(alpha_start)), 0, ESubPass::Opaque);
-			DrawPopulations(frame, pipe_state);
+			DrawOpaques(frame, pipe_state, std::span{ *drawlist }.subspan(0, s_cast<size_t>(alpha_start)));
 			if (!kbuf)
 				DrawNuggets(frame, m_cmd_list, pipe_state, std::span{ *drawlist }.subspan(s_cast<size_t>(alpha_start)), alpha_start, ESubPass::Opaque);
 		}
@@ -544,32 +543,86 @@ namespace pr::rdr12
 		auto view = PopulationCameraView(reinterpret_cast<uint64_t>(this), scn().m_cam, scn().m_viewport.Height);
 		m_population_lists.reserve(populations.size());
 		for (auto pop : populations)
+		{
 			m_population_lists.push_back(rdr().PopulationCulling().Cull(m_cmd_list, m_upload_buffer, m_gsync, *pop.get(), view, m_step_id));
+		}
 
-		// Each (LOD, nugget) draw takes its element constants from the LOD's proxy instance. 'm_population_lists' no longer changes, so the references are stable.
+		// Each (LOD, nugget) draw takes its element constants from the LOD's proxy instance, and its sort group from its population.
+		// 'm_population_lists' no longer changes, so the references are stable.
 		for (auto const& lists : m_population_lists)
 		{
 			for (auto const& draw : lists.m_draws)
 			{
-				m_population_dles.push_back(DrawListElement{ .m_sort_key = draw.m_nugget->m_sort_key, .m_nugget = draw.m_nugget, .m_instance = &draw.m_proxy->m_base });
+				auto sort_key = draw.m_nugget->m_sort_key;
+				sort_key.Group(lists.m_population->m_sort_group);
+				m_population_dles.push_back(DrawListElement{ .m_sort_key = sort_key, .m_nugget = draw.m_nugget, .m_instance = &draw.m_proxy->m_base });
 				m_population_draws.push_back(PopulationDrawRef{ .m_lists = &lists, .m_draw = &draw });
 			}
 		}
+
+		// Order the draws by sort key so that they can be merged with the drawlist by group. Within a group, draws that share a shader and texture
+		// become adjacent, so they reuse bound descriptors and pipeline state. Draws with equal keys keep their population order.
+		{
+			std::vector<int> order(m_population_dles.size());
+			std::iota(order.begin(), order.end(), 0);
+			std::ranges::stable_sort(order, {}, [&](int i) { return m_population_dles[i].m_sort_key.m_value; });
+
+			auto dles = std::move(m_population_dles);
+			auto draws = std::move(m_population_draws);
+			m_population_dles.resize(0);
+			m_population_draws.resize(0);
+			for (auto i : order)
+			{
+				m_population_dles.push_back(dles[i]);
+				m_population_draws.push_back(draws[i]);
+			}
+		}
+
+		// Upload the element constants of every population draw once. Each population draw selects its entry by position.
+		m_population_elements = !m_population_dles.empty() ? shaders::Forward::UploadElements(m_upload_buffer, scn(), CameraTransforms(scn().m_cam), m_population_dles) : D3D12_GPU_VIRTUAL_ADDRESS{};
 	}
 
-	// Draw the classified populations into the opaque targets.
-	void RenderForward::DrawPopulations(Frame& frame, PipeStateDesc const& pipe_state)
+	// Draw the opaque drawlist elements and the classified populations, merged in sort group order
+	void RenderForward::DrawOpaques(Frame& frame, PipeStateDesc const& pipe_state, std::span<DrawListElement const> opaques)
 	{
-		// Nothing to draw without populations.
-		if (m_population_dles.empty())
-			return;
+		// Draw one sort group at a time: its drawlist elements, then its population draws. Both sequences are sorted by group.
+		auto const pops = std::span<DrawListElement const>{ m_population_dles };
+		for (size_t d = 0, p = 0; d != opaques.size() || p != pops.size();)
+		{
+			// Find the lowest group that has draws remaining
+			auto group = ESortGroup::Max;
+			if (d != opaques.size())
+				group = std::min(group, opaques[d].m_sort_key.Group());
+			if (p != pops.size())
+				group = std::min(group, pops[p].m_sort_key.Group());
 
+			// Find the end of the group in both sequences
+			auto d_end = d;
+			auto p_end = p;
+			for (; d_end != opaques.size() && opaques[d_end].m_sort_key.Group() == group; ++d_end) {}
+			for (; p_end != pops.size() && pops[p_end].m_sort_key.Group() == group; ++p_end) {}
+
+			// Draw the group
+			if (d_end != d)
+				DrawNuggets(frame, m_cmd_list, pipe_state, opaques.subspan(d, d_end - d), s_cast<int>(d), ESubPass::Opaque);
+			if (p_end != p)
+				DrawPopulations(frame, pipe_state, s_cast<int>(p), s_cast<int>(p_end));
+
+			d = d_end;
+			p = p_end;
+		}
+	}
+
+	// Draw the population draws [beg, end) into the opaque targets.
+	void RenderForward::DrawPopulations(Frame& frame, PipeStateDesc const& pipe_state, int beg, int end)
+	{
 		// Population draws select element constants from their own table, so swap it in, then restore the drawlist's table for later draws.
 		auto pix_population = pix::EventScope<ID3D12GraphicsCommandList>(m_cmd_list.get(), 0xFF5AC8A0, "View3D::Populations");
 		auto drawlist_elements = m_elements;
-		m_elements = shaders::Forward::UploadElements(m_upload_buffer, scn(), CameraTransforms(scn().m_cam), m_population_dles);
+		m_elements = m_population_elements;
 		BindFrameResources(m_cmd_list);
-		DrawNuggets(frame, m_cmd_list, pipe_state, m_population_dles, 0, ESubPass::Opaque, m_population_draws);
+		auto const count = s_cast<size_t>(end - beg);
+		DrawNuggets(frame, m_cmd_list, pipe_state, std::span<DrawListElement const>{ m_population_dles }.subspan(beg, count), beg, ESubPass::Opaque, std::span<PopulationDrawRef const>{ m_population_draws }.subspan(beg, count));
 		m_elements = drawlist_elements;
 		BindFrameResources(m_cmd_list);
 	}
@@ -581,7 +634,7 @@ namespace pr::rdr12
 
 		// Keep camera inversion and default projection composition outside the per-nugget loop.
 		auto const camera = CameraTransforms(scn().m_cam);
-		Descriptor last_tex = {}, last_sam = {};
+		auto bound = BoundDescriptors{};
 		auto pipe_state_bound = false;
 		auto pipe_state_hash = 0;
 		auto frame_resources_bound = true;
@@ -593,8 +646,7 @@ namespace pr::rdr12
 			if (sub_pass == ESubPass::Alpha)
 				BindAlphaResources(frame, cmd_list);
 
-			last_tex = {};
-			last_sam = {};
+			bound.Reset();
 			pipe_state_bound = false;
 			frame_resources_bound = true;
 		};
@@ -659,8 +711,7 @@ namespace pr::rdr12
 				.m_shader = &m_shader,
 				.m_default_tex = m_default_tex.get(),
 				.m_default_sam = m_default_sam.get(),
-				.m_last_tex = &last_tex,
-				.m_last_sam = &last_sam,
+				.m_bound = &bound,
 			};
 			pass->Bind(ctx);
 

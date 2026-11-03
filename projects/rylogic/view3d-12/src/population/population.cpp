@@ -268,13 +268,14 @@ namespace pr::rdr12
 	}
 
 	// Create a population of 'prototypes' with fixed capacities.
-	Population::Population(Renderer& rdr, std::span<PopulationPrototypePtr const> prototypes, int instance_capacity, int block_capacity, int payload_size)
+	Population::Population(Renderer& rdr, std::span<PopulationPrototypePtr const> prototypes, int instance_capacity, int block_capacity, int payload_size, ESortGroup sort_group)
 		: RefCounted<Population>()
 		, m_rdr(&rdr)
 		, m_prototypes(prototypes.begin(), prototypes.end())
 		, m_lists()
 		, m_block_near()
 		, m_block_far()
+		, m_sort_group(sort_group)
 		, m_instance_capacity(instance_capacity)
 		, m_payload_size(payload_size)
 		, m_instances()
@@ -859,12 +860,15 @@ namespace pr::rdr12
 
 		// Select the blocks that can contain visible instances. The GPU tests individual instances within these.
 		auto visible = std::vector<VisibleBlock>{};
+		auto block_depth = std::vector<float>{};
 		auto max_capacity = 0;
 		auto cpu_stats = PopulationViewStats{};
 		{
 			// Index the raw block array, because checked vector indexing dominates this loop in unoptimised builds.
 			std::lock_guard lock(pop.m_mutex);
 			auto const* blocks = pop.m_blocks.data();
+			visible.reserve(std::min<size_t>(pop.m_blocks.size(), MaxVisibleBlocks));
+			block_depth.reserve(visible.capacity());
 			for (int b = 0, bend = isize(pop.m_blocks); b != bend; ++b)
 			{
 				auto const& blk = blocks[b];
@@ -884,14 +888,33 @@ namespace pr::rdr12
 				}
 
 				visible.push_back(VisibleBlock{ .first = s_cast<uint32_t>(blk.m_first), .capacity = s_cast<uint32_t>(blk.m_capacity), .block = s_cast<uint32_t>(b), .pad = 0 });
+				block_depth.push_back(LengthSq(blk.m_bbox.m_centre - view.m_eye.w1()));
 				max_capacity = std::max(max_capacity, blk.m_capacity);
 			}
+		}
+
+		// Order perspective views' blocks from near to far. Each block is one dispatch row, and the GPU fills the lists roughly in dispatch order,
+		// so nearer instances tend to draw first and depth testing skips the hidden pixels of those behind. Orthographic views have no eye to order from.
+		if (!view.m_orthographic && visible.size() > 1)
+		{
+			// Sort an index order by depth, then permute the blocks.
+			auto order = std::vector<int>(visible.size());
+			std::iota(order.begin(), order.end(), 0);
+			std::sort(order.begin(), order.end(), [&](int lhs, int rhs) { return block_depth[lhs] < block_depth[rhs]; });
+			auto sorted = std::vector<VisibleBlock>{};
+			sorted.reserve(visible.size());
+			for (auto i : order)
+				sorted.push_back(visible[i]);
+
+			visible.swap(sorted);
 		}
 
 		// Build the draw list: an indexed and a non-indexed argument record for each drawable nugget of each list.
 		auto header_size = pop.HeaderSize();
 		auto lists = PopulationViewLists{ .m_population = &pop, .m_scratch = nullptr, .m_list_base = 0, .m_offsets = s_cast<uint32_t>(PopulationHeaderOffsets(isize(pop.m_lists))), .m_draws = {} };
 		auto args = std::vector<ArgTemplate>{};
+		args.reserve(pop.m_lists.size() * 4);
+		lists.m_draws.reserve(isize(pop.m_lists) * 2);
 		for (int list = 0, lend = isize(pop.m_lists); list != lend; ++list)
 		{
 			auto const& [prototype, lod] = pop.m_lists[list];
@@ -1011,29 +1034,6 @@ namespace pr::rdr12
 	ID3D12CommandSignature* PopulationCuller::DrawSignature(bool indexed)
 	{
 		return indexed ? m_draw_indexed.get() : m_draw.get();
-	}
-
-	// Return the nuggets of a LOD that draw for 'step'.
-	void PopulationNuggets(Model const& model, ERenderStep step, std::function<void(Nugget const&)> fn)
-	{
-		// Populations draw the default variant of each nugget, in the same way as an instance without overrides.
-		// Nuggets that do not cast shadows are skipped in the shadow pass, as they are for ordinary instances.
-		for (auto& nug : Enumerate(model.m_nuggets))
-		{
-			for (auto const& dep : nug.Dependents())
-			{
-				if (dep.m_variant != DefaultNugget)
-					continue;
-				if (AllSet(dep.m_nflags, ENuggetFlag::Hidden))
-					continue;
-				if (step == ERenderStep::ShadowMap && AllSet(dep.m_nflags, ENuggetFlag::ShadowCastExclude))
-					continue;
-				if (dep.mat().Pass(step) == nullptr)
-					continue;
-
-				fn(dep);
-			}
-		}
 	}
 
 	// Return the overlay whose vertex shader 'material' applies for 'step', or null if the stock vertex shader is used.

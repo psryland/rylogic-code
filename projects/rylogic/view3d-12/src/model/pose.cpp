@@ -26,6 +26,7 @@ namespace pr::rdr12
 		, m_flags(flags)
 		, m_revision()
 		, m_gpu_update_required(true)
+		, m_matrices(skeleton->BoneCount())
 	{
 		ResourceStore::Access store(factory.rdr());
 
@@ -181,16 +182,18 @@ namespace pr::rdr12
 	// Reset to the rest pose
 	void Pose::ResetPose(GfxCmdList& cmd_list, GpuUploadBuffer& upload_buffer)
 	{
-		auto update = UpdateSubresourceScope(cmd_list, upload_buffer, m_res.get(), alignof(m4x4), 0, BoneCount() * sizeof(m4x4));
-		m4x4* ptr = update.ptr<m4x4>();
+		// Build the rest pose in the working buffer, because observers read it and upload memory is slow to read.
 		for (int i = 0, iend = BoneCount(); i != iend; ++i)
-			ptr[i] = InvertOrthonormal(m_skeleton->m_o2bp[i]);
+			m_matrices[i] = InvertOrthonormal(m_skeleton->m_o2bp[i]);
 
 		m_time0 = m_time1;
 		++m_revision;
 		if (PoseUpdated)
-			PoseUpdated(*this, PoseUpdatedArgs{ std::span<m4x4 const>{ptr, s_cast<size_t>(BoneCount())}, m_revision });
+			PoseUpdated(*this, PoseUpdatedArgs{ m_matrices, m_revision });
 
+		// Copy the finished pose to the GPU buffer.
+		auto update = UpdateSubresourceScope(cmd_list, upload_buffer, m_res.get(), alignof(m4x4), 0, BoneCount() * sizeof(m4x4));
+		memcpy(update.ptr<m4x4>(), m_matrices.data(), BoneCount() * sizeof(m4x4));
 		update.Commit();
 		m_gpu_update_required = false;
 	}
@@ -215,17 +218,18 @@ namespace pr::rdr12
 		// I.e. object space verts are transformed to be bone relative, then deformed, then back to object space.
 		//    `os_vert = cp2o * bp2cp * o2bp * os_vert`, where cp = current-pose, and bp = bind-pose.
 		//               [ animation ] [skel]  [model]
-		auto update = UpdateSubresourceScope(cmd_list, upload_buffer, m_res.get(), alignof(m4x4), 0, BoneCount() * sizeof(m4x4));
-		auto span = std::span{update.ptr<m4x4>(), s_cast<size_t>(BoneCount()) };
-
-		EvaluatePose(span);
+		// The pose is evaluated in the working buffer, because evaluation and observers read it back and upload memory is slow to read.
+		EvaluatePose(m_matrices);
 		m_time0 = m_time1;
 		++m_revision;
 
 		// Notify observers that the pose has been updated. This is a synchronous call, so the pose data is valid during the call, but not after.
 		if (PoseUpdated)
-			PoseUpdated(*this, PoseUpdatedArgs{ span, m_revision });
+			PoseUpdated(*this, PoseUpdatedArgs{ m_matrices, m_revision });
 
+		// Copy the finished pose to the GPU buffer.
+		auto update = UpdateSubresourceScope(cmd_list, upload_buffer, m_res.get(), alignof(m4x4), 0, BoneCount() * sizeof(m4x4));
+		memcpy(update.ptr<m4x4>(), m_matrices.data(), BoneCount() * sizeof(m4x4));
 		update.Commit();
 		m_gpu_update_required = false;
 	}

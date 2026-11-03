@@ -2293,6 +2293,50 @@ VIEW3D_API void __stdcall View3D_AmbientSet(view3d::Window window, view3d::Colou
 	CatchAndReport(View3D_AmbientSet, window,);
 }
 
+// Convert shadow settings between the public API and the renderer
+static view3d::ShadowSettings ToApi(rdr12::ShadowSettings const& s)
+{
+	return view3d::ShadowSettings{
+		.m_atlas_size = s.m_atlas_size,
+		.m_directional_resolution = s.m_directional_resolution,
+		.m_far_cascade_resolution = s.m_far_cascade_resolution,
+		.m_spot_resolution = s.m_spot_resolution,
+		.m_point_resolution = s.m_point_resolution,
+		.m_max_shadow_lights = s.m_max_shadow_lights,
+		.m_cascade_count = s.m_cascade_count,
+		.m_shadow_distance = s.m_shadow_distance,
+		.m_cascade_split_blend = s.m_cascade_split_blend,
+		.m_first_cascade_distance = s.m_first_cascade_distance,
+		.m_filter_size = s.m_filter_size,
+		.m_depth_bias = s.m_depth_bias,
+		.m_slope_bias = s.m_slope_bias,
+		.m_normal_bias = s.m_normal_bias,
+		.m_cache_views = s.m_cache_views,
+		.m_far_cascade_refresh_interval = s.m_far_cascade_refresh_interval,
+	};
+}
+static rdr12::ShadowSettings ToRdr(view3d::ShadowSettings const& settings)
+{
+	auto s = rdr12::ShadowSettings{};
+	s.m_atlas_size = settings.m_atlas_size;
+	s.m_directional_resolution = settings.m_directional_resolution;
+	s.m_far_cascade_resolution = settings.m_far_cascade_resolution;
+	s.m_spot_resolution = settings.m_spot_resolution;
+	s.m_point_resolution = settings.m_point_resolution;
+	s.m_max_shadow_lights = settings.m_max_shadow_lights;
+	s.m_cascade_count = settings.m_cascade_count;
+	s.m_shadow_distance = settings.m_shadow_distance;
+	s.m_cascade_split_blend = settings.m_cascade_split_blend;
+	s.m_first_cascade_distance = settings.m_first_cascade_distance;
+	s.m_filter_size = settings.m_filter_size;
+	s.m_depth_bias = settings.m_depth_bias;
+	s.m_slope_bias = settings.m_slope_bias;
+	s.m_normal_bias = settings.m_normal_bias;
+	s.m_cache_views = settings.m_cache_views != 0;
+	s.m_far_cascade_refresh_interval = settings.m_far_cascade_refresh_interval;
+	return s;
+}
+
 // Get/Set the scene-wide shadow settings
 VIEW3D_API view3d::ShadowSettings __stdcall View3D_ShadowSettingsGet(view3d::Window window)
 {
@@ -2301,24 +2345,7 @@ VIEW3D_API view3d::ShadowSettings __stdcall View3D_ShadowSettingsGet(view3d::Win
 		Validate(window);
 
 		DllLockGuard;
-		auto const& s = window->Shadows();
-		return view3d::ShadowSettings{
-			.m_atlas_size = s.m_atlas_size,
-			.m_directional_resolution = s.m_directional_resolution,
-			.m_far_cascade_resolution = s.m_far_cascade_resolution,
-			.m_spot_resolution = s.m_spot_resolution,
-			.m_point_resolution = s.m_point_resolution,
-			.m_max_shadow_lights = s.m_max_shadow_lights,
-			.m_cascade_count = s.m_cascade_count,
-			.m_shadow_distance = s.m_shadow_distance,
-			.m_cascade_split_blend = s.m_cascade_split_blend,
-			.m_first_cascade_distance = s.m_first_cascade_distance,
-			.m_filter_size = s.m_filter_size,
-			.m_depth_bias = s.m_depth_bias,
-			.m_slope_bias = s.m_slope_bias,
-			.m_normal_bias = s.m_normal_bias,
-			.m_cache_views = s.m_cache_views,
-		};
+		return ToApi(window->Shadows());
 	}
 	CatchAndReport(View3D_ShadowSettingsGet, window, view3d::ShadowSettings{});
 }
@@ -2329,25 +2356,33 @@ VIEW3D_API void __stdcall View3D_ShadowSettingsSet(view3d::Window window, view3d
 		Validate(window);
 
 		DllLockGuard;
-		auto s = rdr12::ShadowSettings{};
-		s.m_atlas_size = settings.m_atlas_size;
-		s.m_directional_resolution = settings.m_directional_resolution;
-		s.m_far_cascade_resolution = settings.m_far_cascade_resolution;
-		s.m_spot_resolution = settings.m_spot_resolution;
-		s.m_point_resolution = settings.m_point_resolution;
-		s.m_max_shadow_lights = settings.m_max_shadow_lights;
-		s.m_cascade_count = settings.m_cascade_count;
-		s.m_shadow_distance = settings.m_shadow_distance;
-		s.m_cascade_split_blend = settings.m_cascade_split_blend;
-		s.m_first_cascade_distance = settings.m_first_cascade_distance;
-		s.m_filter_size = settings.m_filter_size;
-		s.m_depth_bias = settings.m_depth_bias;
-		s.m_slope_bias = settings.m_slope_bias;
-		s.m_normal_bias = settings.m_normal_bias;
-		s.m_cache_views = settings.m_cache_views != 0;
-		window->Shadows(s);
+		window->Shadows(ToRdr(settings));
 	}
 	CatchAndReport(View3D_ShadowSettingsSet, window,);
+}
+
+// Get/Set the shadow settings used when rendering environment map faces
+VIEW3D_API view3d::ShadowSettings __stdcall View3D_EnvMapCaptureShadowsGet(view3d::Window window)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		return ToApi(window->EnvMapCaptureShadows());
+	}
+	CatchAndReport(View3D_EnvMapCaptureShadowsGet, window, view3d::ShadowSettings{});
+}
+VIEW3D_API void __stdcall View3D_EnvMapCaptureShadowsSet(view3d::Window window, view3d::ShadowSettings const& settings)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		window->EnvMapCaptureShadows(ToRdr(settings));
+	}
+	CatchAndReport(View3D_EnvMapCaptureShadowsSet, window,);
 }
 
 // Objects ********************************
@@ -2813,7 +2848,7 @@ VIEW3D_API void __stdcall View3D_PopulationPrototypeRelease(view3d::PopulationPr
 }
 
 // Create a population. The caller owns the returned reference.
-VIEW3D_API view3d::Population __stdcall View3D_PopulationCreate(view3d::PopulationPrototype const* prototypes, int prototype_count, int instance_capacity, int block_capacity, int payload_size)
+VIEW3D_API view3d::Population __stdcall View3D_PopulationCreate(view3d::PopulationPrototype const* prototypes, int prototype_count, int instance_capacity, int block_capacity, int payload_size, view3d::ESortGroup sort_group)
 {
 	try
 	{
@@ -2829,7 +2864,7 @@ VIEW3D_API view3d::Population __stdcall View3D_PopulationCreate(view3d::Populati
 		}
 
 		DllLockGuard;
-		auto population = rdr12::PopulationPtr(new rdr12::Population(Dll().m_rdr, protos, instance_capacity, block_capacity, payload_size), true);
+		auto population = rdr12::PopulationPtr(new rdr12::Population(Dll().m_rdr, protos, instance_capacity, block_capacity, payload_size, static_cast<rdr12::ESortGroup>(sort_group)), true);
 		return population.release();
 	}
 	CatchAndReport(View3D_PopulationCreate, , nullptr);

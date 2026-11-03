@@ -101,15 +101,24 @@ namespace pr::view3d::ui
 		};
 
 		// One cached IDWriteTextLayout together with the offset maps that translate between this
-		// module's UTF-8 byte offsets and DirectWrite's UTF-16 code-unit positions.
+		// module's UTF-8 byte offsets and DirectWrite's UTF-16 code-unit positions. The shaped glyphs
+		// are kept with the layout, because they depend only on the same (family, size, text) key.
 		struct LayoutEntry
 		{
 			std::string text;
 			std::string family;
 			float size_dip;
+			std::uint64_t last_use;                   // m_layout_clock value when the entry was last resolved
 			Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
 			std::vector<std::uint32_t> utf16_to_utf8; // one entry per UTF-16 unit, plus a terminating total
 			std::vector<std::uint32_t> utf8_to_utf16; // one entry per UTF-8 byte, plus a terminating total
+
+			// The result of Shape(), valid once 'shaped' is set. 'run_faces' are the faces the glyphs' font keys refer to,
+			// so a cached result can register them again after they were evicted from 'm_run_faces'.
+			bool shaped;
+			float shaped_width_dip;
+			std::vector<ShapedGlyph> glyphs;
+			std::vector<std::pair<std::uint64_t, RunFace>> run_faces;
 		};
 
 		Microsoft::WRL::ComPtr<IDWriteFactory> m_factory;
@@ -117,7 +126,8 @@ namespace pr::view3d::ui
 		std::vector<std::uint64_t> m_font_mru;      // m_fonts keys, most recently resolved first
 		std::unordered_map<std::uint64_t, RunFace> m_run_faces;
 		std::vector<std::uint64_t> m_run_face_mru;  // m_run_faces keys, most recently registered first
-		std::vector<LayoutEntry> m_layouts;         // bounded most-recently-used cache
+		std::unordered_map<std::uint64_t, LayoutEntry> m_layouts; // bounded least-recently-used cache, keyed by a hash of (family, size, text)
+		std::uint64_t m_layout_clock;               // incremented on every layout resolve, to order 'm_layouts' by recent use
 
 	public:
 		// Hard upper bounds on the two content-keyed caches this class owns. Neither can grow with
@@ -203,6 +213,9 @@ namespace pr::view3d::ui
 		// Registers 'face' at 'size_dip' under a content-derived key and returns that key, so a
 		// glyph shaped from a fallback face can be rasterized later without re-running layout.
 		std::uint64_t RegisterRunFace(IDWriteFontFace* face, float size_dip);
+
+		// Mark the run face 'key' as recently used, inserting 'face' if the bounded cache had evicted it.
+		void TouchRunFace(std::uint64_t key, RunFace const& face);
 
 		// Move 'key' to the front of 'mru' and, when that pushes the list past 'limit', erase the
 		// least recently used key from both 'mru' and 'map'. Returns nothing; the caller inserts

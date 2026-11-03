@@ -394,24 +394,24 @@ namespace pr::rdr12
 
 			// Bind a PBR texture descriptor.
 			template <typename RootParam>
-			static void BindTexture(MaterialPassContext& ctx, RootParam root_param, materials::TextureSlot const& slot, bool cache_diffuse_slot)
+			static void BindTexture(MaterialPassContext& ctx, RootParam root_param, materials::TextureSlot const& slot)
 			{
 				auto* tex = TextureOrDefault(ctx, slot);
 				if (tex == nullptr)
 					return;
 
-				BindMaterialDescriptor(ctx.m_cmd_list, ctx.m_wnd.m_heap_view, root_param, tex->m_srv, cache_diffuse_slot ? ctx.m_last_tex : nullptr);
+				BindMaterialDescriptor(ctx.m_cmd_list, ctx.m_wnd.m_heap_view, root_param, tex->m_srv, ctx.m_bound);
 			}
 
 			// Bind a PBR sampler descriptor.
 			template <typename RootParam>
-			static void BindSampler(MaterialPassContext& ctx, RootParam root_param, materials::TextureSlot const& slot, bool cache_diffuse_slot)
+			static void BindSampler(MaterialPassContext& ctx, RootParam root_param, materials::TextureSlot const& slot)
 			{
 				auto* sam = SamplerOrDefault(ctx, slot);
 				if (sam == nullptr)
 					return;
 
-				BindMaterialDescriptor(ctx.m_cmd_list, ctx.m_wnd.m_heap_samp, root_param, sam->m_samp, cache_diffuse_slot ? ctx.m_last_sam : nullptr);
+				BindMaterialDescriptor(ctx.m_cmd_list, ctx.m_wnd.m_heap_samp, root_param, sam->m_samp, ctx.m_bound);
 			}
 
 			// Bind scalar PBR material constants.
@@ -524,8 +524,7 @@ namespace pr::rdr12
 				for (auto index = 0; index != MaxExtraTexCoordStreams; ++index)
 				{
 					auto const* stream = index < texcoords.m_count ? texcoords.m_streams[index] : texcoords.m_streams[0];
-					auto srv_descriptor = ctx.m_wnd.m_heap_view.Add(stream->m_srv);
-					ctx.m_cmd_list.SetGraphicsRootDescriptorTable(TexCoordRootParam(index + 1), srv_descriptor);
+					BindMaterialDescriptor(ctx.m_cmd_list, ctx.m_wnd.m_heap_view, TexCoordRootParam(index + 1), stream->m_srv, ctx.m_bound);
 				}
 			}
 
@@ -539,16 +538,16 @@ namespace pr::rdr12
 				auto const& normal_map = *ctx.m_material.Component<materials::NormalMap>();
 				auto texcoords = GatherTexCoordBindings(ctx.m_material, ctx.m_dle.m_nugget);
 
-				BindTexture(ctx, shaders::fwd::ERootParam::DiffTexture, base_colour.m_tex, true);
-				BindSampler(ctx, shaders::fwd::ERootParam::DiffTextureSampler, base_colour.m_tex, true);
-				BindTexture(ctx, shaders::fwd::ERootParam::PbrMetallicTexture, metallic.m_tex.m_slot, false);
-				BindSampler(ctx, shaders::fwd::ERootParam::PbrMetallicSampler, metallic.m_tex.m_slot, false);
-				BindTexture(ctx, shaders::fwd::ERootParam::PbrRoughnessTexture, roughness.m_tex.m_slot, false);
-				BindSampler(ctx, shaders::fwd::ERootParam::PbrRoughnessSampler, roughness.m_tex.m_slot, false);
-				BindTexture(ctx, shaders::fwd::ERootParam::PbrEmissiveTexture, emissive.m_tex, false);
-				BindSampler(ctx, shaders::fwd::ERootParam::PbrEmissiveSampler, emissive.m_tex, false);
-				BindTexture(ctx, shaders::fwd::ERootParam::PbrNormalTexture, normal_map.m_tex, false);
-				BindSampler(ctx, shaders::fwd::ERootParam::PbrNormalSampler, normal_map.m_tex, false);
+				BindTexture(ctx, shaders::fwd::ERootParam::DiffTexture, base_colour.m_tex);
+				BindSampler(ctx, shaders::fwd::ERootParam::DiffTextureSampler, base_colour.m_tex);
+				BindTexture(ctx, shaders::fwd::ERootParam::PbrMetallicTexture, metallic.m_tex.m_slot);
+				BindSampler(ctx, shaders::fwd::ERootParam::PbrMetallicSampler, metallic.m_tex.m_slot);
+				BindTexture(ctx, shaders::fwd::ERootParam::PbrRoughnessTexture, roughness.m_tex.m_slot);
+				BindSampler(ctx, shaders::fwd::ERootParam::PbrRoughnessSampler, roughness.m_tex.m_slot);
+				BindTexture(ctx, shaders::fwd::ERootParam::PbrEmissiveTexture, emissive.m_tex);
+				BindSampler(ctx, shaders::fwd::ERootParam::PbrEmissiveSampler, emissive.m_tex);
+				BindTexture(ctx, shaders::fwd::ERootParam::PbrNormalTexture, normal_map.m_tex);
+				BindSampler(ctx, shaders::fwd::ERootParam::PbrNormalSampler, normal_map.m_tex);
 				BindTexCoordStreams(ctx, texcoords);
 
 				if (dynamic_cast<shaders::Forward*>(ctx.m_shader) != nullptr)
@@ -564,8 +563,8 @@ namespace pr::rdr12
 			static void BindShadowMap(MaterialPassContext& ctx)
 			{
 				auto const& base_colour = *ctx.m_material.Component<materials::BaseColour>();
-				BindTexture(ctx, shaders::smap::ERootParam::DiffTexture, base_colour.m_tex, true);
-				BindSampler(ctx, shaders::smap::ERootParam::DiffTextureSampler, base_colour.m_tex, true);
+				BindTexture(ctx, shaders::smap::ERootParam::DiffTexture, base_colour.m_tex);
+				BindSampler(ctx, shaders::smap::ERootParam::DiffTextureSampler, base_colour.m_tex);
 				if (dynamic_cast<shaders::ShadowMap*>(ctx.m_shader) == nullptr)
 					throw std::runtime_error("PBR shadow-map material pass requires a shadow-map shader");
 			}

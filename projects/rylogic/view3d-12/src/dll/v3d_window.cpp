@@ -1531,6 +1531,17 @@ namespace pr::rdr12
 		Invalidate();
 	}
 
+	// Get/Set the shadow settings used when rendering environment map faces
+	ShadowSettings const& V3dWindow::EnvMapCaptureShadows() const
+	{
+		return m_envmap_capture_shadows;
+	}
+	void V3dWindow::EnvMapCaptureShadows(ShadowSettings const& settings)
+	{
+		// Captured faces read the settings when they render, so later captures use the new settings.
+		m_envmap_capture_shadows = settings;
+	}
+
 	// Get/Set the global environment map for this window
 	TextureCube const* V3dWindow::EnvMap() const
 	{
@@ -1626,6 +1637,11 @@ namespace pr::rdr12
 		}
 		EnvMapCaptureResources(EnvMapCaptureResources const&) = delete;
 		EnvMapCaptureResources& operator=(EnvMapCaptureResources const&) = delete;
+		~EnvMapCaptureResources()
+		{
+			// Captures are submitted without waiting, and members are released before the factory. Wait for the captures before releasing what they use.
+			m_factory.Wait(m_factory.FlushToGpu(EGpuFlush::Async));
+		}
 
 		// Window settings for a square, single-sample, off-screen target
 		static WndSettings Settings(Renderer& rdr, int face_size, Colour bkgd_colour)
@@ -1648,7 +1664,7 @@ namespace pr::rdr12
 		// Return the capture resources for 'wnd', recreating them if the face size or the window's clear colour has changed
 		static EnvMapCaptureResources& Get(V3dWindow& wnd, int face_size)
 		{
-			// Recreating waits for in-flight captures, because the factory's destructor flushes and blocks
+			// Recreating waits for in-flight captures, because the destructor waits for them
 			auto bkgd_colour = wnd.m_wnd.BkgdColour();
 			auto& res = wnd.m_envmap_capture;
 			if (res == nullptr || res->m_face_size != face_size || res->m_bkgd_colour != bkgd_colour)
@@ -1691,7 +1707,7 @@ namespace pr::rdr12
 			m_scene.m_ambient = src.m_scene.m_ambient;
 			m_scene.m_global_fill_mode = src.m_scene.m_global_fill_mode;
 			m_scene.m_pso = src.m_scene.m_pso;
-			m_scene.Shadows(src.m_scene.Shadows());
+			m_scene.Shadows(src.EnvMapCaptureShadows());
 			m_scene.m_cam = src.m_scene.m_cam;
 			m_scene.m_cam.Orthographic(false);
 			m_scene.m_cam.Aspect(1.0);

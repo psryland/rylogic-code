@@ -26,6 +26,8 @@ namespace pr::rdr12
 		//  - With 'ShadowSettings::m_cache_views', a view is only re-rendered when a hash of its content changes. The hash covers
 		//    the view transform, its atlas region, and every element the view can see. Elements drawn with a custom vertex shader
 		//    (e.g. procedural geometry) can change without the hash changing, so views that see them are rendered every frame.
+		//    'ShadowSettings::m_far_cascade_refresh_interval' defers content changes in directional cascades after the first until their turn,
+		//    because their texels are too coarse to show a few frames of delay. A cascade whose transform changes is still rendered at once.
 		//    Changes to texture content (alpha clipped casters) are not detected.
 		//  - Populations cast shadows. Each view that sees an active block classifies the population on the GPU, then draws the visible
 		//    instances with indirect draws into that single view. Each (population, view) pair keeps its own classification buffer.
@@ -65,6 +67,7 @@ namespace pr::rdr12
 		ShadowViewCache m_cache;          // The content of the atlas regions rendered in earlier frames
 		pr::vector<uint32_t> m_element_views; // Per draw list element, a bit mask of the views that can see it
 		uint32_t m_dirty;                 // Bit mask of the views to render this frame
+		uint64_t m_frame_number;          // Counts prepared frames. Chooses which far cascades may refresh their content this frame
 		std::unordered_set<Nugget const*> m_volatile; // Nuggets drawn with a custom vertex shader. Views that see them are rendered every frame
 		pr::vector<PopulationCaster> m_casters; // The scene's populations for the current frame. Valid from 'Prepare' until the next frame.
 
