@@ -202,28 +202,29 @@ namespace view3d_test
 				: m_ctx(ctx)
 				, m_scene(ctx.m_window)
 			{
-				// Dim, softly lit surfaces produce slow gradients that band without dithering
-				m_scene.Add("*Sphere ball FF404040 { *Data {3} }");
-				m_scene.Add("*Plane ground FF303030 { *Data {40 40} *AxisId {+3} *o2w {*pos {0 0 -3}} }");
+				// Banding is only visible when each 8-bit step is many pixels wide, so the scene is a dark wall facing the camera, lit by a wide spot light
+				// at the camera. The cone fade gives a slow radial ramp from about 24/255 at the centre to about 10/255 at the screen edges, which bands
+				// into rings roughly 40 pixels wide. Colours are sRGB, and lighting is linear with a 1/pi diffuse term.
+				m_scene.Add("*Plane wall FF404040 { *Data {200 200} *AxisId {-2} *o2w {*pos {0 20 0}} }");
 				View3D_AmbientSet(ctx.m_window, 0xFF000000);
 				demo::EditLight(ctx.m_window, 0, [](view3d::Light& light)
 				{
 					light.m_type = view3d::ELight::Spot;
-					light.m_position = view3d::Vec4{ 0, -2, 8, 1 };
-					light.m_direction = view3d::Vec4{ 0, 0.24f, -0.97f, 0 };
-					light.m_inner_angle = 0.1f;
-					light.m_outer_angle = 1.2f;
-					light.m_range = 50.0f;
+					light.m_position = view3d::Vec4{ 0, 0, 0, 1 };
+					light.m_direction = view3d::Vec4{ 0, 1, 0, 0 };
+					light.m_inner_angle = 0.0f;
+					light.m_outer_angle = 2.0f;
+					light.m_range = 100.0f;
 					light.m_falloff = 0.0f;
-					light.m_diffuse = 0xFF606060;
+					light.m_diffuse = 0xFFC0C0C0;
 					light.m_specular = 0xFF000000;
 				});
-				View3D_CameraPositionSet(ctx.m_window, { 0, -12, 4, 1 }, { 0, 0, -1, 1 }, { 0, 0, 1, 0 });
+				View3D_CameraPositionSet(ctx.m_window, { 0, 0, 0, 1 }, { 0, 20, 0, 1 }, { 0, 0, 1, 0 });
 				View3D_DitherAmountSet(ctx.m_window, 1.0f);
 
 				// Dither controls
 				auto& ui = ctx.m_controls;
-				ui.AddLabel(L"Compare the banding in the dark gradients with dithering on and off.");
+				ui.AddLabel(L"Set the amount to 0 to see rings of 8-bit banding in the dark gradient. Dithering breaks the rings up into fine noise.");
 				ui.AddSlider(L"Dither amount", 0, 2, 1.0f, [this](float v)
 				{
 					View3D_DitherAmountSet(m_ctx.m_window, v);
