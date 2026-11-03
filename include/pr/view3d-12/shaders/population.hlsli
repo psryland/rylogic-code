@@ -201,7 +201,7 @@ View3DForwardVertexOut View3DPopulationForwardVertex(View3DForwardVertexOut v, V
 	View3DForwardVertexOut output = v;
 	output.ws_vert = View3DPopulationTransform(inst, v.ws_vert);
 	output.ws_norm = View3DPopulationTransformNormal(inst, v.ws_norm);
-	output.ss_vert = mul(output.ws_vert, frame.w2s);
+	output.ss_vert = mul(output.ws_vert, frame.cam.w2s);
 	output.diff = v.diff * View3DPopulationTint(inst);
 	output.dither = entry.dither;
 	return output;

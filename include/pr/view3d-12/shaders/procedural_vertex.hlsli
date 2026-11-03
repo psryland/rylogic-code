@@ -6,9 +6,10 @@
 #define PR_VIEW3D_PROCEDURAL_VERTEX_HLSLI
 #include "pr/hlsl/core.hlsli"
 #include "pr/hlsl/camera.hlsli"
+#include "view3d-12/src/shaders/hlsl/forward/forward_frame_cbuf.hlsli"
 
 // Contract version implemented by the public ShaderOptions descriptor.
-#define VIEW3D_PROCEDURAL_VERTEX_VERSION 6
+#define VIEW3D_PROCEDURAL_VERTEX_VERSION 7
 
 // Renderer-owned and caller-owned constants occupy these fixed stage-local registers.
 #define VIEW3D_FORWARD_FRAME_REGISTER b0
@@ -63,16 +64,12 @@ struct View3DShadowElement
 	float4 tint;
 };
 
-// Stock Forward frame data needed to transform generated world-space positions.
-struct View3DForwardFrame
-{
-	row_major float4x4 c2w;
-	row_major float4x4 c2s;
-	row_major float4x4 w2c;
-	row_major float4x4 w2s;
-};
+// The stock Forward frame constants: the camera ('cam.c2w', 'cam.w2s', ...), lighting, and the sky's cloud field. It is the renderer's own frame
+// constant buffer, so vertex shaders can read anything the stock pixel shaders read. See 'pr/view3d-12/shaders/procedural_clouds.hlsli'.
+typedef CBufFrame View3DForwardFrame;
 
 // Stock Forward pixel-shader input emitted by a procedural vertex wrapper.
+// 'idx0' is not read by the stock pixel shaders. Procedural draws with their own pixel shaders can use it to pass two values to them.
 struct View3DForwardVertexOut
 {
 	float4 ss_vert : SV_POSITION;
@@ -148,7 +145,7 @@ View3DForwardVertexOut View3DProceduralForwardVertex(
 	// Match the stock Forward vertex-to-pixel semantic and transform contract.
 	View3DForwardVertexOut output = (View3DForwardVertexOut)0;
 	output.ws_vert = View3DProceduralWorldPosition(ms_vert, nugget.m2o, nugget.o2w);
-	output.ss_vert = mul(output.ws_vert, frame.w2s);
+	output.ss_vert = mul(output.ws_vert, frame.cam.w2s);
 	output.ws_norm = mul(ms_norm, nugget.n2w);
 	output.diff = diff * nugget.tint;
 	output.tex0 = tex0;
