@@ -5,11 +5,84 @@
 #include "pr/common/unittests.h"
 #include "pr/math/math.h"
 #include "pr/hlsl/interop.h"
+#include "pr/hlsl/interop.hlsli"
 #include "pr/hlsl/core.hlsli"
+#include <crtdbg.h>
 
 namespace pr::hlsl::tests
 {
 	using namespace pr::math;
+
+	// A real shader-resource declaration exercises the same per-thread binding as emulated kernels.
+	RWStructuredBuffer<int> resource(g_lifetime_test_buffer, u0);
+
+	// Check resource ownership separately from the numerical shader helpers.
+	PRUnitTestClass(ShaderResourceLifetimeTests, Serial)
+	{
+		// Unused resource instances must not own CRT allocations that require late thread-exit cleanup.
+		PRUnitTestMethod(EmptyBuffersDoNotAllocate, Quick)
+		{
+			// Keep both buffers alive across the heap snapshots so Debug iterator proxies are included.
+			_CrtMemState before{}, after{};
+			_CrtMemCheckpoint(&before);
+			auto input = StructuredBuffer<int>{};
+			auto output = RWStructuredBuffer<int>{};
+			_CrtMemCheckpoint(&after);
+			PR_EXPECT(input.empty() && output.empty());
+			PR_EXPECT(before.lCounts[_NORMAL_BLOCK] == after.lCounts[_NORMAL_BLOCK]);
+			PR_EXPECT(before.lSizes[_NORMAL_BLOCK] == after.lSizes[_NORMAL_BLOCK]);
+			PR_EXPECT(before.lCounts[_CRT_BLOCK] == after.lCounts[_CRT_BLOCK]);
+			PR_EXPECT(before.lSizes[_CRT_BLOCK] == after.lSizes[_CRT_BLOCK]);
+		}
+
+		// Buffer storage must preserve copied values, writable access, and value-initialised resets.
+		PRUnitTestMethod(BufferBindingAndReset, Quick)
+		{
+			// Read-only and writable buffers use the same element layout for assignment and span access.
+			int const values[] = {2, 4, 6};
+			auto input = StructuredBuffer<int>{};
+			auto output = RWStructuredBuffer<int>{};
+			input.assign(std::span<int const>{values});
+			output.assign(input.as_span<int>());
+			output[1] = 9;
+			PR_EXPECT(input[1] == 4);
+			PR_EXPECT(output.as_span<int>()[1] == 9);
+
+			// Reset must replace every value, including elements retained within the previous capacity.
+			input.reset(2);
+			output.reset(4);
+			PR_EXPECT(input.size() == 2 && input[0] == 0 && input[1] == 0);
+			PR_EXPECT(output.size() == 4);
+			PR_EXPECT(std::ranges::all_of(output, [](int value)
+			{
+				// Every reset element must be value-initialised, not retain previous contents.
+				return value == 0;
+			}));
+			input.reset();
+			output.reset();
+			PR_EXPECT(input.empty() && output.empty());
+		}
+
+		// Independent calling threads must not share emulated shader bindings.
+		PRUnitTestMethod(ResourceBindingsAreThreadLocal, Quick)
+		{
+			// A worker starts with an empty resource and must not overwrite the caller's binding.
+			g_lifetime_test_buffer.reset(1);
+			g_lifetime_test_buffer[0] = 7;
+			auto worker_started_empty = false;
+			auto worker = std::jthread([&]
+			{
+				// Bind a different value on this thread, then release it through normal thread exit.
+				worker_started_empty = g_lifetime_test_buffer.empty();
+				g_lifetime_test_buffer.reset(1);
+				g_lifetime_test_buffer[0] = 11;
+			});
+			worker.join();
+			PR_EXPECT(worker_started_empty);
+			PR_EXPECT(g_lifetime_test_buffer[0] == 7);
+			g_lifetime_test_buffer.clear();
+		}
+	};
 
 	PRUnitTestClass(CoreTests)
 	{
