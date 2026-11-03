@@ -309,13 +309,14 @@ namespace render_tests
 		auto turned = fixture.Image();
 		Require(std::abs(brightness(turned) / brightness(flat) - 0.447f) < 0.03f, (std::string("A detail strength half turn did not reverse the tilt: flat ") + std::to_string(brightness(flat)) + ", turned " + std::to_string(brightness(turned))).c_str());
 
-		// Texels turned by a quarter turn either way blend almost equally at the centre, where their sideways gradients nearly cancel. Either
-		// texel alone tilts the normal across the light (1 / sqrt(1.25) = 0.894), and an unturned layer tilts it toward the light (1.342).
-		auto opposed = std::array<api::Vec4, 2>{api::Vec4{1, 0, 0, 1}, api::Vec4{1, 0, 0, -1}};
+		// The angle is filtered before the layers are turned. Texels turned 67.5 degrees either way filter to an almost unturned angle near the
+		// centre, because their sideways parts nearly cancel, so the layer tilts toward the light (1.342). Either texel alone keeps only cos(67.5)
+		// of that tilt: (1 + 0.5 cos(67.5)) / sqrt(1.25) = 1.066.
+		auto opposed = std::array<api::Vec4, 2>{api::Vec4{1, 0, 0.38268343f, 0.92387953f}, api::Vec4{1, 0, 0.38268343f, -0.92387953f}};
 		View3D_DetailStrengthMapUpload(map.get(), opposed.data(), 2);
 		fixture.CheckErrors();
 		auto blended = fixture.Image();
-		Require(std::abs(brightness(blended) / brightness(flat) - 1.0f) < 0.03f, (std::string("Turned detail strength texels were not blended: flat ") + std::to_string(brightness(flat)) + ", blended " + std::to_string(brightness(blended))).c_str());
+		Require(std::abs(brightness(blended) / brightness(flat) - 1.342f) < 0.03f, (std::string("Turned detail strength texels were not blended: flat ") + std::to_string(brightness(flat)) + ", blended " + std::to_string(brightness(blended))).c_str());
 		View3D_DetailStrengthMapUpload(map.get(), ramp.data(), 2);
 		fixture.CheckErrors();
 
