@@ -723,6 +723,18 @@ namespace pr::view3d::ui
 
 	std::uint32_t GraphemeCount(std::string_view text)
 	{
+		// ASCII text has a cluster boundary between every pair of characters except CR LF (GB3), so it can be counted without property lookups.
+		if (std::ranges::all_of(text, [](char c) { return static_cast<unsigned char>(c) < 0x80; }))
+		{
+			auto count = static_cast<std::uint32_t>(text.size());
+			for (size_t i = 1; i < text.size(); ++i)
+			{
+				if (text[i - 1] == '\r' && text[i] == '\n')
+					--count;
+			}
+			return count;
+		}
+
 		// Count the boundaries without storing them. The leading and trailing boundaries are both counted, so the cluster count is one less.
 		auto count = std::uint32_t(0);
 		SegmentGraphemes(text, [&](std::uint32_t) { ++count; });

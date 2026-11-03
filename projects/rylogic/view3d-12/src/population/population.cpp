@@ -867,6 +867,8 @@ namespace pr::rdr12
 			// Index the raw block array, because checked vector indexing dominates this loop in unoptimised builds.
 			std::lock_guard lock(pop.m_mutex);
 			auto const* blocks = pop.m_blocks.data();
+			visible.reserve(std::min<size_t>(pop.m_blocks.size(), MaxVisibleBlocks));
+			block_depth.reserve(visible.capacity());
 			for (int b = 0, bend = isize(pop.m_blocks); b != bend; ++b)
 			{
 				auto const& blk = blocks[b];
@@ -911,6 +913,8 @@ namespace pr::rdr12
 		auto header_size = pop.HeaderSize();
 		auto lists = PopulationViewLists{ .m_population = &pop, .m_scratch = nullptr, .m_list_base = 0, .m_offsets = s_cast<uint32_t>(PopulationHeaderOffsets(isize(pop.m_lists))), .m_draws = {} };
 		auto args = std::vector<ArgTemplate>{};
+		args.reserve(pop.m_lists.size() * 4);
+		lists.m_draws.reserve(isize(pop.m_lists) * 2);
 		for (int list = 0, lend = isize(pop.m_lists); list != lend; ++list)
 		{
 			auto const& [prototype, lod] = pop.m_lists[list];
