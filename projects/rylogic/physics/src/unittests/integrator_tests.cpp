@@ -70,6 +70,33 @@ namespace pr::physics::tests
 		}
 	};
 
+	// Verify that evicting one shape lets a new shape reuse its address without disturbing other cached shapes.
+	PRUnitTestClass(ShapeCacheTests)
+	{
+		PRUnitTestMethod(EvictedAddressIsRepackedAndCompacted, Extended)
+		{
+			// Cache two shapes, then replace the first one in place, as a destroyed shape whose address is reused would be.
+			auto cache = ShapeCache{};
+			auto first = collision::ShapeSphere(1.0f);
+			auto second = collision::ShapeSphere(3.0f);
+			cache.GetOrAdd(first.m_base);
+			cache.GetOrAdd(second.m_base);
+			cache.Evict(first.m_base);
+			first = collision::ShapeSphere(2.0f);
+
+			// The reused address is packed from the new shape's data, and the evicted data waits for the next flush.
+			auto reused = cache.GetOrAdd(first.m_base);
+			PR_EXPECT(FEql(cache.m_shapes[reused].data.x, 2.0f));
+			PR_EXPECT(cache.m_shapes.size() == 3);
+
+			// Flushing drops the orphaned data while keeping both live shapes.
+			cache.Flush();
+			PR_EXPECT(cache.m_shapes.size() == 2);
+			PR_EXPECT(FEql(cache.m_shapes[cache.GetOrAdd(first.m_base)].data.x, 2.0f));
+			PR_EXPECT(FEql(cache.m_shapes[cache.GetOrAdd(second.m_base)].data.x, 3.0f));
+		}
+	};
+
 	// Compare Evolve() (reference) and EvolveCPU() (GPU-equivalent) for different body types.
 	// Any mismatch here means the GPU compute shader will also produce wrong results.
 	PRUnitTestClass(EvolveCPUComparisonTests)

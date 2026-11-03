@@ -281,6 +281,15 @@ namespace pr::physics
 		data.m_eps = buoyancy::HullInsideSlack(shape);
 	}
 
+	// Forget the cached data of a shape that is about to be destroyed.
+	void GpuWater::ForgetShape(collision::Shape const& shape)
+	{
+		// Only shapes of wet dynamic bodies are cached, so this is rare. Their geometry is appended to shared resident arrays that cannot drop one
+		// shape's range, so the whole cache is rebuilt from the shapes still in use.
+		if (m_shapes.contains(&shape))
+			ClearShapes();
+	}
+
 	// Forget every cached shape and its resident geometry.
 	void GpuWater::ClearShapes()
 	{

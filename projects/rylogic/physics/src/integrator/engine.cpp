@@ -584,6 +584,20 @@ namespace pr::physics
 			m_gpu_water->RefreshTransform(shape);
 	}
 
+	// Drop the cached data of one caller-owned shape before it is destroyed.
+	void Engine::ForgetShape(collision::Shape const& shape)
+	{
+		// The packed shape buffer is read by an in-flight step, so it can only change between steps.
+		if (m_pending_step.m_active)
+			throw std::runtime_error("Engine::ForgetShape cannot run while a step is pending");
+
+		// Only the address-keyed caches can confuse a later shape with this one. World-contact plans are keyed by shape content and replan
+		// when the shape cache changes, and no body uses the shape, so no contact or warm start refers to it.
+		m_cache->m_shape_cache.Evict(shape);
+		if (m_gpu_water)
+			m_gpu_water->ForgetShape(shape);
+	}
+
 	// Drop all internally-cached references to caller-supplied data.
 	void Engine::ResetCaches()
 	{

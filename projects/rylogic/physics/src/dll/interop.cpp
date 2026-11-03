@@ -3259,10 +3259,6 @@ extern "C"
 			arr.m_base.m_flags = static_cast<pr::collision::Shape::EFlags>(value.flags);
 			arr.Complete(child_count);
 
-			// Packed shape data is cached by shape address, so drop the cache before a new record can reuse the
-			// address of a shape that was destroyed earlier.
-			record.m_engine->ResetCaches();
-
 			auto handle = pr::physics::StoreShape(record, std::move(data));
 			auto& compound = pr::physics::RequireShape(record, handle);
 			compound.m_children.assign(children, children + child_count);
@@ -3294,7 +3290,8 @@ extern "C"
 			for (auto child : shape_record.m_children)
 				--pr::physics::RequireShape(record, child).m_compound_refs;
 
-			record.m_engine->ResetCaches();
+			// Engine caches are keyed by shape address, so they must forget this shape before a new shape can reuse its address.
+			record.m_engine->ForgetShape(*shape_record.Shape());
 			auto& slot = record.m_shapes[index];
 			slot.m_object.reset();
 			pr::physics::AdvanceGeneration(slot.m_generation);

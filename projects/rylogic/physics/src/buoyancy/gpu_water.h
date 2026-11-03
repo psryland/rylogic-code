@@ -118,7 +118,8 @@ namespace pr::physics
 		ComputeStep m_surface_step;
 		ComputeStep m_reduce_step;
 
-		// Shape-derived data keyed by the caller-owned shape. Cleared whenever caller shapes may have changed or been destroyed (see Engine::ResetCaches).
+		// Shape-derived data keyed by the caller-owned shape. Entries are removed before their shape is destroyed (see Engine::ForgetShape), and all are
+		// cleared whenever caller shapes may have changed or been destroyed (see Engine::ResetCaches).
 		std::unordered_map<collision::Shape const*, std::unique_ptr<CompositeShape>> m_shapes;
 
 		// The geometry of every cached shape, resident on the GPU. Each shape is appended once when it is first built, with its patch and
@@ -174,6 +175,9 @@ namespace pr::physics
 
 		// Update the cached data of a leaf shape after its 'm_s2r' changed in place. Shapes not in the cache need nothing.
 		void RefreshTransform(collision::Shape const& shape);
+
+		// Forget the cached data of 'shape' before its caller destroys it. Shapes not in the cache need nothing.
+		void ForgetShape(collision::Shape const& shape);
 
 		// Select the hulls that may be wet during a frame of 'elapsed_s' seconds and stage their inputs for each of its 'substeps' substeps.
 		void BeginFrame(GpuJob& job, std::span<Hull const> hulls, float elapsed_s, int substeps);
