@@ -12,16 +12,19 @@ public enum EMotionType
 	Kinematic = 2,
 }
 
-/// <summary>Selects how a dynamic body's mass properties are established.</summary>
+/// <summary>Selects how a dynamic body's mass properties are established. Mass scales the shape's uniform-density mass properties to
+/// BodyOptions.MassOrDensity. Density uses MassOrDensity as the density of every leaf shape. MaterialDensity uses the density of each leaf
+/// shape's material, so the leaves of a compound can have different densities, and ignores MassOrDensity.</summary>
 public enum EMassMode
 {
 	ExplicitInertia = 0,
 	Mass = 1,
 	Density = 2,
+	MaterialDensity = 3,
 }
 
-/// <summary>Selects how mass derived from a body's shape is spread. Shell places the mass in a thin surface skin, so a density is in kg/m².
-/// Shell requires shapes that enclose a volume (sphere, box, capsule, polytope, or compounds of them).</summary>
+/// <summary>Selects how mass derived from a body's shape is spread. Shell places the mass in a thin surface skin, so a density, including a
+/// MaterialDensity material density, is in kg/m². Shell requires shapes that enclose a volume (sphere, box, capsule, polytope, or compounds of them).</summary>
 public enum EMassDistribution
 {
 	Solid = 0,

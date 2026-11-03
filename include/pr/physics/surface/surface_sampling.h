@@ -235,14 +235,16 @@ namespace pr::physics::surface
 					}
 				}
 
-				// Fill the cylindrical side with axial and arc-length subdivisions that bound each cell diameter.
+				// Fill the cylindrical side with axial and arc-length subdivisions that bound each cell diameter. The periodic angular rule
+				// needs at least three subdivisions: with fewer, the normals do not cancel and do not average to the cylinder's circular second
+				// moment, so a uniform pressure produces a net force and a linear pressure field produces the wrong force.
 				if (line.m_hlength != 0)
 				{
 					impl::Append(plan, SurfacePatch{
 						.m_origin = v4(0, 0, -line.m_hlength, 1), .m_u = v4(0, 0, 2 * line.m_hlength, 0),
 						.m_v = v4(line.m_radius, 0, 0, 0), .m_normal = {},
 						.m_nu = impl::Divisions(2.0 * std::sqrt(2.0) * line.m_hlength, spacing),
-						.m_nv = impl::Divisions(std::sqrt(2.0) * math::constants<double>::tau * line.m_radius, spacing),
+						.m_nv = std::max(3u, impl::Divisions(std::sqrt(2.0) * math::constants<double>::tau * line.m_radius, spacing)),
 						.m_kind = 4, .m_sample_end = 0, .m_taper = line.m_radius,
 						.m_measure = static_cast<float>(math::constants<double>::tau * line.m_radius * 2 * line.m_hlength),
 						.m_pad0 = 0, .m_pad1 = 0,
