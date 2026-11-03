@@ -316,6 +316,25 @@ public sealed partial class View3d
 			}
 		}
 
+		/// <summary>
+		/// A single strength control for simple UIs. 0 means disabled; a positive value enables the effect with that Intensity.
+		/// Setting 0 keeps the current Intensity so that re-enabling restores it.
+		/// </summary>
+		public float Strength
+		{
+			readonly get
+			{
+				return Enabled ? Intensity : 0f;
+			}
+			set
+			{
+				// Zero turns the effect off without losing the last intensity
+				Enabled = value > 0f;
+				if (Enabled)
+					Intensity = value;
+			}
+		}
+
 		/// <summary>Fraction of Radius, at its outer end, over which occluder influence fades to zero. Must be in (0,1].</summary>
 		public float Falloff
 		{
@@ -527,6 +546,24 @@ public class PostEffectTests
 		props = View3d.AmbientOcclusionProps.Default();
 		props.Quality = (View3d.EAOQuality)7;
 		Assert.Throws<ArgumentOutOfRangeException>(() => props.Validate());
+	}
+
+	/// <summary>Strength combines Enabled and Intensity, and zero keeps the last intensity.</summary>
+	[Test]
+	public void AmbientOcclusionStrength()
+	{
+		var props = View3d.AmbientOcclusionProps.Default();
+		Assert.Equal(0f, props.Strength);
+
+		props.Strength = 2.5f;
+		Assert.True(props.Enabled);
+		Assert.Equal(2.5f, props.Intensity);
+		Assert.Equal(2.5f, props.Strength);
+
+		props.Strength = 0f;
+		Assert.False(props.Enabled);
+		Assert.Equal(2.5f, props.Intensity);
+		Assert.Equal(0f, props.Strength);
 	}
 }
 #endif

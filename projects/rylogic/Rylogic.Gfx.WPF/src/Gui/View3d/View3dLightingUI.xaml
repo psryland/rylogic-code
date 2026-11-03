@@ -433,25 +433,61 @@
 				<Grid>
 					<Grid.RowDefinitions>
 						<RowDefinition Height="Auto"/>
+						<RowDefinition Height="Auto"/>
 					</Grid.RowDefinitions>
 
-					<!-- Shadow strength -->
+					<!-- Shadow strength (0 = no shadows) -->
 					<StackPanel
-						Grid.Row="2"
-						Orientation="Horizontal"
-						HorizontalAlignment="Right"
+						Grid.Row="0"
 						Margin="3"
+						ToolTip="Strength of the shadows cast by the light. 0 = no shadows."
 						>
 						<TextBlock
 							Text="Shadow Strength: "
-							VerticalAlignment="Center"
 							/>
-						<TextBox
-							Text="{Binding Light.CastShadow}"
-							HorizontalContentAlignment="Center"
-							VerticalAlignment="Center"
-							MinWidth="40"
+						<DockPanel>
+							<TextBox
+								DockPanel.Dock="Right"
+								Text="{Binding Light.CastShadow, StringFormat={}{0:N2}}"
+								HorizontalAlignment="Left"
+								HorizontalContentAlignment="Right"
+								Width="60"
+								/>
+							<Slider
+								Minimum="0"
+								Maximum="1"
+								Value="{Binding Light.CastShadow}"
+								MinWidth="120"
+								Margin="20,0,0,0"
+								/>
+						</DockPanel>
+					</StackPanel>
+
+					<!-- Ambient occlusion strength (0 = off) -->
+					<StackPanel
+						Grid.Row="1"
+						Margin="3"
+						ToolTip="Screen-space ambient occlusion. Darkens creases and corners. 0 = off."
+						>
+						<TextBlock
+							Text="Ambient Occlusion: "
 							/>
+						<DockPanel>
+							<TextBox
+								DockPanel.Dock="Right"
+								Text="{Binding AmbientOcclusionStrength, StringFormat={}{0:N2}}"
+								HorizontalAlignment="Left"
+								HorizontalContentAlignment="Right"
+								Width="60"
+								/>
+							<Slider
+								Minimum="0"
+								Maximum="4"
+								Value="{Binding AmbientOcclusionStrength}"
+								MinWidth="120"
+								Margin="20,0,0,0"
+								/>
+						</DockPanel>
 					</StackPanel>
 
 				</Grid>
