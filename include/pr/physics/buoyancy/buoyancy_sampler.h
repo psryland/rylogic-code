@@ -19,7 +19,7 @@
 //    terms: the wave's lateral pressure force, linear/angular volume damping, and the wet volume and
 //    centre of buoyancy diagnostics.
 //  - Quadratic form drag and tangential surface drag act on the same wet surface samples. The dry part of each cell feels
-//    form drag from the still air.
+//    form drag from the still air. Zero-thickness triangles contribute only surface drag, not pressure or water-column terms.
 //  - Overlap is deduplicated by sibling-cull: a surface sample lies on the union boundary iff its
 //    exterior side is outside every OTHER primitive, so it is dropped if any other sibling contains the
 //    slightly outward-offset point (or strictly contains the sample). This avoids counting
@@ -464,6 +464,30 @@ namespace pr::physics::buoyancy
 		// deduplicated by the any-other-sibling exterior-side rule.
 		for (size_t k = 0; k != prims.size(); ++k)
 		{
+			// Only closed primitives displace water. A triangle is a drag surface, not a boundary enclosing a water column.
+			auto displaces_water = true;
+			switch (prims[k]->m_type)
+			{
+				case EShape::Box:
+				case EShape::Sphere:
+				case EShape::Line:
+				case EShape::Polytope:
+				{
+					// These primitives enclose the volume integrated by the surface pressure.
+					break;
+				}
+				case EShape::Triangle:
+				{
+					// Keep its surface area for drag without creating a fictitious signed volume.
+					displaces_water = false;
+					break;
+				}
+				default:
+				{
+					// Primitive collection must not admit an unsupported shape.
+					throw std::invalid_argument("Unsupported buoyancy primitive");
+				}
+			}
 			auto const& plan = surface_plans[k].m_plan;
 			for (uint32_t i = 0; i != plan.m_count; ++i)
 			{
@@ -515,7 +539,7 @@ namespace pr::physics::buoyancy
 				// (depth +/- cell_height/2), so its wet part has mean depth (depth + cell_height/2)/2.
 				auto const depth = h - signed_height;
 				auto const wet_depth = wet_fraction < 1.0f ? 0.5f * (depth + 0.5f * cell_height) : depth;
-				auto const depth_area = wet_weight * wet_depth;
+				auto const depth_area = displaces_water ? wet_weight * wet_depth : 0.0f;
 
 				// The vertical water column between the sample and the surface has signed volume -n.up * depth_area.
 				// The columns sum to the wet volume, so they carry the volume terms.

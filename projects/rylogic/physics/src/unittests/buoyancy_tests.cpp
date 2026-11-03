@@ -864,8 +864,10 @@ namespace pr::physics::tests
 		}
 
 		// Exercise shared emission above one reduction block's capacity, including transformed, partially wet compounds.
+		// Streaming large surface plans must preserve the CPU oracle's volume, force, and torque for primitives and mixed compounds.
 		PRUnitTestMethod(GpuSurfaceStreamingAndCompoundParity, Extended)
 		{
+			// Include a drag-only triangle in the compound so its open surface cannot corrupt the volume integral.
 			auto box = collision::ShapeBox(v4{2, 2, 2, 0});
 			auto sphere = collision::ShapeSphere(1.0f);
 			v4 points[] = {v4{1,0,0,1}, v4{-1,0,0,1}, v4{0,1,0,1}, v4{0,-1,0,1}, v4{0,0,1,1}, v4{0,0,-1,1}};
@@ -885,8 +887,10 @@ namespace pr::physics::tests
 			// Run one dynamic target at a time so contact forces cannot contaminate surface diagnostics.
 			for (auto const* shape : shapes)
 			{
+				// Cover full immersion and a waterline cutting the hull.
 				for (auto level_offset : {-3.0f, 0.13f})
 				{
+					// Match the CPU oracle's initial pose and velocity before the engine advances.
 					Harness h;
 					auto config = h.GetConfig();
 					config.m_surface_spacing = 0.035f;
@@ -916,16 +920,67 @@ namespace pr::physics::tests
 						.m_air_density = h.GetConfig().m_air.m_density,
 						.m_added_mass_coefficient = config.m_added_mass_coefficient,
 						.m_surface_spacing = config.m_surface_spacing,
-							};
+					};
 					auto const oracle = buoyancy::SampleHull(*shape, oracle_body, buoyancy::WaterFrame{}, FlatField{}, oracle_cfg);
 					h.m_engine.Step(0.0001f, std::span{h.m_bodies});
 					auto const diag = h.Diagnostics(0);
 					auto const force = oracle.m_buoyancy_force_ws + oracle.m_drag_force_ws;
 					auto const torque = oracle.m_buoyancy_torque_ws + oracle.m_drag_torque_ws;
+					log_stream() << std::format("shape={}, offset={}, GPU volume={}, CPU volume={}, difference={}\n", static_cast<int>(shape->m_type), level_offset, diag.m_volume_m3, oracle.m_volume_m3, diag.m_volume_m3 - oracle.m_volume_m3);
 					PR_EXPECT(diag.m_valid);
 					PR_EXPECT(FEqlAbsolute(diag.m_volume_m3, oracle.m_volume_m3, 0.002f));
 					PR_EXPECT(FEqlAbsolute(diag.m_force_ws, force, std::max(Length(force) * 0.001f, 0.1f)));
 					PR_EXPECT(FEqlAbsolute(diag.m_torque_ws, torque, std::max(Length(torque) * 0.003f, 0.2f)));
+				}
+			}
+		}
+
+		// A triangle retains surface drag but contributes no volume response, including the implicit waterline solve.
+		PRUnitTestMethod(TriangleIsDragOnly, Extended)
+		{
+			// Check both normal directions at different depths, with and without surface drag.
+			for (auto reversed : {false, true})
+			{
+				// The horizontal triangle has area 1 m^2 and a uniform velocity, giving an analytic surface force.
+				auto triangle = collision::ShapeTriangle(v4{-1, 0, 0, 1}, reversed ? v4{0, 1, 0, 1} : v4{1, 0, 0, 1}, reversed ? v4{1, 0, 0, 1} : v4{0, 1, 0, 1});
+				auto const normal = reversed ? -v4::ZAxis() : v4::ZAxis();
+				for (auto height : {-10.0f, -3.0f, 0.0f})
+				{
+					// With drag disabled, even a moving wet triangle must retain its velocity without fictitious pressure or stiffness.
+					for (auto surface_drag : {false, true})
+					{
+						// Keep volume-based response enabled while controlling only surface drag. Fully dry hulls bypass the GPU water pass.
+						Harness h;
+						auto config = h.GetConfig();
+						config.m_linear_drag_time_constant_s = 0.3f;
+						config.m_angular_drag_time_constant_s = 0.4f;
+						config.m_added_mass_coefficient = 0.8f;
+						config.m_quadratic_drag_coefficient = surface_drag ? 1.0f : 0.0f;
+						config.m_tangential_drag_coefficient = surface_drag ? 1.0f : 0.0f;
+						h.SetConfig(config);
+						h.m_bodies.emplace_back();
+						auto& body = h.m_bodies[0];
+						body.Shape(&triangle.m_base, 500.0f);
+						body.O2W(m4x4::Translation(0, 0, height));
+						body.GravityWS(v4::Zero());
+						auto const velocity = 2.0f * (normal + v4::XAxis());
+						body.VelocityWS(v4::Zero(), velocity);
+						h.m_engine.Step(0.0001f, std::span{h.m_bodies});
+						auto const diag = h.Diagnostics(0);
+						auto const wet_fraction = height < 0.0f ? 1.0f : 0.5f;
+						auto const expected_drag = surface_drag ? -2.0f * config.m_density * wet_fraction * (normal + v4::XAxis()) - 2.0f * config.m_air.m_density * (1.0f - wet_fraction) * normal : v4::Zero();
+						log_stream() << std::format("reversed={}, height={}, surface_drag={}, diagnostics={}\n", reversed, height, surface_drag, diag.m_valid);
+						PR_EXPECT(diag.m_valid);
+						PR_EXPECT(diag.m_volume_m3 == 0.0f);
+						PR_EXPECT(FEqlAbsolute(diag.m_force_ws, expected_drag, 0.01f));
+						PR_EXPECT(Length(diag.m_torque_ws) < 0.01f);
+						if (!surface_drag)
+						{
+							// No other force acts, so a velocity change would reveal a hidden volume or waterline contribution.
+							PR_EXPECT(FEqlAbsolute(body.VelocityWS().lin, velocity, 1e-5f));
+							PR_EXPECT(Length(body.VelocityWS().ang) < 1e-5f);
+						}
+					}
 				}
 			}
 		}

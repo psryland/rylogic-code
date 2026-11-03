@@ -8,6 +8,7 @@
 // (Box / Sphere / Capsule / Triangle / Polytope) or a collision::ShapeArray of such primitives. The sampled
 // composite buoyancy backend treats the body as the OR-union of those primitives and samples it
 // over its surface: water pressure on the wet surface gives buoyancy, and the relative flow gives drag.
+// Zero-thickness triangles contribute surface drag only; they do not displace water or contribute pressure, added mass, or waterline stiffness.
 //
 // This header flattens a collision::Shape into an owned, immutable CompositeHull whose layout is
 // already the layout the GPU buffers will use. We flatten/copy at registration time (rather than
