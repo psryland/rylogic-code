@@ -212,8 +212,11 @@ namespace pr::physics
 			.data = v4::Zero(),
 		};
 	}
-	inline GpuShape PackShape(collision::Shape const& shape, std::vector<v4>& vertex_buffer, std::vector<GpuPolytopeFace>* face_buffer = nullptr, std::vector<GpuPolytopeEdge>* edge_buffer = nullptr, m4x4 const& p2rb = m4x4::Identity())
+	// Pack a shape, appending its geometry to caller-owned growable buffers.
+	template <typename VertexBuffer, typename FaceBuffer = std::vector<GpuPolytopeFace>, typename EdgeBuffer = std::vector<GpuPolytopeEdge>>
+	inline GpuShape PackShape(collision::Shape const& shape, VertexBuffer& vertex_buffer, FaceBuffer* face_buffer = nullptr, EdgeBuffer* edge_buffer = nullptr, m4x4 const& p2rb = m4x4::Identity())
 	{
+		// Shape-specific packing uses only buffer size and append operations, not a particular container's ownership.
 		using namespace collision;
 
 		switch (shape.m_type)

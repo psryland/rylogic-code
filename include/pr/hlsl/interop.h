@@ -28,6 +28,7 @@
 #include <atomic>
 
 #include "pr/math/math.h"
+#include "pr/container/vector.h"
 
 namespace pr::hlsl
 {
@@ -59,51 +60,66 @@ namespace pr::hlsl
 	template <typename T>
 	using ConstantBuffer = T;
 
+	// Own an emulated read-only shader buffer. Empty buffers must not allocate, including Debug iterator bookkeeping:
+	// namespace-scope TLS is constructed even on foreign DLL threads, which can exit after the static CRT has shut down.
 	template <typename T>
-	struct StructuredBuffer : std::vector<T>
+	struct StructuredBuffer : pr::vector<T, 0>
 	{
+		// Replace the buffer with value-initialised elements.
 		void reset(size_t count = 0)
 		{
-			std::vector<T>::resize(0);
-			std::vector<T>::resize(count);
+			// Discard previous values before creating the requested element count.
+			pr::vector<T, 0>::resize(0);
+			pr::vector<T, 0>::resize(count);
 		}
+		// Copy a span whose elements have the same size and alignment as the shader element type.
 		template <typename U> void assign(std::span<U const> data)
 		{
+			// Reinterpret layout-compatible input without changing the shader's element count.
 			static_assert(sizeof(U) == sizeof(T), "Data type size must match buffer element size");
 			static_assert(alignof(U) == alignof(T), "Data type alignment must match buffer element alignment");
 			auto const* ptr = reinterpret_cast<T const*>(data.data());
-			std::vector<T>::assign(ptr, ptr + data.size());
+			pr::vector<T, 0>::assign(ptr, ptr + data.size());
 		}
+		// View the buffer as elements with the same size and alignment as the shader element type.
 		template <typename U> std::span<U const> as_span() const
 		{
+			// Preserve the shader layout when exposing the stored elements.
 			static_assert(sizeof(U) == sizeof(T), "Data type size must match buffer element size");
 			static_assert(alignof(U) == alignof(T), "Data type alignment must match buffer element alignment");
-			auto const* ptr = reinterpret_cast<U const*>(std::vector<T>::data());
-			return std::span<U const>(ptr, std::vector<T>::size());
+			auto const* ptr = reinterpret_cast<U const*>(pr::vector<T, 0>::data());
+			return std::span<U const>(ptr, pr::vector<T, 0>::size());
 		}
 	};
 
+	// Own an emulated writable shader buffer. Empty TLS buffers have the same allocation-free lifetime as StructuredBuffer.
 	template <typename T>
-	struct RWStructuredBuffer : std::vector<T>
+	struct RWStructuredBuffer : pr::vector<T, 0>
 	{
+		// Replace the buffer with value-initialised elements.
 		void reset(size_t count = 0)
 		{
-			std::vector<T>::resize(0);
-			std::vector<T>::resize(count);
+			// Discard previous values before creating the requested element count.
+			pr::vector<T, 0>::resize(0);
+			pr::vector<T, 0>::resize(count);
 		}
+		// Copy a span whose elements have the same size and alignment as the shader element type.
 		template <typename U> void assign(std::span<U const> data)
 		{
+			// Reinterpret layout-compatible input without changing the shader's element count.
 			static_assert(sizeof(U) == sizeof(T), "Data type size must match buffer element size");
 			static_assert(alignof(U) == alignof(T), "Data type alignment must match buffer element alignment");
 			auto const* ptr = reinterpret_cast<T const*>(data.data());
-			std::vector<T>::assign(ptr, ptr + data.size());
+			pr::vector<T, 0>::assign(ptr, ptr + data.size());
 		}
+		// View the buffer as elements with the same size and alignment as the shader element type.
 		template <typename U> std::span<U const> as_span() const
 		{
+			// Preserve the shader layout when exposing the stored elements.
 			static_assert(sizeof(U) == sizeof(T), "Data type size must match buffer element size");
 			static_assert(alignof(U) == alignof(T), "Data type alignment must match buffer element alignment");
-			auto const* ptr = reinterpret_cast<U const*>(std::vector<T>::data());
-			return std::span<U const>(ptr, std::vector<T>::size());
+			auto const* ptr = reinterpret_cast<U const*>(pr::vector<T, 0>::data());
+			return std::span<U const>(ptr, pr::vector<T, 0>::size());
 		}
 	};
 

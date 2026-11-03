@@ -337,16 +337,26 @@ namespace pr::unittests
 		// and releasing objects such as D3D12 devices at that point can deadlock with other threads that are loading DLLs.
 		static void AddClassFixture(std::function<void()> release)
 		{
-			ClassFixtures.push_back(std::move(release));
+			// Keep fixture ownership on the thread that runs the class.
+			ClassFixtures().push_back(std::move(release));
 		}
 
 		// Destroy the current thread's class fixtures, newest first so fixtures built on other fixtures are released before them.
 		static void ReleaseClassFixtures()
 		{
-			for (; !ClassFixtures.empty(); ClassFixtures.pop_back())
-				ClassFixtures.back()();
+			// Release dependent fixtures before the fixtures they use.
+			auto& fixtures = ClassFixtures();
+			for (; !fixtures.empty(); fixtures.pop_back())
+				fixtures.back()();
 		}
-		inline static thread_local std::vector<std::function<void()>> ClassFixtures;
+
+		// Return the current test thread's fixtures without creating a list on unrelated DLL threads.
+		static std::vector<std::function<void()>>& ClassFixtures()
+		{
+			// Function-local TLS is constructed only when this thread participates in fixture ownership.
+			static thread_local auto fixtures = std::vector<std::function<void()>>{};
+			return fixtures;
+		}
 
 		// Append a unit test to the Tests() collection
 		template <typename T>
