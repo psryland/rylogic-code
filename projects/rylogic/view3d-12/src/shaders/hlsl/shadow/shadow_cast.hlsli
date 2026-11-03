@@ -94,8 +94,8 @@ float ShadowVisibility(Texture2D<float> atlas, SamplerComparisonState cmp_sample
 	float3 norm = normalize(ws_norm.xyz + float3(0, 0, TINY));
 	norm = dot(norm, light_dir.xyz) > 0 ? -norm : norm;
 
-	// Choose the view that covers 'ws_pos'. Point lights have one view per cube face. Directional lights have cascades
-	// ordered from nearest to furthest, and use the first cascade that contains the point with room for the filter.
+	// Point lights have one view per cube face. Directional cascades are ordered from finest to coarsest, with filtered
+	// visibility blended across the outer tenth of each view's usable area rather than switching abruptly at its border.
 	int first = light.info.y;
 	int count = DirectionalLight(light) ? light.info.z : 1;
 	if (PointLight(light))
@@ -108,8 +108,14 @@ float ShadowVisibility(Texture2D<float> atlas, SamplerComparisonState cmp_sample
 	if (fade >= 1.0f)
 		return 1.0f;
 
+	// Fine views consume their share of the visibility first. Uncovered weight passes to the next valid, coarser view.
+	float visibility = 0.0f;
+	float covered = 0.0f;
+	float remaining = 1.0f;
+	float last_visibility = 1.0f;
 	for (int i = 0; i != count; ++i)
 	{
+		// Each view keeps its own projection, normal offset, atlas rectangle, and filter footprint.
 		ShadowView view = views[first + i];
 		float margin = view.bias.y * 0.5f + 1.0f;
 
@@ -127,16 +133,14 @@ float ShadowVisibility(Texture2D<float> atlas, SamplerComparisonState cmp_sample
 		if (DirectionalLight(light))
 			ss_pos.z = saturate(ss_pos.z);
 
-		// Try the next cascade if the point, with the filter area around it, is not inside this one. The last view is used if it contains the point at all.
+		// The blend ends at the filter-safe border. A receiver inside the view but outside this inset can still use its clamped sample
+		// if no coarser view covers it, rather than losing a valid shadow.
 		float2 inset = margin * texel / view.atlas_rect.xy;
 		bool inside = ss_pos.w > 0 && all(uv >= 0.0f) && all(uv <= 1.0f) && ss_pos.z >= 0.0f && ss_pos.z <= 1.0f;
-		bool inside_filter = inside && all(uv >= inset) && all(uv <= 1.0f - inset);
-		if (!inside_filter && i + 1 != count)
-			continue;
 
-		// Points outside every view are not covered by any caster, so they are lit
+		// Missing coarse coverage must not discard a valid finer shadow or fade it to light.
 		if (!inside)
-			return 1.0f;
+			continue;
 
 		// Map to the view's region of the atlas. Keep the filter footprint inside the region so neighbouring views are never sampled.
 		// The filter width is the light's, limited by 'g_shadow_filter_max'. Testing the limit first lets a constant limit of 1 remove the
@@ -144,9 +148,24 @@ float ShadowVisibility(Texture2D<float> atlas, SamplerComparisonState cmp_sample
 		float2 atlas_uv = uv * view.atlas_rect.xy + view.atlas_rect.zw;
 		atlas_uv = clamp(atlas_uv, view.atlas_rect.zw + margin * texel, view.atlas_rect.zw + view.atlas_rect.xy - margin * texel);
 		int filter_size = g_shadow_filter_max > 1 ? min((int)view.bias.y, g_shadow_filter_max) : 1;
-		return lerp(FilteredShadow(atlas, cmp_sampler, atlas_uv, ss_pos.z, atlas_dim, filter_size), 1.0f, fade);
+		last_visibility = FilteredShadow(atlas, cmp_sampler, atlas_uv, ss_pos.z, atlas_dim, filter_size);
+
+		// The fine weight reaches zero at the filter-safe border, so crossing to a coarser view remains continuous even at different resolutions.
+		// Coarse views also enter smoothly at their own borders. Normalising the covered weight preserves shadows when only one view covers
+		// the receiver, without assuming the cascade projections are nested. Single-view lights need no transition.
+		float2 edge = min(uv - inset, 1.0f - inset - uv) / (1.0f - 2.0f * inset);
+		float weight = count > 1 ? smoothstep(0.0f, 0.1f, min(edge.x, edge.y)) : 1.0f;
+		float contribution = remaining * weight;
+		visibility += contribution * last_visibility;
+		covered += contribution;
+		remaining *= 1.0f - weight;
+		if (remaining == 0.0f)
+			break;
 	}
-	return 1.0f;
+
+	// Renormalise partial coverage rather than inventing an unshadowed contribution. Clamped border samples remain a fallback when
+	// no filter-safe interior covers the receiver; no coverage at all leaves the initial fully lit value.
+	return lerp(covered > 0.0f ? visibility / covered : last_visibility, 1.0f, fade);
 }
 
 #endif
