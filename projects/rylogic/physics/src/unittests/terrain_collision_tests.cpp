@@ -844,6 +844,33 @@ namespace pr::physics::tests
 			PR_EXPECT(surface::EmitSurfaceSample(thin, thin.m_count - 1).m_pos_local.z == 1);
 		}
 
+		// A capsule much thinner than the spacing still has a closed, rotationally balanced surface, so pressure on it is correct in any orientation.
+		PRUnitTestMethod(CoarseCapsuleSurfaceIsBalanced, Extended)
+		{
+			auto line = collision::ShapeLine(0.25f, 0.02f);
+			auto plan = surface::BuildPlan(line, 1.0f);
+			auto normal_sum = v4::Zero();
+			auto xx = 0.0f;
+			auto yy = 0.0f;
+			auto xy = 0.0f;
+
+			// Integrate the normals and their side-on second moments.
+			for (uint32_t i = 0; i != plan.m_count; ++i)
+			{
+				auto const sample = surface::EmitSurfaceSample(plan, i);
+				auto const n = sample.m_normal_local;
+				normal_sum += n * sample.m_darea;
+				xx += n.x * n.x * sample.m_darea;
+				yy += n.y * n.y * sample.m_darea;
+				xy += n.x * n.y * sample.m_darea;
+			}
+
+			// Net normal area must vanish, and the moments must not prefer a sideways direction.
+			PR_EXPECT(Length(normal_sum) < 1e-6f);
+			PR_EXPECT(FEqlAbsolute(xx, yy, 1e-6f));
+			PR_EXPECT(FEqlAbsolute(xy, 0.0f, 1e-6f));
+		}
+
 		// A falling box settles with its lower face at the independently known flat terrain height.
 		PRUnitTestMethod(FlatBoxGpuRest, Extended)
 		{

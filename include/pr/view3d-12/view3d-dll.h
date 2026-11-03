@@ -221,6 +221,17 @@ namespace pr
 			ProceduralVertexId, // U32 indices are logical SV_VertexID values decoded by caller vertex shaders.
 			GpuGeneratedBuffer, // A compute shader fills the canonical buffered vertices once during creation.
 		};
+		enum class EAOQuality :int // rdr12::EAOQuality
+		{
+			Low,
+			Medium,
+			High,
+		};
+		enum class EAOResolution :int // rdr12::EAOResolution
+		{
+			Half,
+			Full,
+		};
 		enum class ELight :int
 		{
 			Directional,
@@ -692,6 +703,20 @@ namespace pr
 			Vec4 m_surface = {};
 			float m_fade_depth = 0.0f;
 			float m_waterline_offsets[64] = {};
+		};
+
+		// Screen-space ambient occlusion of opaque surfaces. Requires finite 'm_radius' > 0 (world units), 'm_intensity' >= 0, 'm_falloff' in (0,1],
+		// and 'm_max_screen_radius' > 0 (fraction of the viewport height). See AmbientOcclusionProps in post_processing.h.
+		struct AmbientOcclusionProps
+		{
+			BOOL m_enabled = FALSE;
+			float m_radius = 0.5f;
+			float m_intensity = 1.0f;
+			float m_falloff = 0.6f;
+			float m_max_screen_radius = 0.1f;
+			EAOQuality m_quality = EAOQuality::Medium;
+			EAOResolution m_resolution = EAOResolution::Half;
+			BOOL m_debug_view = FALSE;
 		};
 
 		// Parameters for a UV-free GPU procedural surface applied to a PBR material.
@@ -1297,8 +1322,13 @@ extern "C"
 	VIEW3D_API pr::view3d::RayTracingProps __stdcall View3D_RayTracingPropertiesGet(pr::view3d::Window window);
 	VIEW3D_API void __stdcall View3D_RayTracingPropertiesSet(pr::view3d::Window window, pr::view3d::RayTracingProps const& props);
 
+	// Get/Set the per-window underwater post effect properties
 	VIEW3D_API pr::view3d::UnderwaterProps __stdcall View3D_PostEffectUnderwaterGet(pr::view3d::Window window);
 	VIEW3D_API BOOL __stdcall View3D_PostEffectUnderwaterSet(pr::view3d::Window window, pr::view3d::UnderwaterProps const& props);
+	
+	// Get/Set the per-window ambient occlusion properties
+	VIEW3D_API pr::view3d::AmbientOcclusionProps __stdcall View3D_AmbientOcclusionGet(pr::view3d::Window window);
+	VIEW3D_API BOOL __stdcall View3D_AmbientOcclusionSet(pr::view3d::Window window, pr::view3d::AmbientOcclusionProps const& props);
 
 	// Get/Set the dimensions of the render target. Note: Not equal to window size for non-96 dpi screens!
 	// In set, 'width' and 'height' must both be greater than zero. A zero-area window has no back buffer, so callers skip such resizes.

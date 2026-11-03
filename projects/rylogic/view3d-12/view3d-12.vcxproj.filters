@@ -937,6 +937,9 @@
     <ShaderBuild Include="src\shaders\hlsl\postprocessing\underwater.hlsl">
       <Filter>src\shaders\hlsl\postprocessing</Filter>
     </ShaderBuild>
+    <ShaderBuild Include="src\shaders\hlsl\postprocessing\ambient_occlusion.hlsl">
+      <Filter>src\shaders\hlsl\postprocessing</Filter>
+    </ShaderBuild>
   </ItemGroup>
   <ItemGroup>
     <None Include="cpp.hint" />
@@ -983,6 +986,9 @@
       <Filter>pr\hlsl</Filter>
     </None>
     <None Include="src\shaders\hlsl\postprocessing\underwater_cbuf.hlsli">
+      <Filter>src\shaders\hlsl\postprocessing</Filter>
+    </None>
+    <None Include="src\shaders\hlsl\postprocessing\ambient_occlusion_cbuf.hlsli">
       <Filter>src\shaders\hlsl\postprocessing</Filter>
     </None>
     <None Include="$(RylogicRoot)include\pr\view3d-12\postprocessing\postprocessing.md">

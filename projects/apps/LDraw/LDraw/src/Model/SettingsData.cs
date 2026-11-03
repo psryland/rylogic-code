@@ -228,6 +228,7 @@ namespace LDraw
 			Ambient = new Colour32(0xFF808080);
 			Shadows = new ShadowData();
 			RayTracing = new RayTracingData();
+			AmbientOcclusion = 0f;
 		}
 
 		/// <summary>The name of the scene that this state data belongs to</summary>
@@ -284,6 +285,13 @@ namespace LDraw
 		{
 			get => get<RayTracingData>(nameof(RayTracing));
 			set => set(nameof(RayTracing), value);
+		}
+
+		/// <summary>Screen-space ambient occlusion strength for this scene (0 = off). See View3d.AmbientOcclusionProps.Strength</summary>
+		public float AmbientOcclusion
+		{
+			get => get<float>(nameof(AmbientOcclusion));
+			set => set(nameof(AmbientOcclusion), value);
 		}
 	}
 

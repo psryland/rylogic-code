@@ -3361,6 +3361,12 @@ extern "C"
 						has_mass = value.mass_or_density > 0.0f;
 						break;
 					}
+					case PhysicsMassMode::MaterialDensity:
+					{
+						// The shape's materials supply the densities, and they are validated when the mass properties are derived
+						has_mass = true;
+						break;
+					}
 					default:
 					{
 						throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Unknown body mass mode");
@@ -3373,20 +3379,23 @@ extern "C"
 			body_record->m_body = std::make_unique<pr::physics::RigidBody>(shape_record.Shape(), pr::physics::ToNative(value.object_to_world), pr::physics::Inertia::Infinite());
 			if (has_mass)
 			{
+				// Translate the ABI mass distribution
+				auto ToNativeDistribution = [&]
+				{
+					switch (value.mass_distribution)
+					{
+						case PhysicsBodyMassDistribution::Solid: { return pr::physics::EMassDistribution::Solid; }
+						case PhysicsBodyMassDistribution::Shell: { return pr::physics::EMassDistribution::Shell; }
+						default: { throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Unknown body mass distribution"); }
+					}
+				};
+
 				// Derive mass properties from the shape using the requested mass distribution. Static and kinematic bodies keep them for a later switch
 				// to Dynamic. Shapes that cannot hold a shell are caller errors.
 				auto DeriveMassProperties = [&](bool is_density)
 				{
-					// Translate the ABI distribution
-					auto distribution = pr::physics::EMassDistribution::Solid;
-					switch (value.mass_distribution)
-					{
-						case PhysicsBodyMassDistribution::Solid: { distribution = pr::physics::EMassDistribution::Solid; break; }
-						case PhysicsBodyMassDistribution::Shell: { distribution = pr::physics::EMassDistribution::Shell; break; }
-						default: { throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Unknown body mass distribution"); }
-					}
-
 					// Report unsupported shape and distribution combinations as invalid arguments
+					auto distribution = ToNativeDistribution();
 					try
 					{
 						body_record->m_body->Shape(shape_record.Shape(), value.mass_or_density, is_density, distribution);
@@ -3418,6 +3427,31 @@ extern "C"
 							throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Body density must be positive");
 
 						DeriveMassProperties(true);
+						break;
+					}
+					case PhysicsMassMode::MaterialDensity:
+					{
+						// Each leaf takes the density of its own material, so compounds can mix materials
+						auto distribution = ToNativeDistribution();
+						auto DensityOf = [&](pr::collision::Shape const& leaf)
+						{
+							auto density = record.m_engine->Material(leaf.m_material_id).m_density;
+							if (!(density > 0.0f) || !std::isfinite(density))
+								throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Material density must be positive and finite");
+
+							return density;
+						};
+
+						// Report unsupported shape and distribution combinations as invalid arguments
+						try
+						{
+							auto mp = pr::physics::CalcMassProperties(*shape_record.Shape(), DensityOf, distribution);
+							body_record->m_body->Shape(shape_record.Shape(), pr::physics::Inertia{mp}, mp.m_centre_of_mass);
+						}
+						catch (std::invalid_argument const& ex)
+						{
+							throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, ex.what());
+						}
 						break;
 					}
 					default:

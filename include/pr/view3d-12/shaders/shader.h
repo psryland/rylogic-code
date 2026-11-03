@@ -163,6 +163,11 @@ namespace pr::rdr12
 		// Post-processing
 		extern ByteCode const post_effect_vs;
 		extern ByteCode const underwater_ps;
+		extern ByteCode const ao_prefilter_cs;
+		extern ByteCode const ao_main_cs;
+		extern ByteCode const ao_blur_cs;
+		extern ByteCode const ao_apply_ps;
+		extern ByteCode const ao_debug_ps;
 
 		// Ray cast
 		extern ByteCode const ray_cast_vs;

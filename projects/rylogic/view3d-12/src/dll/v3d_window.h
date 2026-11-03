@@ -159,6 +159,10 @@ namespace pr::rdr12
 		UnderwaterProps PostEffectUnderwater() const;
 		void PostEffectUnderwater(UnderwaterProps const& props);
 
+		// Ambient occlusion settings, owned by this window's scene.
+		AmbientOcclusionProps AmbientOcclusion() const;
+		void AmbientOcclusion(AmbientOcclusionProps const& props);
+
 		// The DPI of the monitor that this window is displayed on
 		v2 Dpi() const;
 

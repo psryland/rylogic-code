@@ -429,6 +429,21 @@ namespace Rylogic.Gfx
 				}
 			}
 
+			/// <summary>Screen-space ambient occlusion of opaque surfaces. Transparent surfaces, overlays, and UI are not darkened.</summary>
+			public AmbientOcclusionProps AmbientOcclusion
+			{
+				get
+				{
+					return View3D_AmbientOcclusionGet(Handle);
+				}
+				set
+				{
+					value.Validate();
+					if (!View3D_AmbientOcclusionSet(Handle, ref value))
+						throw new InvalidOperationException("The renderer rejected the ambient occlusion settings.");
+				}
+			}
+
 			/// <summary>Enumerate the GUIDs associated with this window</summary>
 			public void EnumGuids(Action<Guid> cb)
 			{

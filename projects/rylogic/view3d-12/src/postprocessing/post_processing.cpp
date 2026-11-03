@@ -13,6 +13,7 @@
 #include "pr/view3d-12/texture/texture_desc.h"
 #include "view3d-12/src/shaders/common.h"
 #include "view3d-12/src/shaders/hlsl/postprocessing/underwater_cbuf.hlsli"
+#include "view3d-12/src/shaders/hlsl/postprocessing/ambient_occlusion_cbuf.hlsli"
 
 namespace pr::rdr12
 {
@@ -101,10 +102,46 @@ namespace pr::rdr12
 		return { EUnderwaterView::Split, waterline };
 	}
 
+	// Root parameters of the ambient occlusion passes. See ambient_occlusion.hlsl for the bindings.
+	enum class EAORootParam
+	{
+		Constants = 0,
+		SceneDepth = 1,
+		ViewDepth = 2,
+		AOInput = 3,
+		Output = 4,
+	};
+
+	// The number of viewport pixels per AO texel along each axis.
+	static int AOScale(EAOResolution resolution)
+	{
+		switch (resolution)
+		{
+			case EAOResolution::Half: { return 2; }
+			case EAOResolution::Full: { return 1; }
+			default: { throw std::invalid_argument("Unknown ambient occlusion resolution"); }
+		}
+	}
+
+	// The number of search directions and samples on each side of the texel per direction.
+	static std::pair<int, int> AOSampling(EAOQuality quality)
+	{
+		switch (quality)
+		{
+			case EAOQuality::Low: { return { 1, 2 }; }
+			case EAOQuality::Medium: { return { 2, 3 }; }
+			case EAOQuality::High: { return { 3, 4 }; }
+			default: { throw std::invalid_argument("Unknown ambient occlusion quality"); }
+		}
+	}
+
 	PostProcessing::PostProcessing(Renderer& rdr)
 		: m_rdr(&rdr)
 		, m_underwater()
+		, m_ao()
 		, m_clock_start(std::chrono::steady_clock::now())
+		, m_ao_res()
+		, m_ao_cmd_list(rdr.d3d(), nullptr, "AmbientOcclusion", EColours::DarkGrey)
 		, m_targets()
 		, m_target_size()
 		, m_target_format(DXGI_FORMAT_UNKNOWN)
@@ -114,13 +151,15 @@ namespace pr::rdr12
 	{}
 	PostProcessing::~PostProcessing()
 	{
+		// Hand the pipeline objects to the renderer so they outlive any frame still using them.
+		ReleaseAOResources();
 		ReleaseResources();
 	}
 
 	// True if any effect is enabled
 	bool PostProcessing::AnyEnabled() const
 	{
-		return m_underwater.m_enabled;
+		return m_underwater.m_enabled || m_ao.m_enabled;
 	}
 
 	// Get/Set the underwater effect settings
@@ -134,11 +173,28 @@ namespace pr::rdr12
 		m_underwater = props;
 	}
 
+	// Get/Set the ambient occlusion settings
+	AmbientOcclusionProps const& PostProcessing::AmbientOcclusion() const
+	{
+		return m_ao;
+	}
+	void PostProcessing::AmbientOcclusion(AmbientOcclusionProps const& props)
+	{
+		props.Validate();
+		m_ao = props;
+	}
+
 	// Record the enabled effects for 'scene' into 'frame'.
 	void PostProcessing::Render(Frame& frame, Scene const& scene)
 	{
-		// Disabled effects hold no GPU memory and record nothing.
-		if (!AnyEnabled())
+		// Ambient occlusion darkens the opaque colour in its own command list, before transparent surfaces are composited.
+		if (m_ao.m_enabled)
+			RecordAmbientOcclusion(frame, scene);
+		else
+			ReleaseAOResources();
+
+		// The effects after compositing hold no GPU memory and record nothing while disabled.
+		if (!m_underwater.m_enabled)
 		{
 			ReleaseResources();
 			return;
@@ -325,7 +381,7 @@ namespace pr::rdr12
 		}
 	}
 
-	// Release all GPU resources once the GPU no longer uses them.
+	// Release the resources of the effects that run after compositing, once the GPU no longer uses them.
 	void PostProcessing::ReleaseResources()
 	{
 		// Textures defer their own release; pipeline objects are handed to the renderer.
@@ -340,6 +396,258 @@ namespace pr::rdr12
 		m_pso_underwater = nullptr;
 		m_signature = nullptr;
 		m_pso_format = DXGI_FORMAT_UNKNOWN;
+	}
+
+	// Create or resize the ambient occlusion resources for an AO buffer of 'size' and an output of 'format'.
+	void PostProcessing::EnsureAOResources(iv2 size, DXGI_FORMAT format)
+	{
+		// The resources exist only while the effect is enabled.
+		if (m_ao_res == nullptr)
+			m_ao_res = std::make_unique<AOResources>();
+
+		auto& res = *m_ao_res;
+		auto device = m_rdr->d3d();
+
+		// Recreate the AO buffers when the viewport size changes. Linear depth needs full float precision; occlusion is in [0,1].
+		if (Any(res.m_size != size))
+		{
+			// Each buffer is written by one compute pass and read by later ones.
+			ResourceFactory factory(*m_rdr);
+			auto Create = [&](DXGI_FORMAT fmt, char const* name)
+			{
+				auto desc = ResDesc::Tex2D(Image{ size.x, size.y, nullptr, fmt }, 1U, EUsage::UnorderedAccess).def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
+				return factory.CreateTexture2D(TextureDesc(AutoId, desc).name(name));
+			};
+			res.m_depth = Create(DXGI_FORMAT_R32_FLOAT, "AO-ViewDepth");
+			res.m_ao[0] = Create(DXGI_FORMAT_R16_FLOAT, "AO-Raw");
+			res.m_ao[1] = Create(DXGI_FORMAT_R16_FLOAT, "AO-Blurred");
+			res.m_size = size;
+		}
+
+		// Create the root signature and the compute pipelines. These do not depend on the output.
+		if (res.m_signature == nullptr)
+		{
+			// Each texture has its own table so passes bind only the textures they use.
+			res.m_signature = RootSig(ERootSigFlags::GraphicsOnly)
+				.CBuf(hlsl::ECBufReg::b0)
+				.SRV(hlsl::ESRVReg::t0, 1)
+				.SRV(hlsl::ESRVReg::t1, 1)
+				.SRV(hlsl::ESRVReg::t2, 1)
+				.UAV(hlsl::EUAVReg::u0, 1)
+				.Create(device, "AmbientOcclusionSig");
+
+			res.m_pso_prefilter = ComputePSO(res.m_signature.get(), shader_code::ao_prefilter_cs).Create(device, "AOPrefilterPSO");
+			res.m_pso_main = ComputePSO(res.m_signature.get(), shader_code::ao_main_cs).Create(device, "AOMainPSO");
+			res.m_pso_blur = ComputePSO(res.m_signature.get(), shader_code::ao_blur_cs).Create(device, "AOBlurPSO");
+		}
+
+		// Create the full-resolution pipelines for the output format. Views of the output use its sRGB sibling, so blending happens in linear colour.
+		auto srgb_format = ToSRGB(format);
+		if (res.m_pso_format != srgb_format)
+		{
+			// Describe a full-screen pass that writes one target without depth.
+			auto CreatePso = [&](D3D12_SHADER_BYTECODE ps, BlendStateDesc const& blend, char const* name)
+			{
+				auto desc = D3D12_GRAPHICS_PIPELINE_STATE_DESC{
+					.pRootSignature = res.m_signature.get(),
+					.VS = shader_code::post_effect_vs,
+					.PS = ps,
+					.DS = shader_code::none,
+					.HS = shader_code::none,
+					.GS = shader_code::none,
+					.StreamOutput = StreamOutputDesc{},
+					.BlendState = blend,
+					.SampleMask = UINT_MAX,
+					.RasterizerState = RasterStateDesc{},
+					.DepthStencilState = DepthStateDesc{}.Enabled(false),
+					.InputLayout = {},
+					.IBStripCutValue = D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED,
+					.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE,
+					.NumRenderTargets = 1U,
+					.RTVFormats = { srgb_format },
+					.DSVFormat = DXGI_FORMAT_UNKNOWN,
+					.SampleDesc = MultiSamp(1, 0),
+					.NodeMask = 0U,
+					.CachedPSO = {},
+					.Flags = D3D12_PIPELINE_STATE_FLAG_NONE,
+				};
+				D3DPtr<ID3D12PipelineState> pso;
+				Check(device->CreateGraphicsPipelineState(&desc, __uuidof(ID3D12PipelineState), (void**)pso.address_of()));
+				DebugName(pso, name);
+				return pso;
+			};
+
+			// The apply pass multiplies the colour by the shader output and keeps the destination alpha. The debug pass replaces the colour.
+			auto multiply = BlendStateDesc{}
+				.enable(0)
+				.blend(0, D3D12_BLEND_OP_ADD, D3D12_BLEND_ZERO, D3D12_BLEND_SRC_COLOR)
+				.blend_alpha(0, D3D12_BLEND_OP_ADD, D3D12_BLEND_ZERO, D3D12_BLEND_ONE);
+
+			m_rdr->DeferRelease(res.m_pso_apply);
+			m_rdr->DeferRelease(res.m_pso_debug);
+			res.m_pso_apply = CreatePso(shader_code::ao_apply_ps, multiply, "AOApplyPSO");
+			res.m_pso_debug = CreatePso(shader_code::ao_debug_ps, BlendStateDesc{}, "AODebugPSO");
+			res.m_pso_format = srgb_format;
+		}
+	}
+
+	// Release the ambient occlusion resources once the GPU no longer uses them.
+	void PostProcessing::ReleaseAOResources()
+	{
+		// Textures defer their own release; pipeline objects are handed to the renderer.
+		if (m_ao_res == nullptr)
+			return;
+
+		auto& res = *m_ao_res;
+		m_rdr->DeferRelease(res.m_pso_prefilter);
+		m_rdr->DeferRelease(res.m_pso_main);
+		m_rdr->DeferRelease(res.m_pso_blur);
+		m_rdr->DeferRelease(res.m_pso_apply);
+		m_rdr->DeferRelease(res.m_pso_debug);
+		m_rdr->DeferRelease(res.m_signature);
+		m_ao_res = nullptr;
+	}
+
+	// Record the ambient occlusion passes for 'scene' into their own command list in 'frame'.
+	void PostProcessing::RecordAmbientOcclusion(Frame& frame, Scene const& scene)
+	{
+		// The effect reads the multi-sampled scene depth and darkens the resolved opaque colour that transparent surfaces are composited over.
+		auto& wnd = scene.wnd();
+		auto const& bb_main = frame.bb_main();
+		auto const& opaque = wnd.m_alpha_kbuffer.m_opaque_colour_1x;
+		if (opaque == nullptr || bb_main.m_depth_stencil == nullptr || !bb_main.m_depth_srv)
+			return;
+
+		// Size the AO buffers to cover the viewport. A partial block at the edge still gets a texel.
+		auto const& vp = scene.m_viewport;
+		auto scale = AOScale(m_ao.m_resolution);
+		auto vp_size = iv2{ s_cast<int>(vp.Width), s_cast<int>(vp.Height) };
+		auto size = (vp_size + iv2{ scale - 1, scale - 1 }) / scale;
+		if (size.x <= 0 || size.y <= 0)
+			return;
+
+		auto output = opaque->m_res.get();
+		EnsureAOResources(size, output->GetDesc().Format);
+		auto& res = *m_ao_res;
+
+		// Build the constants that convert depth buffer values and AO texel indices into view space.
+		auto cb = shaders::post::CBufAmbientOcclusion{};
+		{
+			// Linear depth comes from the z and w rows of the inverse projection, which depend only on the depth value.
+			auto const& cam = scene.m_cam;
+			auto s2c = Invert(cam.CameraToScreen());
+			auto ortho = cam.Orthographic();
+			cb.depth_params = v4{ s2c.z.z, s2c.w.z, s2c.z.w, s2c.w.w };
+
+			// Unproject NDC points to find the view ray slope (perspective) or position (orthographic) as a linear function of NDC xy.
+			auto Unproject = [&](float nx, float ny)
+			{
+				auto p = s2c * v4{ nx, ny, 0.5f, 1.0f };
+				p /= p.w;
+				return ortho ? v4{ p.x, p.y, 0, 0 } : v4{ p.x / -p.z, p.y / -p.z, 0, 0 };
+			};
+			auto r0 = Unproject(0, 0);
+			auto kx = Unproject(1, 0).x - r0.x;
+			auto ky = Unproject(0, 1).y - r0.y;
+
+			// Texel 'u' is at viewport pixel centre 'scale * u + 0.5', so 'ndc.x = (2 * scale / W) * u + (1 / W - 1)'.
+			// Rows run down the screen while camera y is up, so the y terms are negated to give y down.
+			auto W = vp.Width;
+			auto H = vp.Height;
+			cb.view_params = v4{
+				kx * 2.0f * scale / W,
+				ky * 2.0f * scale / H,
+				kx * (1.0f / W - 1.0f) + r0.x,
+				-(ky * (1.0f - 1.0f / H) + r0.y),
+			};
+
+			auto [slices, steps] = AOSampling(m_ao.m_quality);
+			auto falloff_range = m_ao.m_falloff * m_ao.m_radius;
+			auto falloff_from = m_ao.m_radius * (1.0f - m_ao.m_falloff);
+			cb.viewport = v4{ vp.TopLeftX, vp.TopLeftY, vp.Width, vp.Height };
+			cb.ao_size = size;
+			cb.scale = scale;
+			cb.orthographic = ortho ? 1 : 0;
+			cb.clear_depth = bb_main.ds_depth();
+			cb.radius = m_ao.m_radius;
+			cb.texels_per_unit = 1.0f / Abs(cb.view_params.x);
+			cb.max_radius = m_ao.m_max_screen_radius * size.y;
+			cb.falloff_mul = -1.0f / falloff_range;
+			cb.falloff_add = falloff_from / falloff_range + 1.0f;
+			cb.slice_count = slices;
+			cb.step_count = steps;
+			cb.intensity = m_ao.m_intensity;
+		}
+
+		// Record into a separate list that runs after the MSAA resolve and any ray-traced additions to the opaque colour.
+		auto& cmd_list = m_ao_cmd_list;
+		cmd_list.Reset(frame.m_cmd_alloc_pool.Get());
+		frame.m_post.push_back(cmd_list);
+
+		auto heaps = { wnd.m_heap_view.get() };
+		cmd_list.SetDescriptorHeaps({ heaps.begin(), heaps.size() });
+		cmd_list.SetComputeRootSignature(res.m_signature.get());
+		cmd_list.SetGraphicsRootSignature(res.m_signature.get());
+
+		auto cbuf = frame.m_upload.Add(cb, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, false);
+		auto scene_depth = wnd.m_heap_view.Add(bb_main.m_depth_srv);
+		cmd_list.SetComputeRootConstantBufferView(EAORootParam::Constants, cbuf);
+		cmd_list.SetGraphicsRootConstantBufferView(EAORootParam::Constants, cbuf);
+
+		// Run a compute pass that writes 'output' at the AO resolution.
+		auto groups = (size + iv2{ 7, 7 }) / 8;
+		auto Dispatch = [&](ID3D12PipelineState* pso, Texture2DPtr const& out)
+		{
+			// The output must be in the unordered access state while the pass writes it, then readable by later passes.
+			BarrierBatch bb(cmd_list);
+			bb.Transition(out->m_res.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			bb.Commit();
+
+			cmd_list.SetPipelineState(pso);
+			cmd_list.SetComputeRootDescriptorTable(EAORootParam::Output, wnd.m_heap_view.Add(out->m_uav));
+			cmd_list.Dispatch(groups.x, groups.y, 1);
+
+			bb.Transition(out->m_res.get(), D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
+			bb.Commit();
+		};
+
+		// The depth buffer is read by both compute and pixel shaders.
+		{
+			BarrierBatch bb(cmd_list);
+			bb.Transition(bb_main.m_depth_stencil.get(), D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
+			bb.Commit();
+		}
+
+		// Convert the scene depth to linear view depth at the AO resolution.
+		cmd_list.SetComputeRootDescriptorTable(EAORootParam::SceneDepth, scene_depth);
+		Dispatch(res.m_pso_prefilter.get(), res.m_depth);
+
+		// Estimate the occlusion, then smooth away the noise pattern.
+		auto view_depth = wnd.m_heap_view.Add(res.m_depth->m_srv);
+		cmd_list.SetComputeRootDescriptorTable(EAORootParam::ViewDepth, view_depth);
+		Dispatch(res.m_pso_main.get(), res.m_ao[0]);
+		cmd_list.SetComputeRootDescriptorTable(EAORootParam::AOInput, wnd.m_heap_view.Add(res.m_ao[0]->m_srv));
+		Dispatch(res.m_pso_blur.get(), res.m_ao[1]);
+
+		// Upsample and multiply the occlusion into the opaque colour, within the scene viewport.
+		{
+			BarrierBatch bb(cmd_list);
+			bb.Transition(output, D3D12_RESOURCE_STATE_RENDER_TARGET);
+			bb.Commit();
+
+			cmd_list.SetPipelineState(m_ao.m_debug_view ? res.m_pso_debug.get() : res.m_pso_apply.get());
+			cmd_list.SetGraphicsRootDescriptorTable(EAORootParam::SceneDepth, scene_depth);
+			cmd_list.SetGraphicsRootDescriptorTable(EAORootParam::ViewDepth, view_depth);
+			cmd_list.SetGraphicsRootDescriptorTable(EAORootParam::AOInput, wnd.m_heap_view.Add(res.m_ao[1]->m_srv));
+			cmd_list.OMSetRenderTargets({ &opaque->m_rtv.m_cpu, 1 }, FALSE, nullptr);
+			cmd_list.RSSetViewports({ &vp, 1 });
+			cmd_list.RSSetScissorRects(vp.m_clip);
+			cmd_list.IASetPrimitiveTopology(ETopo::TriList);
+			cmd_list.DrawInstanced(3, 1, 0, 0);
+		}
+
+		// Closing restores every resource to its default state.
+		cmd_list.Close();
 	}
 
 	// Tint, fog, and distort the scene colour.

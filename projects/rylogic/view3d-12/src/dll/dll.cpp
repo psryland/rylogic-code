@@ -677,6 +677,50 @@ VIEW3D_API BOOL __stdcall View3D_PostEffectUnderwaterSet(view3d::Window window, 
 	CatchAndReport(View3D_PostEffectUnderwaterSet, window, FALSE);
 }
 
+// Return the scene-owned ambient occlusion settings through the stable DLL layout.
+VIEW3D_API view3d::AmbientOcclusionProps __stdcall View3D_AmbientOcclusionGet(view3d::Window window)
+{
+	try
+	{
+		Validate(window);
+		DllLockGuard;
+		auto props = window->AmbientOcclusion();
+		return view3d::AmbientOcclusionProps{
+			.m_enabled = props.m_enabled,
+			.m_radius = props.m_radius,
+			.m_intensity = props.m_intensity,
+			.m_falloff = props.m_falloff,
+			.m_max_screen_radius = props.m_max_screen_radius,
+			.m_quality = static_cast<view3d::EAOQuality>(props.m_quality),
+			.m_resolution = static_cast<view3d::EAOResolution>(props.m_resolution),
+			.m_debug_view = props.m_debug_view,
+		};
+	}
+	CatchAndReport(View3D_AmbientOcclusionGet, window, {});
+}
+
+// Set complete validated ambient occlusion settings, reporting failure without partially applying them.
+VIEW3D_API BOOL __stdcall View3D_AmbientOcclusionSet(view3d::Window window, view3d::AmbientOcclusionProps const& props)
+{
+	try
+	{
+		Validate(window);
+		DllLockGuard;
+		window->AmbientOcclusion(rdr12::AmbientOcclusionProps{
+			.m_enabled = props.m_enabled != FALSE,
+			.m_radius = props.m_radius,
+			.m_intensity = props.m_intensity,
+			.m_falloff = props.m_falloff,
+			.m_max_screen_radius = props.m_max_screen_radius,
+			.m_quality = static_cast<rdr12::EAOQuality>(props.m_quality),
+			.m_resolution = static_cast<rdr12::EAOResolution>(props.m_resolution),
+			.m_debug_view = props.m_debug_view != FALSE,
+		});
+		return TRUE;
+	}
+	CatchAndReport(View3D_AmbientOcclusionSet, window, FALSE);
+}
+
 // Get/Set the dimensions of the render target
 // In set, if 'width' and 'height' are zero, the RT is resized to the associated window automatically.
 VIEW3D_API SIZE __stdcall View3D_WindowBackBufferSizeGet(view3d::Window window)

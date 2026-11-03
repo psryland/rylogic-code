@@ -2,7 +2,7 @@
 // View3d-12 Tests
 //  Copyright (C) Rylogic Ltd 2026
 //*********************************************
-// Demos of screen effects: the underwater post effect and output dithering.
+// Demos of screen effects: the underwater post effect, ambient occlusion, and output dithering.
 #include <format>
 #include <stdexcept>
 #include <string>
@@ -114,6 +114,84 @@ namespace view3d_test
 			}
 		};
 
+		// Screen-space ambient occlusion, on geometry with creases, contacts, and a glass pane that must not be darkened
+		struct AmbientOcclusionDemo :IDemo
+		{
+			DemoContext m_ctx;
+			demo::SceneObjects m_scene;
+			view3d::AmbientOcclusionProps m_props;
+
+			explicit AmbientOcclusionDemo(DemoContext const& ctx)
+				: m_ctx(ctx)
+				, m_scene(ctx.m_window)
+				, m_props(View3D_AmbientOcclusionGet(ctx.m_window))
+			{
+				// Boxes on a floor and against a wall make creases; spheres resting on the floor make contact shadows
+				AddBoxField(m_scene, 5, 2.5f);
+				m_scene.Add("*Plane floor FFD0D0D0 { *Data {30 30} *AxisId {+3} }");
+				m_scene.Add("*Box wall FFD0D0D0 { *Data {30 0.5 6} *o2w {*pos {0 8 3}} }");
+				m_scene.Add("*Sphere ball0 FFE0E0E0 { *Data {1.0} *o2w {*pos {-3 -6 1.0}} }");
+				m_scene.Add("*Sphere ball1 FFE0E0E0 { *Data {0.5} *o2w {*pos {-1.2 -6 0.5}} }");
+				m_scene.Add("*Box step0 FFE0E0E0 { *Data {3 3 0.5} *o2w {*pos {4 -6 0.25}} }");
+				m_scene.Add("*Box step1 FFE0E0E0 { *Data {2 2 0.5} *o2w {*pos {4 -6 0.75}} }");
+				m_scene.Add("*Box step2 FFE0E0E0 { *Data {1 1 0.5} *o2w {*pos {4 -6 1.25}} }");
+				m_scene.Add("*Box glass 6080C0FF { *Data {6 0.1 3} *o2w {*pos {0 -3.5 1.5}} }");
+				View3D_CameraPositionSet(ctx.m_window, { 2, -16, 7, 1 }, { 0, 0, 0.5f, 1 }, { 0, 0, 1, 0 });
+				m_props.m_enabled = TRUE;
+				Apply();
+
+				// Effect controls
+				auto& ui = ctx.m_controls;
+				ui.AddLabel(L"Creases and contacts darken. The glass pane must not be darkened.");
+				ui.AddCheckBox(L"Ambient occlusion enabled", true, [this](bool on)
+				{
+					m_props.m_enabled = on ? TRUE : FALSE;
+					Apply();
+				});
+				ui.AddCheckBox(L"Show occlusion only", false, [this](bool on)
+				{
+					m_props.m_debug_view = on ? TRUE : FALSE;
+					Apply();
+				});
+				ui.AddCheckBox(L"Full resolution", false, [this](bool on)
+				{
+					m_props.m_resolution = on ? view3d::EAOResolution::Full : view3d::EAOResolution::Half;
+					Apply();
+				});
+				ui.AddSlider(L"Quality (low, medium, high)", 0, 2, static_cast<float>(m_props.m_quality), [this](float v)
+				{
+					m_props.m_quality = static_cast<view3d::EAOQuality>(static_cast<int>(v + 0.5f));
+					Apply();
+				}, 2);
+				ui.AddSlider(L"Radius", 0.05f, 3.0f, m_props.m_radius, [this](float v)
+				{
+					m_props.m_radius = v;
+					Apply();
+				});
+				ui.AddSlider(L"Intensity", 0, 4, m_props.m_intensity, [this](float v)
+				{
+					m_props.m_intensity = v;
+					Apply();
+				});
+				ui.AddSlider(L"Falloff", 0.05f, 1.0f, m_props.m_falloff, [this](float v)
+				{
+					m_props.m_falloff = v;
+					Apply();
+				});
+				ui.AddSlider(L"Max screen radius", 0.01f, 0.3f, m_props.m_max_screen_radius, [this](float v)
+				{
+					m_props.m_max_screen_radius = v;
+					Apply();
+				});
+			}
+
+			// Apply the effect settings
+			void Apply()
+			{
+				View3D_AmbientOcclusionSet(m_ctx.m_window, m_props);
+			}
+		};
+
 		// Output dithering, shown on smooth gradients where 8-bit banding is visible
 		struct DitherDemo :IDemo
 		{
@@ -124,28 +202,29 @@ namespace view3d_test
 				: m_ctx(ctx)
 				, m_scene(ctx.m_window)
 			{
-				// Dim, softly lit surfaces produce slow gradients that band without dithering
-				m_scene.Add("*Sphere ball FF404040 { *Data {3} }");
-				m_scene.Add("*Plane ground FF303030 { *Data {40 40} *AxisId {+3} *o2w {*pos {0 0 -3}} }");
+				// Banding is only visible when each 8-bit step is many pixels wide, so the scene is a dark wall facing the camera, lit by a wide spot light
+				// at the camera. The cone fade gives a slow radial ramp from about 24/255 at the centre to about 10/255 at the screen edges, which bands
+				// into rings roughly 40 pixels wide. Colours are sRGB, and lighting is linear with a 1/pi diffuse term.
+				m_scene.Add("*Plane wall FF404040 { *Data {200 200} *AxisId {-2} *o2w {*pos {0 20 0}} }");
 				View3D_AmbientSet(ctx.m_window, 0xFF000000);
 				demo::EditLight(ctx.m_window, 0, [](view3d::Light& light)
 				{
 					light.m_type = view3d::ELight::Spot;
-					light.m_position = view3d::Vec4{ 0, -2, 8, 1 };
-					light.m_direction = view3d::Vec4{ 0, 0.24f, -0.97f, 0 };
-					light.m_inner_angle = 0.1f;
-					light.m_outer_angle = 1.2f;
-					light.m_range = 50.0f;
+					light.m_position = view3d::Vec4{ 0, 0, 0, 1 };
+					light.m_direction = view3d::Vec4{ 0, 1, 0, 0 };
+					light.m_inner_angle = 0.0f;
+					light.m_outer_angle = 2.0f;
+					light.m_range = 100.0f;
 					light.m_falloff = 0.0f;
-					light.m_diffuse = 0xFF606060;
+					light.m_diffuse = 0xFFC0C0C0;
 					light.m_specular = 0xFF000000;
 				});
-				View3D_CameraPositionSet(ctx.m_window, { 0, -12, 4, 1 }, { 0, 0, -1, 1 }, { 0, 0, 1, 0 });
+				View3D_CameraPositionSet(ctx.m_window, { 0, 0, 0, 1 }, { 0, 20, 0, 1 }, { 0, 0, 1, 0 });
 				View3D_DitherAmountSet(ctx.m_window, 1.0f);
 
 				// Dither controls
 				auto& ui = ctx.m_controls;
-				ui.AddLabel(L"Compare the banding in the dark gradients with dithering on and off.");
+				ui.AddLabel(L"Set the amount to 0 to see rings of 8-bit banding in the dark gradient. Dithering breaks the rings up into fine noise.");
 				ui.AddSlider(L"Dither amount", 0, 2, 1.0f, [this](float v)
 				{
 					View3D_DitherAmountSet(m_ctx.m_window, v);
@@ -158,6 +237,10 @@ namespace view3d_test
 	std::unique_ptr<IDemo> CreateUnderwaterDemo(DemoContext const& ctx)
 	{
 		return std::make_unique<UnderwaterDemo>(ctx);
+	}
+	std::unique_ptr<IDemo> CreateAmbientOcclusionDemo(DemoContext const& ctx)
+	{
+		return std::make_unique<AmbientOcclusionDemo>(ctx);
 	}
 	std::unique_ptr<IDemo> CreateDitherDemo(DemoContext const& ctx)
 	{

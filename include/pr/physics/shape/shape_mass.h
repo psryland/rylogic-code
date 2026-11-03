@@ -387,25 +387,37 @@ namespace pr::physics
 	// that one common point they add directly; masses and first moments (m*com) also sum. The array's
 	// own s2r must not be applied again here, or it would be counted twice.
 	// The distribution applies to every child, so a shell array is a set of separate closed skins rather than the skin of the union.
-	inline MassProperties CalcMassProperties(ShapeArray const& shape, float density, EMassDistribution distribution = EMassDistribution::Solid)
+	// 'child_mass(child)' returns the mass properties of one child about the root origin.
+	template <std::invocable<Shape const&> ChildMassFn>
+	inline MassProperties SumChildMassProperties(ShapeArray const& shape, ChildMassFn child_mass)
 	{
+		// Accumulate mass, first moment, and inertia about the shared root origin
 		auto total_mass = 0.0f;
 		auto first_moment = v4{}; // Sum of m_i * com_i (about the root origin)
 		auto inertia_o = m3x3{};  // Sum of child inertias about the root origin
-
 		for (Shape const* i = shape.begin(), *i_end = shape.end(); i != i_end; i = next(i))
 		{
-			auto cmp = CalcMassProperties(*i, density, distribution);
+			// Fold in one child
+			MassProperties cmp = child_mass(*i);
 			total_mass += cmp.m_mass;
 			first_moment += cmp.m_mass * cmp.m_centre_of_mass;
 			inertia_o += Inertia{cmp.m_os_unit_inertia, cmp.m_mass}.To3x3();
 		}
 
+		// Convert the sums into a centre of mass and a unit inertia
 		MassProperties mp;
 		mp.m_mass = total_mass;
 		mp.m_centre_of_mass = total_mass > 0.0f ? (first_moment / total_mass).w0() : v4{};
 		mp.m_os_unit_inertia = total_mass > 0.0f ? (inertia_o / total_mass) : m3x3{};
 		return mp;
+	}
+	inline MassProperties CalcMassProperties(ShapeArray const& shape, float density, EMassDistribution distribution = EMassDistribution::Solid)
+	{
+		// Every child shares the one density
+		return SumChildMassProperties(shape, [&](Shape const& child)
+		{
+			return CalcMassProperties(child, density, distribution);
+		});
 	}
 
 	// Calculate the mass properties of a shape. See EMassDistribution for the meaning of 'density'.
@@ -422,5 +434,22 @@ namespace pr::physics
 		case EShape::Polytope: return CalcMassProperties(shape_cast<ShapePolytope>(shape), density, distribution);
 		case EShape::Array:    return CalcMassProperties(shape_cast<ShapeArray>(shape), density, distribution);
 		}
+	}
+
+	// Calculate the mass properties of a shape whose leaf shapes may have different densities. 'density_of(leaf)' returns the density of
+	// each non-compound shape, with the same meaning as the uniform 'density' parameter (see EMassDistribution). Compound children are summed
+	// about the root origin, so each leaf contributes its own mass to the total mass, centre of mass, and inertia.
+	template <std::invocable<Shape const&> DensityFn>
+	inline MassProperties CalcMassProperties(Shape const& shape, DensityFn density_of, EMassDistribution distribution = EMassDistribution::Solid)
+	{
+		// Recurse into compounds so that only leaves are asked for a density
+		if (shape.m_type == EShape::Array)
+		{
+			return SumChildMassProperties(shape_cast<ShapeArray>(shape), [&](Shape const& child)
+			{
+				return CalcMassProperties(child, density_of, distribution);
+			});
+		}
+		return CalcMassProperties(shape, static_cast<float>(density_of(shape)), distribution);
 	}
 }

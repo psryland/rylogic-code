@@ -100,6 +100,7 @@
 		<ClCompile Include="src\view3d-12\render_tests_colour.cpp" />
 		<ClCompile Include="src\view3d-12\render_tests_population.cpp" />
 		<ClCompile Include="src\view3d-12\render_tests_shadows.cpp" />
+		<ClCompile Include="src\view3d-12\render_tests_ambient_occlusion.cpp" />
 		<ClCompile Include="src\view3d-12\render_tests_post_effects.cpp" />
 		<ClCompile Include="src\view3d-12\render_tests_surface_normals.cpp" />
 		<ClCompile Include="src\view3d-12\render_tests_env_map.cpp" />
@@ -115,6 +116,8 @@
 		<ShaderBuild Include="src\view3d-12\shaders\hlsl\procedural_pixel_detail_family.hlsl" PixelEntryPoints="procedural_pixel_detail_opaque=PSRotateDetail;procedural_pixel_detail_reflection_attrs=PSRotateDetailReflectionAttrs;procedural_pixel_detail_alpha_collect=PSRotateDetailAlphaCollect" />
 		<ShaderBuild Include="src\view3d-12\shaders\hlsl\wave_grid.hlsl" VertexEntryPoints="wave_grid=VSMain" />
 		<ShaderBuild Include="src\view3d-12\shaders\hlsl\generated_vertex_input.hlsl" ComputeEntryPoints="generated_vertex_input=CSMain" />
+		<ShaderBuild Include="src\view3d-12\shaders\hlsl\shadow_transition.hlsl" ComputeEntryPoints="shadow_transition=CSMain" />
+		<ShaderBuildDependency Include="$(RylogicRoot)projects\rylogic\view3d-12\src\shaders\hlsl\shadow\shadow_cast.hlsli" />
 		<ShaderBuild Include="src\view3d-12\shaders\hlsl\population_producer.hlsl" ComputeEntryPoints="population_producer=CSMain" />
 		<ShaderBuild Include="src\view3d-12\shaders\hlsl\population_procedural_forward.hlsl" VertexEntryPoints="population_procedural_forward=VSMain" />
 		<ShaderBuild Include="src\view3d-12\shaders\hlsl\population_procedural_shadow.hlsl" VertexEntryPoints="population_procedural_shadow=VSMain" />

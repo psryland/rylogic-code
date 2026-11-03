@@ -6,6 +6,7 @@
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
 #include "pr/physics/physics.h"
+#include "pr/physics/shape/shape_builder.h"
 
 namespace pr::physics::tests
 {
@@ -592,6 +593,44 @@ namespace pr::physics::tests
 			auto triangle = ShapeTriangle(v4{0, 0, 0, 1}, v4{1, 0, 0, 1}, v4{0, 1, 0, 1});
 			PR_THROWS(CalcMassProperties(triangle, 1.0f, EMassDistribution::Shell), std::invalid_argument);
 			PR_THROWS(CalcMassProperties(ShapeLine(1.0f, 0.0f), 1.0f, EMassDistribution::Shell), std::invalid_argument);
+		}
+		PRUnitTestMethod(CompoundMassPropertiesUsePerLeafDensity, Quick)
+		{
+			// Two unit cubes 2m apart with different material ids. The +X cube is ten times denser.
+			using namespace pr::collision;
+			ShapeBuilder sb;
+			sb.AddShape(ShapeBox(v4{1, 1, 1, 0}, m4x4::Translation(+1.0f, 0.0f, 0.0f), 1));
+			sb.AddShape(ShapeBox(v4{1, 1, 1, 0}, m4x4::Translation(-1.0f, 0.0f, 0.0f), 2));
+			byte_data<16> data;
+			MassProperties uniform;
+			v4 model_to_com;
+			auto const& shape = *sb.BuildShape(data, uniform, model_to_com);
+			PR_EXPECT(shape.m_type == EShape::Array);
+
+			// Only leaves are asked for a density
+			auto density_of = [](Shape const& leaf)
+			{
+				PR_EXPECT(leaf.m_type != EShape::Array);
+				return leaf.m_material_id == 1 ? 10.0f : 1.0f;
+			};
+
+			// The masses add, and the centre of mass moves toward the dense cube: (10·(+1) + 1·(-1)) / 11
+			auto solid = CalcMassProperties(shape, density_of);
+			PR_EXPECT(FEqlRelative(solid.m_mass, 11.0f, 0.0001f));
+			PR_EXPECT(FEqlAbsolute(solid.m_centre_of_mass, v4{9.0f / 11.0f, 0, 0, 0}, 0.0001f));
+
+			// Shell densities are per unit area, so each cube contributes density × 6 m²
+			auto shell = CalcMassProperties(shape, density_of, EMassDistribution::Shell);
+			PR_EXPECT(FEqlRelative(shell.m_mass, 66.0f, 0.0001f));
+			PR_EXPECT(FEqlAbsolute(shell.m_centre_of_mass, v4{9.0f / 11.0f, 0, 0, 0}, 0.0001f));
+
+			// A uniform density function matches the uniform-density overload
+			auto same = CalcMassProperties(shape, [](Shape const&) { return 3.0f; });
+			auto expected = CalcMassProperties(shape, 3.0f);
+			PR_EXPECT(FEqlRelative(same.m_mass, expected.m_mass, 0.0001f));
+			PR_EXPECT(FEqlAbsolute(same.m_os_unit_inertia.x, expected.m_os_unit_inertia.x, 0.0001f));
+			PR_EXPECT(FEqlAbsolute(same.m_os_unit_inertia.y, expected.m_os_unit_inertia.y, 0.0001f));
+			PR_EXPECT(FEqlAbsolute(same.m_os_unit_inertia.z, expected.m_os_unit_inertia.z, 0.0001f));
 		}
 		PRUnitTestMethod(TriangleInertia_RightTriangleXY, Extended)
 		{

@@ -350,9 +350,19 @@ namespace pr::rdr12
 		{
 			#include PR_RDR_SHADER_COMPILED_DIR(post_effect_vs.h)
 			#include PR_RDR_SHADER_COMPILED_DIR(underwater_ps.h)
+			#include PR_RDR_SHADER_COMPILED_DIR(ao_prefilter_cs.h)
+			#include PR_RDR_SHADER_COMPILED_DIR(ao_main_cs.h)
+			#include PR_RDR_SHADER_COMPILED_DIR(ao_blur_cs.h)
+			#include PR_RDR_SHADER_COMPILED_DIR(ao_apply_ps.h)
+			#include PR_RDR_SHADER_COMPILED_DIR(ao_debug_ps.h)
 		}
 		ByteCode const post_effect_vs(compiled::post_effect_vs);
 		ByteCode const underwater_ps(compiled::underwater_ps);
+		ByteCode const ao_prefilter_cs(compiled::ao_prefilter_cs);
+		ByteCode const ao_main_cs(compiled::ao_main_cs);
+		ByteCode const ao_blur_cs(compiled::ao_blur_cs);
+		ByteCode const ao_apply_ps(compiled::ao_apply_ps);
+		ByteCode const ao_debug_ps(compiled::ao_debug_ps);
 
 		// Shadows
 		namespace compiled
