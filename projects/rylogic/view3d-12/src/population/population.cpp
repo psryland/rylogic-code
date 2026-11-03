@@ -24,20 +24,30 @@ namespace pr::rdr12
 			v4 planes[4];
 			v4 eye;
 			v4 range_origin;
+			float size_scale;
+			uint32_t arg_count;
+			uint32_t list_base;
+			uint32_t list_count;
+			uint32_t prototype_count;
+			uint32_t header_size;
+			uint32_t pad0;
+			uint32_t pad1;
+		};
+		static_assert(sizeof(CullConstants) == 128, "Must match CullConstants in population_cull.hlsl");
+
+		// The classification constants of one prototype. Mirrors 'PrototypeConstants' in 'population_cull.hlsl'.
+		struct PrototypeConstants
+		{
 			v4 bound;
 			v4 lod_size[PopulationMaxLods / 4];
 			v4 lod_fade[PopulationMaxLods / 4];
-			float size_scale;
+			v4 fade;
 			float draw_distance;
 			uint32_t lod_count;
-			uint32_t arg_count;
-			uint32_t list_base;
-			uint32_t pad0;
-			uint32_t pad1;
-			uint32_t pad2;
-			v4 fade;
+			uint32_t list_first;
+			uint32_t pad;
 		};
-		static_assert(sizeof(CullConstants) == 224, "Must match CullConstants in population_cull.hlsl");
+		static_assert(sizeof(PrototypeConstants) == 112, "Must match PrototypeConstants in population_cull.hlsl");
 
 		// A block that passed the CPU culling test. Mirrors 'VisibleBlock' in 'population_cull.hlsl'.
 		struct VisibleBlock
@@ -51,7 +61,7 @@ namespace pr::rdr12
 		// The template of an indirect draw argument record. Mirrors 'ArgTemplate' in 'population_cull.hlsl'.
 		struct ArgTemplate
 		{
-			uint32_t lod;
+			uint32_t list;
 			uint32_t count;
 			uint32_t start;
 			uint32_t pad;
@@ -65,6 +75,7 @@ namespace pr::rdr12
 			Blocks,
 			LiveCounts,
 			Args,
+			Prototypes,
 			View,
 		};
 
@@ -123,12 +134,11 @@ namespace pr::rdr12
 			return sig;
 		}
 
-		// True if a world-space box may hold instances that are visible: it is on the inside of all four 'planes', when 'draw_distance' is positive
-		// its closest point is within 'draw_distance' of 'origin', when 'fade_in' is used its furthest point is at least the band start from 'origin',
-		// and when 'fade_out' is used its closest point is within the band end of 'origin'. The fade tests assume the box contains the instance origins.
-		// The test is conservative: a box crossing a plane or a distance limit counts as visible.
+		// True if a world-space box may hold instances that are visible: it is on the inside of all four 'planes', its closest point is within 'far_limit'
+		// of 'origin', and its furthest point is at least 'near_limit' from 'origin'. The distance tests assume the box contains the instance origins and
+		// bounding spheres. The test is conservative: a box crossing a plane or a distance limit counts as visible.
 		// This runs for every block of every population in every view, so it uses plain scalar maths, which stays cheap in unoptimised builds.
-		bool BlockVisible(v4 const (&planes)[4], v4 const& origin, float draw_distance, PopulationFade fade_in, PopulationFade fade_out, BBox const& bbox)
+		bool BlockVisible(v4 const (&planes)[4], v4 const& origin, float near_limit, float far_limit, BBox const& bbox)
 		{
 			// Compare the box's projected half-size along each plane normal with the signed distance of its centre.
 			auto const& c = bbox.m_centre;
@@ -139,10 +149,8 @@ namespace pr::rdr12
 					return false;
 			}
 
-			// Instance spheres and origins are inside the box, so the box is beyond a far limit only when its closest point is.
-			constexpr auto unlimited = std::numeric_limits<float>::infinity();
-			auto far_limit = std::min(draw_distance > 0 ? draw_distance : unlimited, fade_out.used() ? fade_out.end() : unlimited);
-			if (far_limit != unlimited)
+			// Instance spheres and origins are inside the box, so the box is beyond the far_limit limit only when its closest point is.
+			if (far_limit != std::numeric_limits<float>::infinity())
 			{
 				auto dx = std::max(std::abs(c.x - origin.x) - r.x, 0.0f);
 				auto dy = std::max(std::abs(c.y - origin.y) - r.y, 0.0f);
@@ -151,13 +159,13 @@ namespace pr::rdr12
 					return false;
 			}
 
-			// Every instance origin is nearer than the box's furthest point, so the whole box is too near when its furthest point is.
-			if (fade_in.used())
+			// Every instance origin is nearer than the box's furthest point, so the whole box is too near_limit when its furthest point is.
+			if (near_limit > 0)
 			{
 				auto dx = std::abs(c.x - origin.x) + r.x;
 				auto dy = std::abs(c.y - origin.y) + r.y;
 				auto dz = std::abs(c.z - origin.z) + r.z;
-				if (dx * dx + dy * dy + dz * dz < fade_in.m_start * fade_in.m_start)
+				if (dx * dx + dy * dy + dz * dz < near_limit * near_limit)
 					return false;
 			}
 			return true;
@@ -259,18 +267,22 @@ namespace pr::rdr12
 		delete static_cast<PopulationPrototype*>(doomed);
 	}
 
-	// Create a population with fixed capacities.
-	Population::Population(Renderer& rdr, PopulationPrototypePtr prototype, int instance_capacity, int block_capacity, int payload_size)
+	// Create a population of 'prototypes' with fixed capacities.
+	Population::Population(Renderer& rdr, std::span<PopulationPrototypePtr const> prototypes, int instance_capacity, int block_capacity, int payload_size)
 		: RefCounted<Population>()
 		, m_rdr(&rdr)
-		, m_prototype(prototype)
+		, m_prototypes(prototypes.begin(), prototypes.end())
+		, m_lists()
+		, m_block_near()
+		, m_block_far()
 		, m_instance_capacity(instance_capacity)
 		, m_payload_size(payload_size)
 		, m_instances()
 		, m_live_counts()
 		, m_payload()
+		, m_prototype_table()
 		, m_blocks(s_cast<size_t>(std::max(block_capacity, 0)))
-		, m_proxies(prototype != nullptr ? prototype->m_lods.size() : 0)
+		, m_proxies()
 		, m_views()
 		, m_pending()
 		, m_produce_cs()
@@ -284,8 +296,10 @@ namespace pr::rdr12
 		, m_mutex()
 	{
 		// Check the description. The payload is addressed in 4-byte words by shaders, so its size is a whole number of words.
-		if (prototype == nullptr)
-			throw std::invalid_argument("A population requires a prototype");
+		if (prototypes.empty())
+			throw std::invalid_argument("A population requires at least one prototype");
+		if (std::ranges::any_of(prototypes, [](PopulationPrototypePtr const& p) { return p == nullptr; }))
+			throw std::invalid_argument("Population prototypes must not be null");
 		if (instance_capacity <= 0 || block_capacity <= 0 || payload_size < 0)
 			throw std::invalid_argument("Population capacities must be positive, and the payload size non-negative");
 		if (payload_size % 4 != 0)
@@ -298,10 +312,51 @@ namespace pr::rdr12
 		if (payload_size != 0)
 			m_payload = CreateBuffer(device, payload_size, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, "Population:Payload");
 
-		// Each LOD draws through a proxy at the origin. Population vertices are placed by the instance records, not by the proxy transform.
+		// Give each (prototype, LOD) a visible list, and record each prototype's classification constants. Prototypes are immutable, so the table
+		// is uploaded once. An unused fade-out band starts beyond any distance. An unused fade-in band is already [0, 0], which rejects nothing.
+		auto table = std::vector<PrototypeConstants>{};
+		for (int p = 0, pend = isize(m_prototypes); p != pend; ++p)
+		{
+			auto const& proto = *m_prototypes[p].get();
+			auto constants = PrototypeConstants{
+				.bound = proto.m_bound,
+				.lod_size = {},
+				.lod_fade = {},
+				.fade = v4{ proto.m_fade_in.m_start, proto.m_fade_in.m_width, proto.m_fade_out.used() ? proto.m_fade_out.m_start : std::numeric_limits<float>::max(), proto.m_fade_out.m_width },
+				.draw_distance = proto.m_draw_distance,
+				.lod_count = s_cast<uint32_t>(proto.m_lods.size()),
+				.list_first = s_cast<uint32_t>(m_lists.size()),
+				.pad = 0,
+			};
+			for (int lod = 0, lend = isize(proto.m_lods); lod != lend; ++lod)
+			{
+				constants.lod_size[lod / 4][lod % 4] = proto.m_lods[lod].m_min_size;
+				constants.lod_fade[lod / 4][lod % 4] = proto.m_lods[lod].m_transition;
+				m_lists.push_back(List{ .m_prototype = p, .m_lod = lod });
+			}
+			table.push_back(constants);
+		}
+		m_prototype_table = CreateBuffer(device, isize(table) * sizeof(PrototypeConstants), D3D12_RESOURCE_FLAG_NONE, "Population:Prototypes");
+		Enqueue(m_prototype_table.get(), 0, std::as_bytes(std::span{ table }));
+
+		// The CPU block test classifies all prototypes at once, so it uses the loosest limits of any prototype. A block can only be too near
+		// when every prototype fades in, and is unlimited when any prototype is.
+		constexpr auto unlimited = std::numeric_limits<float>::infinity();
+		m_block_near = unlimited;
+		m_block_far = 0;
+		for (auto const& ptr : m_prototypes)
+		{
+			auto const& proto = *ptr.get();
+			auto far_limit = std::min(proto.m_draw_distance > 0 ? proto.m_draw_distance : unlimited, proto.m_fade_out.used() ? proto.m_fade_out.end() : unlimited);
+			m_block_far = std::max(m_block_far, far_limit);
+			m_block_near = std::min(m_block_near, proto.m_fade_in.used() ? proto.m_fade_in.m_start : 0.0f);
+		}
+
+		// Each list draws through a proxy at the origin. Population vertices are placed by the instance records, not by the proxy transform.
+		m_proxies.resize(m_lists.size());
 		for (int i = 0, iend = isize(m_proxies); i != iend; ++i)
 		{
-			m_proxies[i].m_model = prototype->m_lods[i].m_model;
+			m_proxies[i].m_model = m_prototypes[m_lists[i].m_prototype]->m_lods[m_lists[i].m_lod].m_model;
 			m_proxies[i].m_i2w = m4x4::Identity();
 			ValidateMaterials(m_proxies[i], *m_proxies[i].m_model.get());
 		}
@@ -316,6 +371,7 @@ namespace pr::rdr12
 	{
 		m_rdr->DeferRelease(m_instances);
 		m_rdr->DeferRelease(m_live_counts);
+		m_rdr->DeferRelease(m_prototype_table);
 		if (m_payload != nullptr)
 			m_rdr->DeferRelease(m_payload);
 		if (m_produce_pso != nullptr)
@@ -339,6 +395,12 @@ namespace pr::rdr12
 	int Population::BlockCapacity() const
 	{
 		return isize(m_blocks);
+	}
+
+	// The size of the list header of a classification.
+	int Population::HeaderSize() const
+	{
+		return PopulationHeaderSize(isize(m_lists));
 	}
 
 	// Define block 'index'.
@@ -605,7 +667,7 @@ namespace pr::rdr12
 			auto desc = D3D12_RESOURCE_DESC{
 				.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER,
 				.Alignment = 0,
-				.Width = s_cast<uint64_t>(ReadbackSlots * PopulationHeaderSize),
+				.Width = s_cast<uint64_t>(ReadbackSlots * HeaderSize()),
 				.Height = 1,
 				.DepthOrArraySize = 1,
 				.MipLevels = 1,
@@ -639,7 +701,7 @@ namespace pr::rdr12
 		slot.m_sync_point = gsync.NextSyncPoint();
 		slot.m_sequence = ++view.m_sequence;
 		slot.m_cpu = cpu;
-		cmd_list.CopyBufferRegion(view.m_readback.get(), s_cast<uint64_t>(slot_index * PopulationHeaderSize), view.m_res.get(), 0, PopulationHeaderSize);
+		cmd_list.CopyBufferRegion(view.m_readback.get(), s_cast<uint64_t>(slot_index * HeaderSize()), view.m_res.get(), 0, HeaderSize());
 	}
 
 	// Return the current diagnostics.
@@ -654,7 +716,7 @@ namespace pr::rdr12
 			.m_block_capacity = BlockCapacity(),
 			.m_active_blocks = 0,
 			.m_admitted_instances = 0,
-			.m_resident_bytes = int64_t(m_instance_capacity) * sizeof(PopulationInstance) + int64_t(BlockCapacity()) * sizeof(uint32_t) + m_payload_size,
+			.m_resident_bytes = s_cast<int64_t>(m_instance_capacity * sizeof(PopulationInstance) + BlockCapacity() * sizeof(uint32_t) + m_payload_size + m_prototypes.size() * sizeof(PrototypeConstants)),
 			.m_scratch_bytes = m_scratch_bytes,
 			.m_scratch_high_water = m_scratch_high_water,
 			.m_upload_bytes = m_upload_bytes,
@@ -708,12 +770,11 @@ namespace pr::rdr12
 				// Combine the CPU counters with the header's GPU counters, keeping only the newest classification.
 				if (slot.m_sequence > view.m_latest_sequence)
 				{
-					// Header words: per-LOD entry counts at COUNTS, and the tested/emitted/live-count counters at DIAG. See 'population_cull.hlsl'.
-					uint32_t header[PopulationHeaderSize / 4];
-					memcpy(&header[0], view.m_mapped + int64_t(i) * PopulationHeaderSize, sizeof(header));
+					// Header words: per-list entry counts at COUNTS, and the tested/emitted/live-count counters at DIAG. See 'population_cull.hlsl'.
+					auto const* header = reinterpret_cast<uint32_t const*>(view.m_mapped + int64_t(i) * HeaderSize());
 					auto stats = slot.m_cpu;
-					for (int lod = 0; lod != PopulationMaxLods; ++lod)
-						stats.m_entries_per_lod[lod] = header[PopulationHeaderCounts / 4 + lod];
+					for (int list = 0, lend = isize(m_lists); list != lend; ++list)
+						stats.m_entries_per_lod[m_lists[list].m_lod] += header[PopulationHeaderCounts / 4 + list];
 
 					stats.m_instances_tested = header[PopulationHeaderDiag / 4 + 0];
 					stats.m_entries_emitted = header[PopulationHeaderDiag / 4 + 1];
@@ -763,6 +824,7 @@ namespace pr::rdr12
 			.SRV(hlsl::ESRVReg::t1)
 			.SRV(hlsl::ESRVReg::t2)
 			.SRV(hlsl::ESRVReg::t3)
+			.SRV(hlsl::ESRVReg::t4)
 			.UAV(hlsl::EUAVReg::u0)
 			.Create(device, "PopulationCullSig");
 
@@ -779,9 +841,6 @@ namespace pr::rdr12
 	// Classify 'pop' for 'view'.
 	PopulationViewLists PopulationCuller::Cull(GfxCmdList& cmd_list, GpuUploadBuffer& upload, GpuSync const& gsync, Population& pop, PopulationViewDesc const& view, ERenderStep step)
 	{
-		auto const& proto = *pop.m_prototype.get();
-		auto lod_count = isize(proto.m_lods);
-
 		// The world-space side planes of the frustum, from the rows of the world to clip transform. Inside means 'dot(n, p) + d >= 0'.
 		v4 planes[4];
 		{
@@ -811,7 +870,7 @@ namespace pr::rdr12
 				auto const& blk = blocks[b];
 				if (!blk.m_active)
 					continue;
-				if (!BlockVisible(planes, view.m_range_origin, proto.m_draw_distance, proto.m_fade_in, proto.m_fade_out, blk.m_bbox))
+				if (!BlockVisible(planes, view.m_range_origin, pop.m_block_near, pop.m_block_far, blk.m_bbox))
 				{
 					++cpu_stats.m_blocks_rejected;
 					continue;
@@ -829,56 +888,51 @@ namespace pr::rdr12
 			}
 		}
 
-		// Build the draw list: an indexed and a non-indexed argument record for each drawable nugget of each LOD.
-		auto lists = PopulationViewLists{ .m_population = &pop, .m_scratch = nullptr, .m_list_base = 0, .m_draws = {} };
+		// Build the draw list: an indexed and a non-indexed argument record for each drawable nugget of each list.
+		auto header_size = pop.HeaderSize();
+		auto lists = PopulationViewLists{ .m_population = &pop, .m_scratch = nullptr, .m_list_base = 0, .m_offsets = s_cast<uint32_t>(PopulationHeaderOffsets(isize(pop.m_lists))), .m_draws = {} };
 		auto args = std::vector<ArgTemplate>{};
-		for (int lod = 0; lod != lod_count; ++lod)
+		for (int list = 0, lend = isize(pop.m_lists); list != lend; ++list)
 		{
-			PopulationNuggets(*proto.m_lods[lod].m_model.get(), step, [&](Nugget const& nug)
+			auto const& [prototype, lod] = pop.m_lists[list];
+			PopulationNuggets(*pop.m_proxies[list].m_model.get(), step, [&](Nugget const& nug)
 			{
 				// Records 2k and 2k+1 are the indexed and non-indexed draws of the nugget.
 				auto i = isize(args);
-				args.push_back(ArgTemplate{ .lod = s_cast<uint32_t>(lod), .count = s_cast<uint32_t>(nug.m_irange.size()), .start = s_cast<uint32_t>(nug.m_irange.m_beg), .pad = 0 });
-				args.push_back(ArgTemplate{ .lod = s_cast<uint32_t>(lod), .count = s_cast<uint32_t>(nug.m_vrange.size()), .start = s_cast<uint32_t>(nug.m_vrange.m_beg), .pad = 0 });
+				args.push_back(ArgTemplate{ .list = s_cast<uint32_t>(list), .count = s_cast<uint32_t>(nug.m_irange.size()), .start = s_cast<uint32_t>(nug.m_irange.m_beg), .pad = 0 });
+				args.push_back(ArgTemplate{ .list = s_cast<uint32_t>(list), .count = s_cast<uint32_t>(nug.m_vrange.size()), .start = s_cast<uint32_t>(nug.m_vrange.m_beg), .pad = 0 });
 				lists.m_draws.push_back(PopulationViewDraw{
-					.m_proxy = &pop.m_proxies[lod],
+					.m_proxy = &pop.m_proxies[list],
 					.m_nugget = &nug,
+					.m_prototype = prototype,
 					.m_lod = lod,
-					.m_args_indexed = PopulationHeaderSize + int64_t(i + 0) * ArgStride,
-					.m_args_vertex = PopulationHeaderSize + int64_t(i + 1) * ArgStride,
+					.m_list = list,
+					.m_args_indexed = header_size + int64_t(i + 0) * ArgStride,
+					.m_args_vertex = header_size + int64_t(i + 1) * ArgStride,
 				});
 			});
 		}
 
 		// Size the view buffer: header, argument records, then up to two list entries per instance (a transition adds a complementary entry).
-		auto list_base = PadTo<int64_t>(PopulationHeaderSize + isize(args) * ArgStride, 16);
+		auto list_base = PadTo<int64_t>(header_size + isize(args) * ArgStride, 16);
 		auto view_size = list_base + int64_t(pop.m_instance_capacity) * 2 * sizeof(PopulationEntry);
 		auto scratch = pop.ViewBuffer(view.m_key, view_size);
 		lists.m_scratch = scratch;
 		lists.m_list_base = s_cast<uint32_t>(list_base);
 
-		// Classification constants.
+		// Classification constants. The per-prototype constants are in the population's prototype table.
 		auto cb = CullConstants{};
 		for (int i = 0; i != 4; ++i)
 			cb.planes[i] = planes[i];
 
 		cb.eye = v4{ view.m_eye.x, view.m_eye.y, view.m_eye.z, view.m_orthographic ? 1.0f : 0.0f };
 		cb.range_origin = view.m_range_origin.w1();
-		cb.bound = proto.m_bound;
-		for (int lod = 0; lod != lod_count; ++lod)
-		{
-			cb.lod_size[lod / 4][lod % 4] = proto.m_lods[lod].m_min_size;
-			cb.lod_fade[lod / 4][lod % 4] = proto.m_lods[lod].m_transition;
-		}
 		cb.size_scale = view.m_size_scale;
-		cb.draw_distance = proto.m_draw_distance;
-		cb.lod_count = s_cast<uint32_t>(lod_count);
 		cb.arg_count = s_cast<uint32_t>(args.size());
 		cb.list_base = s_cast<uint32_t>(list_base);
-
-		// An unused fade-out band starts beyond any distance. An unused fade-in band is already [0, 0], which rejects nothing.
-		auto fade_out_start = proto.m_fade_out.used() ? proto.m_fade_out.m_start : std::numeric_limits<float>::max();
-		cb.fade = v4{ proto.m_fade_in.m_start, proto.m_fade_in.m_width, fade_out_start, proto.m_fade_out.m_width };
+		cb.list_count = s_cast<uint32_t>(pop.m_lists.size());
+		cb.prototype_count = s_cast<uint32_t>(pop.m_prototypes.size());
+		cb.header_size = s_cast<uint32_t>(header_size);
 
 		// Upload the per-view inputs. Root SRVs need a valid address even when a table is empty.
 		auto upload_table = [&]<typename T>(std::vector<T> const& table)
@@ -897,6 +951,7 @@ namespace pr::rdr12
 		BarrierBatch barriers(cmd_list);
 		barriers.Transition(pop.m_instances.get(), ShaderReadState);
 		barriers.Transition(pop.m_live_counts.get(), ShaderReadState);
+		barriers.Transition(pop.m_prototype_table.get(), ShaderReadState);
 		if (pop.m_payload != nullptr)
 			barriers.Transition(pop.m_payload.get(), ShaderReadState);
 
@@ -909,13 +964,14 @@ namespace pr::rdr12
 		cmd_list.SetComputeRootShaderResourceView(ECullParam::Blocks, blocks_addr);
 		cmd_list.SetComputeRootShaderResourceView(ECullParam::LiveCounts, GpuAddress(pop.m_live_counts));
 		cmd_list.SetComputeRootShaderResourceView(ECullParam::Args, args_addr);
+		cmd_list.SetComputeRootShaderResourceView(ECullParam::Prototypes, GpuAddress(pop.m_prototype_table));
 		cmd_list.SetComputeRootUnorderedAccessView(ECullParam::View, GpuAddress(scratch));
 
 		// Zero the header, count the visible entries, lay out the lists, then write the entries. Each kernel reads the previous kernel's writes.
 		auto groups_x = DispatchCount(max_capacity, 64);
 		auto blocks_y = isize(visible);
 		cmd_list.SetPipelineState(m_pso_clear.get());
-		cmd_list.Dispatch(1, 1, 1);
+		cmd_list.Dispatch(DispatchCount(header_size / 4, 64), 1, 1);
 		barriers.UAV(scratch);
 		barriers.Commit();
 

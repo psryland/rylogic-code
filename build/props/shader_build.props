@@ -20,7 +20,8 @@
 
 	<ItemGroup>
 		<ShaderBuildDependency Include="$(ProjectDir)src\**\*.hlsli" />
-		<ShaderBuildDependency Include="$(RylogicRoot)include\pr\hlsl\*.hlsli" />
+		<!-- Public shader headers, such as the view3d shader contracts, are included by project shaders. -->
+		<ShaderBuildDependency Include="$(RylogicRoot)include\pr\**\*.hlsli" />
 	</ItemGroup>
 
 	<!-- Batch incrementally by source file so one stale shader does not rebuild every item. -->

@@ -279,10 +279,12 @@ namespace pr::rdr12
 		for (auto pop : scn().Populations())
 		{
 			// Populations whose LODs have no shadow-casting nuggets are not casters, so they do not grow the caster bounds
-			auto const& proto = *pop->m_prototype.get();
 			auto casts = false;
-			for (auto const& lod : proto.m_lods)
-				PopulationNuggets(*lod.m_model.get(), ERenderStep::ShadowMap, [&](Nugget const&) { casts = true; });
+			for (auto const& proto : pop->m_prototypes)
+			{
+				for (auto const& lod : proto->m_lods)
+					PopulationNuggets(*lod.m_model.get(), ERenderStep::ShadowMap, [&](Nugget const&) { casts = true; });
+			}
 
 			if (!casts)
 				continue;
@@ -299,24 +301,30 @@ namespace pr::rdr12
 				continue;
 
 			// Hash everything that can change the depth the population writes into a view. The revision covers blocks, instances, and payload.
-			// The draw range is measured from the scene camera, so the camera position matters only when the prototype limits the range.
+			// The draw range is measured from the scene camera, so the camera position matters only when a prototype limits the range.
 			auto& h = caster.m_hash;
 			HashPtr(h, pop.get());
 			HashWord(h, revision);
-			HashPtr(h, &proto);
-			for (auto const& lod : proto.m_lods)
+			auto ranged = false;
+			for (auto const& proto : pop->m_prototypes)
 			{
-				HashPtr(h, lod.m_model.get());
-				HashWord(h, lod.m_model->m_revision);
-
-				// Custom shadow vertex shaders can change the geometry without any change to the population, in the same way as for ordinary nuggets
-				PopulationNuggets(*lod.m_model.get(), ERenderStep::ShadowMap, [&](Nugget const& nug)
+				// Each prototype's models, and whether it limits the draw range
+				HashPtr(h, proto.get());
+				ranged |= proto->m_draw_distance > 0 || proto->m_fade_in.used() || proto->m_fade_out.used();
+				for (auto const& lod : proto->m_lods)
 				{
-					if (PopulationVertexOverlay(nug.mat(), ERenderStep::ShadowMap) != nullptr)
-						caster.m_volatile = true;
-				});
+					HashPtr(h, lod.m_model.get());
+					HashWord(h, lod.m_model->m_revision);
+
+					// Custom shadow vertex shaders can change the geometry without any change to the population, in the same way as for ordinary nuggets
+					PopulationNuggets(*lod.m_model.get(), ERenderStep::ShadowMap, [&](Nugget const& nug)
+					{
+						if (PopulationVertexOverlay(nug.mat(), ERenderStep::ShadowMap) != nullptr)
+							caster.m_volatile = true;
+					});
+				}
 			}
-			if (proto.m_draw_distance > 0 || proto.m_fade_in.used() || proto.m_fade_out.used())
+			if (ranged)
 				HashMix(h, range_origin);
 
 			m_casters.push_back(std::move(caster));
@@ -731,7 +739,7 @@ namespace pr::rdr12
 						desc.Apply(PSO<EPipeState::DepthClipEnable>(clamp_depth ? FALSE : TRUE));
 
 						// Bind the instance records and visible lists. The payload slot needs a valid address, so it aliases the instance records when there is no payload.
-						auto pop_draw = PopulationDraw{ .lod = s_cast<uint32_t>(draw.m_lod), .list_base = lists.m_list_base, .pad0 = 0, .pad1 = 0 };
+						auto pop_draw = PopulationDraw{ .list = s_cast<uint32_t>(draw.m_list), .list_base = lists.m_list_base, .offsets = lists.m_offsets, .pad = 0 };
 						m_cmd_list.SetGraphicsRootShaderResourceView(shaders::smap::ERootParam::PopulationInstances, GpuAddress(pop.m_instances));
 						m_cmd_list.SetGraphicsRootShaderResourceView(shaders::smap::ERootParam::PopulationView, GpuAddress(lists.m_scratch));
 						m_cmd_list.SetGraphicsRootShaderResourceView(shaders::smap::ERootParam::PopulationPayload, pop.m_payload != nullptr ? GpuAddress(pop.m_payload) : GpuAddress(pop.m_instances));

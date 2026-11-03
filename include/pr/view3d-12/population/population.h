@@ -21,7 +21,7 @@ namespace pr::rdr12
 		_flags_enum = 0,
 	};
 
-	// One placement of a population prototype. Matches 'View3DPopulationInstance'.
+	// One placement of one of a population's prototypes. Matches 'View3DPopulationInstance'.
 	struct PopulationInstance
 	{
 		// Rows of the affine instance-to-world transform: 'world[i] = Dot(o2w[i], p.w1())'.
@@ -36,13 +36,13 @@ namespace pr::rdr12
 		// Caller payload index, interpreted only by caller shaders.
 		uint32_t payload;
 
-		// Must be zero.
-		uint32_t reserved;
+		// The index of the population prototype that this instance places. Instances with an index outside the population's prototypes are not drawn.
+		uint32_t prototype;
 	};
 	static_assert(sizeof(PopulationInstance) == 64, "Must match View3DPopulationInstance");
 
 	// Make an instance record from an affine instance-to-world transform. 'o2w.w' must be (0,0,0,1) in its 'w' components.
-	inline PopulationInstance MakePopulationInstance(m4x4 const& o2w, Colour32 tint, EPopulationInstanceFlags flags, uint32_t payload)
+	inline PopulationInstance MakePopulationInstance(m4x4 const& o2w, Colour32 tint, EPopulationInstanceFlags flags, uint32_t payload, uint32_t prototype)
 	{
 		// The record holds the rows of the transform, so the shader can use dot products.
 		assert(o2w.x.w == 0 && o2w.y.w == 0 && o2w.z.w == 0 && o2w.w.w == 1 && "Population instance transforms must be affine");
@@ -55,7 +55,7 @@ namespace pr::rdr12
 			.tint = tint,
 			.flags = flags,
 			.payload = payload,
-			.reserved = 0,
+			.prototype = prototype,
 		};
 	}
 
@@ -66,12 +66,21 @@ namespace pr::rdr12
 	inline constexpr uint32_t PopulationDitherActive = 0x40000000u;
 	inline constexpr uint32_t PopulationDitherComplement = 0x80000000u;
 
-	// Byte offsets of the per-view list header. Match VIEW3D_POPULATION_HEADER_*.
-	inline constexpr int PopulationHeaderCounts = 0;
-	inline constexpr int PopulationHeaderOffsets = 32;
-	inline constexpr int PopulationHeaderCursors = 64;
-	inline constexpr int PopulationHeaderDiag = 96;
-	inline constexpr int PopulationHeaderSize = 128;
+	// Layout of the per-view list header, for a population with 'list_count' visible lists. Match VIEW3D_POPULATION_HEADER_*.
+	inline constexpr int PopulationHeaderDiag = 0;
+	inline constexpr int PopulationHeaderCounts = 16;
+	inline constexpr int PopulationHeaderOffsets(int list_count)
+	{
+		return PopulationHeaderCounts + 4 * list_count;
+	}
+	inline constexpr int PopulationHeaderCursors(int list_count)
+	{
+		return PopulationHeaderCounts + 8 * list_count;
+	}
+	inline constexpr int PopulationHeaderSize(int list_count)
+	{
+		return (PopulationHeaderCounts + 12 * list_count + 15) & ~15;
+	}
 
 	// One entry of a per-view visible list. Matches 'View3DPopulationEntry'.
 	struct PopulationEntry
@@ -84,10 +93,10 @@ namespace pr::rdr12
 	// Per-draw constants of a population draw. Matches 'View3DPopulationDraw'.
 	struct PopulationDraw
 	{
-		uint32_t lod;
+		uint32_t list;
 		uint32_t list_base;
-		uint32_t pad0;
-		uint32_t pad1;
+		uint32_t offsets;
+		uint32_t pad;
 	};
 	static_assert(sizeof(PopulationDraw) == 16, "Must match View3DPopulationDraw");
 
@@ -178,8 +187,8 @@ namespace pr::rdr12
 		int64_t m_blocks_overflow;                   // Visible blocks dropped because the view exceeded 'PopulationCuller::MaxVisibleBlocks'.
 		int64_t m_instances_tested;                  // Live instance slots tested by the GPU.
 		int64_t m_entries_emitted;                   // Visible list entries written. An instance in a LOD transition writes two.
-		int64_t m_entries_per_lod[PopulationMaxLods]; // Visible list entries of each LOD.
-		int64_t m_indirect_draws;                    // Indirect draw records ((LOD, nugget) pairs) of the view.
+		int64_t m_entries_per_lod[PopulationMaxLods]; // Visible list entries of each LOD, summed over prototypes.
+		int64_t m_indirect_draws;                    // Indirect draw records ((prototype, LOD, nugget) triples) of the view.
 		int64_t m_live_count_violations;             // Visible blocks whose GPU live count exceeded their capacity.
 	};
 
@@ -191,16 +200,17 @@ namespace pr::rdr12
 		int64_t m_block_capacity;      // The number of block slots.
 		int64_t m_active_blocks;       // Blocks defined by 'SetBlock' and not removed.
 		int64_t m_admitted_instances;  // The sum of the active blocks' capacities: the most instances that can be live.
-		int64_t m_resident_bytes;      // The size of the instance, live count, and payload buffers.
+		int64_t m_resident_bytes;      // The size of the instance, live count, payload, and prototype buffers.
 		int64_t m_scratch_bytes;       // The size of all per-view classification buffers.
 		int64_t m_scratch_high_water;  // The largest value 'm_scratch_bytes' has had.
-		int64_t m_upload_bytes;        // The total bytes copied to the GPU by instance, block, and payload updates.
+		int64_t m_upload_bytes;        // The total bytes copied to the GPU by prototype, instance, block, and payload updates.
 		int64_t m_producer_dispatches; // The total number of producer dispatches recorded.
 		int64_t m_views;               // The number of views with completed GPU counters.
 		PopulationViewStats m_classified; // The latest completed classification counters, summed over views.
 	};
 
-	// A retained set of placements of one prototype. Instances live in GPU buffers; the caller updates ranges, not individual objects.
+	// A retained set of placements of one or more prototypes. Each instance names its prototype. Instances live in GPU buffers; the caller updates
+	// ranges, not individual objects. All prototypes are classified together, so one classification per view covers every prototype.
 	struct Population : RefCounted<Population>
 	{
 		using GfxCmdList = ::pr::compute::GfxCmdList;
@@ -216,6 +226,13 @@ namespace pr::rdr12
 			x(ModelPtr, m_model, EInstComp::ModelPtr)
 			PR_RDR12_INSTANCE_MEMBERS(Proxy, PR_RDR_INST);
 			#undef PR_RDR_INST
+		};
+
+		// One visible list of a classification: the instances of one prototype drawn at one LOD.
+		struct List
+		{
+			int m_prototype; // The index of the prototype in 'm_prototypes'.
+			int m_lod;       // The LOD of the prototype.
 		};
 
 		// A slot of a view's diagnostics readback ring: a copy of one classification's list header, valid once 'm_fence' reaches 'm_sync_point'.
@@ -252,14 +269,18 @@ namespace pr::rdr12
 		};
 
 		Renderer* m_rdr;
-		PopulationPrototypePtr m_prototype;
+		vector<PopulationPrototypePtr> m_prototypes; // Indexed by the instance prototype index.
+		vector<List> m_lists;                        // The visible lists, grouped by prototype, then ordered by LOD.
+		float m_block_near;                          // Blocks whose furthest point is nearer than this hold no visible instances: the nearest fade-in start over all prototypes.
+		float m_block_far;                           // Blocks whose closest point is further than this hold no visible instances: the furthest draw limit over all prototypes. Infinite means unlimited.
 		int m_instance_capacity;                     // The number of instance slots.
 		int m_payload_size;                          // The size of the caller payload buffer in bytes. Zero means no payload.
 		D3DPtr<ID3D12Resource> m_instances;          // StructuredBuffer<View3DPopulationInstance>[m_instance_capacity]
 		D3DPtr<ID3D12Resource> m_live_counts;        // StructuredBuffer<uint>[block capacity]
 		D3DPtr<ID3D12Resource> m_payload;            // ByteAddressBuffer[m_payload_size], or null
+		D3DPtr<ID3D12Resource> m_prototype_table;    // The classification constants of each prototype. See 'PrototypeConstants' in 'population_cull.hlsl'.
 		std::vector<PopulationBlock> m_blocks;       // Indexed by block index. The size is the block capacity.
-		std::vector<Proxy> m_proxies;                // One per prototype LOD. Sized once, so instance addresses are stable.
+		std::vector<Proxy> m_proxies;                // One per list. Sized once, so instance addresses are stable.
 		std::unordered_map<uint64_t, ViewScratch> m_views; // Classification scratch, keyed by consuming view.
 		std::vector<PendingWork> m_pending;          // Uploads and producer dispatches recorded by the next 'Flush', in submission order.
 		std::vector<uint8_t> m_produce_cs;           // The bytecode of the cached producer pipeline.
@@ -272,14 +293,18 @@ namespace pr::rdr12
 		int64_t m_producer_dispatches;               // The total dispatches recorded by 'Flush'.
 		std::mutex m_mutex;
 
-		// Create a population with fixed instance, block, and payload capacities. Resources are created up front, so admission fails here, not mid-frame.
-		Population(Renderer& rdr, PopulationPrototypePtr prototype, int instance_capacity, int block_capacity, int payload_size);
+		// Create a population of 'prototypes' with fixed instance, block, and payload capacities. Instances select a prototype by its index in
+		// 'prototypes'. Resources are created up front, so admission fails here, not mid-frame.
+		Population(Renderer& rdr, std::span<PopulationPrototypePtr const> prototypes, int instance_capacity, int block_capacity, int payload_size);
 		Population(Population const&) = delete;
 		Population& operator =(Population const&) = delete;
 		~Population();
 
 		// The number of block slots.
 		int BlockCapacity() const;
+
+		// The size of the list header of a classification.
+		int HeaderSize() const;
 
 		// Define block 'index'. 'live_count' instances starting at 'first' are drawn. Throws std::out_of_range for invalid ranges.
 		void SetBlock(int index, BBox const& bbox, int first, int capacity, int live_count);
@@ -349,13 +374,15 @@ namespace pr::rdr12
 		bool m_orthographic;
 	};
 
-	// One indirect draw of a classified population: a (LOD, nugget) pair.
+	// One indirect draw of a classified population: a (prototype, LOD, nugget) triple.
 	// Each draw has an indexed record over the nugget's index range and a non-indexed record over its vertex range, so any fill mode can be drawn.
 	struct PopulationViewDraw
 	{
-		Population::Proxy const* m_proxy; // The proxy instance of the LOD.
+		Population::Proxy const* m_proxy; // The proxy instance of the list.
 		Nugget const* m_nugget;           // The nugget to draw.
+		int m_prototype;                  // The prototype of the draw.
 		int m_lod;                        // The LOD of the draw.
+		int m_list;                       // The visible list that the draw renders.
 		int64_t m_args_indexed;           // Byte offset of the indexed argument record in 'm_scratch'.
 		int64_t m_args_vertex;            // Byte offset of the non-indexed argument record in 'm_scratch'.
 	};
@@ -366,6 +393,7 @@ namespace pr::rdr12
 		Population const* m_population;
 		ID3D12Resource* m_scratch;  // The view buffer. In INDIRECT_ARGUMENT | shader resource state after classification.
 		uint32_t m_list_base;       // Byte offset of the first list entry in 'm_scratch'.
+		uint32_t m_offsets;         // Byte offset of the list offsets array of the header in 'm_scratch'.
 		vector<PopulationViewDraw> m_draws;
 	};
 

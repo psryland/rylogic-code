@@ -39,6 +39,7 @@
 #include <condition_variable>
 #include <thread>
 #include <latch>
+#include <atomic>
 #include <future>
 #include <cwctype>
 

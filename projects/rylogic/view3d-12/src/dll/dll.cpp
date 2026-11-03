@@ -2769,13 +2769,23 @@ VIEW3D_API void __stdcall View3D_PopulationPrototypeRelease(view3d::PopulationPr
 }
 
 // Create a population. The caller owns the returned reference.
-VIEW3D_API view3d::Population __stdcall View3D_PopulationCreate(view3d::PopulationPrototype prototype, int instance_capacity, int block_capacity, int payload_size)
+VIEW3D_API view3d::Population __stdcall View3D_PopulationCreate(view3d::PopulationPrototype const* prototypes, int prototype_count, int instance_capacity, int block_capacity, int payload_size)
 {
 	try
 	{
-		Validate(prototype);
+		// Take a reference to each prototype for the population
+		if (prototypes == nullptr || prototype_count <= 0)
+			throw std::invalid_argument("A population requires at least one prototype");
+
+		auto protos = std::vector<rdr12::PopulationPrototypePtr>{};
+		for (int i = 0; i != prototype_count; ++i)
+		{
+			Validate(prototypes[i]);
+			protos.push_back(rdr12::PopulationPrototypePtr(prototypes[i], true));
+		}
+
 		DllLockGuard;
-		auto population = rdr12::PopulationPtr(new rdr12::Population(Dll().m_rdr, rdr12::PopulationPrototypePtr(prototype, true), instance_capacity, block_capacity, payload_size), true);
+		auto population = rdr12::PopulationPtr(new rdr12::Population(Dll().m_rdr, protos, instance_capacity, block_capacity, payload_size), true);
 		return population.release();
 	}
 	CatchAndReport(View3D_PopulationCreate, , nullptr);
@@ -2822,6 +2832,7 @@ VIEW3D_API void __stdcall View3D_PopulationInstancesUpdate(view3d::Population po
 	static_assert(offsetof(view3d::PopulationInstance, m_tint) == offsetof(rdr12::PopulationInstance, tint));
 	static_assert(offsetof(view3d::PopulationInstance, m_flags) == offsetof(rdr12::PopulationInstance, flags));
 	static_assert(offsetof(view3d::PopulationInstance, m_payload) == offsetof(rdr12::PopulationInstance, payload));
+	static_assert(offsetof(view3d::PopulationInstance, m_prototype) == offsetof(rdr12::PopulationInstance, prototype));
 	try
 	{
 		Validate(population);

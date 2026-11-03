@@ -4,9 +4,9 @@
 //*********************************************
 // Public shader contract for population (GPU-driven instanced) rendering.
 //
-// A population draws many placements of one prototype. Each placement is a 'View3DPopulationInstance' record in a GPU buffer.
-// For each consuming view (the main camera or a shadow view), the renderer selects the visible instances and their LODs on the GPU.
-// It writes one list of 'View3DPopulationEntry' records per LOD, then draws each (LOD, nugget) pair with one indirect draw.
+// A population draws many placements of one or more prototypes. Each placement is a 'View3DPopulationInstance' record in a GPU buffer that names its prototype.
+// For each consuming view (the main camera or a shadow view), the renderer selects the visible instances and their LODs on the GPU in one pass over all prototypes.
+// It writes one list of 'View3DPopulationEntry' records per (prototype, LOD), then draws each (prototype, LOD, nugget) triple with one indirect draw.
 // The vertex shader of a population draw finds its entry with 'View3DPopulationFetch' and places the vertex with the instance transform.
 //
 // Instance transforms are affine (rotation, nonuniform scale, shear, mirroring, and translation). Normals use the cofactor of the linear part,
@@ -29,7 +29,7 @@
 #include "pr/view3d-12/shaders/procedural_vertex.hlsli"
 
 // Contract version of the population layouts and bindings in this file.
-#define VIEW3D_POPULATION_VERSION 1
+#define VIEW3D_POPULATION_VERSION 2
 
 // The maximum number of LODs in a population prototype.
 #define VIEW3D_POPULATION_MAX_LODS 8
@@ -41,7 +41,7 @@
 //  - Instances: 'StructuredBuffer<View3DPopulationInstance>', the population's instance records.
 //  - View: 'ByteAddressBuffer', the renderer's per-view visible lists. Read it only through 'View3DPopulationFetch'.
 //  - Payload: 'ByteAddressBuffer', the caller's optional payload. Unbound when the population has no payload.
-//  - Draw: 'ConstantBuffer<View3DPopulationDraw>', the LOD and list location of the current draw.
+//  - Draw: 'ConstantBuffer<View3DPopulationDraw>', the list and list location of the current draw.
 #define VIEW3D_POPULATION_INSTANCES_REGISTER t24
 #define VIEW3D_POPULATION_VIEW_REGISTER t25
 #define VIEW3D_POPULATION_PAYLOAD_REGISTER t26
@@ -60,13 +60,12 @@
 #define VIEW3D_POPULATION_PRODUCER_LIVE_COUNTS_REGISTER u1
 #define VIEW3D_POPULATION_PRODUCER_PAYLOAD_REGISTER u2
 
-// Byte offsets of the per-view list header. The header holds 'VIEW3D_POPULATION_MAX_LODS' uints for each field. The DIAG field holds
-// renderer diagnostic counters, which callers read through View3D_PopulationStats rather than from shaders.
-#define VIEW3D_POPULATION_HEADER_COUNTS 0
-#define VIEW3D_POPULATION_HEADER_OFFSETS 32
-#define VIEW3D_POPULATION_HEADER_CURSORS 64
-#define VIEW3D_POPULATION_HEADER_DIAG 96
-#define VIEW3D_POPULATION_HEADER_SIZE 128
+// Layout of the per-view list header. A population has one visible list per (prototype, LOD). The header starts with four DIAG words of renderer
+// diagnostic counters, which callers read through View3D_PopulationStats rather than from shaders. Then it holds one uint per list for each of the
+// COUNTS, OFFSETS, and CURSORS fields, in that order, and is padded to a multiple of 16 bytes. Shaders read list offsets only through
+// 'View3DPopulationFetch', which takes the location of the OFFSETS field from the draw constants.
+#define VIEW3D_POPULATION_HEADER_DIAG 0
+#define VIEW3D_POPULATION_HEADER_COUNTS 16
 
 // Bit fields of the dither word in 'View3DPopulationEntry.dither'.
 //  - Bits 0-15: coverage, as unorm16.
@@ -80,7 +79,7 @@
 #define VIEW3D_POPULATION_DITHER_ACTIVE 0x40000000u
 #define VIEW3D_POPULATION_DITHER_COMPLEMENT 0x80000000u
 
-// One placement of a population prototype. 64 bytes.
+// One placement of one of a population's prototypes. 64 bytes.
 struct View3DPopulationInstance
 {
 	// Rows of the affine instance-to-world transform: 'world[i] = dot(o2w[i], float4(p, 1))'.
@@ -89,7 +88,7 @@ struct View3DPopulationInstance
 	// x = tint colour, packed as 0xAARRGGBB. Multiplies the vertex colour.
 	// y = flags, see VIEW3D_POPULATION_FLAG_*.
 	// z = caller payload index, interpreted only by caller shaders.
-	// w = reserved, must be zero.
+	// w = the index of the prototype that this instance places. Instances with an index outside the population's prototypes are not drawn.
 	uint4 info;
 };
 
@@ -103,10 +102,10 @@ struct View3DPopulationEntry
 // Per-draw constants of a population draw.
 struct View3DPopulationDraw
 {
-	uint lod;       // The LOD that this draw renders.
+	uint list;      // The visible list, one per (prototype, LOD), that this draw renders.
 	uint list_base; // Byte offset of the first list entry in the view buffer.
-	uint pad0;
-	uint pad1;
+	uint offsets;   // Byte offset of the list offsets field of the header in the view buffer.
+	uint pad;
 };
 
 #ifndef __cplusplus
@@ -114,8 +113,8 @@ struct View3DPopulationDraw
 // Read the list entry for 'instance_id' (SV_InstanceID) of the current population draw.
 View3DPopulationEntry View3DPopulationFetch(ByteAddressBuffer view, View3DPopulationDraw draw, uint instance_id)
 {
-	// The LOD's first entry is written by the renderer's classification pass. SV_InstanceID does not include the draw's start instance.
-	uint first = view.Load(VIEW3D_POPULATION_HEADER_OFFSETS + draw.lod * 4);
+	// The list's first entry is written by the renderer's classification pass. SV_InstanceID does not include the draw's start instance.
+	uint first = view.Load(draw.offsets + draw.list * 4);
 	uint2 raw = view.Load2(draw.list_base + (first + instance_id) * 8);
 
 	View3DPopulationEntry entry;

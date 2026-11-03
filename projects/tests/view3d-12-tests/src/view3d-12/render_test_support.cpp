@@ -324,7 +324,7 @@ namespace render_tests
 		{
 			auto actual = Linear(pixel[channel]);
 			if (std::abs(actual - expected[channel]) > 0.025f)
-				throw std::runtime_error("Pixel mismatch channel " + std::to_string(channel) + ": actual " + std::to_string(actual) + ", expected " + std::to_string(expected[channel]));
+				throw std::runtime_error("Pixel mismatch at (" + std::to_string(x) + ", " + std::to_string(y) + ") channel " + std::to_string(channel) + ": actual " + std::to_string(actual) + ", expected " + std::to_string(expected[channel]));
 		}
 	}
 }
