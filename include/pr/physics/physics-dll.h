@@ -48,9 +48,9 @@ namespace pr::physics
 
 namespace pr::physics
 {
-	inline constexpr std::uint32_t PHYSICS_API_VERSION = 0x00070000U;
-	inline constexpr std::uint32_t PHYSICS_STRUCT_VERSION = 2U;
-	inline constexpr std::uint32_t PHYSICS_CHECKPOINT_VERSION = 3U;
+	inline constexpr std::uint32_t PHYSICS_API_VERSION = 0x00080000U;
+	inline constexpr std::uint32_t PHYSICS_STRUCT_VERSION = 3U;
+	inline constexpr std::uint32_t PHYSICS_CHECKPOINT_VERSION = 4U;
 
 	// Reported in place of a compound child index when the shape involved has no child identity.
 	inline constexpr std::uint32_t PHYSICS_NO_CHILD = 0xFFFFFFFFU;
@@ -236,6 +236,10 @@ namespace pr::physics
 		float constraint_max_position_speed;
 		float constraint_regularization;
 		float constraint_warm_start_factor;
+
+		// Collision filter of the world surfaces (terrain and cylindrical boundary). See BodyDesc::collision_layer.
+		std::uint32_t world_collision_layer;
+		std::uint32_t world_collision_mask;
 	};
 
 	#pragma endregion
@@ -335,10 +339,14 @@ namespace pr::physics
 		ApplyForce = 4,
 		ApplyImpulse = 5,
 		SetGravity = 6,
-		SetKinematicTransform = 7,
+		SetKinematicTarget = 7,
 		SetEnabled = 8,
 		Wake = 9,
 		Sleep = 10,
+
+		// Change the body's motion type to 'flags' (an EMotionType). 'value' is the release velocity for Dynamic or the twist for Kinematic, and must
+		// be zero for Static. Switching to Dynamic needs finite stored mass. The body wakes, and any pending kinematic target is dropped.
+		SetMotionType = 11,
 	};
 
 	// Mass properties in the body's model space. 'diagonal' (xx, yy, zz) and 'products' (xy, xz, yz) are the unit inertia (inertia / mass) about the
@@ -350,6 +358,9 @@ namespace pr::physics
 		Vector4 centre_of_mass_and_mass;
 	};
 
+	// Body creation parameters. Dynamic and Kinematic bodies derive or take mass properties according to 'mass_mode'. Static bodies do the same when
+	// the mass settings are valid, keeping the mass for a later switch to Dynamic; otherwise they store infinite mass. Kinematic bodies are created at
+	// rest, so 'momentum' must be zero for them.
 	struct BodyDesc
 	{
 		StructHeader header;
@@ -364,8 +375,17 @@ namespace pr::physics
 		EBodyMassDistribution mass_distribution;
 		float mass_or_density;
 		EBodyFlags flags;
+
+		// Collision filter. Two bodies collide only when each is in a layer that the other's mask accepts: (a.layer & b.mask) && (b.layer & a.mask).
+		// World surfaces use Config::world_collision_layer/mask in the same way. Callers must set both fields; a zero layer or mask collides with nothing.
+		// Bodies normally use layer 1 and mask 0xFFFFFFFF.
+		std::uint32_t collision_layer;
+		std::uint32_t collision_mask;
 	};
 
+	// Full body state. 'inertia' is always the body's own mass properties, which kinematic bodies keep for a later switch to Dynamic.
+	// Dynamic bodies take 'momentum' and report 'velocity'. Kinematic bodies take 'velocity' as their twist and report zero 'momentum'.
+	// A Dynamic state needs a finite, positive mass.
 	struct BodyState
 	{
 		StructHeader header;
@@ -380,6 +400,8 @@ namespace pr::physics
 		std::uint64_t user_tag;
 		EMotionType motion_type;
 		EBodyFlags flags;
+		std::uint32_t collision_layer; // See BodyDesc::collision_layer
+		std::uint32_t collision_mask;
 	};
 
 	struct BodyCommand
@@ -404,6 +426,15 @@ namespace pr::physics
 		std::uint64_t user_tag;
 		EMotionType motion_type;
 		EBodyFlags flags;
+		std::uint32_t collision_layer; // See BodyDesc::collision_layer
+		std::uint32_t collision_mask;
+	};
+
+	// An unordered pair of bodies.
+	struct BodyPair
+	{
+		BodyHandle body_a;
+		BodyHandle body_b;
 	};
 
 	#pragma endregion
@@ -892,6 +923,15 @@ namespace pr::physics
 		std::int32_t failure_iteration_count;
 		float failure_relaxation;
 		float failure_merit_change;
+
+		// Contact impulses and velocity, in world space. Zero for events that are not contacts.
+		//  normal_impulse: the total impulse along 'normal' that the solver applied to B during the substep (A receives the negation). It is never negative.
+		//    A box resting on the ground reports about m * g * substep_dt.
+		//  tangent_impulse: the friction impulse applied to B during the substep, perpendicular to 'normal'.
+		//  relative_velocity: the velocity of B relative to A at the centre of the contact points, after the substep's solve.
+		float normal_impulse;
+		Vector4 tangent_impulse;
+		Vector4 relative_velocity;
 	};
 
 	#pragma endregion
@@ -1149,6 +1189,15 @@ extern "C"
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_BodyStateGet(pr::physics::EngineHandle engine, pr::physics::BodyHandle body, pr::physics::BodyState* state);
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_BodyStateSet(pr::physics::EngineHandle engine, pr::physics::BodyHandle body, pr::physics::BodyState const* state);
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_CommandsApply(pr::physics::EngineHandle engine, pr::physics::BodyCommand const* commands, std::uint32_t command_count);
+
+	// Body pairs that never make contacts with each other. Pairs are unordered, so (A, B) and (B, A) are the same pair. Setting a pair that is already
+	// in the requested state does nothing. A pair is removed automatically when either body is destroyed. Pairs that name a disabled body stay stored
+	// but have no effect while that body is disabled.
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_BodyCollisionIgnoreSet(pr::physics::EngineHandle engine, pr::physics::BodyHandle body_a, pr::physics::BodyHandle body_b, std::int32_t ignore);
+
+	// Copy all ignore pairs into 'pairs'. '*required' is always set to the pair count. Fails with BufferTooSmall when 'capacity' is less than that.
+	// Each returned pair has 'body_a < body_b', and pairs are sorted, so the output order is deterministic.
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_BodyCollisionIgnoreCopy(pr::physics::EngineHandle engine, pr::physics::BodyPair* pairs, std::uint32_t capacity, std::uint32_t* required);
 
 	// Reduced-coordinate articulation creation, lifetime, state, and external fields.
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_ArticulationCreate(pr::physics::EngineHandle engine, pr::physics::ArticulationDesc const* desc, pr::physics::ArticulationLinkProperties const* links, pr::physics::ArticulationJointProperties const* joints, pr::physics::ArticulationHandle* articulation);

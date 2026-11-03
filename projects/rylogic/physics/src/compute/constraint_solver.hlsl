@@ -33,6 +33,7 @@
 #include "pr/hlsl/quaternions.hlsli"
 #include "pr/hlsl/spatial_algebra.hlsli"
 #include "physics/src/compute/physics_types.hlsli"
+#include "physics/src/compute/body_twist.hlsli"
 
 #ifdef __cplusplus
 namespace pr::physics {
@@ -106,6 +107,13 @@ float3 ConstraintCentreOfMass(int body_idx)
 {
 	GpuRigidBody body = g_constraint_bodies[body_idx];
 	return body.o2w[3].xyz + mul(body.os_com_and_invmass.xyz, (float3x3)body.o2w);
+}
+
+// Return true when an endpoint body changed motion type since the last step, so impulses cached against its old mass are not valid.
+bool ConstraintBodyResetsWarmStart(int body_idx)
+{
+	// World endpoints have no body and never reset.
+	return body_idx >= 0 && AllSet(g_constraint_bodies[body_idx].state_flags, ERigidBodyStateFlags_ResetWarmStart);
 }
 
 // Compose an endpoint-local compact frame with its body transform, or return it directly for world endpoints.
@@ -258,7 +266,11 @@ void CSCompileConstraints(int3 DTID(dtid))
 	float3 anchor_offset_b = endpoint.body_idx_b >= 0 ? frame_b[3].xyz - ConstraintCentreOfMass(endpoint.body_idx_b) : float3(0, 0, 0);
 	bool reset_warm_start =
 		g.retain_current_impulses == 0 &&
-		AllSet(endpoint.flags, GpuConstraintEndpointFlags_ResetWarmStart);
+		(
+			AllSet(endpoint.flags, GpuConstraintEndpointFlags_ResetWarmStart) ||
+			ConstraintBodyResetsWarmStart(endpoint.body_idx_a) ||
+			ConstraintBodyResetsWarmStart(endpoint.body_idx_b)
+		);
 
 	// Frame A defines all six canonical world axes, matching the CPU compiler.
 	for (uint axis_idx = 0; axis_idx != GpuConstraintRowsPerBlock; ++axis_idx)
@@ -510,23 +522,20 @@ void CSApplyConstraintWarmStart(int3 DTID(dtid))
 	ApplyConstraintBlockWarmStart(slot_idx);
 }
 
-// Return the current physical row velocity J*v from world-space momenta.
+// Return the current physical row velocity J*v from world-space body twists. Kinematic bodies contribute their twist even though they are never mutated.
 float ConstraintRowVelocity(GpuConstraintBlock block, GpuConstraintRow row)
 {
+	// Sum the contribution of each endpoint that refers to a body
 	float velocity = 0.0f;
-	if (ConstraintBodyDynamic(block.body_idx_a))
+	if (block.body_idx_a >= 0 && block.body_idx_a < g.body_count)
 	{
-		GpuRigidBody body = g_constraint_bodies[block.body_idx_a];
-		float3 angular = mul(ConstraintInverseInertia(block.body_idx_a), body.momentum_ang.xyz);
-		float3 linear_velocity = body.os_com_and_invmass.w * body.momentum_lin.xyz;
-		velocity += dot(row.jacobian_a_ang.xyz, angular) + dot(row.jacobian_a_lin.xyz, linear_velocity);
+		BodyTwist twist = BodyTwistWS(g_constraint_bodies[block.body_idx_a]);
+		velocity += dot(row.jacobian_a_ang.xyz, twist.ang) + dot(row.jacobian_a_lin.xyz, twist.lin);
 	}
-	if (ConstraintBodyDynamic(block.body_idx_b))
+	if (block.body_idx_b >= 0 && block.body_idx_b < g.body_count)
 	{
-		GpuRigidBody body = g_constraint_bodies[block.body_idx_b];
-		float3 angular = mul(ConstraintInverseInertia(block.body_idx_b), body.momentum_ang.xyz);
-		float3 linear_velocity = body.os_com_and_invmass.w * body.momentum_lin.xyz;
-		velocity += dot(row.jacobian_b_ang.xyz, angular) + dot(row.jacobian_b_lin.xyz, linear_velocity);
+		BodyTwist twist = BodyTwistWS(g_constraint_bodies[block.body_idx_b]);
+		velocity += dot(row.jacobian_b_ang.xyz, twist.ang) + dot(row.jacobian_b_lin.xyz, twist.lin);
 	}
 	return velocity;
 }

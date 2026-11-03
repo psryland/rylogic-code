@@ -732,6 +732,9 @@ namespace pr::physics
 			m_world_surfaces_changed = false;
 		}
 
+		// A body that changed motion type may have been the support of a sleeping island, so the rest of that island must re-check its contacts.
+		WakeLeftSleepIslands(input.m_bodies);
+
 		// A moving water surface can reach resting bodies without any environment change.
 		if (m_water_active)
 			m_gpu_water->WakeInSurfaceBand(input.m_bodies, input.m_articulations);
@@ -809,7 +812,7 @@ namespace pr::physics
 
 			// Flatten each independent tree once; all internal substeps retain these immutable topology and force ranges on the GPU.
 			auto articulation_upload = GpuArticulationUpload{};
-			auto articulation_collision_exclusions = std::vector<GpuCollisionExclusion>{};
+			auto extra_collision_exclusions = std::vector<GpuCollisionExclusion>{};
 			auto articulation_contacts_active = false;
 			if (!articulations.empty())
 			{
@@ -849,7 +852,7 @@ namespace pr::physics
 				m_cache->m_rb_dynamics.insert(m_cache->m_rb_dynamics.end(), proxies.begin(), proxies.end());
 
 				// Adjacent-link suppression needs one pair per tree edge, while broader same-tree policy remains compactly encoded in each proxy body.
-				articulation_collision_exclusions.reserve(articulation_upload.m_links.size());
+				extra_collision_exclusions.reserve(articulation_upload.m_links.size());
 				for (int articulation_index = 0; articulation_index != isize(articulations); ++articulation_index)
 				{
 					auto const* articulation = articulations[articulation_index];
@@ -869,11 +872,34 @@ namespace pr::physics
 
 						auto const body_index = m_cache->RigidBodyCount() + packed_link_index;
 						auto const parent_body_index = m_cache->RigidBodyCount() + parent_link_index;
-						articulation_collision_exclusions.push_back(GpuCollisionExclusion{
+						extra_collision_exclusions.push_back(GpuCollisionExclusion{
 							.body_idx_a_plus_one = static_cast<uint32_t>(std::min(body_index, parent_body_index) + 1),
 							.body_idx_b_plus_one = static_cast<uint32_t>(std::max(body_index, parent_body_index) + 1),
 						});
 					}
+				}
+			}
+
+			// Caller ignore pairs share the broadphase exclusion table. A pair is skipped when either body is not stepped this frame.
+			if (!input.m_collision_ignore_pairs.empty())
+			{
+				auto body_indices = std::unordered_map<RigidBody const*, int>{};
+				body_indices.reserve(bodies.size());
+				for (int i = 0; i != isize(bodies); ++i)
+					body_indices.emplace(bodies[i], i);
+
+				for (auto const& pair : input.m_collision_ignore_pairs)
+				{
+					assert(pair.m_body_a != pair.m_body_b && "A collision ignore pair needs two different bodies");
+					auto iter_a = body_indices.find(pair.m_body_a);
+					auto iter_b = body_indices.find(pair.m_body_b);
+					if (iter_a == body_indices.end() || iter_b == body_indices.end())
+						continue;
+
+					extra_collision_exclusions.push_back(GpuCollisionExclusion{
+						.body_idx_a_plus_one = static_cast<uint32_t>(std::min(iter_a->second, iter_b->second) + 1),
+						.body_idx_b_plus_one = static_cast<uint32_t>(std::max(iter_a->second, iter_b->second) + 1),
+					});
 				}
 			}
 
@@ -882,11 +908,11 @@ namespace pr::physics
 			if (input.m_constraints != nullptr)
 			{
 				auto profile_scope = ProfileScope<&Engine::StepProfile::m_constraint_pack_ms>(m_last_step_profile);
-				constraint_upload = PackGpuConstraints(*input.m_constraints, BodyRemap(bodies, articulations), articulation_collision_exclusions);
+				constraint_upload = PackGpuConstraints(*input.m_constraints, BodyRemap(bodies, articulations), extra_collision_exclusions);
 			}
 			else
 			{
-				constraint_upload.m_collision_exclusions = BuildGpuCollisionExclusions({}, articulation_collision_exclusions);
+				constraint_upload.m_collision_exclusions = BuildGpuCollisionExclusions({}, extra_collision_exclusions);
 			}
 			m_constraints_active = constraint_upload.m_rigid_active_count != 0;
 			m_coupled_constraints_active = constraint_upload.m_coupled_active_count != 0;
@@ -906,7 +932,7 @@ namespace pr::physics
 				m_gpu_coupled_contact_solver->Deactivate();
 
 			// Persistent constraints may wake sleeping bodies, while active articulations always require their independent pure-tree dispatch.
-			if (m_config.sleeping_enabled && m_cache->AwakeDynamicCount() == 0 && !m_constraints_active && !m_coupled_constraints_active && articulations.empty() &&
+			if (m_config.sleeping_enabled && m_cache->MovingBodyCount() == 0 && !m_constraints_active && !m_coupled_constraints_active && articulations.empty() &&
 				!(m_gpu_world_contacts && m_gpu_world_contacts->m_boundary))
 			{
 				if (m_gpu_articulation_midpoint != nullptr)
@@ -1302,6 +1328,37 @@ namespace pr::physics
 	}
 
 	// Pack the body data into GPU buffers for the current frame.
+	void Engine::WakeLeftSleepIslands(std::span<RigidBody*> rigid_bodies)
+	{
+		// Collect and clear the islands that bodies left. Few bodies change motion type per step, so a linear search is enough.
+		auto left_island_ids = std::vector<int>{};
+		for (auto* body : rigid_bodies)
+		{
+			// Record each island once
+			auto& left_id = body->m_sleep.m_left_island_id;
+			if (left_id < 0)
+				continue;
+
+			if (std::ranges::find(left_island_ids, left_id) == left_island_ids.end())
+				left_island_ids.push_back(left_id);
+
+			left_id = -1;
+		}
+		if (left_island_ids.empty())
+			return;
+
+		// Wake every body still asleep in one of those islands
+		for (auto* body : rigid_bodies)
+		{
+			// Bodies outside a sleeping island keep their state
+			if (!body->Sleeping() || body->m_sleep.m_island_id < 0)
+				continue;
+
+			if (std::ranges::find(left_island_ids, body->m_sleep.m_island_id) != left_island_ids.end())
+				body->Wake();
+		}
+	}
+
 	void Engine::Pack(std::span<RigidBody*> rigid_bodies)
 	{
 		for (auto body : rigid_bodies)
@@ -1312,7 +1369,7 @@ namespace pr::physics
 			// Clear prior-frame collision state only in detached staging so a rejected mixed frame cannot mutate caller-owned bodies.
 			auto dyn = PackDynamics(*body, shape_id);
 			dyn.state_flags = static_cast<uint32_t>(SetBits(static_cast<ERigidBodyStateFlags>(dyn.state_flags), ERigidBodyStateFlags::Collided, false));
-			m_cache->CountAwakeDynamic(*body);
+			m_cache->CountMovingBody(*body);
 			m_cache->PackSleepIsland(*body, dyn);
 			m_cache->AddBroadphaseSortSample(dyn);
 			m_cache->m_rb_dynamics.push_back(dyn);
@@ -1329,7 +1386,7 @@ namespace pr::physics
 
 		// Prepare world-surface plans and terrain timestamps against the packed shape indices.
 		if (m_gpu_world_contacts)
-			m_gpu_world_contacts->Upload(m_gpu->m_job, m_cache->m_shape_cache, m_cache->m_rb_dynamics, std::max(1, m_last_step_profile.m_substep_count));
+			m_gpu_world_contacts->Upload(m_gpu->m_job, m_cache->m_shape_cache, m_cache->m_rb_dynamics, std::max(1, m_last_step_profile.m_substep_count), m_config.world_collision_layer, m_config.world_collision_mask);
 
 		// The broadphase reads shape data to expand compound bodies into their convex leaves, so shapes
 		// must be resident before the sweep rather than only before the narrowphase.
@@ -1387,7 +1444,7 @@ namespace pr::physics
 		}
 	}
 
-	// Mark sleeping islands disturbed by awake bodies before broadphase filtering.
+	// Mark sleeping islands disturbed by awake dynamic or moving kinematic bodies before broadphase filtering.
 	void Engine::SleepWake()
 	{
 		auto body_count = m_cache->RigidBodyCount();

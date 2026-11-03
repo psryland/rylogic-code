@@ -309,7 +309,7 @@ namespace pr::physics
 		{
 			bodies.push_back(ContactPriorityBody{
 				.m_position_ws = body.o2w.pos,
-				.m_velocity_ws = body.os_com_and_invmass.w * body.momentum_lin,
+				.m_velocity_ws = v4{BodyTwistWS(body).lin, 0.0f},
 				.m_inv_mass = body.os_com_and_invmass.w,
 			});
 		}

@@ -8,6 +8,7 @@
 #include "pr/hlsl/core.hlsli"
 #include "pr/hlsl/spatial_algebra.hlsli"
 #include "physics/src/compute/physics_types.hlsli"
+#include "physics/src/compute/body_twist.hlsli"
 
 #ifdef __cplusplus
 namespace pr::physics {
@@ -143,13 +144,12 @@ float CoupledEndpointRowVelocity(
 		GpuArticulationSpatialVector velocity = g_coupled_velocity_aba_scratch[link_idx].link_velocity;
 		return dot(jacobian_ang, velocity.ang.xyz) + dot(jacobian_lin, velocity.lin.xyz);
 	}
-	if (!CoupledVelocityRigidDynamic(body_idx))
+	// Bodies outside the solve do not move. Kinematic bodies contribute their twist even though impulses cannot change it.
+	if (body_idx < 0 || body_idx >= g_coupled_velocity.body_count)
 		return 0.0f;
 
-	GpuRigidBody body = g_coupled_velocity_bodies[body_idx];
-	float3 angular_velocity = mul(CoupledVelocityInverseInertia(body_idx), body.momentum_ang.xyz);
-	float3 linear_velocity = body.os_com_and_invmass.w * body.momentum_lin.xyz;
-	return dot(jacobian_ang, angular_velocity) + dot(jacobian_lin, linear_velocity);
+	BodyTwist twist = BodyTwistWS(g_coupled_velocity_bodies[body_idx]);
+	return dot(jacobian_ang, twist.ang) + dot(jacobian_lin, twist.lin);
 }
 
 // Return one gathered target's exact detached velocity response for island-merit evaluation.

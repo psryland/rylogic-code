@@ -14,6 +14,7 @@
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
 #include "pr/physics/physics.h"
+#include "pr/physics/collision/broadphase_brute.h"
 #include "pr/physics/shape/shape_builder.h"
 #include "src/compute/physics_types.h"
 #include "src/unittests/shared_engine.h"
@@ -772,6 +773,39 @@ namespace pr::physics::tests
 
 			auto r = RunHeadOnTest("Polytope-Polytope", poly_a, ia, poly_b, ib);
 			PR_EXPECT(r.collision_occurred);
+		}
+
+		// The GPU broadphase and the CPU reference broadphase agree on which overlapping pairs pass the layer/mask filter.
+		PRUnitTestMethod(CollisionFilterMatchesCpuReference, Extended)
+		{
+			// A row of spheres where each sphere overlaps only its direct neighbours by a wide margin. Filters cycle through
+			// several layers and masks so that some overlapping pairs pass the filter and some do not.
+			auto const layers = std::array{1U, 2U, 4U};
+			auto const masks = std::array{0xFFFFFFFFU, 1U, 6U, 0U, 3U};
+			auto shape = MakeSphere(0.5f);
+			RigidBody bodies[16];
+			for (auto i = 0; i != isize(bodies); ++i)
+			{
+				// Spacing 0.75 gives 0.25 overlap with neighbours and a 0.5 gap to the next sphere along
+				bodies[i].Shape(collision::shape_cast(&shape), 1.0f);
+				bodies[i].O2W(m4x4::Translation(0.75f * i, 0, 0));
+				bodies[i].CollisionFilter(layers[i % layers.size()], masks[i % masks.size()]);
+			}
+
+			// Count the filtered pairs on the CPU. Some, but not all, neighbour pairs must pass.
+			auto brute = BroadphaseBrute{};
+			for (auto const& body : bodies)
+				brute.Add(body);
+
+			auto cpu_pairs = 0;
+			brute.EnumOverlappingPairs([&](RigidBody const&, RigidBody const&) { ++cpu_pairs; });
+			PR_EXPECT(cpu_pairs > 0 && cpu_pairs < isize(bodies) - 1);
+
+			// The GPU pair count for one step must match
+			auto& engine = SharedEngine();
+			ResetEngineForNextTest(engine);
+			engine.Step(1.0f / 60.0f, bodies);
+			PR_EXPECT(engine.LastCollisionStats().m_pair_count == cpu_pairs);
 		}
 	};
 

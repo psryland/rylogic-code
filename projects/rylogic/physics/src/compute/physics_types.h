@@ -74,7 +74,7 @@ namespace pr::physics
 	static_assert(sizeof(GpuFrameOutputHeader) == 64);
 	static_assert(sizeof(GpuCoupledConstraintFailureState) == 32);
 	static_assert(sizeof(GpuSubstepOutputState) == 16);
-	static_assert(sizeof(GpuCollisionEvent) == 240);
+	static_assert(sizeof(GpuCollisionEvent) == 256);
 	static_assert((sizeof(GpuSelectiveRefreshMetrics) & 0xf) == 0);
 	static_assert((sizeof(GpuMaterial) & 0xf) == 0);
 
@@ -415,6 +415,8 @@ namespace pr::physics
 				.generation = rb.m_sleep.m_generation,
 				.flags = rb.m_sleep.m_flags,
 			},
+			.collision_layer = rb.m_collision_layer,
+			.collision_mask = rb.m_collision_mask,
 		};
 	}
 	inline void UnpackDynamics(GpuRigidBody const& dyn, RigidBody& rb)
@@ -428,8 +430,8 @@ namespace pr::physics
 		// Forces are zeroed by the integrator after the second half-kick
 		rb.m_ws_force = v8force{};
 
-		// Preserve the state flags
-		rb.m_state_flags = static_cast<ERigidBodyStateFlags>(dyn.state_flags);
+		// Preserve the state flags. A warm-start reset applies only to the step that just ran.
+		rb.m_state_flags = SetBits(static_cast<ERigidBodyStateFlags>(dyn.state_flags), ERigidBodyStateFlags::ResetWarmStart, false);
 
 		// Preserve the sleeping state
 		rb.m_sleep = SleepData{

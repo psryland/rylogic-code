@@ -753,6 +753,12 @@ namespace physics_sandbox::scene_loader
 		if (auto* javl = jbody.find("angular_velocity"))
 			desc.angular_velocity = ReadVec3(*javl, 0.0f);
 
+		// Kinematic bodies follow their velocity and have no sleep state of their own
+		if (auto* jkinematic = jbody.find("kinematic"))
+			desc.kinematic = jkinematic->to<bool>();
+		if (desc.kinematic && jbody.find("sleeping") != nullptr)
+			throw std::runtime_error("A kinematic body cannot have a 'sleeping' state");
+
 		// Initial sleep state
 		if (auto* jsleeping = jbody.find("sleeping"))
 			desc.sleeping = jsleeping->to<bool>();
@@ -762,6 +768,12 @@ namespace physics_sandbox::scene_loader
 			desc.never_sleep = jnever_sleep->to<bool>();
 		if (desc.sleeping && desc.never_sleep)
 			throw std::runtime_error("A body cannot start sleeping and be marked never_sleep");
+
+		// Collision filter bits. JSON numbers are read as 64-bit so that a full 32-bit mask is representable.
+		if (auto* jlayer = jbody.find("collision_layer"))
+			desc.collision_layer = static_cast<uint32_t>(jlayer->to<int64_t>());
+		if (auto* jmask = jbody.find("collision_mask"))
+			desc.collision_mask = static_cast<uint32_t>(jmask->to<int64_t>());
 
 		if (auto* jshape = jbody.find("shape"); jshape != nullptr && jshape->as<std::string>() == nullptr)
 			AssignShape(desc, ReadShape(*jshape));
@@ -1604,6 +1616,20 @@ namespace physics_sandbox::scene_loader
 		{
 			for (auto const& jgenerator : jgenerators->to_array())
 				AppendGeneratedBodies(desc, jgenerator, shapes, scene_rng);
+		}
+
+		// Ignore pairs name rigid bodies; the scene resolves the names once the bodies exist.
+		if (auto* jpairs = jscene.find("collision_ignore_pairs"))
+		{
+			for (auto const& jpair : jpairs->to_array())
+			{
+				// Each entry is a two-element array of body names.
+				auto const& names = jpair.to_array();
+				if (names.size() != 2)
+					throw std::runtime_error("Each 'collision_ignore_pairs' entry must be a pair of body names");
+
+				desc.collision_ignore_pairs.emplace_back(names[0].to<std::string>(), names[1].to<std::string>());
+			}
 		}
 
 		// Articulations and constraints share the same named-shape namespace as rigid bodies.

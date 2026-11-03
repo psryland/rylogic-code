@@ -11,6 +11,7 @@
 #include "pr/hlsl/quaternions.hlsli"
 #include "pr/hlsl/spatial_algebra.hlsli"
 #include "physics/src/compute/physics_types.hlsli"
+#include "physics/src/compute/body_twist.hlsli"
 
 #ifdef __cplusplus
 namespace pr::physics {
@@ -313,14 +314,14 @@ float3 CoupledContactPointVelocity(int body_idx, float3 point_ws)
 		return quat_rotate(frame.rotation, velocity_link);
 	}
 
-	if (!CoupledContactRigidDynamic(body_idx))
+	// Rigid bodies outside the solve, and static bodies, do not move. Kinematic bodies move with their twist even though impulses cannot change it.
+	if (body_idx < 0 || body_idx >= g_coupled_contact.rigid_body_count)
 		return float3(0.0f, 0.0f, 0.0f);
 
 	GpuRigidBody body = g_coupled_contact_bodies[body_idx];
 	float3 com_ws = body.o2w[3].xyz + mul(body.os_com_and_invmass.xyz, (float3x3)body.o2w);
-	float3 angular_velocity = mul(CoupledContactRigidInverseInertia(body_idx), body.momentum_ang.xyz);
-	float3 linear_velocity = body.os_com_and_invmass.w * body.momentum_lin.xyz;
-	return linear_velocity + cross(angular_velocity, point_ws - com_ws);
+	BodyTwist twist = BodyTwistWS(body);
+	return twist.lin + cross(twist.ang, point_ws - com_ws);
 }
 
 // Return the endpoint's world-space point-velocity response to a world-space impulse at that point.
@@ -1025,10 +1026,8 @@ void CSCommitCoupledContacts(int3 DTID(dtid))
 			// The rigid target thread is the sole body writer, preventing contact-index flag updates from racing the momentum commit.
 			GpuRigidBody body = g_coupled_contact_bodies[idx];
 			if (has_finite_impulse)
-			{
-				body.momentum_ang.xyz += impulse.ang.xyz;
-				body.momentum_lin.xyz += impulse.lin.xyz;
-			}
+				AddBodyMomentumWS(body, impulse.ang.xyz, impulse.lin.xyz);
+
 			CoupledContactWakeRigid(body);
 			g_coupled_contact_bodies[idx] = body;
 		}

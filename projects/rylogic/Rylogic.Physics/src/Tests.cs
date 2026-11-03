@@ -665,6 +665,159 @@ public sealed class TestPhysics
 	}
 
 	/// <summary>Create the canonical two-link floating articulation used by managed ABI lifecycle tests.</summary>
+	/// <summary>Round-trip the collision filter, ignore pairs, motion-type commands, and contact impulses through the managed API and a checkpoint.</summary>
+	[Test]
+	public void KinematicAndFilterRoundTrip()
+	{
+		// The world filter is engine configuration and reads back unchanged.
+		using var runtime = new Physics();
+		var engine = runtime.CreateEngine(new EngineOptions { WorldCollisionLayer = 2U, WorldCollisionMask = 6U });
+		Assert.Equal(2U, engine.GetOptions().WorldCollisionLayer);
+		Assert.Equal(6U, engine.GetOptions().WorldCollisionMask);
+
+		// Two overlapping boxes and a far box that will change motion type. No gravity, so only commands and contacts move them.
+		var shape = engine.CreateBox(new v4(1.0f, 1.0f, 1.0f, 0.0f));
+		var a = engine.CreateBody(shape, new BodyOptions { Gravity = v4.Zero, MassOrDensity = 1.0f, CollisionLayer = 4U, CollisionMask = 5U });
+		var b = engine.CreateBody(shape, new BodyOptions { ObjectToWorld = m4x4.Translation(0.5f, 0.0f, 0.0f), Gravity = v4.Zero, MassOrDensity = 1.0f });
+		var k = engine.CreateBody(shape, new BodyOptions { ObjectToWorld = m4x4.Translation(10.0f, 0.0f, 0.0f), Gravity = v4.Zero, MassOrDensity = 1.0f });
+
+		// The body filter is part of the body state.
+		var state = a.GetState();
+		Assert.Equal(4U, state.m_collision_layer);
+		Assert.Equal(5U, state.m_collision_mask);
+		a.SetState(new RigidBodyState(state.m_object_to_world, state.m_inertia, state.m_momentum, state.m_velocity, state.m_force, state.m_gravity, state.m_user_tag, state.m_motion_type, state.m_flags, 4U, 7U));
+		Assert.Equal(7U, a.GetState().m_collision_mask);
+		Assert.Equal(1U, b.GetState().m_collision_layer);
+
+		// An ignore pair removes the contact between the overlapping boxes, so they do not separate.
+		a.SetCollisionIgnored(b, true);
+		var pairs = engine.GetCollisionIgnoredPairs();
+		Assert.Equal(1, pairs.Length);
+		Assert.True((pairs[0].A == a.Handle && pairs[0].B == b.Handle) || (pairs[0].A == b.Handle && pairs[0].B == a.Handle));
+		Span<BodyCommand> commands = stackalloc BodyCommand[1];
+		commands[0] = BodyCommand.SetMotionType(k.Handle, EMotionType.Kinematic, new SpatialVector(v4.Zero, new v4(1.0f, 0.0f, 0.0f, 0.0f)));
+		engine.Step(1.0f / 60.0f, commands: commands);
+		Assert.Equal(0, CountContacts(engine, a.Handle, b.Handle));
+		Assert.True(Math.Abs(a.GetState().m_object_to_world.pos.x) < 1e-6f);
+
+		// The switch to Kinematic keeps the twist. A target sets the twist that reaches it in one step.
+		var dt = 1.0f / 60.0f;
+		var k_state = k.GetState();
+		Assert.Equal(EMotionType.Kinematic, k_state.m_motion_type);
+		Assert.Equal(1.0, k_state.m_velocity.m_linear.x, 1e-5);
+		var target_x = k_state.m_object_to_world.pos.x + 0.1f;
+		commands[0] = BodyCommand.SetKinematicTarget(k.Handle, m4x4.Translation(target_x, 0.0f, 0.0f));
+		engine.Step(dt, commands: commands);
+		Assert.Equal(target_x, k.GetState().m_object_to_world.pos.x, 1e-4);
+		Assert.Equal(0.1 / dt, k.GetState().m_velocity.m_linear.x, 1e-2);
+
+		// Removing the ignore pair restores the contact, and its event reports a positive normal impulse.
+		a.SetCollisionIgnored(b, false);
+		Assert.Equal(0, engine.GetCollisionIgnoredPairs().Length);
+		engine.Step(dt);
+		Assert.True(MaxNormalImpulse(engine, a.Handle, b.Handle) > 0.0f);
+
+		// The ignore pair and the filter survive a checkpoint into a new engine.
+		a.SetCollisionIgnored(b, true);
+		var checkpoint = new byte[engine.CheckpointSize()];
+		engine.WriteCheckpoint(checkpoint);
+		var (a_handle, k_handle) = (a.Handle, k.Handle);
+		engine.Dispose();
+		using var restored = runtime.CreateEngine();
+		restored.ReadCheckpoint(checkpoint);
+		Assert.Equal(1, restored.GetCollisionIgnoredPairs().Length);
+		Assert.Equal(7U, restored.OpenBody(a_handle).GetState().m_collision_mask);
+		Assert.Equal(2U, restored.GetOptions().WorldCollisionLayer);
+
+		// Static stops the body; Dynamic releases it with the given velocity.
+		var restored_k = restored.OpenBody(k_handle);
+		commands[0] = BodyCommand.SetMotionType(k_handle, EMotionType.Static, SpatialVector.Zero);
+		restored.Step(dt, commands: commands);
+		Assert.Equal(EMotionType.Static, restored_k.GetState().m_motion_type);
+		Assert.Equal(0.0, restored_k.GetState().m_velocity.m_linear.x, 1e-6);
+		commands[0] = BodyCommand.SetMotionType(k_handle, EMotionType.Dynamic, new SpatialVector(v4.Zero, new v4(0.0f, 0.0f, 2.0f, 0.0f)));
+		restored.Step(dt, commands: commands);
+		Assert.Equal(EMotionType.Dynamic, restored_k.GetState().m_motion_type);
+		Assert.Equal(2.0, FindSnapshot(restored, k_handle).m_velocity.m_linear.z, 1e-4);
+	}
+
+	/// <summary>
+	/// A kinematic carrier holds an overlapping kinematic toy (an ignore pair stops them pushing each other apart). The toy pushes a third body
+	/// along the path, then is released as a dynamic body with a chosen velocity.
+	/// </summary>
+	[Test]
+	public void KinematicCarryAndRelease()
+	{
+		// Bodies start dynamic and switch to kinematic by command. The pusher overlaps the carrier by 0.1 m.
+		using var runtime = new Physics();
+		using var engine = runtime.CreateEngine();
+		var shape = engine.CreateBox(new v4(1.0f, 1.0f, 1.0f, 0.0f));
+		var carrier = engine.CreateBody(shape, new BodyOptions { Gravity = v4.Zero });
+		var toy = engine.CreateBody(shape, new BodyOptions { ObjectToWorld = m4x4.Translation(0.9f, 0.0f, 0.0f), Gravity = v4.Zero });
+		var other = engine.CreateBody(shape, new BodyOptions { ObjectToWorld = m4x4.Translation(2.5f, 0.0f, 0.0f), Gravity = v4.Zero });
+		carrier.SetCollisionIgnored(toy, true);
+
+		// Move the carrier and toy together at 3 m/s for half a second. The toy reaches the third body after about 0.2 s.
+		var dt = 1.0f / 60.0f;
+		var twist = new SpatialVector(v4.Zero, new v4(3.0f, 0.0f, 0.0f, 0.0f));
+		Span<BodyCommand> commands = stackalloc BodyCommand[2];
+		commands[0] = BodyCommand.SetMotionType(carrier.Handle, EMotionType.Kinematic, twist);
+		commands[1] = BodyCommand.SetMotionType(toy.Handle, EMotionType.Kinematic, twist);
+		engine.Step(dt, commands: commands);
+		for (var i = 0; i != 30; ++i)
+		{
+			// The carrier and toy never collide, and the kinematic pair keeps its exact spacing.
+			engine.Step(dt);
+			Assert.Equal(0, CountContacts(engine, carrier.Handle, toy.Handle));
+			Assert.Equal(0.9, toy.GetState().m_object_to_world.pos.x - carrier.GetState().m_object_to_world.pos.x, 1e-4);
+		}
+
+		// The toy has pushed the third body forward at no less than the toy's speed.
+		var pushed = FindSnapshot(engine, other.Handle);
+		Assert.True(pushed.m_object_to_world.pos.x > 2.6f);
+		Assert.True(pushed.m_velocity.m_linear.x > 2.9f);
+
+		// Release the toy upwards. It keeps its stored mass, and with no contacts it moves at exactly the release velocity.
+		Span<BodyCommand> release = stackalloc BodyCommand[1];
+		release[0] = BodyCommand.SetMotionType(toy.Handle, EMotionType.Dynamic, new SpatialVector(v4.Zero, new v4(0.0f, 0.0f, 4.0f, 0.0f)));
+		engine.Step(dt, commands: release);
+		var released = FindSnapshot(engine, toy.Handle);
+		Assert.Equal(EMotionType.Dynamic, released.m_motion_type);
+		Assert.Equal(4.0, released.m_velocity.m_linear.z, 1e-3);
+		Assert.Equal(0.0, released.m_velocity.m_linear.x, 1e-3);
+	}
+
+	/// <summary>Count the contact events between two bodies from the last step.</summary>
+	private static int CountContacts(Engine engine, BodyHandle a, BodyHandle b)
+	{
+		// Contacts are unordered pairs, so match either order.
+		var events = new PhysicsEvent[engine.EventCount()];
+		engine.CopyEvents(events);
+		return events.Count(e => e.m_type == EPhysicsEvent.Contact && ((e.m_body_a == a && e.m_body_b == b) || (e.m_body_a == b && e.m_body_b == a)));
+	}
+
+	/// <summary>The largest normal impulse of the contact events between two bodies from the last step.</summary>
+	private static float MaxNormalImpulse(Engine engine, BodyHandle a, BodyHandle b)
+	{
+		// Contacts are unordered pairs, so match either order.
+		var events = new PhysicsEvent[engine.EventCount()];
+		engine.CopyEvents(events);
+		return events
+			.Where(e => e.m_type == EPhysicsEvent.Contact && ((e.m_body_a == a && e.m_body_b == b) || (e.m_body_a == b && e.m_body_b == a)))
+			.Select(e => e.m_normal_impulse)
+			.DefaultIfEmpty(0.0f)
+			.Max();
+	}
+
+	/// <summary>Find one body's snapshot from the last completed step.</summary>
+	private static BodySnapshot FindSnapshot(Engine engine, BodyHandle body)
+	{
+		// Snapshots are not ordered by handle, so search all of them.
+		var snapshots = new BodySnapshot[engine.SnapshotCount()];
+		engine.CopySnapshots(snapshots);
+		return snapshots.First(s => s.m_body == body);
+	}
+
 	private static Articulation CreateTestArticulation(Engine engine, Shape root_shape, Shape child_shape)
 	{
 		var inertia = new BodyInertia(

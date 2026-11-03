@@ -79,7 +79,8 @@ namespace pr::physics
 		void Reset();
 
 		// Prepare immutable plans on first dynamic use and upload this frame's participating instances.
-		void Upload(GpuJob& job, ShapeCache const& shapes, std::span<GpuRigidBody const> bodies, int substeps);
+		// A body takes part only when its collision filter passes against the world's 'world_layer' and 'world_mask' (see CollisionFilterPasses).
+		void Upload(GpuJob& job, ShapeCache const& shapes, std::span<GpuRigidBody const> bodies, int substeps, uint32_t world_layer, uint32_t world_mask);
 
 		// Append world constraints for awake or disturbed bodies and update the ordinary contact stream's indirect dispatch.
 		void Collide(GpuJob& job, int endpoint, int max_contacts, bool sleeping_enabled, int island_count, ID3D12Resource* sleep_islands,

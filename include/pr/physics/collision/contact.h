@@ -21,6 +21,10 @@ namespace pr::physics
 		// The relative velocity of objB in objA space (measured at objA 0,0,0)
 		v8motion m_velocity;
 
+		// Total contact impulse (normal and friction) applied to objB during the substep, in objA space. objA receives the negation.
+		// Zero for contacts that have not been through the velocity solver.
+		v4 m_impulse;
+
 		// The collision point adjusted by the collision time
 		v4 m_point_at_t;
 

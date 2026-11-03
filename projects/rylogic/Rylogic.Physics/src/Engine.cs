@@ -332,6 +332,8 @@ public sealed class Engine :IDisposable
 			m_mass_distribution = options.MassDistribution,
 			m_mass_or_density = options.MassOrDensity,
 			m_flags = options.Flags,
+			m_collision_layer = options.CollisionLayer,
+			m_collision_mask = options.CollisionMask,
 		};
 		Native.Check(Native.Physics_BodyCreate(Handle, &desc, out var handle));
 		var body = new RigidBody(this, shape, new BodyHandle(handle));
@@ -453,6 +455,36 @@ public sealed class Engine :IDisposable
 		var body = new RigidBody(this, shape, handle);
 		m_bodies.Add(body);
 		return body;
+	}
+
+	/// <summary>
+	/// Stop ('ignore' true) or resume contacts between two different bodies of this engine. The pair is unordered, and ignoring an ignored pair
+	/// does nothing. Destroying either body removes the pair. Ignore pairs are saved in checkpoints.
+	/// </summary>
+	public void SetCollisionIgnored(RigidBody a, RigidBody b, bool ignore)
+	{
+		// Native validation owns the handle checks; only cross-engine wrappers are rejected here.
+		EnsureOwner();
+		if (!ReferenceEquals(a.Engine, this) || !ReferenceEquals(b.Engine, this))
+			throw new ArgumentException("Both bodies must belong to this engine.");
+
+		Native.Check(Native.Physics_BodyCollisionIgnoreSet(Handle, a.Handle.Value, b.Handle.Value, ignore ? 1 : 0));
+	}
+
+	/// <summary>Read all ignore pairs. Each pair is ordered so that 'A' has the smaller handle value, and the list is sorted.</summary>
+	public unsafe (BodyHandle A, BodyHandle B)[] GetCollisionIgnoredPairs()
+	{
+		// Size the buffer first; an empty buffer reports BufferTooSmall when pairs exist.
+		var status = Native.Physics_BodyCollisionIgnoreCopy(Handle, null, 0, out var required);
+		if (status != EStatus.Success && status != EStatus.BufferTooSmall)
+			Native.Check(status);
+
+		// Copy and convert to the public tuple form.
+		var pairs = new Native.BodyPair[required];
+		fixed (Native.BodyPair* pair_ptr = pairs)
+			Native.Check(Native.Physics_BodyCollisionIgnoreCopy(Handle, pair_ptr, (uint)pairs.Length, out required));
+
+		return Array.ConvertAll(pairs, p => (p.m_body_a, p.m_body_b));
 	}
 
 	/// <summary>Get one material from the native material table.</summary>

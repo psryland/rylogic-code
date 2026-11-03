@@ -237,6 +237,7 @@
     <None Include="scenes\generated_stress.json" />
     <None Include="scenes\generate_scene.py" />
     <None Include="scenes\gravity_playground.json" />
+    <None Include="scenes\kinematic_pusher.json" />
     <None Include="scenes\newtons_cradle.json" />
     <None Include="scenes\oblique_spheres.json" />
     <None Include="scenes\pancake.json" />

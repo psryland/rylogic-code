@@ -59,6 +59,7 @@ namespace
 	using PhysicsBodyState = pr::physics::BodyState;
 	using PhysicsBodyCommand = pr::physics::BodyCommand;
 	using PhysicsBodySnapshot = pr::physics::BodySnapshot;
+	using PhysicsBodyPair = pr::physics::BodyPair;
 	using PhysicsArticulationDesc = pr::physics::ArticulationDesc;
 	using PhysicsArticulationLink = pr::physics::ArticulationLinkProperties;
 	using PhysicsArticulationJoint = pr::physics::ArticulationJointProperties;
@@ -224,10 +225,12 @@ namespace pr::physics
 			std::unique_ptr<RigidBody> m_body;
 			PhysicsShapeHandle m_shape = {};
 			std::uint64_t m_user_tag = {};
-			PhysicsMotionType m_motion_type = PhysicsMotionType::Dynamic;
 			bool m_enabled = true;
 			bool m_sleep_before_step = false;
 			std::uint32_t m_constraint_refs = 0;
+
+			// The pose a kinematic body must reach at the end of the next step. Cleared when the step completes.
+			std::optional<m4x4> m_kinematic_target;
 		};
 
 		// Owns one immutable articulation topology and the shape handles retained by its physical links.
@@ -384,8 +387,13 @@ namespace pr::physics
 			std::unordered_map<RigidBody const*, PhysicsBodyHandle> m_body_handles;
 			std::unordered_map<std::uint64_t, PhysicsConstraintHandle> m_constraint_handles;
 			ConstraintSet m_constraint_set;
+
+			// Body pairs that never collide. Each pair is stored with 'first < second', and the list is kept sorted and unique, so the step input order is deterministic.
+			std::vector<std::pair<PhysicsBodyHandle, PhysicsBodyHandle>> m_collision_ignore_pairs;
+
 			std::vector<RigidBody*> m_step_bodies;
 			std::vector<Articulation*> m_step_articulations;
+			std::vector<Engine::CollisionIgnorePair> m_step_collision_ignore_pairs;
 			std::vector<PhysicsEvent> m_events;
 			std::uint64_t m_submitted_step;
 			std::uint64_t m_completed_step;
@@ -418,8 +426,10 @@ namespace pr::physics
 				, m_body_handles()
 				, m_constraint_handles()
 				, m_constraint_set()
+				, m_collision_ignore_pairs()
 				, m_step_bodies()
 				, m_step_articulations()
+				, m_step_collision_ignore_pairs()
 				, m_events()
 				, m_submitted_step()
 				, m_completed_step()
@@ -470,6 +480,14 @@ namespace pr::physics
 							auto point = a2w * contact.m_manifold[i];
 							memcpy(&evt.points[i], &point, sizeof(point));
 						}
+
+						// Split the solver impulse into its normal and friction parts, and sample the relative velocity at the manifold centre where the solver applies it
+						auto normal_impulse = Dot(contact.m_impulse, contact.m_axis);
+						auto tangent_impulse = (a2w.rot * (contact.m_impulse - normal_impulse * contact.m_axis)).w0();
+						auto relative_velocity = (a2w.rot * contact.m_velocity.LinAt(contact.Point())).w0();
+						evt.normal_impulse = normal_impulse;
+						memcpy(&evt.tangent_impulse, &tangent_impulse, sizeof(tangent_impulse));
+						memcpy(&evt.relative_velocity, &relative_velocity, sizeof(relative_velocity));
 						m_events.push_back(evt);
 					}
 				};
@@ -971,6 +989,8 @@ namespace pr::physics
 			config.selective_refresh_closing_speed_slop = value.selective_refresh_closing_speed_slop;
 			config.selective_refresh_support_alignment = value.selective_refresh_support_alignment;
 			config.selective_refresh_aabb_margin = value.selective_refresh_aabb_margin;
+			config.world_collision_layer = value.world_collision_layer;
+			config.world_collision_mask = value.world_collision_mask;
 			return config;
 		}
 
@@ -1029,6 +1049,8 @@ namespace pr::physics
 			value.selective_refresh_closing_speed_slop = config.selective_refresh_closing_speed_slop;
 			value.selective_refresh_support_alignment = config.selective_refresh_support_alignment;
 			value.selective_refresh_aabb_margin = config.selective_refresh_aabb_margin;
+			value.world_collision_layer = config.world_collision_layer;
+			value.world_collision_mask = config.world_collision_mask;
 		}
 
 		// Translate shared optional-lane work and storage costs to fixed-width ABI fields.
@@ -1284,21 +1306,64 @@ namespace pr::physics
 		}
 
 		// Reject unknown body participation modes before constructing or mutating native state.
-		void RequireMotionType(PhysicsMotionType motion_type)
+		ERigidBodyMotion RequireMotionType(PhysicsMotionType motion_type)
 		{
 			switch (motion_type)
 			{
 				case PhysicsMotionType::Static:
+				{
+					return ERigidBodyMotion::Static;
+				}
 				case PhysicsMotionType::Dynamic:
+				{
+					return ERigidBodyMotion::Dynamic;
+				}
 				case PhysicsMotionType::Kinematic:
 				{
-					return;
+					return ERigidBodyMotion::Kinematic;
 				}
 				default:
 				{
 					throw ApiException(PhysicsStatus::InvalidArgument, "Body motion type is invalid");
 				}
 			}
+		}
+
+		// Convert a native motion type to its ABI value.
+		PhysicsMotionType ToAbi(ERigidBodyMotion motion)
+		{
+			switch (motion)
+			{
+				case ERigidBodyMotion::Static:
+				{
+					return PhysicsMotionType::Static;
+				}
+				case ERigidBodyMotion::Dynamic:
+				{
+					return PhysicsMotionType::Dynamic;
+				}
+				case ERigidBodyMotion::Kinematic:
+				{
+					return PhysicsMotionType::Kinematic;
+				}
+				default:
+				{
+					throw std::invalid_argument("Unknown rigid body motion type");
+				}
+			}
+		}
+
+		// Reject a full body state whose motion type cannot use its mass properties. Dynamic bodies need finite, positive mass.
+		void RequireBodyStateMotion(PhysicsBodyState const& state)
+		{
+			// Only dynamic bodies are moved by their mass properties
+			auto motion = RequireMotionType(state.motion_type);
+			if (motion != ERigidBodyMotion::Dynamic)
+				return;
+
+			auto const mass = state.inertia.centre_of_mass_and_mass.w;
+			if (!(mass > 0.0f && mass < InfiniteMass))
+				throw ApiException(PhysicsStatus::InvalidArgument, "Dynamic body state needs a finite, positive mass");
 		}
 
 		// Return one stable native link handle from the ABI's immutable topological index.
@@ -1630,14 +1695,16 @@ namespace pr::physics
 			state.body = handle;
 			state.shape = record.m_shape;
 			CopyLayout(state.object_to_world, record.m_body->O2W());
-			CopyLayout(state.inertia, Inertia(record.m_body->InertiaOS(), record.m_body->CentreOfMassOS()));
+			CopyLayout(state.inertia, Inertia(Invert(record.m_body->DynamicInertiaInvOS()), record.m_body->CentreOfMassOS()));
 			CopyLayout(state.momentum, record.m_body->MomentumWS());
 			CopyLayout(state.velocity, record.m_body->VelocityWS());
 			CopyLayout(state.force, record.m_body->ForceWS());
 			CopyLayout(state.gravity, record.m_body->GravityWS());
 			state.user_tag = record.m_user_tag;
-			state.motion_type = record.m_motion_type;
+			state.motion_type = ToAbi(record.m_body->Motion());
 			state.flags = BodyFlags(record);
+			state.collision_layer = record.m_body->CollisionLayer();
+			state.collision_mask = record.m_body->CollisionMask();
 		}
 
 		// Set a body's mass properties from ABI inertia: the unit inertia at the centre of mass, the offset from the model origin to the centre of mass, and the mass.
@@ -1649,18 +1716,49 @@ namespace pr::physics
 			body.SetMassProperties(Translate(at_com, com, ETranslateInertia::AwayFromCoM), com);
 		}
 
+		// Apply a validated full body state (see RequireBodyStateMotion). The inertia is always stored as the body's own mass properties. Dynamic bodies
+		// take 'momentum'; kinematic bodies take 'velocity' as their twist; static bodies have no motion.
 		void ApplyBodyState(BodyRecord& record, PhysicsBodyState const& state)
 		{
-			record.m_body->O2W(ToNative(state.object_to_world));
-			SetBodyInertia(*record.m_body, state.inertia);
-			record.m_body->MomentumWS(ToForce(state.momentum));
-			record.m_body->ForceWS(ToForce(state.force));
-			record.m_body->GravityWS(ToNative(state.gravity));
-			record.m_body->NeverSleep(HasFlag(state.flags, PhysicsBodyFlags::NeverSleep));
-			record.m_body->Sleeping(HasFlag(state.flags, PhysicsBodyFlags::Sleeping));
+			// Set the pose and mass properties before switching motion type, so the switch uses the new mass
+			auto& body = *record.m_body;
+			body.O2W(ToNative(state.object_to_world));
+			SetBodyInertia(body, state.inertia);
+
+			// Switch motion type and set the matching motion state. The switch clears forces, so forces are set afterwards.
+			auto const motion = RequireMotionType(state.motion_type);
+			switch (motion)
+			{
+				case ERigidBodyMotion::Static:
+				{
+					body.Motion(motion, v8motion{});
+					break;
+				}
+				case ERigidBodyMotion::Dynamic:
+				{
+					body.Motion(motion, v8motion{});
+					body.MomentumWS(ToForce(state.momentum));
+					break;
+				}
+				case ERigidBodyMotion::Kinematic:
+				{
+					body.Motion(motion, ToMotion(state.velocity));
+					break;
+				}
+				default:
+				{
+					throw ApiException(PhysicsStatus::InvalidArgument, "Body motion type is invalid");
+				}
+			}
+
+			// Apply the remaining state. The collision filter wakes the body when it changes, so it is set before the sleep flags.
+			body.ForceWS(ToForce(state.force));
+			body.GravityWS(ToNative(state.gravity));
+			body.CollisionFilter(state.collision_layer, state.collision_mask);
+			body.NeverSleep(HasFlag(state.flags, PhysicsBodyFlags::NeverSleep));
+			body.Sleeping(HasFlag(state.flags, PhysicsBodyFlags::Sleeping));
 			record.m_enabled = HasFlag(state.flags, PhysicsBodyFlags::Enabled);
 			record.m_user_tag = state.user_tag;
-			record.m_motion_type = state.motion_type;
 		}
 
 		// Validate every command before applying any command so a failed batch has no partial effect.
@@ -1669,27 +1767,92 @@ namespace pr::physics
 			if (count != 0 && commands == nullptr)
 				throw ApiException(PhysicsStatus::InvalidArgument, "Command buffer is null");
 
+			// A SetMotionType command changes which later commands in the batch are valid, so track the motion each body will have when a command runs.
+			// Batches are small, so a linear search is enough.
+			auto pending_motion = std::vector<std::pair<RigidBody const*, ERigidBodyMotion>>{};
+			auto const motion_at = [&](RigidBody const& body)
+			{
+				// Use the latest pending motion, or the body's own motion
+				auto const iter = std::ranges::find(pending_motion, &body, &std::pair<RigidBody const*, ERigidBodyMotion>::first);
+				return iter != pending_motion.end() ? iter->second : body.Motion();
+			};
+
 			for (auto i = std::uint32_t{}; i != count; ++i)
 			{
 				RequireStruct(&commands[i]);
-				RequireBody(engine, commands[i].body);
+				auto const& body = *RequireBody(engine, commands[i].body).m_body;
+				auto const kinematic = motion_at(body) == ERigidBodyMotion::Kinematic;
 				switch (commands[i].type)
 				{
 					case PhysicsBodyCommandType::SetTransform:
 					case PhysicsBodyCommandType::SetVelocity:
-					case PhysicsBodyCommandType::SetMomentum:
-					case PhysicsBodyCommandType::SetForce:
-					case PhysicsBodyCommandType::ApplyImpulse:
 					case PhysicsBodyCommandType::SetGravity:
-					case PhysicsBodyCommandType::SetKinematicTransform:
 					case PhysicsBodyCommandType::SetEnabled:
 					case PhysicsBodyCommandType::Wake:
 					case PhysicsBodyCommandType::Sleep:
 						break;
+					case PhysicsBodyCommandType::SetMomentum:
+					case PhysicsBodyCommandType::SetForce:
+					case PhysicsBodyCommandType::ApplyImpulse:
+					{
+						// Kinematic bodies are moved only by their twist
+						if (kinematic)
+							throw ApiException(PhysicsStatus::InvalidArgument, "Kinematic bodies cannot take momentum, forces or impulses");
+
+						break;
+					}
+					case PhysicsBodyCommandType::SetKinematicTarget:
+					{
+						if (!kinematic)
+							throw ApiException(PhysicsStatus::InvalidArgument, "Kinematic target command requires a kinematic body");
+
+						break;
+					}
 					case PhysicsBodyCommandType::ApplyForce:
 					{
+						if (kinematic)
+							throw ApiException(PhysicsStatus::InvalidArgument, "Kinematic bodies cannot take momentum, forces or impulses");
 						if (commands[i].at.w != 0.0f)
 							throw ApiException(PhysicsStatus::InvalidArgument, "Force application point must be an offset from the model origin");
+
+						break;
+					}
+					case PhysicsBodyCommandType::SetMotionType:
+					{
+						// Each motion type needs the state it moves with
+						auto const motion = RequireMotionType(static_cast<PhysicsMotionType>(commands[i].flags));
+						switch (motion)
+						{
+							case ERigidBodyMotion::Static:
+							{
+								if (ToMotion(commands[i].value) != v8motion{})
+									throw ApiException(PhysicsStatus::InvalidArgument, "A switch to Static cannot take a velocity");
+
+								break;
+							}
+							case ERigidBodyMotion::Dynamic:
+							{
+								if (!(body.DynamicInertiaInvOS().InvMass() > 0.0f))
+									throw ApiException(PhysicsStatus::InvalidArgument, "A switch to Dynamic needs a body with finite mass");
+
+								break;
+							}
+							case ERigidBodyMotion::Kinematic:
+							{
+								break;
+							}
+							default:
+							{
+								throw ApiException(PhysicsStatus::InvalidArgument, "Body motion type is invalid");
+							}
+						}
+
+						// Later commands in the batch see the new motion type
+						auto const iter = std::ranges::find(pending_motion, &body, &std::pair<RigidBody const*, ERigidBodyMotion>::first);
+						if (iter != pending_motion.end())
+							iter->second = motion;
+						else
+							pending_motion.emplace_back(&body, motion);
 
 						break;
 					}
@@ -1746,12 +1909,10 @@ namespace pr::physics
 						body.GravityWS(ToNative(command.value.linear));
 						break;
 					}
-					case PhysicsBodyCommandType::SetKinematicTransform:
+					case PhysicsBodyCommandType::SetKinematicTarget:
 					{
-						if (record.m_motion_type != PhysicsMotionType::Kinematic)
-							throw ApiException(PhysicsStatus::InvalidArgument, "Kinematic transform command requires a kinematic body");
-
-						body.O2W(ToNative(command.transform));
+						// The twist that reaches the target is derived when the step duration is known (see SetKinematicTwists)
+						record.m_kinematic_target = ToNative(command.transform);
 						break;
 					}
 					case PhysicsBodyCommandType::SetEnabled:
@@ -1769,12 +1930,33 @@ namespace pr::physics
 						body.Sleep();
 						break;
 					}
+					case PhysicsBodyCommandType::SetMotionType:
+					{
+						// A target set for the old motion type no longer applies
+						record.m_kinematic_target.reset();
+						auto const motion = RequireMotionType(static_cast<PhysicsMotionType>(command.flags));
+						body.Motion(motion, ToMotion(command.value));
+						break;
+					}
 					default:
 					{
 						throw ApiException(PhysicsStatus::InvalidArgument, "Unknown body command type");
 					}
 				}
 			}
+		}
+
+		// Return the constant twist that moves 'body' from its current pose to 'target' in 'elapsed_seconds'. The angular part takes the shortest rotation,
+		// so a target more than half a turn from the current orientation is reached the short way round.
+		v8motion KinematicTwistToTarget(RigidBody const& body, m4x4 const& target, float elapsed_seconds)
+		{
+			// The twist is about the centre of mass, the same point the integrator drifts
+			auto const com_os = body.CentreOfMassOS();
+			auto const com_now = body.CentreOfMassPositionWS();
+			auto const com_target = target.pos + target.rot * com_os;
+			auto const rot_delta = target.rot * Transpose(body.O2W().rot);
+			auto const ang = LogMap3x3(rot_delta);
+			return v8motion{v4{ang.x, ang.y, ang.z, 0} / elapsed_seconds, (com_target - com_now) / elapsed_seconds};
 		}
 
 		// Validate, gather every enabled object lane, and submit one frame with all internal substeps GPU-resident.
@@ -1798,6 +1980,11 @@ namespace pr::physics
 				if (!slot.m_object || !slot.m_object->m_enabled)
 					continue;
 
+				// Kinematic targets become the twist that reaches them by the end of this step
+				auto& record = *slot.m_object;
+				if (record.m_kinematic_target)
+					record.m_body->KinematicTwistWS(KinematicTwistToTarget(*record.m_body, *record.m_kinematic_target, elapsed_seconds));
+
 				slot.m_object->m_sleep_before_step = slot.m_object->m_body->Sleeping();
 				engine.m_step_bodies.push_back(slot.m_object->m_body.get());
 			}
@@ -1807,10 +1994,21 @@ namespace pr::physics
 					engine.m_step_articulations.push_back(slot.m_object->m_articulation.get());
 			}
 
+			// Ignore pairs always name live bodies because destroying a body removes its pairs. The engine skips pairs with a disabled body.
+			engine.m_step_collision_ignore_pairs.clear();
+			for (auto const& [handle_a, handle_b] : engine.m_collision_ignore_pairs)
+			{
+				engine.m_step_collision_ignore_pairs.push_back(Engine::CollisionIgnorePair{
+					.m_body_a = RequireBody(engine, handle_a).m_body.get(),
+					.m_body_b = RequireBody(engine, handle_b).m_body.get(),
+				});
+			}
+
 			engine.m_engine->BeginStep(Engine::StepInput{
 				.m_bodies = engine.m_step_bodies,
 				.m_articulations = engine.m_step_articulations,
 				.m_constraints = engine.m_constraint_set.Count() != 0 ? &engine.m_constraint_set : nullptr,
+				.m_collision_ignore_pairs = engine.m_step_collision_ignore_pairs,
 				.m_elapsed_seconds = elapsed_seconds,
 				.m_substep_count = static_cast<int>(substep_count),
 				.m_time_s = absolute_time_seconds,
@@ -1837,6 +2035,19 @@ namespace pr::physics
 					engine.m_events.clear();
 				}
 				throw;
+			}
+
+			// Kinematic bodies end the step exactly at their targets, removing integration round-off. Targets apply to one step only.
+			for (auto& slot : engine.m_bodies)
+			{
+				if (!slot.m_object || !slot.m_object->m_kinematic_target)
+					continue;
+
+				auto& record = *slot.m_object;
+				if (record.m_enabled)
+					record.m_body->O2W(*record.m_kinematic_target);
+
+				record.m_kinematic_target.reset();
 			}
 
 			// Lifecycle events are derived only after native readback has produced the completed state.
@@ -1898,8 +2109,10 @@ namespace pr::physics
 			CopyLayout(snapshot.momentum, record.m_body->MomentumWS());
 			CopyLayout(snapshot.velocity, record.m_body->VelocityWS());
 			snapshot.user_tag = record.m_user_tag;
-			snapshot.motion_type = record.m_motion_type;
+			snapshot.motion_type = ToAbi(record.m_body->Motion());
 			snapshot.flags = BodyFlags(record);
+			snapshot.collision_layer = record.m_body->CollisionLayer();
+			snapshot.collision_mask = record.m_body->CollisionMask();
 			return snapshot;
 		}
 
@@ -1979,7 +2192,7 @@ namespace pr::physics
 			std::uint16_t m_reserved0;
 			std::uint32_t m_shape_count;
 			std::uint32_t m_body_count;
-			std::uint32_t m_reserved1;
+			std::uint32_t m_ignore_pair_count;
 			std::uint64_t m_submitted_step;
 			std::uint64_t m_completed_step;
 			PhysicsEngineConfig m_config;
@@ -2023,6 +2236,7 @@ namespace pr::physics
 				if (slot.m_object)
 					size += sizeof(CheckpointBody);
 			}
+			size += std::uint64_t{engine.m_collision_ignore_pairs.size()} * sizeof(PhysicsBodyPair);
 			return size;
 		}
 
@@ -3124,14 +3338,43 @@ extern "C"
 				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Body output pointer is null");
 			pr::physics::RequireKnownFlags(value.flags, static_cast<std::uint32_t>(PhysicsBodyFlags::Enabled) | static_cast<std::uint32_t>(PhysicsBodyFlags::Sleeping) | static_cast<std::uint32_t>(PhysicsBodyFlags::NeverSleep), "Body flags");
 			pr::physics::RequireConsistentSleepFlags(value.flags, PhysicsBodyFlags::Sleeping, PhysicsBodyFlags::NeverSleep, "Body flags");
-			pr::physics::RequireMotionType(value.motion_type);
+			auto const motion = pr::physics::RequireMotionType(value.motion_type);
+			if (motion != pr::physics::ERigidBodyMotion::Dynamic && !(value.momentum.angular.x == 0 && value.momentum.angular.y == 0 && value.momentum.angular.z == 0 && value.momentum.linear.x == 0 && value.momentum.linear.y == 0 && value.momentum.linear.z == 0))
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Static and kinematic bodies are created at rest; set a kinematic velocity with a command");
+
+			// Static bodies have mass properties only when the caller gives valid mass settings, so they can later switch to Dynamic.
+			// Other bodies always need them.
+			auto has_mass = motion != pr::physics::ERigidBodyMotion::Static;
+			if (!has_mass)
+			{
+				switch (value.mass_mode)
+				{
+					case PhysicsMassMode::ExplicitInertia:
+					{
+						auto const mass = value.inertia.centre_of_mass_and_mass.w;
+						has_mass = mass > 0.0f && mass < pr::physics::InfiniteMass;
+						break;
+					}
+					case PhysicsMassMode::Mass:
+					case PhysicsMassMode::Density:
+					{
+						has_mass = value.mass_or_density > 0.0f;
+						break;
+					}
+					default:
+					{
+						throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Unknown body mass mode");
+					}
+				}
+			}
 
 			auto& shape_record = pr::physics::RequireShape(record, value.shape);
 			auto body_record = std::make_unique<pr::physics::BodyRecord>();
 			body_record->m_body = std::make_unique<pr::physics::RigidBody>(shape_record.Shape(), pr::physics::ToNative(value.object_to_world), pr::physics::Inertia::Infinite());
-			if (value.motion_type == PhysicsMotionType::Dynamic)
+			if (has_mass)
 			{
-				// Derive mass properties from the shape using the requested mass distribution. Shapes that cannot hold a shell are caller errors.
+				// Derive mass properties from the shape using the requested mass distribution. Static and kinematic bodies keep them for a later switch
+				// to Dynamic. Shapes that cannot hold a shell are caller errors.
 				auto DeriveMassProperties = [&](bool is_density)
 				{
 					// Translate the ABI distribution
@@ -3183,13 +3426,32 @@ extern "C"
 					}
 				}
 			}
-			body_record->m_body->MomentumWS(pr::physics::ToForce(value.momentum));
+			// Set the motion type. Static and kinematic bodies start at rest; dynamic bodies take the initial momentum.
+			switch (motion)
+			{
+				case pr::physics::ERigidBodyMotion::Static:
+				case pr::physics::ERigidBodyMotion::Kinematic:
+				{
+					body_record->m_body->Motion(motion, pr::v8motion{});
+					break;
+				}
+				case pr::physics::ERigidBodyMotion::Dynamic:
+				{
+					body_record->m_body->MomentumWS(pr::physics::ToForce(value.momentum));
+					break;
+				}
+				default:
+				{
+					throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Body motion type is invalid");
+				}
+			}
+
 			body_record->m_body->GravityWS(pr::physics::ToNative(value.gravity));
+			body_record->m_body->CollisionFilter(value.collision_layer, value.collision_mask);
 			body_record->m_body->NeverSleep(pr::physics::HasFlag(value.flags, PhysicsBodyFlags::NeverSleep));
 			body_record->m_body->Sleeping(pr::physics::HasFlag(value.flags, PhysicsBodyFlags::Sleeping));
 			body_record->m_shape = value.shape;
 			body_record->m_user_tag = value.user_tag;
-			body_record->m_motion_type = value.motion_type;
 			body_record->m_enabled = pr::physics::HasFlag(value.flags, PhysicsBodyFlags::Enabled);
 
 			auto [slot, index] = pr::physics::AllocateSlot(record.m_bodies);
@@ -3214,9 +3476,69 @@ extern "C"
 
 			record.m_body_handles.erase(body_record.m_body.get());
 			--pr::physics::RequireShape(record, body_record.m_shape).m_body_refs;
+
+			// Remove the body's ignore pairs so a later body that reuses the slot does not inherit them
+			std::erase_if(record.m_collision_ignore_pairs, [body](auto const& pair) { return pair.first == body || pair.second == body; });
+
 			auto& slot = record.m_bodies[index];
 			slot.m_object.reset();
 			pr::physics::AdvanceGeneration(slot.m_generation);
+		});
+	}
+
+	PhysicsStatus __stdcall Physics_BodyCollisionIgnoreSet(PhysicsEngineHandle engine, PhysicsBodyHandle body_a, PhysicsBodyHandle body_b, std::int32_t ignore)
+	{
+		return pr::physics::ApiCall([&]
+		{
+			// Validate the request before changing the pair list
+			auto scope = pr::physics::EngineScope(engine);
+			auto& record = *scope;
+			pr::physics::RequireOwner(record);
+			pr::physics::RequireIdle(record);
+			if (ignore != 0 && ignore != 1)
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Collision ignore flag must be 0 or 1");
+			if (body_a == body_b)
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "A collision ignore pair needs two different bodies");
+
+			pr::physics::RequireBody(record, body_a);
+			pr::physics::RequireBody(record, body_b);
+
+			// Store the pair in canonical order in the sorted list. Setting the current state again does nothing.
+			auto pair = std::pair{std::min(body_a, body_b), std::max(body_a, body_b)};
+			auto& pairs = record.m_collision_ignore_pairs;
+			auto iter = std::ranges::lower_bound(pairs, pair);
+			auto exists = iter != pairs.end() && *iter == pair;
+			if (ignore != 0 && !exists)
+				pairs.insert(iter, pair);
+			else if (ignore == 0 && exists)
+				pairs.erase(iter);
+		});
+	}
+
+	PhysicsStatus __stdcall Physics_BodyCollisionIgnoreCopy(PhysicsEngineHandle engine, PhysicsBodyPair* pairs, std::uint32_t capacity, std::uint32_t* required)
+	{
+		return pr::physics::ApiCall([&]
+		{
+			// Report the count first so a caller can size its buffer after a BufferTooSmall failure
+			auto scope = pr::physics::EngineScope(engine);
+			auto& record = *scope;
+			pr::physics::RequireIdle(record);
+			if (required == nullptr)
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Collision ignore pair required-count pointer is null");
+
+			*required = static_cast<std::uint32_t>(record.m_collision_ignore_pairs.size());
+			if (capacity < *required || (*required != 0 && pairs == nullptr))
+				throw pr::physics::ApiException(PhysicsStatus::BufferTooSmall, "Collision ignore pair buffer is too small");
+
+			// Copy in the stored sorted order
+			for (auto i = std::uint32_t{}; i != *required; ++i)
+			{
+				auto const& [body_a, body_b] = record.m_collision_ignore_pairs[i];
+				pairs[i] = PhysicsBodyPair{
+					.body_a = body_a,
+					.body_b = body_b,
+				};
+			}
 		});
 	}
 
@@ -3250,7 +3572,7 @@ extern "C"
 				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Body shape cannot be changed through BodyStateSet");
 			pr::physics::RequireKnownFlags(value.flags, static_cast<std::uint32_t>(PhysicsBodyFlags::Enabled) | static_cast<std::uint32_t>(PhysicsBodyFlags::Sleeping) | static_cast<std::uint32_t>(PhysicsBodyFlags::NeverSleep), "Body state flags");
 			pr::physics::RequireConsistentSleepFlags(value.flags, PhysicsBodyFlags::Sleeping, PhysicsBodyFlags::NeverSleep, "Body state flags");
-			pr::physics::RequireMotionType(value.motion_type);
+			pr::physics::RequireBodyStateMotion(value);
 
 			pr::physics::ApplyBodyState(body_record, value);
 		});
@@ -3843,7 +4165,7 @@ extern "C"
 				.m_reserved0 = 0,
 				.m_shape_count = static_cast<std::uint32_t>(shape_count),
 				.m_body_count = static_cast<std::uint32_t>(body_count),
-				.m_reserved1 = 0,
+				.m_ignore_pair_count = static_cast<std::uint32_t>(record.m_collision_ignore_pairs.size()),
 				.m_submitted_step = record.m_submitted_step,
 				.m_completed_step = record.m_completed_step,
 				.m_config = {},
@@ -3898,6 +4220,10 @@ extern "C"
 					*slot.m_object);
 				pr::physics::WriteCheckpointValue(output, body_entry);
 			}
+
+			// Ignore pairs are already sorted and canonical
+			for (auto const& [body_a, body_b] : record.m_collision_ignore_pairs)
+				pr::physics::WriteCheckpointValue(output, PhysicsBodyPair{.body_a = body_a, .body_b = body_b});
 
 			auto payload = static_cast<std::byte const*>(buffer) + sizeof(pr::physics::CheckpointHeader);
 			header.m_payload_checksum = pr::physics::HashBytes(
@@ -4002,7 +4328,7 @@ extern "C"
 				}
 			}
 
-			auto bodies = std::vector<PhysicsBodyState>{};
+			auto bodies = std::vector<pr::physics::CheckpointBody>{};
 			bodies.reserve(header.m_body_count);
 			auto max_body_index = std::size_t{};
 			for (auto count = std::uint32_t{}; count != header.m_body_count; ++count)
@@ -4013,10 +4339,27 @@ extern "C"
 					throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Checkpoint body cookie is invalid");
 				pr::physics::RequireKnownFlags(entry.m_state.flags, static_cast<std::uint32_t>(PhysicsBodyFlags::Enabled) | static_cast<std::uint32_t>(PhysicsBodyFlags::Sleeping) | static_cast<std::uint32_t>(PhysicsBodyFlags::NeverSleep), "Checkpoint body flags");
 				pr::physics::RequireConsistentSleepFlags(entry.m_state.flags, PhysicsBodyFlags::Sleeping, PhysicsBodyFlags::NeverSleep, "Checkpoint body flags");
-				pr::physics::RequireMotionType(entry.m_state.motion_type);
+				pr::physics::RequireBodyStateMotion(entry.m_state);
 
-				bodies.push_back(entry.m_state);
+				bodies.push_back(entry);
 				max_body_index = std::max(max_body_index, pr::physics::ChildIndex(entry.m_state.body));
+			}
+
+			// Ignore pairs must be canonical, strictly sorted, and name bodies in this checkpoint
+			auto ignore_pairs = std::vector<std::pair<PhysicsBodyHandle, PhysicsBodyHandle>>{};
+			ignore_pairs.reserve(header.m_ignore_pair_count);
+			for (auto count = std::uint32_t{}; count != header.m_ignore_pair_count; ++count)
+			{
+				auto entry = pr::physics::ReadCheckpointValue<PhysicsBodyPair>(input, end);
+				auto pair = std::pair{entry.body_a, entry.body_b};
+				auto const known = [&](PhysicsBodyHandle handle)
+				{
+					return std::ranges::any_of(bodies, [=](auto const& body) { return body.m_state.body == handle; });
+				};
+				if (!(entry.body_a < entry.body_b) || !known(entry.body_a) || !known(entry.body_b) || (!ignore_pairs.empty() && !(ignore_pairs.back() < pair)))
+					throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Checkpoint collision ignore pair is invalid");
+
+				ignore_pairs.push_back(pair);
 			}
 			if (input != end)
 				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Checkpoint contains trailing data");
@@ -4032,11 +4375,11 @@ extern "C"
 			}
 			for (auto i = std::size_t{}; i != bodies.size(); ++i)
 			{
-				if (std::ranges::none_of(shapes, [&](auto const& shape) { return shape.m_handle == bodies[i].shape; }))
+				if (std::ranges::none_of(shapes, [&](auto const& shape) { return shape.m_handle == bodies[i].m_state.shape; }))
 					throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Checkpoint body references an unknown shape");
 				if (std::ranges::any_of(std::span{bodies}.first(i), [&](auto const& candidate)
 					{
-						return pr::physics::ChildIndex(candidate.body) == pr::physics::ChildIndex(bodies[i].body);
+						return pr::physics::ChildIndex(candidate.m_state.body) == pr::physics::ChildIndex(bodies[i].m_state.body);
 					}))
 					throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Checkpoint contains duplicate body slots");
 			}
@@ -4075,8 +4418,9 @@ extern "C"
 			auto imported_bodies = std::vector<pr::physics::ObjectSlot<pr::physics::BodyRecord>>(bodies.empty() ? 0 : max_body_index + 1);
 			auto imported_body_handles = std::unordered_map<pr::physics::RigidBody const*, PhysicsBodyHandle>{};
 			imported_body_handles.reserve(bodies.size());
-			for (auto const& value : bodies)
+			for (auto const& entry : bodies)
 			{
+				auto const& value = entry.m_state;
 				auto index = pr::physics::ChildIndex(value.body);
 				auto& shape_record = require_imported_shape(value.shape);
 				auto& slot = imported_bodies[index];
@@ -4115,8 +4459,10 @@ extern "C"
 			record.m_constraints.clear();
 			record.m_constraint_handles.clear();
 			record.m_constraint_set = {};
+			record.m_collision_ignore_pairs.swap(ignore_pairs);
 			record.m_step_bodies.clear();
 			record.m_step_articulations.clear();
+			record.m_step_collision_ignore_pairs.clear();
 			record.m_engine.swap(imported_engine);
 			record.m_submitted_step = header.m_submitted_step;
 			record.m_completed_step = header.m_completed_step;
