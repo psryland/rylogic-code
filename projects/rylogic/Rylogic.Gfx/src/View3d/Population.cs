@@ -37,11 +37,11 @@ public sealed partial class View3d
 		/// <summary>Caller payload index, interpreted only by caller shaders.</summary>
 		public uint Payload;
 
-		/// <summary>Must be zero.</summary>
-		public uint Reserved;
+		/// <summary>The index of the instance's prototype in its population. Instances with an invalid index are not drawn.</summary>
+		public uint Prototype;
 
-		/// <summary>Create an instance record from an affine instance-to-world transform.</summary>
-		public PopulationInstance(m4x4 o2w, Colour32 tint, EPopulationInstanceFlags flags = EPopulationInstanceFlags.Enabled, uint payload = 0)
+		/// <summary>Create an instance record of prototype 'prototype' from an affine instance-to-world transform.</summary>
+		public PopulationInstance(m4x4 o2w, Colour32 tint, uint prototype, EPopulationInstanceFlags flags = EPopulationInstanceFlags.Enabled, uint payload = 0)
 		{
 			// 'o2w' stores columns, so each row gathers one component of every column
 			O2WRow0 = new v4(o2w.x.x, o2w.y.x, o2w.z.x, o2w.w.x);
@@ -50,7 +50,7 @@ public sealed partial class View3d
 			Tint = tint;
 			Flags = flags;
 			Payload = payload;
-			Reserved = 0;
+			Prototype = prototype;
 		}
 	}
 
@@ -94,7 +94,7 @@ public sealed partial class View3d
 		/// <summary>The sum of the active blocks' capacities: the most instances that can be live.</summary>
 		public long AdmittedInstances;
 
-		/// <summary>The size of the instance, live count, and payload buffers in bytes.</summary>
+		/// <summary>The size of the instance, live count, payload, and prototype buffers in bytes.</summary>
 		public long ResidentBytes;
 
 		/// <summary>The size of all per-view classification buffers in bytes.</summary>
@@ -103,7 +103,7 @@ public sealed partial class View3d
 		/// <summary>The largest value 'ScratchBytes' has had.</summary>
 		public long ScratchHighWater;
 
-		/// <summary>The total bytes copied to the GPU by instance, block, and payload updates.</summary>
+		/// <summary>The total bytes copied to the GPU by prototype, instance, block, and payload updates.</summary>
 		public long UploadBytes;
 
 		/// <summary>The total number of producer dispatches recorded.</summary>
@@ -127,7 +127,7 @@ public sealed partial class View3d
 		/// <summary>Visible list entries of each LOD. Use 'EntriesForLod'.</summary>
 		public fixed long EntriesPerLod[8];
 
-		/// <summary>Indirect draws: one per (LOD, nugget) pair.</summary>
+		/// <summary>Indirect draws: one per (prototype, LOD, nugget).</summary>
 		public long IndirectDraws;
 
 		/// <summary>Visible blocks whose live count exceeded their capacity. The live count is clamped.</summary>
@@ -197,18 +197,25 @@ public sealed partial class View3d
 	}
 
 	/// <summary>
-	/// Many placements of one prototype, drawn with GPU instancing and GPU culling. Instances live in a GPU buffer and are grouped into caller-owned blocks.
+	/// Many placements of a set of prototypes, drawn with GPU instancing and GPU culling. Instances live in a GPU buffer and are grouped into caller-owned blocks.
+	/// Each instance selects its prototype by index, and the whole population is classified once per view, so one population of many prototypes is cheaper
+	/// than one population per prototype.
 	/// Updates are copied during the call and shown from the next frame. Use on the render owner thread while the View3d context is alive.
 	/// </summary>
 	public sealed class Population : IDisposable
 	{
 		/// <summary>
-		/// Create a population of 'prototype' with fixed capacities. 'payload_size' is the size in bytes of an optional caller payload buffer for custom
-		/// shaders; zero means no payload, and it must be a multiple of 4.
+		/// Create a population of 'prototypes' with fixed capacities. Instances refer to prototypes by their index in 'prototypes'. 'payload_size' is the
+		/// size in bytes of an optional caller payload buffer for custom shaders; zero means no payload, and it must be a multiple of 4.
 		/// </summary>
-		public Population(PopulationPrototype prototype, int instance_capacity, int block_capacity, int payload_size = 0)
+		public Population(ReadOnlySpan<PopulationPrototype> prototypes, int instance_capacity, int block_capacity, int payload_size = 0)
 		{
-			Handle = View3D_PopulationCreate(prototype.Handle, instance_capacity, block_capacity, payload_size);
+			// The native call takes the prototype handles
+			var handles = new IntPtr[prototypes.Length];
+			for (var i = 0; i != prototypes.Length; ++i)
+				handles[i] = prototypes[i].Handle;
+
+			Handle = View3D_PopulationCreate(handles, handles.Length, instance_capacity, block_capacity, payload_size);
 			if (Handle == IntPtr.Zero)
 				throw new InvalidOperationException("Failed to create the population.");
 		}
@@ -300,7 +307,7 @@ public sealed partial class View3d
 	private static extern void View3D_PopulationPrototypeRelease(IntPtr prototype);
 
 	[DllImport(Dll)]
-	private static extern IntPtr View3D_PopulationCreate(IntPtr prototype, int instance_capacity, int block_capacity, int payload_size);
+	private static extern IntPtr View3D_PopulationCreate([In] IntPtr[] prototypes, int prototype_count, int instance_capacity, int block_capacity, int payload_size);
 
 	[DllImport(Dll)]
 	private static extern void View3D_PopulationRelease(IntPtr population);
@@ -346,11 +353,12 @@ public class PopulationTests
 		Assert.Equal(24 * 8, Marshal.SizeOf<View3d.PopulationStats>());
 
 		// A translation lands in the 'w' component of each row
-		var instance = new View3d.PopulationInstance(m4x4.Translation(1, 2, 3), Colour32.Red);
+		var instance = new View3d.PopulationInstance(m4x4.Translation(1, 2, 3), Colour32.Red, 5);
 		Assert.Equal(new v4(1, 0, 0, 1), instance.O2WRow0);
 		Assert.Equal(new v4(0, 1, 0, 2), instance.O2WRow1);
 		Assert.Equal(new v4(0, 0, 1, 3), instance.O2WRow2);
 		Assert.Equal(View3d.EPopulationInstanceFlags.Enabled, instance.Flags);
+		Assert.Equal(5u, instance.Prototype);
 	}
 }
 #endif

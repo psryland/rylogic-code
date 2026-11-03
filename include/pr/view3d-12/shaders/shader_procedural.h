@@ -8,7 +8,8 @@
 
 namespace pr::rdr12
 {
-	// A caller-compiled procedural shader with renderer-owned constants. Constants may be replaced between frames; each draw uploads the current copy.
+	// A caller-compiled procedural shader with renderer-owned constants. Constants may be replaced between frames; draws upload the current copy once per
+	// upload buffer reuse window and share it.
 	// The shader has a procedural vertex shader, a forward pixel family that replaces the stock simple-material or PBR pixel shaders, or both. Without a
 	// vertex shader the stock vertex shader is used, so a pixel-only shader suits any vertex source. A procedural vertex shader requires a ProceduralVertexId model.
 	// Up to BufferSlotCount optional GPU buffers are bound as raw SRVs, slot 'i' at VIEW3D_PROCEDURAL_BUFFER<i>_REGISTER, for every draw. The caller keeps
@@ -25,6 +26,8 @@ namespace pr::rdr12
 		ForwardPixelFamily m_pixel_family;
 		std::array<std::byte, ConstantsSize> m_constants;
 		std::array<D3DPtr<ID3D12Resource>, BufferSlotCount> m_buffers;
+		D3D12_GPU_VIRTUAL_ADDRESS m_constants_gpu; // The upload of 'm_constants' that draws bind while 'm_constants_reuse_id' is the upload buffer's ReuseId.
+		int64_t m_constants_reuse_id;              // Zero when 'm_constants_gpu' is not valid for any upload buffer.
 		std::unique_ptr<ResourceFactory> m_writer; // Created by the first buffer update. It persists because a temporary factory waits for the GPU when destroyed.
 		std::vector<BYTE> m_dispatch_cs;           // Compute bytecode of the cached BufferDispatch pipeline. Callers usually repeat the same shader every frame.
 		D3DPtr<ID3D12RootSignature> m_dispatch_sig;

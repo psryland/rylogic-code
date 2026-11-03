@@ -703,7 +703,7 @@ namespace pr::rdr12
 				// The payload slot needs a valid address even when the population has no payload, so it aliases the instance records.
 				auto const& lists = *population->m_lists;
 				auto const& pop = *lists.m_population;
-				auto draw = PopulationDraw{ .lod = s_cast<uint32_t>(population->m_draw->m_lod), .list_base = lists.m_list_base, .pad0 = 0, .pad1 = 0 };
+				auto draw = PopulationDraw{ .list = s_cast<uint32_t>(population->m_draw->m_list), .list_base = lists.m_list_base, .offsets = lists.m_offsets, .pad = 0 };
 				cmd_list.SetGraphicsRootShaderResourceView(shaders::fwd::ERootParam::PopulationInstances, GpuAddress(pop.m_instances));
 				cmd_list.SetGraphicsRootShaderResourceView(shaders::fwd::ERootParam::PopulationView, GpuAddress(lists.m_scratch));
 				cmd_list.SetGraphicsRootShaderResourceView(shaders::fwd::ERootParam::PopulationPayload, pop.m_payload != nullptr ? GpuAddress(pop.m_payload) : GpuAddress(pop.m_instances));

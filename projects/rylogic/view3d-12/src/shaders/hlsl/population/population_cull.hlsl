@@ -4,16 +4,16 @@
 //*********************************************
 // Per-view classification of population instances (see 'pr/view3d-12/shaders/population.hlsli').
 //
-// The renderer records these kernels in order for each (population, view) pair:
+// The renderer records these kernels in order for each (population, view) pair. All prototypes of the population are classified together:
 //  - Clear:   zero the list header.
-//  - Count:   count the visible entries of each LOD.
+//  - Count:   count the visible entries of each (prototype, LOD) list.
 //  - Prefix:  turn the counts into list offsets, and write the indirect draw arguments.
-//  - Scatter: write the visible entries into the per-LOD lists.
+//  - Scatter: write the visible entries into the lists.
 // Count and Scatter make the same decision for each instance, so the counts match the entries written.
 //
 // View buffer layout (bytes):
-//  [0, HEADER_SIZE)          the list header (see VIEW3D_POPULATION_HEADER_*)
-//  [HEADER_SIZE, list_base)  indirect draw argument records, 'ArgStride' bytes each
+//  [0, header_size)          the list header (see VIEW3D_POPULATION_HEADER_*)
+//  [header_size, list_base)  indirect draw argument records, 'ArgStride' bytes each
 //  [list_base, ...)          the visible list entries, 8 bytes each
 #include "view3d-12/src/shaders/hlsl/types.hlsli"
 #include "pr/view3d-12/shaders/population.hlsli"
@@ -30,21 +30,30 @@ static const uint DiagLiveCount = 2; // Blocks whose live count exceeded their c
 // Constants of one classification. Mirrors 'CullConstants' in 'population.cpp'.
 struct CullConstants
 {
-	float4 planes[4];                                // World-space side planes of the view frustum. Inside means 'dot(plane.xyz, p) + plane.w >= 0'.
-	float4 eye;                                      // xyz = world-space projection origin, w = 1 for orthographic projections.
-	float4 range_origin;                             // xyz = world-space point that the draw distance is measured from.
+	float4 planes[4];     // World-space side planes of the view frustum. Inside means 'dot(plane.xyz, p) + plane.w >= 0'.
+	float4 eye;           // xyz = world-space projection origin, w = 1 for orthographic projections.
+	float4 range_origin;  // xyz = world-space point that the draw distance is measured from.
+	float size_scale;     // Projected radius in pixels = radius * size_scale / distance (no division for orthographic).
+	uint arg_count;       // The number of indirect argument records.
+	uint list_base;       // Byte offset of the first list entry.
+	uint list_count;      // The number of visible lists: one per (prototype, LOD).
+	uint prototype_count; // The number of prototypes.
+	uint header_size;     // The size of the list header in bytes.
+	uint pad0;
+	uint pad1;
+};
+
+// The classification constants of one prototype. Mirrors 'PrototypeConstants' in 'population.cpp'.
+struct PrototypeConstants
+{
 	float4 bound;                                    // xyz = instance-space centre of the prototype bounding sphere, w = radius.
 	float4 lod_size[VIEW3D_POPULATION_MAX_LODS / 4]; // The minimum projected radius (pixels) of each LOD.
 	float4 lod_fade[VIEW3D_POPULATION_MAX_LODS / 4]; // The transition width of each LOD, as a fraction of its minimum size.
-	float size_scale;                                // Projected radius in pixels = radius * size_scale / distance (no division for orthographic).
+	float4 fade;                                     // Origin distance bands: x,y = fade-in start and width, z,w = fade-out start and width. See Classify.
 	float draw_distance;                             // Instances whose bounding sphere is further than this are culled. Zero means unlimited.
 	uint lod_count;                                  // The number of LODs in the prototype.
-	uint arg_count;                                  // The number of indirect argument records.
-	uint list_base;                                  // Byte offset of the first list entry.
-	uint pad0;
-	uint pad1;
-	uint pad2;
-	float4 fade;                                     // Origin distance bands: x,y = fade-in start and width, z,w = fade-out start and width. See Classify.
+	uint list_first;                                 // The list of the prototype's first LOD. Its other LODs use the following lists.
+	uint pad;
 };
 
 // A block that passed the CPU culling test.
@@ -59,7 +68,7 @@ struct VisibleBlock
 // The template of an indirect draw argument record.
 struct ArgTemplate
 {
-	uint lod;     // The LOD that the draw renders. Selects the instance count.
+	uint list;    // The visible list that the draw renders. Selects the instance count.
 	uint count;   // The index count (indexed) or vertex count (non-indexed) of the nugget.
 	uint start;   // The first index (indexed) or vertex (non-indexed) of the nugget.
 	uint pad;
@@ -70,14 +79,15 @@ StructuredBuffer<View3DPopulationInstance> g_instances : register(t0);
 StructuredBuffer<VisibleBlock> g_blocks : register(t1);
 StructuredBuffer<uint> g_live_counts : register(t2);
 StructuredBuffer<ArgTemplate> g_args : register(t3);
+StructuredBuffer<PrototypeConstants> g_prototypes : register(t4);
 RWByteAddressBuffer g_view : register(u0);
 
 // The result of classifying one instance.
 struct Classification
 {
-	uint lod0;    // The LOD of the primary entry, or ~0 if the instance is culled.
+	uint list0;   // The list of the primary entry, or ~0 if the instance is culled.
 	uint dither0; // The dither word of the primary entry.
-	uint lod1;    // The LOD of the complementary transition entry, or ~0 if there is none.
+	uint list1;   // The list of the complementary transition entry, or ~0 if there is none.
 	uint dither1; // The dither word of the complementary entry.
 };
 
@@ -105,27 +115,29 @@ uint DitherWord(uint seed, float coverage)
 	return VIEW3D_POPULATION_DITHER_ACTIVE | (seed << VIEW3D_POPULATION_DITHER_SEED_SHIFT) | uint(saturate(coverage) * 65535.0f + 0.5f);
 }
 
-// Decide which LOD lists 'source' appears in for this view.
+// Decide which lists 'source' appears in for this view.
 Classification Classify(uint source)
 {
 	// Start with a culled result.
 	Classification result;
-	result.lod0 = ~0u;
+	result.list0 = ~0u;
 	result.dither0 = 0;
-	result.lod1 = ~0u;
+	result.list1 = ~0u;
 	result.dither1 = 0;
 
-	// Disabled instances are never drawn.
+	// Disabled instances, and instances naming no prototype, are never drawn. Root views are not range checked, so the index must be.
 	View3DPopulationInstance inst = g_instances[source];
-	if ((inst.info.y & VIEW3D_POPULATION_FLAG_ENABLED) == 0)
+	if ((inst.info.y & VIEW3D_POPULATION_FLAG_ENABLED) == 0 || inst.info.w >= g_cull.prototype_count)
 		return result;
 
+	PrototypeConstants proto = g_prototypes[inst.info.w];
+
 	// Place the prototype bounding sphere. The radius scales by the longest instance axis, which is exact for rotation with axis scaling.
-	float3 centre = View3DPopulationTransform(inst, float4(g_cull.bound.xyz, 1)).xyz;
+	float3 centre = View3DPopulationTransform(inst, float4(proto.bound.xyz, 1)).xyz;
 	float3 ax = float3(inst.o2w[0].x, inst.o2w[1].x, inst.o2w[2].x);
 	float3 ay = float3(inst.o2w[0].y, inst.o2w[1].y, inst.o2w[2].y);
 	float3 az = float3(inst.o2w[0].z, inst.o2w[1].z, inst.o2w[2].z);
-	float radius = g_cull.bound.w * sqrt(max(dot(ax, ax), max(dot(ay, ay), dot(az, az))));
+	float radius = proto.bound.w * sqrt(max(dot(ax, ax), max(dot(ay, ay), dot(az, az))));
 
 	// Reject spheres outside the frustum side planes.
 	[unroll] for (uint p = 0; p != 4; ++p)
@@ -136,14 +148,14 @@ Classification Classify(uint source)
 
 	// Reject instances beyond the draw distance, measured to the closest point of the bounding sphere.
 	float nearest = length(centre - g_cull.range_origin.xyz) - radius;
-	if (g_cull.draw_distance > 0 && nearest > g_cull.draw_distance)
+	if (proto.draw_distance > 0 && nearest > proto.draw_distance)
 		return result;
 
 	// Reject instances outside the fade bands, measured to the instance origin. The origin is the same for every prototype that draws an
 	// instance, so populations with matching bands make the same decision.
 	float3 origin = float3(inst.o2w[0].w, inst.o2w[1].w, inst.o2w[2].w);
 	float od = length(origin - g_cull.range_origin.xyz);
-	float4 fade = g_cull.fade;
+	float4 fade = proto.fade;
 	if (od < fade.x || od >= fade.z + fade.w)
 		return result;
 
@@ -162,11 +174,11 @@ Classification Classify(uint source)
 
 	// Select the most detailed LOD whose minimum size the instance reaches. Below the last LOD's minimum size, the instance is not drawn.
 	uint lod = 0;
-	for (; lod != g_cull.lod_count && size < Packed(g_cull.lod_size, lod); ++lod) {}
-	if (lod == g_cull.lod_count)
+	for (; lod != proto.lod_count && size < Packed(proto.lod_size, lod); ++lod) {}
+	if (lod == proto.lod_count)
 		return result;
 
-	result.lod0 = lod;
+	result.list0 = proto.list_first + lod;
 
 	// A distance fade replaces the LOD transition, because an entry has one coverage. The LOD switch inside a fade band is abrupt.
 	if (fade_word != 0)
@@ -177,15 +189,15 @@ Classification Classify(uint source)
 
 	// Within the transition band above the minimum size, the LOD fades out with a screen-door dither and the next LOD fades in with the
 	// complementary mask. The last LOD fades to nothing.
-	float t = Packed(g_cull.lod_size, lod);
-	float w = Packed(g_cull.lod_fade, lod);
+	float t = Packed(proto.lod_size, lod);
+	float w = Packed(proto.lod_fade, lod);
 	if (w > 0 && size < t * (1 + w))
 	{
 		uint word = DitherWord(seed, (size - t) / (t * w));
 		result.dither0 = word;
-		if (lod + 1 != g_cull.lod_count)
+		if (lod + 1 != proto.lod_count)
 		{
-			result.lod1 = lod + 1;
+			result.list1 = proto.list_first + lod + 1;
 			result.dither1 = word | VIEW3D_POPULATION_DITHER_COMPLEMENT;
 		}
 	}
@@ -203,14 +215,15 @@ bool InstanceSlot(uint3 dtid, out uint source)
 }
 
 // Zero the list header.
-numthreads(CSPopClear, 32, 1, 1)
+numthreads(CSPopClear, 64, 1, 1)
 void CSPopClear(uint3 dtid : SV_DispatchThreadID)
 {
-	// One thread per header word.
-	g_view.Store(dtid.x * 4, 0);
+	// One thread per header word. The last group may extend past the header.
+	if (dtid.x * 4 < g_cull.header_size)
+		g_view.Store(dtid.x * 4, 0);
 }
 
-// Count the entries of each LOD list.
+// Count the entries of each list.
 numthreads(CSPopCount, 64, 1, 1)
 void CSPopCount(uint3 dtid : SV_DispatchThreadID)
 {
@@ -226,38 +239,39 @@ void CSPopCount(uint3 dtid : SV_DispatchThreadID)
 	// Count the entries this instance adds to each list.
 	Classification c = Classify(source);
 	g_view.InterlockedAdd(VIEW3D_POPULATION_HEADER_DIAG + DiagTested * 4, 1);
-	if (c.lod0 != ~0u)
-		g_view.InterlockedAdd(VIEW3D_POPULATION_HEADER_COUNTS + c.lod0 * 4, 1);
-	if (c.lod1 != ~0u)
-		g_view.InterlockedAdd(VIEW3D_POPULATION_HEADER_COUNTS + c.lod1 * 4, 1);
+	if (c.list0 != ~0u)
+		g_view.InterlockedAdd(VIEW3D_POPULATION_HEADER_COUNTS + c.list0 * 4, 1);
+	if (c.list1 != ~0u)
+		g_view.InterlockedAdd(VIEW3D_POPULATION_HEADER_COUNTS + c.list1 * 4, 1);
 }
 
-// Convert the LOD counts to list offsets and write the indirect draw arguments.
+// Convert the list counts to list offsets and write the indirect draw arguments.
 numthreads(CSPopPrefix, 1, 1, 1)
 void CSPopPrefix(uint3 dtid : SV_DispatchThreadID)
 {
-	// Lay out the LOD lists one after another.
+	// Lay out the lists one after another. The OFFSETS field follows the COUNTS field.
+	uint offsets = VIEW3D_POPULATION_HEADER_COUNTS + g_cull.list_count * 4;
 	uint total = 0;
-	for (uint lod = 0; lod != VIEW3D_POPULATION_MAX_LODS; ++lod)
+	for (uint list = 0; list != g_cull.list_count; ++list)
 	{
-		g_view.Store(VIEW3D_POPULATION_HEADER_OFFSETS + lod * 4, total);
-		total += g_view.Load(VIEW3D_POPULATION_HEADER_COUNTS + lod * 4);
+		g_view.Store(offsets + list * 4, total);
+		total += g_view.Load(VIEW3D_POPULATION_HEADER_COUNTS + list * 4);
 	}
 	g_view.Store(VIEW3D_POPULATION_HEADER_DIAG + DiagEmitted * 4, total);
 
-	// Each draw renders its LOD's whole list. The start instance is zero because 'View3DPopulationFetch' adds the list offset.
+	// Each draw renders its list in full. The start instance is zero because 'View3DPopulationFetch' adds the list offset.
 	// Indexed records are {IndexCount, InstanceCount, StartIndex, BaseVertex, StartInstance}; non-indexed records use the first four fields.
 	for (uint i = 0; i != g_cull.arg_count; ++i)
 	{
 		ArgTemplate a = g_args[i];
-		uint instances = g_view.Load(VIEW3D_POPULATION_HEADER_COUNTS + a.lod * 4);
-		uint ofs = VIEW3D_POPULATION_HEADER_SIZE + i * ArgStride;
+		uint instances = g_view.Load(VIEW3D_POPULATION_HEADER_COUNTS + a.list * 4);
+		uint ofs = g_cull.header_size + i * ArgStride;
 		g_view.Store4(ofs, uint4(a.count, instances, a.start, 0));
 		g_view.Store(ofs + 16, 0);
 	}
 }
 
-// Write the visible entries to the LOD lists.
+// Write the visible entries to the lists.
 numthreads(CSPopScatter, 64, 1, 1)
 void CSPopScatter(uint3 dtid : SV_DispatchThreadID)
 {
@@ -266,20 +280,22 @@ void CSPopScatter(uint3 dtid : SV_DispatchThreadID)
 	if (!InstanceSlot(dtid, source))
 		return;
 
-	// Append each entry at its LOD's offset plus a cursor. The list order is not stable.
+	// Append each entry at its list's offset plus a cursor. The list order is not stable. The OFFSETS and CURSORS fields follow the COUNTS field.
+	uint offsets = VIEW3D_POPULATION_HEADER_COUNTS + g_cull.list_count * 4;
+	uint cursors = VIEW3D_POPULATION_HEADER_COUNTS + g_cull.list_count * 8;
 	Classification c = Classify(source);
-	if (c.lod0 != ~0u)
+	if (c.list0 != ~0u)
 	{
-		uint first = g_view.Load(VIEW3D_POPULATION_HEADER_OFFSETS + c.lod0 * 4);
+		uint first = g_view.Load(offsets + c.list0 * 4);
 		uint index;
-		g_view.InterlockedAdd(VIEW3D_POPULATION_HEADER_CURSORS + c.lod0 * 4, 1, index);
+		g_view.InterlockedAdd(cursors + c.list0 * 4, 1, index);
 		g_view.Store2(g_cull.list_base + (first + index) * 8, uint2(source, c.dither0));
 	}
-	if (c.lod1 != ~0u)
+	if (c.list1 != ~0u)
 	{
-		uint first = g_view.Load(VIEW3D_POPULATION_HEADER_OFFSETS + c.lod1 * 4);
+		uint first = g_view.Load(offsets + c.list1 * 4);
 		uint index;
-		g_view.InterlockedAdd(VIEW3D_POPULATION_HEADER_CURSORS + c.lod1 * 4, 1, index);
+		g_view.InterlockedAdd(cursors + c.list1 * 4, 1, index);
 		g_view.Store2(g_cull.list_base + (first + index) * 8, uint2(source, c.dither1));
 	}
 }

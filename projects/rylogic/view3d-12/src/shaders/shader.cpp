@@ -58,6 +58,8 @@ namespace pr::rdr12
 		,m_pixel_family()
 		,m_constants()
 		,m_buffers{buffer}
+		,m_constants_gpu()
+		,m_constants_reuse_id()
 		,m_writer()
 		,m_dispatch_cs()
 		,m_dispatch_sig()
@@ -117,7 +119,9 @@ namespace pr::rdr12
 		if (constants.size() != ConstantsSize)
 			throw std::invalid_argument("Procedural shader constants must be exactly 1024 bytes");
 
+		// Later draws must upload the new values rather than bind the cached copy
 		std::copy(constants.begin(), constants.end(), m_constants.begin());
+		m_constants_reuse_id = 0;
 	}
 
 	// Replace the buffer bound at 'slot' by later draws.
@@ -227,8 +231,14 @@ namespace pr::rdr12
 	// Bind the copied constants and optional buffers through the render-step-specific reserved root slots.
 	void ProceduralShader::SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, Scene const&, CameraTransforms const&, DrawListElement const*)
 	{
-		// Upload the current copy each draw; identical content is shared within the frame.
-		auto gpu_address = upload.Add(m_constants, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, true).VirtualAddress();
+		// Upload the current constants once per upload buffer reuse window. Draws in the same window bind the same copy, which avoids copying and
+		// hashing 1 KB for every draw.
+		if (m_constants_reuse_id != upload.ReuseId())
+		{
+			m_constants_gpu = upload.Add(m_constants, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, false).VirtualAddress();
+			m_constants_reuse_id = upload.ReuseId();
+		}
+		auto gpu_address = m_constants_gpu;
 		auto Bind = [&](UINT cbuf_slot, std::array<UINT, BufferSlotCount> const& buffer_slots)
 		{
 			// Empty buffer slots stay unbound, because shaders must not declare a slot without a buffer.

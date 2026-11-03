@@ -282,19 +282,23 @@ float CloudSlabDensityAt(CloudConstants clouds, CloudShape s, float2 xy, float h
 	return CloudSlabDensity(s, CloudSlabColumn(s, CloudEdge(s, field, fray), field), hz);
 }
 
-// The fraction of direct light from the sky's sun that passes through the clouds to 'ws_pos'. 'ws_to_light' is the normalised direction toward
-// the light, and 'ws_cam' the camera position, both in the scene frame. Light that does not come from the sky's sun is not shaded.
-// This is a soft, low-detail estimate: it reads the cloud at a coarse mip level and integrates the low cloud column vertically.
-float CloudShadow(CloudConstants clouds, float3 ws_pos, float3 ws_to_light, float3 ws_cam)
+// How much a light in the direction 'ws_to_light' (normalised, toward the light, in the scene frame) is the sky's sun, in [0,1].
+// Only light from the sun is shaded by its clouds, so a cloud shadow applies in proportion to this value. See CloudShadow.
+float CloudSunAlignment(CloudConstants clouds, float3 ws_to_light)
 {
-	// Without cloud shadows, all the light passes.
-	if (clouds.shadow_strength <= 0)
-		return 1.0;
-
-	// Only a light from the sky's sun is shaded by its clouds. Light from below the horizon does not pass through them.
+	// Directions close to the sun count as the sun. Light from below the horizon does not pass through the clouds.
 	float3 to_sun = mul(float4(ws_to_light, 0), clouds.world_to_sky).xyz;
-	float aligned = smoothstep(0.95, 0.99, dot(to_sun, clouds.sun_direction.xyz));
-	if (aligned <= 0 || to_sun.z <= 0.01)
+	return to_sun.z > 0.01 ? smoothstep(0.95, 0.99, dot(to_sun, clouds.sun_direction.xyz)) : 0.0;
+}
+
+// The fraction of direct sunlight that passes through the clouds to 'ws_pos'. 'ws_cam' is the camera position. Both are in the scene frame.
+// The result does not depend on a light, so it can be found once per position, e.g. per vertex, and shared by every light. See CloudShadow.
+// This is a soft, low-detail estimate: it reads the cloud at a coarse mip level and integrates the low cloud column vertically.
+float CloudSunShadow(CloudConstants clouds, float3 ws_pos, float3 ws_cam)
+{
+	// Without cloud shadows, or with the sun below the horizon, all the light passes.
+	float3 to_sun = clouds.sun_direction.xyz;
+	if (clouds.shadow_strength <= 0 || to_sun.z <= 0.01)
 		return 1.0;
 
 	// Follow the light back from the point to each layer. Shadows are near the camera compared with the planet radius, so the layers are flat here.
@@ -341,7 +345,16 @@ float CloudShadow(CloudConstants clouds, float3 ws_pos, float3 ws_to_light, floa
 	}
 
 	// A storm deck spreads the sunlight over the whole sky, so it casts no distinct shadows. The scene's storm lighting dims the light instead.
-	return lerp(1.0, transmit, clouds.shadow_strength * aligned * (1.0 - storm));
+	return lerp(1.0, transmit, clouds.shadow_strength * (1.0 - storm));
+}
+
+// The fraction of direct light that passes through the clouds to 'ws_pos'. 'ws_to_light' is the normalised direction toward the light, and
+// 'ws_cam' the camera position, both in the scene frame. Light that does not come from the sky's sun is not shaded.
+float CloudShadow(CloudConstants clouds, float3 ws_pos, float3 ws_to_light, float3 ws_cam)
+{
+	// Skip the cloud reads for lights that are not the sun.
+	float aligned = CloudSunAlignment(clouds, ws_to_light);
+	return aligned > 0 ? lerp(1.0, CloudSunShadow(clouds, ws_pos, ws_cam), aligned) : 1.0;
 }
 
 #endif

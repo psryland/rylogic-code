@@ -279,10 +279,12 @@ namespace pr::rdr12
 		for (auto pop : scn().Populations())
 		{
 			// Populations whose LODs have no shadow-casting nuggets are not casters, so they do not grow the caster bounds
-			auto const& proto = *pop->m_prototype.get();
 			auto casts = false;
-			for (auto const& lod : proto.m_lods)
-				PopulationNuggets(*lod.m_model.get(), ERenderStep::ShadowMap, [&](Nugget const&) { casts = true; });
+			for (auto const& proto : pop->m_prototypes)
+			{
+				for (auto const& lod : proto->m_lods)
+					PopulationNuggets(*lod.m_model.get(), ERenderStep::ShadowMap, [&](Nugget const&) { casts = true; });
+			}
 
 			if (!casts)
 				continue;
@@ -299,24 +301,30 @@ namespace pr::rdr12
 				continue;
 
 			// Hash everything that can change the depth the population writes into a view. The revision covers blocks, instances, and payload.
-			// The draw range is measured from the scene camera, so the camera position matters only when the prototype limits the range.
+			// The draw range is measured from the scene camera, so the camera position matters only when a prototype limits the range.
 			auto& h = caster.m_hash;
 			HashPtr(h, pop.get());
 			HashWord(h, revision);
-			HashPtr(h, &proto);
-			for (auto const& lod : proto.m_lods)
+			auto ranged = false;
+			for (auto const& proto : pop->m_prototypes)
 			{
-				HashPtr(h, lod.m_model.get());
-				HashWord(h, lod.m_model->m_revision);
-
-				// Custom shadow vertex shaders can change the geometry without any change to the population, in the same way as for ordinary nuggets
-				PopulationNuggets(*lod.m_model.get(), ERenderStep::ShadowMap, [&](Nugget const& nug)
+				// Each prototype's models, and whether it limits the draw range
+				HashPtr(h, proto.get());
+				ranged |= proto->m_draw_distance > 0 || proto->m_fade_in.used() || proto->m_fade_out.used();
+				for (auto const& lod : proto->m_lods)
 				{
-					if (PopulationVertexOverlay(nug.mat(), ERenderStep::ShadowMap) != nullptr)
-						caster.m_volatile = true;
-				});
+					HashPtr(h, lod.m_model.get());
+					HashWord(h, lod.m_model->m_revision);
+
+					// Custom shadow vertex shaders can change the geometry without any change to the population, in the same way as for ordinary nuggets
+					PopulationNuggets(*lod.m_model.get(), ERenderStep::ShadowMap, [&](Nugget const& nug)
+					{
+						if (PopulationVertexOverlay(nug.mat(), ERenderStep::ShadowMap) != nullptr)
+							caster.m_volatile = true;
+					});
+				}
 			}
-			if (proto.m_draw_distance > 0 || proto.m_fade_in.used() || proto.m_fade_out.used())
+			if (ranged)
 				HashMix(h, range_origin);
 
 			m_casters.push_back(std::move(caster));
@@ -453,7 +461,8 @@ namespace pr::rdr12
 		m_cmd_list.SetDescriptorHeaps({ des_heaps.begin(), des_heaps.size() });
 
 		// Classify each population for each view being rendered that can see it. Classification is compute work, so record it before the depth pass.
-		// Each classification supplies element constants for its (LOD, nugget) draws, in draw order, from the population element table.
+		// Every classification of a population has the same (LOD, nugget) draws in the same order, so the classifications of one population are
+		// consecutive and share one set of element constants in the population element table.
 		struct PopulationShadow
 		{
 			PopulationViewLists m_lists; // The classification for one view
@@ -469,6 +478,7 @@ namespace pr::rdr12
 			auto const range_origin = scn().m_cam.CameraToWorld().pos;
 			for (auto& caster : m_casters)
 			{
+				auto const caster_first_element = isize(pop_dles);
 				for (int i = 0, iend = isize(views); i != iend; ++i)
 				{
 					// Only views that can see an active block need a classification
@@ -482,12 +492,16 @@ namespace pr::rdr12
 					auto shadow = PopulationShadow{
 						.m_lists = rdr().PopulationCulling().Cull(m_cmd_list, m_upload_buffer, m_gsync, *caster.m_pop.get(), desc, m_step_id),
 						.m_view = i,
-						.m_first_element = isize(pop_dles),
+						.m_first_element = caster_first_element,
 					};
 
-					// The LOD proxy instances supply the element constants. Instance records place the vertices.
-					for (auto const& draw : shadow.m_lists.m_draws)
-						pop_dles.push_back(DrawListElement{ .m_sort_key = draw.m_nugget->m_sort_key, .m_nugget = draw.m_nugget, .m_instance = &draw.m_proxy->m_base });
+					// The LOD proxy instances supply the element constants, once per population. Instance records place the vertices.
+					if (isize(pop_dles) == caster_first_element)
+					{
+						for (auto const& draw : shadow.m_lists.m_draws)
+							pop_dles.push_back(DrawListElement{ .m_sort_key = draw.m_nugget->m_sort_key, .m_nugget = draw.m_nugget, .m_instance = &draw.m_proxy->m_base });
+					}
+					pr_assert(isize(pop_dles) - caster_first_element == isize(shadow.m_lists.m_draws) && "Classifications of a population have the same draws");
 
 					pop_shadows.push_back(std::move(shadow));
 				}
@@ -655,21 +669,29 @@ namespace pr::rdr12
 			if (std::ranges::any_of(pop_shadows, [&](PopulationShadow const& s) { return s.m_view >= batch_beg && s.m_view < batch_end; }))
 			{
 				m_shader.SetupFrame(m_cmd_list.get(), views_gpu, pop_elements_gpu);
-				for (auto const& shadow : pop_shadows)
+				for (int g_beg = 0, g_end = 0, gcount = isize(pop_shadows); g_beg != gcount; g_beg = g_end)
 				{
-					// Skip classifications for views outside this batch
-					if (shadow.m_view < batch_beg || shadow.m_view >= batch_end)
+					// The classifications of one population are consecutive. Collect the ones for views in this batch.
+					auto const& pop = *pop_shadows[g_beg].m_lists.m_population;
+					pr::vector<PopulationShadow const*, MaxShadowViews> group;
+					for (g_end = g_beg; g_end != gcount && pop_shadows[g_end].m_lists.m_population == &pop; ++g_end)
+					{
+						auto const& shadow = pop_shadows[g_end];
+						if (shadow.m_view >= batch_beg && shadow.m_view < batch_end)
+							group.push_back(&shadow);
+					}
+					if (group.empty())
 						continue;
 
-					auto const& lists = shadow.m_lists;
-					auto const& pop = *lists.m_population;
-					auto const view = s_cast<uint32_t>(shadow.m_view);
-					for (int d = 0, dend = isize(lists.m_draws); d != dend; ++d)
+					// Every classification of the population has the same draws, so each draw's material, geometry, and pipeline are bound once
+					// and then drawn into each view from that view's argument records.
+					auto const& first = *group.front();
+					for (int d = 0, dend = isize(first.m_lists.m_draws); d != dend; ++d)
 					{
 						// Filter out nuggets that can't cast shadows, in the same way as 'AddNuggets'
-						auto const& draw = lists.m_draws[d];
+						auto const& draw = first.m_lists.m_draws[d];
 						auto const& nugget = *draw.m_nugget;
-						auto const& dle = pop_dles[shadow.m_first_element + d];
+						auto const& dle = pop_dles[first.m_first_element + d];
 						if (AnySet(nugget.m_nflags, ENuggetFlag::ShadowCastExclude))
 							continue;
 						if (nugget.FillMode() != EFillMode::Default && nugget.FillMode() != EFillMode::Solid)
@@ -691,7 +713,7 @@ namespace pr::rdr12
 						m_cmd_list.IASetIndexBuffer(&nugget.m_model->m_ib_view);
 
 						// Select the draw's element constants, then let the material bind per-draw resources and pipeline overrides
-						shaders::ShadowMap::SetupElement(m_cmd_list.get(), shadow.m_first_element + d);
+						shaders::ShadowMap::SetupElement(m_cmd_list.get(), first.m_first_element + d);
 						auto ctx = MaterialPassContext{
 							.m_step_id = m_step_id,
 							.m_wnd = wnd(),
@@ -729,21 +751,28 @@ namespace pr::rdr12
 							desc.Apply(PSO<EPipeState::VS>(shader_code::shadow_map_population_vs));
 						}
 						desc.Apply(PSO<EPipeState::DepthClipEnable>(clamp_depth ? FALSE : TRUE));
-
-						// Bind the instance records and visible lists. The payload slot needs a valid address, so it aliases the instance records when there is no payload.
-						auto pop_draw = PopulationDraw{ .lod = s_cast<uint32_t>(draw.m_lod), .list_base = lists.m_list_base, .pad0 = 0, .pad1 = 0 };
-						m_cmd_list.SetGraphicsRootShaderResourceView(shaders::smap::ERootParam::PopulationInstances, GpuAddress(pop.m_instances));
-						m_cmd_list.SetGraphicsRootShaderResourceView(shaders::smap::ERootParam::PopulationView, GpuAddress(lists.m_scratch));
-						m_cmd_list.SetGraphicsRootShaderResourceView(shaders::smap::ERootParam::PopulationPayload, pop.m_payload != nullptr ? GpuAddress(pop.m_payload) : GpuAddress(pop.m_instances));
-						m_cmd_list.SetGraphicsRoot32BitConstants(shaders::smap::ERootParam::PopulationDraw, pop_draw);
-
-						// Draw into the classification's view, taking the instance counts from its argument records
-						m_shader.SetupDrawViews(m_cmd_list.get(), { &view, 1 }, batch_beg);
 						m_cmd_list.SetPipelineState(m_pipe_state_pool.Get(desc));
-						if (!nugget.m_irange.empty())
-							m_cmd_list.ExecuteIndirect(rdr().PopulationCulling().DrawSignature(true), 1, lists.m_scratch, s_cast<UINT64>(draw.m_args_indexed));
-						else
-							m_cmd_list.ExecuteIndirect(rdr().PopulationCulling().DrawSignature(false), 1, lists.m_scratch, s_cast<UINT64>(draw.m_args_vertex));
+
+						// Bind the instance records. The payload slot needs a valid address, so it aliases the instance records when there is no payload.
+						m_cmd_list.SetGraphicsRootShaderResourceView(shaders::smap::ERootParam::PopulationInstances, GpuAddress(pop.m_instances));
+						m_cmd_list.SetGraphicsRootShaderResourceView(shaders::smap::ERootParam::PopulationPayload, pop.m_payload != nullptr ? GpuAddress(pop.m_payload) : GpuAddress(pop.m_instances));
+
+						// Draw into each classification's view, taking the visible lists and instance counts from its view buffer
+						for (auto const* shadow : group)
+						{
+							// Each view buffer has its own layout, so the list constants are set per view
+							auto const& lists = shadow->m_lists;
+							auto const& view_draw = lists.m_draws[d];
+							auto const view = s_cast<uint32_t>(shadow->m_view);
+							auto pop_draw = PopulationDraw{ .list = s_cast<uint32_t>(view_draw.m_list), .list_base = lists.m_list_base, .offsets = lists.m_offsets, .pad = 0 };
+							m_cmd_list.SetGraphicsRootShaderResourceView(shaders::smap::ERootParam::PopulationView, GpuAddress(lists.m_scratch));
+							m_cmd_list.SetGraphicsRoot32BitConstants(shaders::smap::ERootParam::PopulationDraw, pop_draw);
+							m_shader.SetupDrawViews(m_cmd_list.get(), { &view, 1 }, batch_beg);
+							if (!nugget.m_irange.empty())
+								m_cmd_list.ExecuteIndirect(rdr().PopulationCulling().DrawSignature(true), 1, lists.m_scratch, s_cast<UINT64>(view_draw.m_args_indexed));
+							else
+								m_cmd_list.ExecuteIndirect(rdr().PopulationCulling().DrawSignature(false), 1, lists.m_scratch, s_cast<UINT64>(view_draw.m_args_vertex));
+						}
 					}
 				}
 				m_shader.SetupFrame(m_cmd_list.get(), views_gpu, elements_gpu);

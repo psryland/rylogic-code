@@ -60,7 +60,11 @@ namespace pr::compute
 		int32_t    m_blk_align; // The alignment to create blocks with.
 		GpuSync*   m_gsync;     // The GPU fence marking GPU progress.
 		Lookup     m_lookup;    // A lookup for buffer reuse (since the last sync point).
+		int64_t    m_reuse_id;  // Identifies the current reuse window. See 'ReuseId'.
 		AutoSub    m_eh0;       // Event subscription
+
+		// The source of reuse window ids. Ids are unique across all buffers of this heap type, so a cached id never matches another buffer.
+		inline static std::atomic_int64_t s_reuse_ids = 0;
 
 		GpuTransferBuffer(GpuSync& gsync, int64_t block_size, int block_alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT)
 			:m_used()
@@ -69,6 +73,7 @@ namespace pr::compute
 			,m_blk_align(block_alignment)
 			,m_gsync(&gsync)
 			,m_lookup()
+			,m_reuse_id(++s_reuse_ids)
 			,m_eh0()
 		{
 			// Sign up for notifications when a sync point is added
@@ -77,7 +82,7 @@ namespace pr::compute
 				// This begins a new "frame" of allocations
 				if (m_used.empty()) return;
 				m_used.back().m_sync_point = m_gsync->LastAddedSyncPoint();
-				m_lookup.clear();
+				EndReuseWindow();
 				PurgeCompleted(false);
 			};
 		}
@@ -88,8 +93,11 @@ namespace pr::compute
 			, m_blk_align(rhs.m_blk_align)
 			, m_gsync(rhs.m_gsync)
 			, m_lookup(std::move(rhs.m_lookup))
+			, m_reuse_id(rhs.m_reuse_id)
 			, m_eh0(std::move(rhs.m_eh0))
 		{
+			// The moved-from buffer gets a new id so addresses cached against the old id are not reused through it
+			rhs.m_reuse_id = ++s_reuse_ids;
 			rhs.m_blk_size = 0;
 			rhs.m_blk_align = 0;
 			rhs.m_gsync = nullptr;
@@ -104,6 +112,7 @@ namespace pr::compute
 			std::swap(m_blk_align, rhs.m_blk_align);
 			std::swap(m_gsync, rhs.m_gsync);
 			std::swap(m_lookup, rhs.m_lookup);
+			std::swap(m_reuse_id, rhs.m_reuse_id);
 			std::swap(m_eh0, rhs.m_eh0);
 			return *this;
 		}
@@ -179,6 +188,14 @@ namespace pr::compute
 			return gpu_address;
 		}
 
+		// Identifies the current reuse window: the span between sync points in which uploads stay valid for later commands recorded on this buffer.
+		// An address returned by 'Add' or 'Alloc' may be bound again by later commands while 'ReuseId' still returns the id read when it was uploaded.
+		// Ids are never repeated, so a caller can cache an upload against an id without also tracking the buffer.
+		int64_t ReuseId() const
+		{
+			return m_reuse_id;
+		}
+
 		// Recycle blocks that the GPU has finished with
 		void PurgeCompleted()
 		{
@@ -197,11 +214,19 @@ namespace pr::compute
 				if (block.m_sync_point > last_submitted)
 					block.m_sync_point = last_submitted;
 			}
-			m_lookup.clear();
+			EndReuseWindow();
 			PurgeCompleted(false);
 		}
 
 	private:
+
+		// Forget uploads that later commands may no longer share
+		void EndReuseWindow()
+		{
+			// A new id invalidates addresses that callers cached against the old one
+			m_lookup.clear();
+			m_reuse_id = ++s_reuse_ids;
+		}
 
 		// Recycle blocks that the GPU has finished with
 		void PurgeCompleted(bool shutdown)

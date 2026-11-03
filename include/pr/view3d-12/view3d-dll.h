@@ -782,7 +782,7 @@ namespace pr
 			Colour m_tint;                      // Multiplies the vertex colour.
 			EPopulationInstanceFlags m_flags;
 			uint32_t m_payload;                 // Caller payload index, interpreted only by caller shaders.
-			uint32_t m_reserved;                // Must be zero.
+			uint32_t m_prototype;               // The index of the instance's prototype in the population. Instances with an invalid index are not drawn.
 		};
 
 		// One level of detail of a population prototype. See View3D_PopulationPrototypeCreate.
@@ -808,10 +808,10 @@ namespace pr
 			int64_t m_block_capacity;      // The number of block slots.
 			int64_t m_active_blocks;       // Blocks that are set and not removed.
 			int64_t m_admitted_instances;  // The sum of the active blocks' capacities: the most instances that can be live.
-			int64_t m_resident_bytes;      // The size of the instance, live count, and payload buffers.
+			int64_t m_resident_bytes;      // The size of the instance, live count, payload, and prototype buffers.
 			int64_t m_scratch_bytes;       // The size of all per-view classification buffers.
 			int64_t m_scratch_high_water;  // The largest value 'm_scratch_bytes' has had.
-			int64_t m_upload_bytes;        // The total bytes copied to the GPU by instance, block, and payload updates.
+			int64_t m_upload_bytes;        // The total bytes copied to the GPU by prototype, instance, block, and payload updates.
 			int64_t m_producer_dispatches; // The total number of producer dispatches recorded.
 
 			// The latest classification of each view that the GPU has completed, summed over 'm_views' views.
@@ -1776,10 +1776,11 @@ extern "C"
 	VIEW3D_API pr::view3d::PopulationPrototype __stdcall View3D_PopulationPrototypeCreate(pr::view3d::PopulationLod const* lods, int lod_count, float draw_distance, pr::view3d::PopulationFade fade_in, pr::view3d::PopulationFade fade_out);
 	VIEW3D_API void __stdcall View3D_PopulationPrototypeRelease(pr::view3d::PopulationPrototype prototype);
 
-	// Create a population of 'prototype' with fixed capacities. GPU resources are created here, so later updates do not allocate. 'payload_size' is the
-	// size in bytes of an optional caller payload buffer for custom shaders; zero means no payload, and it must be a multiple of 4. Release using
-	// View3D_PopulationRelease. Returns null on failure.
-	VIEW3D_API pr::view3d::Population __stdcall View3D_PopulationCreate(pr::view3d::PopulationPrototype prototype, int instance_capacity, int block_capacity, int payload_size);
+	// Create a population of the 'prototype_count' prototypes in 'prototypes', with fixed capacities. Each instance selects its prototype by index, and the
+	// whole population is classified once per view, so grouping many prototypes in one population is cheaper than one population per prototype.
+	// GPU resources are created here, so later updates do not allocate. 'payload_size' is the size in bytes of an optional caller payload buffer for
+	// custom shaders; zero means no payload, and it must be a multiple of 4. Release using View3D_PopulationRelease. Returns null on failure.
+	VIEW3D_API pr::view3d::Population __stdcall View3D_PopulationCreate(pr::view3d::PopulationPrototype const* prototypes, int prototype_count, int instance_capacity, int block_capacity, int payload_size);
 	VIEW3D_API void __stdcall View3D_PopulationRelease(pr::view3d::Population population);
 
 	// Define block 'index' as the instance slots [first, first + capacity), of which the first 'live_count' are drawn. 'bbox' is a world-space bound that

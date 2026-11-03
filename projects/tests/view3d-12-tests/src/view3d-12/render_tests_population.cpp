@@ -27,6 +27,13 @@ namespace render_tests
 		return object;
 	}
 
+	// Create a population of the single prototype 'prototype'. Returns null on failure.
+	api::Population PopulationCreate(api::PopulationPrototype prototype, int instance_capacity, int block_capacity, int payload_size)
+	{
+		// Instances select prototype 0
+		return View3D_PopulationCreate(&prototype, 1, instance_capacity, block_capacity, payload_size);
+	}
+
 	// Make an enabled instance record translated to (x, y, z) with 'tint'
 	api::PopulationInstance PopulationInstanceAt(float x, float y, float z, unsigned tint)
 	{
@@ -168,7 +175,7 @@ namespace render_tests
 		auto lods = api::PopulationLod{ .m_object = quad, .m_min_size = 0, .m_transition = 0 };
 		auto prototype = api::PopulationPrototypePtr(View3D_PopulationPrototypeCreate(&lods, 1, 0, {}, {}));
 		Require(prototype != nullptr, "Population prototype creation failed");
-		auto population = api::PopulationPtr(View3D_PopulationCreate(prototype.get(), 8, 2, 0));
+		auto population = api::PopulationPtr(PopulationCreate(prototype.get(), 8, 2, 0));
 		Require(population != nullptr, "Population creation failed");
 		fixture.CheckErrors();
 
@@ -234,7 +241,7 @@ namespace render_tests
 
 		// Instances beyond the prototype draw distance are not drawn. The instances are 50 units from the camera.
 		auto near_prototype = api::PopulationPrototypePtr(View3D_PopulationPrototypeCreate(&lods, 1, 20, {}, {}));
-		auto near_population = api::PopulationPtr(View3D_PopulationCreate(near_prototype.get(), 8, 2, 0));
+		auto near_population = api::PopulationPtr(PopulationCreate(near_prototype.get(), 8, 2, 0));
 		Require(near_population != nullptr, "Population creation failed");
 		View3D_PopulationInstancesUpdate(near_population.get(), 0, instances, 2);
 		View3D_PopulationBlockSet(near_population.get(), 0, bbox, 0, 4, 2);
@@ -250,7 +257,7 @@ namespace render_tests
 			// One population of the visible instance, recoloured with 'tint'
 			auto prototype = api::PopulationPrototypePtr(View3D_PopulationPrototypeCreate(&lods, 1, draw_distance, fade_in, fade_out));
 			Require(prototype != nullptr, "Population prototype creation failed");
-			auto pop = api::PopulationPtr(View3D_PopulationCreate(prototype.get(), 8, 2, 0));
+			auto pop = api::PopulationPtr(PopulationCreate(prototype.get(), 8, 2, 0));
 			Require(pop != nullptr, "Population creation failed");
 			auto tinted = instances[1];
 			tinted.m_tint = tint;
@@ -331,7 +338,7 @@ namespace render_tests
 		auto quad = PopulationQuad(fixture);
 		auto lods = api::PopulationLod{ .m_object = quad, .m_min_size = 0, .m_transition = 0 };
 		auto prototype = api::PopulationPrototypePtr(View3D_PopulationPrototypeCreate(&lods, 1, 0, {}, {}));
-		auto population = api::PopulationPtr(View3D_PopulationCreate(prototype.get(), 4, 1, 0));
+		auto population = api::PopulationPtr(PopulationCreate(prototype.get(), 4, 1, 0));
 		Require(population != nullptr, "Population creation failed");
 		auto light_index = PopulationShadowLightAdd(fixture, api::Vec4{30, 0, -20, 1});
 		auto image = [&](char const* message)
@@ -390,7 +397,7 @@ namespace render_tests
 		auto excluded_quad = PopulationQuad(fixture, api::ENuggetFlag::ShadowCastExclude);
 		auto excluded_lods = api::PopulationLod{ .m_object = excluded_quad, .m_min_size = 0, .m_transition = 0 };
 		auto excluded_prototype = api::PopulationPrototypePtr(View3D_PopulationPrototypeCreate(&excluded_lods, 1, 0, {}, {}));
-		auto excluded = api::PopulationPtr(View3D_PopulationCreate(excluded_prototype.get(), 4, 1, 0));
+		auto excluded = api::PopulationPtr(PopulationCreate(excluded_prototype.get(), 4, 1, 0));
 		Require(excluded != nullptr, "Shadow-excluded population creation failed");
 		View3D_PopulationInstancesUpdate(excluded.get(), 0, &instance, 1);
 		View3D_PopulationBlockSet(excluded.get(), 0, api::BBox{ .centre = {60, 0, -40, 1}, .radius = {10, 10, 10, 0} }, 0, 4, 1);
@@ -412,7 +419,7 @@ namespace render_tests
 		auto quad = PopulationQuad(fixture);
 		auto lods = api::PopulationLod{ .m_object = quad, .m_min_size = 0, .m_transition = 0 };
 		auto prototype = api::PopulationPrototypePtr(View3D_PopulationPrototypeCreate(&lods, 1, 0, {}, {}));
-		auto population = api::PopulationPtr(View3D_PopulationCreate(prototype.get(), 8, 1, 0));
+		auto population = api::PopulationPtr(PopulationCreate(prototype.get(), 8, 1, 0));
 		Require(population != nullptr, "Population creation failed");
 		auto bbox = api::BBox{ .centre = {0, 30, -50, 1}, .radius = {40, 40, 10, 0} };
 		View3D_PopulationBlockSet(population.get(), 0, bbox, 0, 4, 0);
@@ -473,7 +480,7 @@ namespace render_tests
 		}
 
 		// A producer can also write a population payload
-		auto payload_population = api::PopulationPtr(View3D_PopulationCreate(prototype.get(), 4, 1, 16));
+		auto payload_population = api::PopulationPtr(PopulationCreate(prototype.get(), 4, 1, 16));
 		Require(payload_population != nullptr, "Population creation failed");
 		View3D_PopulationBlockSet(payload_population.get(), 0, api::BBox{ .centre = {0, -30, -50, 1}, .radius = {10, 10, 10, 0} }, 0, 4, 0);
 		View3D_WindowAddPopulation(fixture.m_window, payload_population.get());
@@ -492,7 +499,7 @@ namespace render_tests
 		View3D_PopulationProduce(population.get(), bytes.data(), bytes.size(), &constants, sizeof(constants), 0, 1, 1);
 		Require(!fixture.m_errors.empty(), "An empty producer dispatch was accepted");
 		fixture.m_errors.clear();
-		Require(View3D_PopulationCreate(prototype.get(), 4, 1, 6) == nullptr, "A payload size that is not a multiple of 4 was accepted");
+		Require(PopulationCreate(prototype.get(), 4, 1, 6) == nullptr, "A payload size that is not a multiple of 4 was accepted");
 		fixture.m_errors.clear();
 
 		fixture.CheckDebugLayer();
@@ -516,13 +523,13 @@ namespace render_tests
 		auto quad = PopulationQuad(fixture);
 		auto lods = api::PopulationLod{ .m_object = quad, .m_min_size = 0, .m_transition = 0 };
 		auto prototype = api::PopulationPrototypePtr(View3D_PopulationPrototypeCreate(&lods, 1, 0, {}, {}));
-		auto population = api::PopulationPtr(View3D_PopulationCreate(prototype.get(), 8, 3, 16));
+		auto population = api::PopulationPtr(PopulationCreate(prototype.get(), 8, 3, 16));
 		Require(population != nullptr, "Population creation failed");
 
 		// Nothing has been classified before the population is drawn
 		auto stats = PopulationStats(fixture, population.get());
 		Require(stats.m_instance_capacity == 8 && stats.m_block_capacity == 3, "Population capacities are wrong");
-		Require(stats.m_resident_bytes == 8 * 64 + 3 * 4 + 16, "Population resident bytes are wrong");
+		Require(stats.m_resident_bytes == 8 * 64 + 3 * 4 + 16 + 112, "Population resident bytes are wrong");
 		Require(stats.m_views == 0 && stats.m_active_blocks == 0 && stats.m_upload_bytes == 0, "A new population reported activity");
 
 		// Three of four instances are enabled in the visible block; the hidden block's instance is never tested
@@ -542,7 +549,7 @@ namespace render_tests
 		fixture.Image();
 		stats = PopulationStats(fixture, population.get());
 		Require(stats.m_active_blocks == 2 && stats.m_admitted_instances == 8, "Population block accounting is wrong");
-		Require(stats.m_upload_bytes == 3 * 4 + 5 * 64 + 2 * 4, "Population upload bytes are wrong");
+		Require(stats.m_upload_bytes == 112 + 3 * 4 + 5 * 64 + 2 * 4, "Population upload bytes are wrong");
 		Require(stats.m_scratch_bytes > 0 && stats.m_scratch_high_water >= stats.m_scratch_bytes, "Population scratch accounting is wrong");
 		Require(stats.m_views == 1, "Population diagnostics did not complete for the camera view");
 		Require(stats.m_blocks_rejected == 1 && stats.m_blocks_overflow == 0, "Population block rejection count is wrong");
@@ -581,7 +588,7 @@ namespace render_tests
 
 		// Blocks beyond the visible block limit (65535) of one classification are reported rather than drawn
 		constexpr int Blocks = 65536;
-		auto many = api::PopulationPtr(View3D_PopulationCreate(prototype.get(), Blocks, Blocks, 0));
+		auto many = api::PopulationPtr(PopulationCreate(prototype.get(), Blocks, Blocks, 0));
 		Require(many != nullptr, "Population creation failed");
 		for (int i = 0; i != Blocks; ++i)
 			View3D_PopulationBlockSet(many.get(), i, api::BBox{ .centre = {0, 0, -50, 1}, .radius = {10, 10, 10, 0} }, i, 1, 0);
@@ -653,7 +660,7 @@ namespace render_tests
 		// Generate a deterministic scatter in blocks of 64 slots, spanning near and far, inside and outside the view. Every tenth instance is disabled,
 		// and the last block is exactly full (live == capacity == the remaining instance capacity).
 		constexpr int BlockSlots = 64, BlockCount = 6;
-		auto population = api::PopulationPtr(View3D_PopulationCreate(prototype.get(), BlockSlots * BlockCount, BlockCount, 0));
+		auto population = api::PopulationPtr(PopulationCreate(prototype.get(), BlockSlots * BlockCount, BlockCount, 0));
 		Require(population != nullptr, "Population creation failed");
 		auto rng = uint32_t{ 12345 };
 		auto random = [&](float lo, float hi)
@@ -720,10 +727,75 @@ namespace render_tests
 			Require(stats.m_entries_per_lod[lod] == expected_lod[lod], "Population LOD classification differs from the CPU reference");
 		}
 		Require(stats.m_entries_emitted == expected_lod[0] + expected_lod[1] + expected_lod[2], "Population emitted count differs from the CPU reference");
-		Require(stats.m_indirect_draws == 3, "Population draws one indirect draw per (LOD, nugget)");
+		Require(stats.m_indirect_draws == 3, "Population draws one indirect draw per (prototype, LOD, nugget)");
 
 		fixture.CheckDebugLayer();
 		std::cout << "PASS population visibility and LOD selection match the CPU reference (" << stats.m_entries_emitted << " entries)\n";
+	}
+
+	// Verify populations of several prototypes: each instance draws with its own prototype's LODs and limits, and invalid prototype indices are not drawn
+	void PopulationMultiPrototypeTests(int samples)
+	{
+		// Three prototypes of the same quad. Prototype 0 has one LOD. Prototype 1 has two LODs, and the orthographic projected size always selects
+		// its second. Prototype 2 has a draw distance nearer than every instance, which are about 50 units from the camera.
+		Fixture fixture(samples);
+		auto quad = PopulationQuad(fixture);
+		api::PopulationLod lods0[] = { { .m_object = quad, .m_min_size = 0, .m_transition = 0 } };
+		api::PopulationLod lods1[] = { { .m_object = quad, .m_min_size = 1e6f, .m_transition = 0 }, { .m_object = quad, .m_min_size = 0, .m_transition = 0 } };
+		auto proto0 = api::PopulationPrototypePtr(View3D_PopulationPrototypeCreate(lods0, 1, 0, {}, {}));
+		auto proto1 = api::PopulationPrototypePtr(View3D_PopulationPrototypeCreate(lods1, 2, 0, {}, {}));
+		auto proto2 = api::PopulationPrototypePtr(View3D_PopulationPrototypeCreate(lods0, 1, 20, {}, {}));
+		Require(proto0 != nullptr && proto1 != nullptr && proto2 != nullptr, "Population prototype creation failed");
+		api::PopulationPrototype prototypes[] = { proto0.get(), proto1.get(), proto2.get() };
+		auto population = api::PopulationPtr(View3D_PopulationCreate(prototypes, 3, 8, 1, 0));
+		Require(population != nullptr, "Multi-prototype population creation failed");
+		Require(View3D_PopulationCreate(prototypes, 0, 8, 1, 0) == nullptr, "A population without prototypes was accepted");
+		fixture.m_errors.clear();
+
+		// One block of four instances: prototype 0 (red, left), prototype 1 (green, right), prototype 2 (blue, top, beyond its draw distance),
+		// and an invalid prototype index (white, bottom).
+		api::PopulationInstance instances[] =
+		{
+			PopulationInstanceAt(-30, 0, -50, 0xFFFF0000),
+			PopulationInstanceAt(+30, 0, -50, 0xFF00FF00),
+			PopulationInstanceAt(0, +30, -50, 0xFF0000FF),
+			PopulationInstanceAt(0, -30, -50, 0xFFFFFFFF),
+		};
+		instances[1].m_prototype = 1;
+		instances[2].m_prototype = 2;
+		instances[3].m_prototype = 3;
+		View3D_PopulationInstancesUpdate(population.get(), 0, instances, 4);
+		View3D_PopulationBlockSet(population.get(), 0, api::BBox{ .centre = {0, 0, -50, 1}, .radius = {40, 40, 10, 0} }, 0, 4, 4);
+		View3D_WindowAddPopulation(fixture.m_window, population.get());
+		fixture.CheckErrors();
+		{
+			auto image = fixture.Image();
+			Expect(image, 1, 0, 0, 26, 64);
+			Expect(image, 0, 1, 0, 102, 64);
+			Expect(image, 0, 0, 0, 64, 26);
+			Expect(image, 0, 0, 0, 64, 102);
+		}
+
+		// One list per (prototype, LOD): prototype 1's second LOD holds the green instance. Every live slot is tested, including the rejected ones.
+		auto stats = PopulationStats(fixture, population.get());
+		Require(stats.m_instances_tested == 4 && stats.m_entries_emitted == 2, "Multi-prototype classification counters are wrong");
+		Require(stats.m_entries_per_lod[0] == 1 && stats.m_entries_per_lod[1] == 1, "Multi-prototype LOD counters are wrong");
+		Require(stats.m_indirect_draws == 4, "Population draws one indirect draw per (prototype, LOD, nugget)");
+
+		// Changing an instance's prototype index moves it to that prototype's lists. The blue instance draws with prototype 0, which has no draw distance.
+		instances[2].m_prototype = 0;
+		View3D_PopulationInstancesUpdate(population.get(), 0, instances, 4);
+		fixture.CheckErrors();
+		{
+			auto image = fixture.Image();
+			Expect(image, 0, 0, 1, 64, 26);
+			Expect(image, 0, 0, 0, 64, 102);
+		}
+		stats = PopulationStats(fixture, population.get());
+		Require(stats.m_entries_per_lod[0] == 2 && stats.m_entries_per_lod[1] == 1, "An instance's prototype change was not classified");
+
+		fixture.CheckDebugLayer();
+		std::cout << "PASS population with several prototypes: MSAA " << samples << '\n';
 	}
 
 	// Verify procedural vertex shaders on population LODs: per-vertex deformation from procedural constants in the forward and shadow passes,
@@ -736,7 +808,7 @@ namespace render_tests
 			auto quad = PopulationProceduralQuad(fixture);
 			auto lods = api::PopulationLod{ .m_object = quad, .m_min_size = 0, .m_transition = 0 };
 			auto prototype = api::PopulationPrototypePtr(View3D_PopulationPrototypeCreate(&lods, 1, 0, {}, {}));
-			auto population = api::PopulationPtr(View3D_PopulationCreate(prototype.get(), 4, 1, 0));
+			auto population = api::PopulationPtr(PopulationCreate(prototype.get(), 4, 1, 0));
 			Require(population != nullptr, "Population with a procedural vertex LOD was rejected");
 			auto instance = PopulationInstanceAt(-30, 0, -50, 0xFFFF0000);
 			View3D_PopulationInstancesUpdate(population.get(), 0, &instance, 1);
@@ -775,7 +847,7 @@ namespace render_tests
 			auto quad = PopulationProceduralQuad(fixture);
 			auto lods = api::PopulationLod{ .m_object = quad, .m_min_size = 0, .m_transition = 0 };
 			auto prototype = api::PopulationPrototypePtr(View3D_PopulationPrototypeCreate(&lods, 1, 0, {}, {}));
-			auto population = api::PopulationPtr(View3D_PopulationCreate(prototype.get(), 4, 1, 0));
+			auto population = api::PopulationPtr(PopulationCreate(prototype.get(), 4, 1, 0));
 			Require(population != nullptr, "Population with a procedural vertex LOD was rejected");
 			auto instance = PopulationInstanceAt(60, 0, -40, 0xFFFFFFFF);
 			View3D_PopulationInstancesUpdate(population.get(), 0, &instance, 1);
@@ -816,6 +888,11 @@ namespace pr::unittests::view3d12
 	PRUnitTest(View3d12_PopulationStats, Extended | Serial)
 	{
 		render_tests::PopulationStatsTests();
+	}
+	PRUnitTest(View3d12_PopulationMultiPrototype, Extended | Serial)
+	{
+		render_tests::PopulationMultiPrototypeTests(1);
+		render_tests::PopulationMultiPrototypeTests(4);
 	}
 	PRUnitTest(View3d12_PopulationReference, Extended | Serial)
 	{
