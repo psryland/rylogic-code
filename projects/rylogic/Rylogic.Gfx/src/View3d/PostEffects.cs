@@ -225,6 +225,193 @@ public sealed partial class View3d
 		}
 	}
 
+	/// <summary>Number of directions and samples per direction used by the ambient occlusion search.</summary>
+	public enum EAOQuality : int
+	{
+		/// <summary>1 direction, 2 samples each way.</summary>
+		Low,
+
+		/// <summary>2 directions, 3 samples each way.</summary>
+		Medium,
+
+		/// <summary>3 directions, 4 samples each way.</summary>
+		High,
+	}
+
+	/// <summary>Resolution at which ambient occlusion is computed, relative to the scene viewport.</summary>
+	public enum EAOResolution : int
+	{
+		/// <summary>One AO value per 2x2 pixels, upsampled with depth awareness. About a quarter of the cost of Full.</summary>
+		Half,
+
+		/// <summary>One AO value per pixel.</summary>
+		Full,
+	}
+
+	/// <summary>
+	/// Screen-space ambient occlusion: darkens opaque surfaces in creases and corners where nearby geometry blocks ambient light.
+	/// It is applied to the opaque scene before transparent surfaces are blended, so glass is not darkened. Overlays are not affected.
+	/// </summary>
+	[StructLayout(LayoutKind.Sequential)]
+	public struct AmbientOcclusionProps
+	{
+		private int m_enabled;
+		private float m_radius;
+		private float m_intensity;
+		private float m_falloff;
+		private float m_max_screen_radius;
+		private EAOQuality m_quality;
+		private EAOResolution m_resolution;
+		private int m_debug_view;
+
+		/// <summary>Create disabled settings with the native defaults.</summary>
+		public AmbientOcclusionProps()
+		{
+			m_enabled = 0;
+			m_radius = 0.5f;
+			m_intensity = 1.0f;
+			m_falloff = 0.6f;
+			m_max_screen_radius = 0.1f;
+			m_quality = EAOQuality.Medium;
+			m_resolution = EAOResolution.Half;
+			m_debug_view = 0;
+		}
+
+		/// <summary>Whether the effect is applied.</summary>
+		public bool Enabled
+		{
+			readonly get
+			{
+				return m_enabled != 0;
+			}
+			set
+			{
+				m_enabled = value ? 1 : 0;
+			}
+		}
+
+		/// <summary>World-space distance within which geometry occludes a point. Must be finite and greater than zero.</summary>
+		public float Radius
+		{
+			readonly get
+			{
+				return m_radius;
+			}
+			set
+			{
+				m_radius = value;
+			}
+		}
+
+		/// <summary>Strength of the darkening. Visibility 'v' becomes 'pow(v, Intensity)', so 0 disables the darkening. Must be finite and not negative.</summary>
+		public float Intensity
+		{
+			readonly get
+			{
+				return m_intensity;
+			}
+			set
+			{
+				m_intensity = value;
+			}
+		}
+
+		/// <summary>Fraction of Radius, at its outer end, over which occluder influence fades to zero. Must be in (0,1].</summary>
+		public float Falloff
+		{
+			readonly get
+			{
+				return m_falloff;
+			}
+			set
+			{
+				m_falloff = value;
+			}
+		}
+
+		/// <summary>Largest search radius on screen, as a fraction of the viewport height. Limits the cost for surfaces close to the camera. Must be greater than zero.</summary>
+		public float MaxScreenRadius
+		{
+			readonly get
+			{
+				return m_max_screen_radius;
+			}
+			set
+			{
+				m_max_screen_radius = value;
+			}
+		}
+
+		/// <summary>Search quality. Higher quality costs more GPU time.</summary>
+		public EAOQuality Quality
+		{
+			readonly get
+			{
+				return m_quality;
+			}
+			set
+			{
+				m_quality = value;
+			}
+		}
+
+		/// <summary>Resolution at which the occlusion is computed.</summary>
+		public EAOResolution Resolution
+		{
+			readonly get
+			{
+				return m_resolution;
+			}
+			set
+			{
+				m_resolution = value;
+			}
+		}
+
+		/// <summary>Show the occlusion term as grey scale instead of applying it to the scene colour.</summary>
+		public bool DebugView
+		{
+			readonly get
+			{
+				return m_debug_view != 0;
+			}
+			set
+			{
+				m_debug_view = value ? 1 : 0;
+			}
+		}
+
+		/// <summary>Disabled settings matching a newly created native scene.</summary>
+		public static AmbientOcclusionProps Default()
+		{
+			return new AmbientOcclusionProps();
+		}
+
+		/// <summary>Reject invalid settings, even while the effect is disabled.</summary>
+		public readonly void Validate()
+		{
+			if (float.IsNaN(m_radius) || float.IsInfinity(m_radius) || m_radius <= 0)
+				throw new ArgumentOutOfRangeException(nameof(Radius), "Ambient occlusion radius must be finite and greater than zero.");
+			if (float.IsNaN(m_intensity) || float.IsInfinity(m_intensity) || m_intensity < 0)
+				throw new ArgumentOutOfRangeException(nameof(Intensity), "Ambient occlusion intensity must be finite and not negative.");
+			if (float.IsNaN(m_falloff) || m_falloff <= 0 || m_falloff > 1)
+				throw new ArgumentOutOfRangeException(nameof(Falloff), "Ambient occlusion falloff must be in (0,1].");
+			if (float.IsNaN(m_max_screen_radius) || float.IsInfinity(m_max_screen_radius) || m_max_screen_radius <= 0)
+				throw new ArgumentOutOfRangeException(nameof(MaxScreenRadius), "Ambient occlusion maximum screen radius must be finite and greater than zero.");
+			if (!Enum.IsDefined(typeof(EAOQuality), m_quality))
+				throw new ArgumentOutOfRangeException(nameof(Quality), "Ambient occlusion quality is not a known value.");
+			if (!Enum.IsDefined(typeof(EAOResolution), m_resolution))
+				throw new ArgumentOutOfRangeException(nameof(Resolution), "Ambient occlusion resolution is not a known value.");
+		}
+	}
+
+	[DllImport(Dll)]
+	private static extern AmbientOcclusionProps View3D_AmbientOcclusionGet(IntPtr window);
+
+	[DllImport(Dll)]
+	[return: MarshalAs(UnmanagedType.Bool)]
+	private static extern bool View3D_AmbientOcclusionSet(IntPtr window, ref AmbientOcclusionProps props);
+
 	[DllImport(Dll)]
 	private static extern UnderwaterProps View3D_PostEffectUnderwaterGet(IntPtr window);
 
@@ -299,6 +486,47 @@ public class PostEffectTests
 		props.SetWaterlineOffset(0, 7, float.NaN);
 		Assert.Throws<ArgumentOutOfRangeException>(() => props.Validate());
 		Assert.Throws<ArgumentOutOfRangeException>(() => props.SetWaterlineOffset(8, 0, 0));
+	}
+
+	/// <summary>New views have ambient occlusion disabled, with a stable 32-byte ABI.</summary>
+	[Test]
+	public void AmbientOcclusionDefaultAndLayout()
+	{
+		var props = View3d.AmbientOcclusionProps.Default();
+		Assert.False(props.Enabled);
+		Assert.Equal(0.5f, props.Radius);
+		Assert.Equal(1.0f, props.Intensity);
+		Assert.Equal(0.6f, props.Falloff);
+		Assert.Equal(0.1f, props.MaxScreenRadius);
+		Assert.Equal(View3d.EAOQuality.Medium, props.Quality);
+		Assert.Equal(View3d.EAOResolution.Half, props.Resolution);
+		Assert.False(props.DebugView);
+		Assert.Equal(32, Marshal.SizeOf<View3d.AmbientOcclusionProps>());
+		Assert.Equal(20, Marshal.OffsetOf<View3d.AmbientOcclusionProps>("m_quality").ToInt32());
+		Assert.Equal(28, Marshal.OffsetOf<View3d.AmbientOcclusionProps>("m_debug_view").ToInt32());
+	}
+
+	/// <summary>Invalid ambient occlusion settings fail before reaching the native setter.</summary>
+	[Test]
+	public void AmbientOcclusionInvalid()
+	{
+		var props = View3d.AmbientOcclusionProps.Default();
+		props.Validate();
+
+		props.Radius = 0;
+		Assert.Throws<ArgumentOutOfRangeException>(() => props.Validate());
+		props = View3d.AmbientOcclusionProps.Default();
+		props.Intensity = -1;
+		Assert.Throws<ArgumentOutOfRangeException>(() => props.Validate());
+		props = View3d.AmbientOcclusionProps.Default();
+		props.Falloff = 1.5f;
+		Assert.Throws<ArgumentOutOfRangeException>(() => props.Validate());
+		props = View3d.AmbientOcclusionProps.Default();
+		props.MaxScreenRadius = float.NaN;
+		Assert.Throws<ArgumentOutOfRangeException>(() => props.Validate());
+		props = View3d.AmbientOcclusionProps.Default();
+		props.Quality = (View3d.EAOQuality)7;
+		Assert.Throws<ArgumentOutOfRangeException>(() => props.Validate());
 	}
 }
 #endif
