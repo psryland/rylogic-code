@@ -119,11 +119,11 @@ float3 CoupledEndpointOrigin(int body_idx, int link_idx)
 	return body_idx >= 0 ? CoupledRigidCentreOfMass(body_idx) : float3(0.0f, 0.0f, 0.0f);
 }
 
-// Return true when an endpoint body changed motion type since the last step, so impulses cached against its old mass are not valid.
-bool CoupledBodyResetsWarmStart(int body_idx)
+// Return true when an endpoint's rigid body changed motion type since the last step, so impulses cached against its old mass are not valid.
+bool CoupledBodyResetsWarmStart(int body_idx, int link_idx)
 {
-	// World endpoints have no body and never reset.
-	return body_idx >= 0 && AllSet(g_coupled_bodies[body_idx].state_flags, ERigidBodyStateFlags_ResetWarmStart);
+	// Link and world endpoints have no rigid body, so they never reset. A link endpoint's 'body_idx' does not index 'g_coupled_bodies'.
+	return link_idx < 0 && body_idx >= 0 && AllSet(g_coupled_bodies[body_idx].state_flags, ERigidBodyStateFlags_ResetWarmStart);
 }
 
 // Express a world-space row wrench in a rigid body's world coordinates or an articulation link's local coordinates.
@@ -419,8 +419,8 @@ void CSPrepareCoupledConstraints(int3 DTID(dtid))
 		g_coupled_prepare.retain_current_impulses == 0 &&
 		(
 			AllSet(packed_endpoint.flags, GpuConstraintEndpointFlags_ResetWarmStart) ||
-			CoupledBodyResetsWarmStart(packed_endpoint.body_idx_a) ||
-			CoupledBodyResetsWarmStart(packed_endpoint.body_idx_b)
+			CoupledBodyResetsWarmStart(packed_endpoint.body_idx_a, endpoint.link_idx_a) ||
+			CoupledBodyResetsWarmStart(packed_endpoint.body_idx_b, endpoint.link_idx_b)
 		);
 
 	// Frame A defines all six canonical world axes before link endpoint wrenches rotate into local coordinates.
