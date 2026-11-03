@@ -204,6 +204,34 @@ Classification Classify(uint source)
 	return result;
 }
 
+// Add the number of active lanes that name each list to that list's word in 'base', and return each lane's position among the lanes that
+// named the same list, after the value the word held. Lanes passing ~0 add nothing and return 0. Must be called by every active lane.
+uint WaveListAdd(uint base, uint list)
+{
+	// Many instances in a wave usually share a few lists, so one atomic per distinct list replaces one atomic per lane. Contended
+	// atomics on the same few header words otherwise serialise the whole classification.
+	uint index = 0;
+	bool pending = list != ~0u;
+	while (WaveActiveAnyTrue(pending))
+	{
+		// Serve every lane naming the smallest outstanding list together. The first lane reserves the range for all of them.
+		uint key = WaveActiveMin(pending ? list : ~0u);
+		bool mine = pending && list == key;
+		uint count = WaveActiveCountBits(mine);
+		uint first = 0;
+		if (WaveIsFirstLane())
+			g_view.InterlockedAdd(base + key * 4, count, first);
+
+		first = WaveReadLaneFirst(first);
+		if (mine)
+		{
+			index = first + WavePrefixCountBits(mine);
+			pending = false;
+		}
+	}
+	return index;
+}
+
 // Return the instance slot for a thread, or false if the thread has no live slot. 'dtid.y' selects the visible block.
 bool InstanceSlot(uint3 dtid, out uint source)
 {
@@ -236,32 +264,74 @@ void CSPopCount(uint3 dtid : SV_DispatchThreadID)
 	if (!InstanceSlot(dtid, source))
 		return;
 
-	// Count the entries this instance adds to each list.
+	// Count the entries this instance adds to each list, with one atomic per wave rather than per instance.
 	Classification c = Classify(source);
-	g_view.InterlockedAdd(VIEW3D_POPULATION_HEADER_DIAG + DiagTested * 4, 1);
-	if (c.list0 != ~0u)
-		g_view.InterlockedAdd(VIEW3D_POPULATION_HEADER_COUNTS + c.list0 * 4, 1);
-	if (c.list1 != ~0u)
-		g_view.InterlockedAdd(VIEW3D_POPULATION_HEADER_COUNTS + c.list1 * 4, 1);
+	uint tested = WaveActiveCountBits(true);
+	if (WaveIsFirstLane())
+		g_view.InterlockedAdd(VIEW3D_POPULATION_HEADER_DIAG + DiagTested * 4, tested);
+
+	WaveListAdd(VIEW3D_POPULATION_HEADER_COUNTS, c.list0);
+	WaveListAdd(VIEW3D_POPULATION_HEADER_COUNTS, c.list1);
 }
 
-// Convert the list counts to list offsets and write the indirect draw arguments.
-numthreads(CSPopPrefix, 1, 1, 1)
-void CSPopPrefix(uint3 dtid : SV_DispatchThreadID)
+// The number of threads in the single prefix group. Lists and argument records are spread over the group, because a population can have
+// hundreds of them and one thread working through them in turn is slow.
+static const uint PrefixGroupSize = 256;
+
+// The sum of each wave's counts in the current chunk of lists, and the total of the lists in earlier chunks.
+groupshared uint gs_wave_sums[PrefixGroupSize];
+groupshared uint gs_running;
+
+// Convert the list counts to list offsets and write the indirect draw arguments. Must be dispatched as one group.
+numthreads(CSPopPrefix, PrefixGroupSize, 1, 1)
+void CSPopPrefix(uint3 gtid : SV_GroupThreadID)
 {
-	// Lay out the lists one after another. The OFFSETS field follows the COUNTS field.
+	// Lay out the lists one after another, in chunks of one list per thread. The OFFSETS field follows the COUNTS field.
 	uint offsets = VIEW3D_POPULATION_HEADER_COUNTS + g_cull.list_count * 4;
-	uint total = 0;
-	for (uint list = 0; list != g_cull.list_count; ++list)
+	uint lane_count = WaveGetLaneCount();
+	uint wave = gtid.x / lane_count;
+	uint wave_count = (PrefixGroupSize + lane_count - 1) / lane_count;
+	if (gtid.x == 0)
+		gs_running = 0;
+
+	GroupMemoryBarrierWithGroupSync();
+	for (uint chunk = 0; chunk < g_cull.list_count; chunk += PrefixGroupSize)
 	{
-		g_view.Store(offsets + list * 4, total);
-		total += g_view.Load(VIEW3D_POPULATION_HEADER_COUNTS + list * 4);
+		// Each list's offset is the total of the earlier chunks, plus the counts of earlier waves in this chunk, plus the earlier lanes of its wave.
+		uint list = chunk + gtid.x;
+		uint count = list < g_cull.list_count ? g_view.Load(VIEW3D_POPULATION_HEADER_COUNTS + list * 4) : 0;
+		uint in_wave = WavePrefixSum(count);
+		uint wave_sum = WaveActiveSum(count);
+		if (WaveIsFirstLane())
+			gs_wave_sums[wave] = wave_sum;
+
+		GroupMemoryBarrierWithGroupSync();
+		uint before = gs_running;
+		for (uint w = 0; w != wave; ++w)
+			before += gs_wave_sums[w];
+
+		if (list < g_cull.list_count)
+			g_view.Store(offsets + list * 4, before + in_wave);
+
+		// Advance the running total once every thread has read it.
+		GroupMemoryBarrierWithGroupSync();
+		if (gtid.x == 0)
+		{
+			// Add the counts of every wave in the chunk.
+			uint total = gs_running;
+			for (uint w = 0; w != wave_count; ++w)
+				total += gs_wave_sums[w];
+
+			gs_running = total;
+		}
+		GroupMemoryBarrierWithGroupSync();
 	}
-	g_view.Store(VIEW3D_POPULATION_HEADER_DIAG + DiagEmitted * 4, total);
+	if (gtid.x == 0)
+		g_view.Store(VIEW3D_POPULATION_HEADER_DIAG + DiagEmitted * 4, gs_running);
 
 	// Each draw renders its list in full. The start instance is zero because 'View3DPopulationFetch' adds the list offset.
 	// Indexed records are {IndexCount, InstanceCount, StartIndex, BaseVertex, StartInstance}; non-indexed records use the first four fields.
-	for (uint i = 0; i != g_cull.arg_count; ++i)
+	for (uint i = gtid.x; i < g_cull.arg_count; i += PrefixGroupSize)
 	{
 		ArgTemplate a = g_args[i];
 		uint instances = g_view.Load(VIEW3D_POPULATION_HEADER_COUNTS + a.list * 4);
@@ -280,22 +350,21 @@ void CSPopScatter(uint3 dtid : SV_DispatchThreadID)
 	if (!InstanceSlot(dtid, source))
 		return;
 
-	// Append each entry at its list's offset plus a cursor. The list order is not stable. The OFFSETS and CURSORS fields follow the COUNTS field.
+	// Append each entry at its list's offset plus a cursor, reserving the cursors once per wave and list. The list order is not stable.
+	// The OFFSETS and CURSORS fields follow the COUNTS field.
 	uint offsets = VIEW3D_POPULATION_HEADER_COUNTS + g_cull.list_count * 4;
 	uint cursors = VIEW3D_POPULATION_HEADER_COUNTS + g_cull.list_count * 8;
 	Classification c = Classify(source);
+	uint index0 = WaveListAdd(cursors, c.list0);
+	uint index1 = WaveListAdd(cursors, c.list1);
 	if (c.list0 != ~0u)
 	{
 		uint first = g_view.Load(offsets + c.list0 * 4);
-		uint index;
-		g_view.InterlockedAdd(cursors + c.list0 * 4, 1, index);
-		g_view.Store2(g_cull.list_base + (first + index) * 8, uint2(source, c.dither0));
+		g_view.Store2(g_cull.list_base + (first + index0) * 8, uint2(source, c.dither0));
 	}
 	if (c.list1 != ~0u)
 	{
 		uint first = g_view.Load(offsets + c.list1 * 4);
-		uint index;
-		g_view.InterlockedAdd(cursors + c.list1 * 4, 1, index);
-		g_view.Store2(g_cull.list_base + (first + index) * 8, uint2(source, c.dither1));
+		g_view.Store2(g_cull.list_base + (first + index1) * 8, uint2(source, c.dither1));
 	}
 }

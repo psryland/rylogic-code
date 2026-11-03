@@ -75,7 +75,7 @@ namespace view3d_test
 				};
 				m_prototype.reset(View3D_PopulationPrototypeCreate(lods, 3, DrawDistance, {}, {}));
 				auto prototype = m_prototype.get();
-				m_population.reset(View3D_PopulationCreate(&prototype, 1, Side * Side, BlockCount, 0));
+				m_population.reset(View3D_PopulationCreate(&prototype, 1, Side * Side, BlockCount, 0, api::ESortGroup::Default));
 				if (!m_prototype || !m_population)
 					throw std::runtime_error("Failed to create the population");
 

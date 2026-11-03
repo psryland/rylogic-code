@@ -268,13 +268,14 @@ namespace pr::rdr12
 	}
 
 	// Create a population of 'prototypes' with fixed capacities.
-	Population::Population(Renderer& rdr, std::span<PopulationPrototypePtr const> prototypes, int instance_capacity, int block_capacity, int payload_size)
+	Population::Population(Renderer& rdr, std::span<PopulationPrototypePtr const> prototypes, int instance_capacity, int block_capacity, int payload_size, ESortGroup sort_group)
 		: RefCounted<Population>()
 		, m_rdr(&rdr)
 		, m_prototypes(prototypes.begin(), prototypes.end())
 		, m_lists()
 		, m_block_near()
 		, m_block_far()
+		, m_sort_group(sort_group)
 		, m_instance_capacity(instance_capacity)
 		, m_payload_size(payload_size)
 		, m_instances()
@@ -859,6 +860,7 @@ namespace pr::rdr12
 
 		// Select the blocks that can contain visible instances. The GPU tests individual instances within these.
 		auto visible = std::vector<VisibleBlock>{};
+		auto block_depth = std::vector<float>{};
 		auto max_capacity = 0;
 		auto cpu_stats = PopulationViewStats{};
 		{
@@ -884,8 +886,25 @@ namespace pr::rdr12
 				}
 
 				visible.push_back(VisibleBlock{ .first = s_cast<uint32_t>(blk.m_first), .capacity = s_cast<uint32_t>(blk.m_capacity), .block = s_cast<uint32_t>(b), .pad = 0 });
+				block_depth.push_back(LengthSq(blk.m_bbox.m_centre - view.m_eye.w1()));
 				max_capacity = std::max(max_capacity, blk.m_capacity);
 			}
+		}
+
+		// Order perspective views' blocks from near to far. Each block is one dispatch row, and the GPU fills the lists roughly in dispatch order,
+		// so nearer instances tend to draw first and depth testing skips the hidden pixels of those behind. Orthographic views have no eye to order from.
+		if (!view.m_orthographic && visible.size() > 1)
+		{
+			// Sort an index order by depth, then permute the blocks.
+			auto order = std::vector<int>(visible.size());
+			std::iota(order.begin(), order.end(), 0);
+			std::sort(order.begin(), order.end(), [&](int lhs, int rhs) { return block_depth[lhs] < block_depth[rhs]; });
+			auto sorted = std::vector<VisibleBlock>{};
+			sorted.reserve(visible.size());
+			for (auto i : order)
+				sorted.push_back(visible[i]);
+
+			visible.swap(sorted);
 		}
 
 		// Build the draw list: an indexed and a non-indexed argument record for each drawable nugget of each list.

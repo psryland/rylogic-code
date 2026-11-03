@@ -31,7 +31,7 @@ namespace render_tests
 	api::Population PopulationCreate(api::PopulationPrototype prototype, int instance_capacity, int block_capacity, int payload_size)
 	{
 		// Instances select prototype 0
-		return View3D_PopulationCreate(&prototype, 1, instance_capacity, block_capacity, payload_size);
+		return View3D_PopulationCreate(&prototype, 1, instance_capacity, block_capacity, payload_size, api::ESortGroup::Default);
 	}
 
 	// Make an enabled instance record translated to (x, y, z) with 'tint'
@@ -747,9 +747,9 @@ namespace render_tests
 		auto proto2 = api::PopulationPrototypePtr(View3D_PopulationPrototypeCreate(lods0, 1, 20, {}, {}));
 		Require(proto0 != nullptr && proto1 != nullptr && proto2 != nullptr, "Population prototype creation failed");
 		api::PopulationPrototype prototypes[] = { proto0.get(), proto1.get(), proto2.get() };
-		auto population = api::PopulationPtr(View3D_PopulationCreate(prototypes, 3, 8, 1, 0));
+		auto population = api::PopulationPtr(View3D_PopulationCreate(prototypes, 3, 8, 1, 0, api::ESortGroup::Default));
 		Require(population != nullptr, "Multi-prototype population creation failed");
-		Require(View3D_PopulationCreate(prototypes, 0, 8, 1, 0) == nullptr, "A population without prototypes was accepted");
+		Require(View3D_PopulationCreate(prototypes, 0, 8, 1, 0, api::ESortGroup::Default) == nullptr, "A population without prototypes was accepted");
 		fixture.m_errors.clear();
 
 		// One block of four instances: prototype 0 (red, left), prototype 1 (green, right), prototype 2 (blue, top, beyond its draw distance),

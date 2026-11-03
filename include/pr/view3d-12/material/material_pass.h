@@ -9,6 +9,20 @@
 
 namespace pr::rdr12
 {
+	// The source descriptors bound to each root descriptor table of one root signature during a draw batch, so that material passes can skip rebinding
+	// a table that already holds the same source. Reset it at a new draw batch, or whenever root bindings or descriptor heaps are invalidated.
+	struct BoundDescriptors
+	{
+		// Root signatures have at most 64 parameters
+		std::array<Descriptor, 64> m_slots = {};
+
+		// Forget all bindings, so the next bind of each slot is issued.
+		void Reset()
+		{
+			m_slots.fill(Descriptor{});
+		}
+	};
+
 	// Per-draw context passed to material passes by render steps.
 	struct MaterialPassContext
 	{
@@ -27,8 +41,7 @@ namespace pr::rdr12
 		Shader* m_shader;                              // The render step's default shader, if the material wants to use it.
 		Texture2D* m_default_tex;                      // Fallback diffuse texture for fixed-function style passes.
 		Sampler* m_default_sam;                        // Fallback sampler for fixed-function style passes.
-		Descriptor* m_last_tex;                        // Optional draw-batch copy of the last bound diffuse source descriptor.
-		Descriptor* m_last_sam;                        // Optional draw-batch copy of the last bound diffuse sampler descriptor.
+		BoundDescriptors* m_bound;                     // Optional draw-batch record of the material descriptor tables already bound.
 		bool m_root_signature_changed = false;         // True if the pass changed the command-list graphics root signature.
 	};
 
@@ -50,12 +63,13 @@ namespace pr::rdr12
 		virtual void ApplyPipeline(MaterialPassContext& ctx) const;
 	};
 
-	// Bind one material descriptor, returning whether a binding was issued. Optional tracking belongs to one root slot and GPU heap;
-	// reset it at a new draw batch or whenever root bindings or descriptor heaps are invalidated. Source descriptors must be valid.
+	// Bind one material descriptor, returning whether a binding was issued. 'bound' is optional; when given, every binding of the root signature's
+	// material slots in the draw batch must go through it, so that a skipped binding always leaves the same source bound. Source descriptors must be valid.
 	template <typename CmdList, typename Heap, typename RootParam>
-	bool BindMaterialDescriptor(CmdList& cmd_list, Heap& heap, RootParam root_param, Descriptor const& source, Descriptor* last)
+	bool BindMaterialDescriptor(CmdList& cmd_list, Heap& heap, RootParam root_param, Descriptor const& source, BoundDescriptors* bound)
 	{
 		// Compare the copied source identity before hashing or looking it up in the shader-visible heap.
+		auto* last = bound != nullptr ? &bound->m_slots[s_cast<size_t>(root_param)] : nullptr;
 		if (last != nullptr && *last && *last == source)
 			return false;
 

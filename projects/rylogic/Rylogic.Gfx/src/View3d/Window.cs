@@ -712,6 +712,16 @@ namespace Rylogic.Gfx
 				set => View3D_ShadowSettingsSet(Handle, ref value);
 			}
 
+			/// <summary>
+			/// Get/Set the shadow settings used when rendering environment map faces ('EnvMapCapture' and the probe).
+			/// Shadow cascades are fitted to each face's view, so every captured face renders its own shadow maps.
+			/// </summary>
+			public ShadowSettings EnvMapCaptureShadows
+			{
+				get => View3D_EnvMapCaptureShadowsGet(Handle);
+				set => View3D_EnvMapCaptureShadowsSet(Handle, ref value);
+			}
+
 			/// <summary>Set the global environment map used by this window.</summary>
 			public CubeMap? EnvironmentMap
 			{

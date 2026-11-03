@@ -206,16 +206,18 @@ public sealed partial class View3d
 	{
 		/// <summary>
 		/// Create a population of 'prototypes' with fixed capacities. Instances refer to prototypes by their index in 'prototypes'. 'payload_size' is the
-		/// size in bytes of an optional caller payload buffer for custom shaders; zero means no payload, and it must be a multiple of 4.
+		/// size in bytes of an optional caller payload buffer for custom shaders; zero means no payload, and it must be a multiple of 4. 'sort_group' orders
+		/// the population's draws relative to the scene's other draws, as for objects: drawing near opaque populations before the terrain and sky lets depth
+		/// testing skip the pixels that they hide.
 		/// </summary>
-		public Population(ReadOnlySpan<PopulationPrototype> prototypes, int instance_capacity, int block_capacity, int payload_size = 0)
+		public Population(ReadOnlySpan<PopulationPrototype> prototypes, int instance_capacity, int block_capacity, int payload_size = 0, ESortGroup sort_group = ESortGroup.Default)
 		{
 			// The native call takes the prototype handles
 			var handles = new IntPtr[prototypes.Length];
 			for (var i = 0; i != prototypes.Length; ++i)
 				handles[i] = prototypes[i].Handle;
 
-			Handle = View3D_PopulationCreate(handles, handles.Length, instance_capacity, block_capacity, payload_size);
+			Handle = View3D_PopulationCreate(handles, handles.Length, instance_capacity, block_capacity, payload_size, sort_group);
 			if (Handle == IntPtr.Zero)
 				throw new InvalidOperationException("Failed to create the population.");
 		}
@@ -307,7 +309,7 @@ public sealed partial class View3d
 	private static extern void View3D_PopulationPrototypeRelease(IntPtr prototype);
 
 	[DllImport(Dll)]
-	private static extern IntPtr View3D_PopulationCreate([In] IntPtr[] prototypes, int prototype_count, int instance_capacity, int block_capacity, int payload_size);
+	private static extern IntPtr View3D_PopulationCreate([In] IntPtr[] prototypes, int prototype_count, int instance_capacity, int block_capacity, int payload_size, ESortGroup sort_group);
 
 	[DllImport(Dll)]
 	private static extern void View3D_PopulationRelease(IntPtr population);

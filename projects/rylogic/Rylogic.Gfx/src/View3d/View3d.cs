@@ -2326,6 +2326,8 @@ namespace Rylogic.Gfx
 		// Get/Set the scene-wide shadow settings
 		[DllImport(Dll)] private static extern ShadowSettings View3D_ShadowSettingsGet(HWindow window);
 		[DllImport(Dll)] private static extern void View3D_ShadowSettingsSet(HWindow window, ref ShadowSettings settings);
+		[DllImport(Dll)] private static extern ShadowSettings View3D_EnvMapCaptureShadowsGet(HWindow window);
+		[DllImport(Dll)] private static extern void View3D_EnvMapCaptureShadowsSet(HWindow window, ref ShadowSettings settings);
 
 		// Objects ********************************
 

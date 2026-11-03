@@ -546,7 +546,7 @@ namespace pr::rdr12
 
 		// Remember the bound material descriptors so that consecutive elements sharing a texture or sampler skip redundant binds.
 		// The draw list is sorted by texture, so most elements reuse the previous descriptors.
-		Descriptor last_tex = {}, last_sam = {};
+		auto bound = BoundDescriptors{};
 
 		// Render the views in batches, one viewport per view in the batch. Depth clamping is part of the pipeline state,
 		// so a batch only contains views with the same clamp mode.
@@ -579,6 +579,9 @@ namespace pr::rdr12
 			}
 
 			// Draw each element once, with one instance per view in this batch that can see it
+			auto pix_elements = std::optional<pix::DetailScope<ID3D12GraphicsCommandList>>{};
+			pix_elements.emplace(m_cmd_list.get(), "View3D::ShadowElements");
+			pix::DetailMarker(m_cmd_list.get(), "views %d-%d of %d", batch_beg, batch_end, count);
 			auto drawlist = m_drawlist.lock();
 			assert(m_element_views.size() == drawlist->size() && "Draw list changed between Prepare and Execute");
 			for (int e = 0, eend = isize(*drawlist); e != eend; ++e)
@@ -635,8 +638,7 @@ namespace pr::rdr12
 					.m_shader = &m_shader,
 					.m_default_tex = m_default_tex.get(),
 					.m_default_sam = m_default_sam.get(),
-					.m_last_tex = &last_tex,
-					.m_last_sam = &last_sam,
+					.m_bound = &bound,
 				};
 				pass->Bind(ctx);
 				pass->ApplyPipeline(ctx);
@@ -644,8 +646,7 @@ namespace pr::rdr12
 				// A root signature change invalidates the bound descriptor tables
 				if (ctx.m_root_signature_changed)
 				{
-					last_tex = {};
-					last_sam = {};
+					bound.Reset();
 				}
 
 				// Remember nuggets drawn with a custom vertex shader, because the view content hash cannot detect changes to their geometry
@@ -656,6 +657,7 @@ namespace pr::rdr12
 				desc.Apply(PSO<EPipeState::DepthClipEnable>(clamp_depth ? FALSE : TRUE));
 
 				// Bind the views and draw one instance per view
+				auto pix_draw = pix::DetailScope<ID3D12GraphicsCommandList>(m_cmd_list.get(), nugget.m_model->m_name.c_str());
 				m_shader.SetupDrawViews(m_cmd_list.get(), batch_views, batch_beg);
 				m_cmd_list.SetPipelineState(m_pipe_state_pool.Get(desc));
 				if (!nugget.m_irange.empty())
@@ -666,8 +668,10 @@ namespace pr::rdr12
 
 			// Draw the populations classified for the views in this batch. A classification belongs to one view, so its draws render into that view only.
 			// The population element table replaces the draw list table for these draws, then the draw list table is restored for the next batch.
+			pix_elements.reset();
 			if (std::ranges::any_of(pop_shadows, [&](PopulationShadow const& s) { return s.m_view >= batch_beg && s.m_view < batch_end; }))
 			{
+				auto pix_pops = pix::DetailScope<ID3D12GraphicsCommandList>(m_cmd_list.get(), "View3D::ShadowPopulations");
 				m_shader.SetupFrame(m_cmd_list.get(), views_gpu, pop_elements_gpu);
 				for (int g_beg = 0, g_end = 0, gcount = isize(pop_shadows); g_beg != gcount; g_beg = g_end)
 				{
@@ -727,15 +731,13 @@ namespace pr::rdr12
 							.m_shader = &m_shader,
 							.m_default_tex = m_default_tex.get(),
 							.m_default_sam = m_default_sam.get(),
-							.m_last_tex = &last_tex,
-							.m_last_sam = &last_sam,
+							.m_bound = &bound,
 						};
 						pass->Bind(ctx);
 						pass->ApplyPipeline(ctx);
 						if (ctx.m_root_signature_changed)
 						{
-							last_tex = {};
-							last_sam = {};
+							bound.Reset();
 						}
 
 						// Procedural vertex shader overlays (accepted by population admission) place population vertices themselves, so they are kept.

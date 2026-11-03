@@ -581,7 +581,7 @@ namespace pr::physics
 
 		// Water geometry is flattened from the same shapes.
 		if (m_gpu_water)
-			m_gpu_water->Reset();
+			m_gpu_water->RefreshTransform(shape);
 	}
 
 	// Drop all internally-cached references to caller-supplied data.

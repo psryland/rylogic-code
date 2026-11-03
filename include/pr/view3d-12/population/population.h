@@ -273,6 +273,7 @@ namespace pr::rdr12
 		vector<List> m_lists;                        // The visible lists, grouped by prototype, then ordered by LOD.
 		float m_block_near;                          // Blocks whose furthest point is nearer than this hold no visible instances: the nearest fade-in start over all prototypes.
 		float m_block_far;                           // Blocks whose closest point is further than this hold no visible instances: the furthest draw limit over all prototypes. Infinite means unlimited.
+		ESortGroup m_sort_group;                     // The sort group of every draw of the population. Replaces the group of the LOD nuggets' sort keys.
 		int m_instance_capacity;                     // The number of instance slots.
 		int m_payload_size;                          // The size of the caller payload buffer in bytes. Zero means no payload.
 		D3DPtr<ID3D12Resource> m_instances;          // StructuredBuffer<View3DPopulationInstance>[m_instance_capacity]
@@ -294,8 +295,9 @@ namespace pr::rdr12
 		std::mutex m_mutex;
 
 		// Create a population of 'prototypes' with fixed instance, block, and payload capacities. Instances select a prototype by its index in
-		// 'prototypes'. Resources are created up front, so admission fails here, not mid-frame.
-		Population(Renderer& rdr, std::span<PopulationPrototypePtr const> prototypes, int instance_capacity, int block_capacity, int payload_size);
+		// 'prototypes'. Resources are created up front, so admission fails here, not mid-frame. 'sort_group' orders the population's draws relative to
+		// the scene's other draws, as for objects: opaque groups are drawn in increasing order, and draws in a lower group can hide the pixels of later ones.
+		Population(Renderer& rdr, std::span<PopulationPrototypePtr const> prototypes, int instance_capacity, int block_capacity, int payload_size, ESortGroup sort_group);
 		Population(Population const&) = delete;
 		Population& operator =(Population const&) = delete;
 		~Population();

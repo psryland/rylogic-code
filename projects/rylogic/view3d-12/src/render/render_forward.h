@@ -48,8 +48,9 @@ namespace pr::rdr12
 		D3D12_GPU_VIRTUAL_ADDRESS m_elements = {}; // This frame's element constants table, one entry per drawlist element
 		std::unique_ptr<SkyHistory> m_sky_history;
 		std::vector<PopulationViewLists> m_population_lists; // This frame's classification of each scene population
-		std::vector<DrawListElement> m_population_dles;      // One element per population draw, referencing the LOD proxies
+		std::vector<DrawListElement> m_population_dles;      // One element per population draw, referencing the LOD proxies, in sort group order
 		std::vector<PopulationDrawRef> m_population_draws;   // Parallel to 'm_population_dles'
+		D3D12_GPU_VIRTUAL_ADDRESS m_population_elements = {}; // This frame's element constants table for 'm_population_dles'
 	public:
 
 		explicit RenderForward(Scene& scene);
@@ -81,8 +82,12 @@ namespace pr::rdr12
 		// Classify the scene's populations for the camera, recording the compute work into the opaque command list, and build the population draws.
 		void CullPopulations();
 
-		// Draw the classified populations into the opaque targets. Restores the frame resources of the step's drawlist afterwards.
-		void DrawPopulations(Frame& frame, PipeStateDesc const& pipe_state);
+		// Draw the opaque drawlist elements 'opaques' and the classified populations into the opaque targets, merged in sort group order.
+		// Within one sort group, the drawlist elements are drawn before the populations.
+		void DrawOpaques(Frame& frame, PipeStateDesc const& pipe_state, std::span<DrawListElement const> opaques);
+
+		// Draw the population draws [beg, end) into the opaque targets. Restores the frame resources of the step's drawlist afterwards.
+		void DrawPopulations(Frame& frame, PipeStateDesc const& pipe_state, int beg, int end);
 
 		// Add the nuggets in the draw list to 'cmd_list' for rendering. 'first_index' is the position of 'drawlist[0]' in the step's drawlist.
 		// 'populations' is empty for ordinary draws, or parallel to 'drawlist' for population draws.

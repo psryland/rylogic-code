@@ -113,6 +113,9 @@ namespace pr::rdr12
 		std::unique_ptr<struct EnvMapProbeResources> m_envmap_probe;
 		bool m_envmap_probe_enabled = false;
 
+		// Shadow settings for rendering environment map faces (see 'EnvMapCaptureShadows')
+		ShadowSettings m_envmap_capture_shadows;
+
 		V3dWindow(Renderer& rdr, HWND hwnd, view3d::WindowOptions const& opts);
 		V3dWindow(V3dWindow&&) = default;
 		V3dWindow(V3dWindow const&) = delete;
@@ -364,6 +367,12 @@ namespace pr::rdr12
 		// Get/Set the scene-wide shadow settings
 		ShadowSettings const& Shadows() const;
 		void Shadows(ShadowSettings const& settings);
+
+		// Get/Set the shadow settings used when rendering environment map faces ('EnvMapCapture' and the probe). They are separate from the window's
+		// shadow settings because a capture renders six wide views, where shadow detail matters less than in the main view. Shadow cascades are fitted
+		// to each face's view, so every face renders its own shadow maps.
+		ShadowSettings const& EnvMapCaptureShadows() const;
+		void EnvMapCaptureShadows(ShadowSettings const& settings);
 
 		// Get/Set the global environment map for this window. Setting an environment map disables the environment map probe but keeps its resources.
 		TextureCube const* EnvMap() const;

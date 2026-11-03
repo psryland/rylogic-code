@@ -356,7 +356,7 @@ namespace pr::rdr12
 				if (tex == nullptr)
 					return;
 
-				if (BindMaterialDescriptor(ctx.m_cmd_list, ctx.m_wnd.m_heap_view, root_param, tex->m_srv, ctx.m_last_tex))
+				if (BindMaterialDescriptor(ctx.m_cmd_list, ctx.m_wnd.m_heap_view, root_param, tex->m_srv, ctx.m_bound))
 				{
 					#if PR_DBG_RDR
 					auto state = ctx.m_cmd_list.ResState(tex->m_res.get()).Mip0State();
@@ -373,7 +373,7 @@ namespace pr::rdr12
 				if (sam == nullptr)
 					return;
 
-				BindMaterialDescriptor(ctx.m_cmd_list, ctx.m_wnd.m_heap_samp, root_param, sam->m_samp, ctx.m_last_sam);
+				BindMaterialDescriptor(ctx.m_cmd_list, ctx.m_wnd.m_heap_samp, root_param, sam->m_samp, ctx.m_bound);
 			}
 
 			// Bind fixed-function style resources for the simple forward pass.
@@ -393,8 +393,8 @@ namespace pr::rdr12
 			static void BindDetailNormals(MaterialPassContext& ctx, materials::DetailNormals const& detail)
 			{
 				// The slot is validated when the component is set, so both resources are present.
-				BindMaterialDescriptor(ctx.m_cmd_list, ctx.m_wnd.m_heap_view, shaders::fwd::ERootParam::PbrNormalTexture, detail.m_tex.m_texture->m_srv, nullptr);
-				BindMaterialDescriptor(ctx.m_cmd_list, ctx.m_wnd.m_heap_samp, shaders::fwd::ERootParam::PbrNormalSampler, detail.m_tex.m_sampler->m_samp, nullptr);
+				BindMaterialDescriptor(ctx.m_cmd_list, ctx.m_wnd.m_heap_view, shaders::fwd::ERootParam::PbrNormalTexture, detail.m_tex.m_texture->m_srv, ctx.m_bound);
+				BindMaterialDescriptor(ctx.m_cmd_list, ctx.m_wnd.m_heap_samp, shaders::fwd::ERootParam::PbrNormalSampler, detail.m_tex.m_sampler->m_samp, ctx.m_bound);
 
 				// Pack the shared layers into the shader's per-layer arrays.
 				auto const& layers = *detail.m_layers;
@@ -416,8 +416,8 @@ namespace pr::rdr12
 				// The optional strength map uses the otherwise idle PBR roughness slot.
 				if (auto const* strength = layers.m_strength.get(); strength != nullptr)
 				{
-					BindMaterialDescriptor(ctx.m_cmd_list, ctx.m_wnd.m_heap_view, shaders::fwd::ERootParam::PbrRoughnessTexture, strength->m_tex->m_srv, nullptr);
-					BindMaterialDescriptor(ctx.m_cmd_list, ctx.m_wnd.m_heap_samp, shaders::fwd::ERootParam::PbrRoughnessSampler, strength->m_sam->m_samp, nullptr);
+					BindMaterialDescriptor(ctx.m_cmd_list, ctx.m_wnd.m_heap_view, shaders::fwd::ERootParam::PbrRoughnessTexture, strength->m_tex->m_srv, ctx.m_bound);
+					BindMaterialDescriptor(ctx.m_cmd_list, ctx.m_wnd.m_heap_samp, shaders::fwd::ERootParam::PbrRoughnessSampler, strength->m_sam->m_samp, ctx.m_bound);
 					cb.strength_row_u = strength->m_row_u;
 					cb.strength_row_v = strength->m_row_v;
 					cb.info.y = 1;
