@@ -308,6 +308,24 @@ namespace pr::rdr12
 		Invalidate();
 	}
 
+	// Return the scene-owned ambient occlusion settings.
+	AmbientOcclusionProps V3dWindow::AmbientOcclusion() const
+	{
+		return m_scene.PostEffects().AmbientOcclusion();
+	}
+
+	// Publish a validated ambient occlusion change and request a new frame.
+	void V3dWindow::AmbientOcclusion(AmbientOcclusionProps const& props)
+	{
+		props.Validate();
+		if (props == AmbientOcclusion())
+			return;
+
+		m_scene.PostEffects().AmbientOcclusion(props);
+		OnSettingsChanged(this, view3d::ESettings::Rendering_PostEffects);
+		Invalidate();
+	}
+
 	// The DPI of the monitor that this window is displayed on
 	v2 V3dWindow::Dpi() const
 	{

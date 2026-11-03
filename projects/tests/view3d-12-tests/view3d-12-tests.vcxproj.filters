@@ -86,6 +86,9 @@
     <ClCompile Include="src\view3d-12\render_tests_shadows.cpp">
       <Filter>view3d-12</Filter>
     </ClCompile>
+    <ClCompile Include="src\view3d-12\render_tests_ambient_occlusion.cpp">
+      <Filter>view3d-12</Filter>
+    </ClCompile>
     <ClCompile Include="src\view3d-12\render_tests_post_effects.cpp">
       <Filter>view3d-12</Filter>
     </ClCompile>

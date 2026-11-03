@@ -227,6 +227,18 @@ namespace LDraw.UI
 						}
 						return;
 					}
+					if (e.Key == nameof(SceneStateData.AmbientOcclusion))
+					{
+						if (!m_syncing_lighting)
+						{
+							// Only the strength is persisted; the other ambient occlusion settings keep their current values
+							using var sync = Scope.Create(() => m_syncing_lighting = true, () => m_syncing_lighting = false);
+							var ao = SceneView.Scene.Window.AmbientOcclusion;
+							ao.Strength = SceneState.AmbientOcclusion;
+							SceneView.Scene.Window.AmbientOcclusion = ao;
+						}
+						return;
+					}
 
 					// Shadow changes (either replacement of the ShadowData object, or any inner field change that bubbles up)
 					if (e.Key == nameof(SceneStateData.Shadows) || ReferenceEquals(e.SettingSet, SceneState.Shadows))
@@ -307,6 +319,14 @@ namespace LDraw.UI
 							using var sync = Scope.Create(() => m_syncing_ray_tracing = true, () => m_syncing_ray_tracing = false);
 							SceneState.RayTracing.FromRayTracingProps(SceneView.Scene.Window.RayTracingProperties);
 							SceneState.RayTracing.Enabled = SceneView.Scene.Window.RayTracingEnabled;
+						}
+					}
+					if (Bit.AllSet(e.Setting, View3d.ESettings.Rendering_PostEffects))
+					{
+						if (!m_syncing_lighting)
+						{
+							using var sync = Scope.Create(() => m_syncing_lighting = true, () => m_syncing_lighting = false);
+							SceneState.AmbientOcclusion = SceneView.Scene.Window.AmbientOcclusion.Strength;
 						}
 					}
 				}

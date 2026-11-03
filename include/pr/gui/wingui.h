@@ -4644,16 +4644,14 @@ namespace pr
 				return tm;
 			}
 
-			// Invalidate the control for redraw
+			// Invalidate the control for redraw. 'rect' is in client space. 'include_children' also invalidates all descendant
+			// windows that overlap 'rect', including native child windows that are not wingui controls.
 			virtual void Invalidate(bool erase = false, Rect* rect = nullptr, bool include_children = false)
 			{
+				// Let the system walk the window hierarchy, so that every descendant window is included and 'rect' is mapped into each child's client space
 				assert(::IsWindow(m_hwnd));
-				Check(::InvalidateRect(m_hwnd, rect, erase), "InvalidateRect failed");
-				if (include_children)
-				{
-					for (auto c : m_child)
-						c->Invalidate(erase, rect, include_children);
-				}
+				auto flags = RDW_INVALIDATE | (erase ? RDW_ERASE : 0) | (include_children ? RDW_ALLCHILDREN : 0);
+				Check(::RedrawWindow(m_hwnd, rect, nullptr, flags), "RedrawWindow failed");
 			}
 
 			// Validate a rectangular area of the control

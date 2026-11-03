@@ -93,6 +93,21 @@ namespace Rylogic.Gui.WPF
 			}
 		}
 
+		/// <summary>Screen-space ambient occlusion strength. 0 disables the effect. See View3d.AmbientOcclusionProps.Strength</summary>
+		public float AmbientOcclusionStrength
+		{
+			get => m_window.AmbientOcclusion.Strength;
+			set
+			{
+				// Only the strength is exposed; the other ambient occlusion settings keep their current values
+				if (AmbientOcclusionStrength == value) return;
+				var ao = m_window.AmbientOcclusion;
+				ao.Strength = value;
+				m_window.AmbientOcclusion = ao;
+				NotifyPropertyChanged(nameof(AmbientOcclusionStrength));
+			}
+		}
+
 		/// <summary>Assign the ambient colour</summary>
 		public Command SetAmbientColour { get; }
 		private void SetAmbientColourInternal()

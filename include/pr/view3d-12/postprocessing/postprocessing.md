@@ -7,7 +7,10 @@ Effects currently available:
 
 | Effect | Settings | Purpose |
 |--------|----------|---------|
+| Ambient occlusion | `AmbientOcclusionProps` | Darkens opaque surfaces in creases and corners where nearby geometry blocks ambient light |
 | Underwater | `UnderwaterProps` | Whole-screen tint, distance fog below the water surface, and a moving "looking through water" distortion |
+
+Ambient occlusion runs at a different point in the frame from the other effects; see [Ambient occlusion](#ambient-occlusion).
 
 ## Pipeline position
 
@@ -130,6 +133,84 @@ The distortion is animated by the engine's real-time clock. The effect does not 
 keep rendering (for example, from a game loop) for the motion to be visible. The phase is wrapped to one cycle
 before it is sent to the GPU, so precision does not degrade after long run times.
 
+## Ambient occlusion
+
+Screen-space ambient occlusion estimates, for each opaque pixel, the cosine-weighted fraction of the hemisphere above the surface that is
+not blocked by nearby geometry, and multiplies the opaque colour by it. It uses only the scene depth, so it needs no normals or extra
+geometry passes.
+
+### Pipeline position
+
+Ambient occlusion is recorded in its own command list in the `post` stage, after the MSAA resolve and before transparent surfaces are
+composited:
+
+```
+main -> resolve (opaque colour, 1x) -> post (ray tracing, then ambient occlusion) -> composite (transparent surfaces) -> ...
+```
+
+- It reads the multi-sampled depth buffer (sample 0 only) and darkens the resolved single-sample opaque colour. The MSAA sample count
+  does not change its cost, only the resolution does.
+- Transparent surfaces are composited over the darkened colour. They are not darkened themselves, and they do not darken what is behind
+  them, because they are not in the opaque depth.
+- Ray-traced results (reflections, shadows) are part of the opaque colour, so they are darkened too. Ray tracing does not change how the
+  occlusion is estimated.
+- World overlays, screen UI, and pixels without geometry (the background) are not changed.
+
+### Passes
+
+1. **Prefilter:** convert the depth buffer to linear view depth at the AO resolution (half or full). Each AO texel takes the depth of the
+   top-left pixel of its block, so the upsample can compare exactly the same depth.
+2. **Main:** for each texel, rebuild the view-space position and normal from depth, then search for the highest occluder ("horizon") on
+   both sides of the texel in a few planes ("slices") that contain the view vector. The visible arc between the horizons is integrated
+   with a cosine weight. Slices are spread evenly in angle around the view vector, and their screen direction is derived from the
+   projection, so flat surfaces seen at an angle by a perspective camera are not darkened. A 4x4 pattern varies the slice angle and the
+   sample positions between neighbouring texels.
+3. **Blur:** average each 4x4 block of texels with similar depth. The block contains each pattern cell once, so the pattern cancels on
+   flat surfaces, and depth edges do not leak.
+4. **Apply:** upsample to full resolution, choosing the AO texels whose depth matches the pixel, and multiply into the opaque colour
+   (or write grey scale in the debug view).
+
+### Settings
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `m_radius` | `0.5` | World-space distance within which geometry occludes a point (> 0) |
+| `m_intensity` | `1` | The visibility `v` becomes `pow(v, intensity)`; 0 = no darkening, larger = darker (>= 0) |
+| `m_falloff` | `0.6` | Fraction of the radius, at its outer end, over which occluders fade out; in (0, 1] |
+| `m_max_screen_radius` | `0.1` | Largest search radius as a fraction of the viewport height; limits cost and halos near the camera (> 0) |
+| `m_quality` | `Medium` | `Low` = 1 slice x 2 samples each way, `Medium` = 2 x 3, `High` = 3 x 4 |
+| `m_resolution` | `Half` | `Half` = one AO texel per 2x2 pixels; `Full` = one per pixel, about four times the cost |
+| `m_debug_view` | `false` | Show the occlusion term as grey scale instead of applying it |
+
+Choose `m_radius` to match the scale of the creases that should darken, for example a fraction of a character's height. Occluders
+farther than the radius do not contribute, so the effect stays local. When disabled, all AO resources are released and no commands
+are recorded.
+
+### Cost
+
+Measured by `View3d12_AmbientOcclusionCost` at 3840x2160 with 4x MSAA over a dense perspective box field (Debug build, D3D12 debug
+layer active, so release builds will be faster):
+
+| Resolution | Low | Medium | High |
+|------------|-----|--------|------|
+| Half | 0.65 ms | 0.68 ms | 0.87 ms |
+| Full | 1.15 ms | 1.55 ms | 1.79 ms |
+
+The default (half resolution, medium quality) is under 1 ms at 4K. The cost is mostly proportional to the AO texel count and the
+slices x samples product. `m_max_screen_radius` bounds the texture cache footprint of near-camera texels.
+
+### API
+
+```cpp
+auto props = scene.PostEffects().AmbientOcclusion();
+props.m_enabled = true;
+props.m_radius = 0.3f;
+scene.PostEffects().AmbientOcclusion(props); // throws std::invalid_argument for invalid settings
+```
+
+The DLL exports `View3D_AmbientOcclusionGet/Set` with the same error behaviour as the underwater effect. Managed clients use
+`window.AmbientOcclusion` with `View3d.AmbientOcclusionProps`.
+
 ## Adding an effect
 
 1. Add a settings struct next to `UnderwaterProps` in `post_processing.h`, with `m_enabled`, defaults,
@@ -143,8 +224,8 @@ before it is sent to the GPU, so precision does not degrade after long run times
    `Rylogic.Gfx`. Keep the DLL and C# struct layouts identical and cover them with layout tests.
 5. Add GPU pixel tests to `view3d-12-tests` (`src\view3d-12\render_tests.cpp`).
 
-The planned order puts depth-dependent effects that need a clean image first (ambient occlusion, depth of field,
-motion blur) and whole-screen colour effects (such as underwater) last.
+The fixed order puts whole-screen colour effects (such as underwater) last. Ambient occlusion is the exception: it
+must darken only opaque surfaces, so it runs before transparent compositing rather than in this pass list.
 
 ## Validation
 
@@ -156,5 +237,8 @@ split, the fade depth, and the skipped pass above the water, overlay exclusion,
 and restoring the image when the effect is disabled. GPU debug-layer errors fail
 the fixture.
 
-Build `projects\rylogic\Rylogic.Gfx\Rylogic.Gfx.csproj` in Debug to run the inline managed validation and
+Run `obj\x64\Debug\view3d-12-tests.exe View3d12_AmbientOcclusion` for the ambient occlusion tests (1x and 4x MSAA): defaults and
+validation, no darkening of flat surfaces (including off-axis perspective), darkening beside a raised strip at every quality and
+resolution, intensity, the debug view, a transparent pane, and exact restoration when disabled. The same filter also runs
+`View3d12_AmbientOcclusionCost`, which fails if the default settings cost 1 ms or more at 4K with 4x MSAA. in Debug to run the inline managed validation and
 struct-layout tests.
