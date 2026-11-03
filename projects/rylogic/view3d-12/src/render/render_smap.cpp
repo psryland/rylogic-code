@@ -78,6 +78,7 @@ namespace pr::rdr12
 		, m_cache()
 		, m_element_views()
 		, m_dirty()
+		, m_frame_number()
 		, m_volatile()
 		, m_casters()
 	{
@@ -223,10 +224,27 @@ namespace pr::rdr12
 		}
 
 		// Find the world space bounds and the content hash of each element, and the bounds of all casters. Elements whose bounds
-		// cannot be known (skinned, non-affine, or without a valid model bbox) are drawn into every view.
+		// cannot be known (posed without a skin, non-affine, or without a valid model bbox) are drawn into every view.
 		auto caster_bounds = BBox::Reset();
 		pr::vector<ElementInfo> elements;
 		{
+			// Skinned bounds can need a CPU pose evaluation, and the nuggets of one model share a pose, so evaluate each model/pose pair once.
+			struct PosedBBox { Model const* m_model; Pose const* m_pose; std::optional<BBox> m_bbox; };
+			pr::vector<PosedBBox, 8> posed_bboxes;
+			auto PosedModelBBox = [&](Model const& model, Pose const& pose) -> std::optional<BBox>
+			{
+				// Reuse the bounds of an earlier nugget with the same model and pose
+				for (auto const& posed : posed_bboxes)
+				{
+					if (posed.m_model == &model && posed.m_pose == &pose)
+						return posed.m_bbox;
+				}
+
+				auto bbox = rdr().SkinnedModelBBox(model, pose);
+				posed_bboxes.push_back(PosedBBox{ .m_model = &model, .m_pose = &pose, .m_bbox = bbox });
+				return bbox;
+			};
+
 			auto drawlist = m_drawlist.lock();
 			elements.resize(drawlist->size());
 			for (int e = 0, eend = isize(*drawlist); e != eend; ++e)
@@ -261,11 +279,20 @@ namespace pr::rdr12
 				if (!mbox.valid() || !IsAffine(i2w))
 					continue;
 
-				// Skinned models can move outside their bind pose bounds, so they contribute to the caster bounds but are never culled
+				// Skinned models are bounded by their current pose, so views that cannot see them do not re-render when they animate. Posed models
+				// without a skin, or without pose bounds, can move outside their rest bounds, so they contribute to the caster bounds but are never culled.
 				auto bbox = i2w * mbox;
-				Grow(caster_bounds, bbox);
 				if (pose != nullptr)
-					continue;
+				{
+					auto posed = nugget.m_model->m_skin ? PosedModelBBox(*nugget.m_model, *pose.get()) : std::optional<BBox>{};
+					if (!posed)
+					{
+						Grow(caster_bounds, bbox);
+						continue;
+					}
+					bbox = i2w * *posed;
+				}
+				Grow(caster_bounds, bbox);
 
 				info.m_lower = bbox.Lower();
 				info.m_upper = bbox.Upper();
@@ -353,19 +380,21 @@ namespace pr::rdr12
 	// Find the views that each element can see, and the views whose content has changed since they were last rendered
 	void RenderSmap::FindDirtyViews(std::span<ElementInfo const> elements)
 	{
-		// Start each view's content hash from the view itself. A change of transform or atlas region changes the content.
+		// Hash each view's transform separately from its content. A change of transform makes the atlas content invalid at once, but a change of
+		// content can wait when the view is deferred. The atlas region is compared by the view cache.
 		auto const view_count = isize(m_views.m_views);
 		auto const all_views = view_count == 32 ? ~0U : (1U << view_count) - 1;
+		std::array<uint64_t, MaxShadowViews> view_hashes;
 		std::array<uint64_t, MaxShadowViews> hashes;
 		std::array<IRect, MaxShadowViews> rects;
 		pr::vector<ShadowViewVolume, MaxShadowViews> volumes;
 		for (int v = 0; v != view_count; ++v)
 		{
 			auto const& view = m_views.m_views[v];
+			view_hashes[v] = HashSeed;
+			HashMix(view_hashes[v], view.m_w2s);
+			HashMix(view_hashes[v], view.m_clamp_depth);
 			hashes[v] = HashSeed;
-			HashMix(hashes[v], view.m_w2s);
-			HashMix(hashes[v], view.m_atlas_rect);
-			HashMix(hashes[v], view.m_clamp_depth);
 			rects[v] = view.m_atlas_rect;
 
 			// Clamped views also see casters in front of their near plane
@@ -429,8 +458,30 @@ namespace pr::rdr12
 				forced |= caster.m_views;
 		}
 
+		// Directional cascades after the first refresh changed content only on their turn. Their texels are coarse and they are far from the camera,
+		// so a few frames of delay is not visible. Cascade 'c' takes its turn when the frame number modulo the interval is 'c - 1' modulo the interval,
+		// which spreads the cascades across frames. A cascade whose view moves is not deferred, because its old content no longer matches its view.
+		++m_frame_number;
+		auto deferred = uint32_t(0);
+		if (auto const interval = m_settings.m_far_cascade_refresh_interval; interval > 1)
+		{
+			auto const lights = scn().ResolvedLights();
+			for (int v = 0; v != view_count; ++v)
+			{
+				// Only far cascades wait for their turn
+				auto const& view = m_views.m_views[v];
+				if (lights[view.m_light_index].m_type != ELight::Directional || view.m_face == 0)
+					continue;
+				if (m_frame_number % interval == s_cast<uint64_t>((view.m_face - 1) % interval))
+					continue;
+
+				deferred |= 1U << v;
+			}
+		}
+
 		// Compare with the content already in the atlas
-		m_dirty = m_cache.Update({ rects.data(), s_cast<size_t>(view_count) }, { hashes.data(), s_cast<size_t>(view_count) }, m_settings.m_cache_views) | forced;
+		auto const count = s_cast<size_t>(view_count);
+		m_dirty = m_cache.Update({ rects.data(), count }, { view_hashes.data(), count }, { hashes.data(), count }, deferred, m_settings.m_cache_views) | (forced & ~deferred);
 	}
 
 	// Perform the render step

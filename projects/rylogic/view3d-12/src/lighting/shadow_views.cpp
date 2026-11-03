@@ -399,27 +399,33 @@ namespace pr::rdr12
 	}
 
 	// Return a bit mask of the views whose atlas region does not already hold the same content, then record the new content
-	uint32_t ShadowViewCache::Update(std::span<IRect const> rects, std::span<uint64_t const> hashes, bool enabled)
+	uint32_t ShadowViewCache::Update(std::span<IRect const> rects, std::span<uint64_t const> view_hashes, std::span<uint64_t const> content_hashes, uint32_t deferred, bool enabled)
 	{
-		// A view is clean if the same region held the same content at the end of the last frame. Regions of one frame never overlap,
-		// so a matching entry means nothing has drawn over that region since.
-		pr_assert(rects.size() == hashes.size() && isize(rects) <= MaxShadowViews);
+		// A view is clean if the same region held the same view and content at the end of the last frame. Regions of one frame never overlap,
+		// so a matching entry means nothing has drawn over that region since. A deferred view only needs the same view, and its region keeps the
+		// content it already holds.
+		pr_assert(rects.size() == view_hashes.size() && rects.size() == content_hashes.size() && isize(rects) <= MaxShadowViews);
+		pr::vector<Entry, MaxShadowViews, true> entries;
 		auto dirty = uint32_t(0);
 		for (int i = 0; i != isize(rects); ++i)
 		{
-			auto clean = enabled && std::any_of(m_entries.begin(), m_entries.end(), [&](Entry const& e)
+			// Find the record of this view's region from the last frame
+			auto const defer = (deferred & (1U << i)) != 0;
+			auto record = Entry{ .m_rect = rects[i], .m_view_hash = view_hashes[i], .m_content_hash = content_hashes[i] };
+			auto iter = std::find_if(m_entries.begin(), m_entries.end(), [&](Entry const& e)
 			{
-				return All(e.m_rect.m_min == rects[i].m_min) && All(e.m_rect.m_max == rects[i].m_max) && e.m_hash == hashes[i];
+				return All(e.m_rect.m_min == rects[i].m_min) && All(e.m_rect.m_max == rects[i].m_max) && e.m_view_hash == view_hashes[i] && (e.m_content_hash == content_hashes[i] || defer);
 			});
-			if (!clean)
+			if (!enabled || iter == m_entries.end())
 				dirty |= 1U << i;
+			else
+				record.m_content_hash = iter->m_content_hash;
+
+			entries.push_back(record);
 		}
 
 		// Record the content of the atlas after this frame's views are rendered
-		m_entries.resize(0);
-		for (int i = 0; i != isize(rects); ++i)
-			m_entries.push_back(Entry{ .m_rect = rects[i], .m_hash = hashes[i] });
-
+		m_entries = entries;
 		return dirty;
 	}
 

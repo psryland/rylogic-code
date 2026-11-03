@@ -2312,6 +2312,7 @@ static view3d::ShadowSettings ToApi(rdr12::ShadowSettings const& s)
 		.m_slope_bias = s.m_slope_bias,
 		.m_normal_bias = s.m_normal_bias,
 		.m_cache_views = s.m_cache_views,
+		.m_far_cascade_refresh_interval = s.m_far_cascade_refresh_interval,
 	};
 }
 static rdr12::ShadowSettings ToRdr(view3d::ShadowSettings const& settings)
@@ -2332,6 +2333,7 @@ static rdr12::ShadowSettings ToRdr(view3d::ShadowSettings const& settings)
 	s.m_slope_bias = settings.m_slope_bias;
 	s.m_normal_bias = settings.m_normal_bias;
 	s.m_cache_views = settings.m_cache_views != 0;
+	s.m_far_cascade_refresh_interval = settings.m_far_cascade_refresh_interval;
 	return s;
 }
 

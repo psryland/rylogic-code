@@ -908,6 +908,7 @@ namespace pr
 			float m_slope_bias;             // Depth bias scaled by the depth slope of each triangle
 			float m_normal_bias;            // Receiver offset along the surface normal (in shadow texels)
 			BOOL  m_cache_views;            // Re-render shadow views only when their content changes
+			int   m_far_cascade_refresh_interval; // Frames between content refreshes of each directional cascade after the first. A cascade whose view moves is rendered at once. Zero or one means every frame
 		};
 		struct TextureOptions
 		{

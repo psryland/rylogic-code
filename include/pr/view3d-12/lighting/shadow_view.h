@@ -36,6 +36,7 @@ namespace pr::rdr12
 		float m_slope_bias;             // Depth bias scaled by the depth slope of each triangle
 		float m_normal_bias;            // Distance to move receiver positions along their normal before the shadow test (in shadow texels)
 		bool  m_cache_views;            // Re-render shadow views only when their content changes. False re-renders every view every frame
+		int   m_far_cascade_refresh_interval; // Frames between content refreshes of each directional cascade after the first. Content changes wait for the cascade's turn, and the cascades take turns on different frames. A cascade whose view moves is always rendered at once. Zero or one means every frame
 
 		ShadowSettings()
 			:m_atlas_size(4096)
@@ -53,6 +54,7 @@ namespace pr::rdr12
 			,m_slope_bias(2.0f)
 			,m_normal_bias(1.0f)
 			,m_cache_views(true)
+			,m_far_cascade_refresh_interval(0)
 		{}
 
 		friend bool operator == (ShadowSettings const&, ShadowSettings const&) = default;
@@ -141,17 +143,19 @@ namespace pr::rdr12
 	// Tracks the content of each shadow atlas region so that unchanged views are not rendered again
 	struct ShadowViewCache
 	{
-		// A region of the atlas and a hash of the content rendered into it
+		// A region of the atlas, a hash of the view transform used to render it, and a hash of the content rendered into it
 		struct Entry
 		{
 			IRect    m_rect;
-			uint64_t m_hash;
+			uint64_t m_view_hash;
+			uint64_t m_content_hash;
 		};
 		pr::vector<Entry, MaxShadowViews, true> m_entries; // The atlas content at the end of the last rendered frame
 
-		// Return a bit mask of the views in 'rects'/'hashes' whose atlas region does not already hold the same content, then record the new content.
-		// Every region is dirty when 'enabled' is false.
-		uint32_t Update(std::span<IRect const> rects, std::span<uint64_t const> hashes, bool enabled);
+		// Return a bit mask of the views whose atlas region does not already hold the same view and content, then record the content the atlas
+		// holds after the dirty views are rendered. Views in 'deferred' are clean if only their content has changed, and keep their old content
+		// record, so they remain dirty until they are rendered. Every region is dirty when 'enabled' is false.
+		uint32_t Update(std::span<IRect const> rects, std::span<uint64_t const> view_hashes, std::span<uint64_t const> content_hashes, uint32_t deferred, bool enabled);
 
 		// Forget all atlas content, so every view is rendered next frame
 		void Invalidate();
@@ -442,23 +446,35 @@ namespace pr::rdr12::tests
 		{
 			ShadowViewCache cache;
 			IRect rects[] = { IRect(0, 0, 512, 512), IRect(512, 0, 1024, 512) };
+			uint64_t views[] = { 10, 20 };
 			uint64_t hashes[] = { 1, 2 };
-			PR_EXPECT(cache.Update(rects, hashes, true) == 0b11);
-			PR_EXPECT(cache.Update(rects, hashes, true) == 0b00);
+			PR_EXPECT(cache.Update(rects, views, hashes, 0, true) == 0b11);
+			PR_EXPECT(cache.Update(rects, views, hashes, 0, true) == 0b00);
 
 			// Changed content in one region
 			hashes[1] = 3;
-			PR_EXPECT(cache.Update(rects, hashes, true) == 0b10);
+			PR_EXPECT(cache.Update(rects, views, hashes, 0, true) == 0b10);
+
+			// Deferred content changes stay pending until the view is rendered
+			hashes[1] = 4;
+			PR_EXPECT(cache.Update(rects, views, hashes, 0b10, true) == 0b00);
+			PR_EXPECT(cache.Update(rects, views, hashes, 0b10, true) == 0b00);
+			PR_EXPECT(cache.Update(rects, views, hashes, 0, true) == 0b10);
+			PR_EXPECT(cache.Update(rects, views, hashes, 0, true) == 0b00);
+
+			// A deferred view whose transform changes is dirty
+			views[1] = 21;
+			PR_EXPECT(cache.Update(rects, views, hashes, 0b10, true) == 0b10);
 
 			// Views that swap regions are both dirty
 			IRect swapped[] = { rects[1], rects[0] };
-			PR_EXPECT(cache.Update(swapped, hashes, true) == 0b11);
+			PR_EXPECT(cache.Update(swapped, views, hashes, 0b11, true) == 0b11);
 
 			// Disabled caching and invalidation make every region dirty
-			PR_EXPECT(cache.Update(swapped, hashes, false) == 0b11);
+			PR_EXPECT(cache.Update(swapped, views, hashes, 0, false) == 0b11);
 			cache.Invalidate();
-			PR_EXPECT(cache.Update(swapped, hashes, true) == 0b11);
-			PR_EXPECT(cache.Update(swapped, hashes, true) == 0b00);
+			PR_EXPECT(cache.Update(swapped, views, hashes, 0, true) == 0b11);
+			PR_EXPECT(cache.Update(swapped, views, hashes, 0, true) == 0b00);
 		}
 	}
 }

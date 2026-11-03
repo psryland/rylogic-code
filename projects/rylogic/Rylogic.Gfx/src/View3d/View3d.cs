@@ -1233,6 +1233,12 @@ namespace Rylogic.Gfx
 			/// <summary>Re-render shadow views only when their content changes</summary>
 			public bool CacheViews;
 
+			/// <summary>
+			/// Frames between content refreshes of each directional cascade after the first. Content changes wait for the cascade's turn, and the
+			/// cascades take turns on different frames. A cascade whose view moves is always rendered at once. Zero or one means every frame
+			/// </summary>
+			public int FarCascadeRefreshInterval;
+
 			/// <summary>Default shadow settings</summary>
 			public static ShadowSettings Default()
 			{
@@ -1253,6 +1259,7 @@ namespace Rylogic.Gfx
 					SlopeBias = 2.0f,
 					NormalBias = 1.0f,
 					CacheViews = true,
+					FarCascadeRefreshInterval = 0,
 				};
 			}
 		}
