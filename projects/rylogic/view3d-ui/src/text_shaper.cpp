@@ -26,10 +26,9 @@ namespace pr::view3d::ui
 		// than any string this module will ever measure rather than tracking the control's width.
 		constexpr float LayoutBoxDip = 1.0e6f;
 
-		// Most-recently-used layout cache depth. Two entries would satisfy the renderer's
-		// shape-then-draw pair for one item; eight keeps a small form's controls resident without
-		// letting the cache grow with the document.
-		constexpr std::size_t MaxCachedLayouts = 8;
+		// Most-recently-used layout cache depth. The cache must hold every text item a frame draws, otherwise each frame rebuilds the layouts it
+		// evicted. The bound still keeps text that changes every frame (such as counters) from growing the cache.
+		constexpr std::size_t MaxCachedLayouts = 256;
 
 		// Upper bound on the hit-test rectangles DirectWrite is asked to produce for one range, so
 		// a pathological bidirectional string cannot drive an unbounded allocation.
@@ -262,6 +261,13 @@ namespace pr::view3d::ui
 	}
 
 	TextShaper::TextShaper()
+		: m_factory()
+		, m_fonts()
+		, m_font_mru()
+		, m_run_faces()
+		, m_run_face_mru()
+		, m_layouts()
+		, m_layout_clock()
 	{
 		auto hr = ::DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), reinterpret_cast<IUnknown**>(m_factory.GetAddressOf()));
 		if (FAILED(hr))
@@ -380,26 +386,41 @@ namespace pr::view3d::ui
 		// The face cache is bounded the same way as the font cache: because the key is derived
 		// purely from the face's file references, index, simulations and size, an evicted entry is
 		// re-created identically by the next Shape() call that uses that face.
-		TouchCacheKey(m_run_face_mru, m_run_faces, hash, MaxCachedRunFaces);
-		if (m_run_faces.find(hash) == m_run_faces.end())
-			m_run_faces.emplace(hash, RunFace{ .face = face, .size_dip = size_dip });
-
+		TouchRunFace(hash, RunFace{ .face = face, .size_dip = size_dip });
 		return hash;
+	}
+
+	void TextShaper::TouchRunFace(std::uint64_t key, RunFace const& face)
+	{
+		// Evict before inserting so the face about to be used is never the one discarded.
+		TouchCacheKey(m_run_face_mru, m_run_faces, key, MaxCachedRunFaces);
+		if (m_run_faces.find(key) == m_run_faces.end())
+			m_run_faces.emplace(key, face);
 	}
 
 	TextShaper::LayoutEntry& TextShaper::ResolveLayout(std::string_view family, float size_dip, std::string_view utf8_text)
 	{
-		// A most-recently-used probe keeps the renderer's shape-then-draw pair for one item to a
-		// single layout construction without letting the cache grow with the control count.
-		for (auto i = std::size_t(0); i != m_layouts.size(); ++i)
+		// Look up the layout by a content hash. A hash collision is treated as a miss, and the new layout replaces the old one.
+		std::uint32_t size_bits = 0;
+		std::memcpy(&size_bits, &size_dip, sizeof(size_bits));
+		auto key = HashBytes(family.data(), family.size(), 1469598103934665603ull);
+		key = HashBytes(&size_bits, sizeof(size_bits), key);
+		key = HashBytes(utf8_text.data(), utf8_text.size(), key);
+		if (auto it = m_layouts.find(key); it != m_layouts.end())
 		{
-			if (m_layouts[i].size_dip != size_dip || m_layouts[i].family != family || m_layouts[i].text != utf8_text)
-				continue;
+			if (it->second.size_dip == size_dip && it->second.family == family && it->second.text == utf8_text)
+			{
+				it->second.last_use = ++m_layout_clock;
+				return it->second;
+			}
+			m_layouts.erase(it);
+		}
 
-			if (i != 0)
-				std::rotate(m_layouts.begin(), m_layouts.begin() + i, m_layouts.begin() + i + 1);
-
-			return m_layouts.front();
+		// Evict the least recently used layout when the cache is full. This scan only happens when a new layout is built.
+		if (m_layouts.size() >= MaxCachedLayouts)
+		{
+			auto oldest = std::min_element(m_layouts.begin(), m_layouts.end(), [](auto const& lhs, auto const& rhs) { return lhs.second.last_use < rhs.second.last_use; });
+			m_layouts.erase(oldest);
 		}
 
 		auto& font = ResolveFont(family, size_dip);
@@ -408,6 +429,7 @@ namespace pr::view3d::ui
 		entry.text = std::string(utf8_text);
 		entry.family = std::string(family);
 		entry.size_dip = size_dip;
+		entry.last_use = ++m_layout_clock;
 
 		std::wstring utf16;
 		BuildOffsetMaps(utf8_text, utf16, entry.utf16_to_utf8, entry.utf8_to_utf16);
@@ -415,11 +437,7 @@ namespace pr::view3d::ui
 		if (FAILED(m_factory->CreateTextLayout(utf16.c_str(), static_cast<UINT32>(utf16.size()), font.format.Get(), LayoutBoxDip, LayoutBoxDip, entry.layout.GetAddressOf())))
 			throw EngineException(EStatus::InternalError, "TextShaper: CreateTextLayout failed");
 
-		if (m_layouts.size() >= MaxCachedLayouts)
-			m_layouts.pop_back();
-
-		m_layouts.insert(m_layouts.begin(), std::move(entry));
-		return m_layouts.front();
+		return m_layouts.insert_or_assign(key, std::move(entry)).first->second;
 	}
 
 	float TextShaper::Shape(std::string_view family, float size_dip, float dpi_scale, std::string_view utf8_text, std::vector<ShapedGlyph>& out_glyphs)
@@ -431,6 +449,15 @@ namespace pr::view3d::ui
 			return 0.0f;
 
 		auto& entry = ResolveLayout(family, size_dip, utf8_text);
+		if (entry.shaped)
+		{
+			// The cached glyphs refer to their faces by key, so keep those faces registered for Rasterize().
+			for (auto const& [key, face] : entry.run_faces)
+				TouchRunFace(key, face);
+
+			out_glyphs = entry.glyphs;
+			return entry.shaped_width_dip;
+		}
 
 		GlyphRunCollector collector;
 		if (FAILED(entry.layout->Draw(nullptr, &collector, 0.0f, 0.0f)))
@@ -440,9 +467,11 @@ namespace pr::view3d::ui
 		// origin is the run's left edge and the pen moves right; for a right-to-left run (odd
 		// embedding level) DirectWrite reports the run's *right* edge and the advances accumulate
 		// leftwards, so each glyph's own left-edge origin is one advance further left than the pen.
+		entry.run_faces.clear();
 		for (auto run = std::size_t(0); run != collector.RunCount(); ++run)
 		{
 			auto const font_key = RegisterRunFace(collector.RunFace(run), collector.RunFontSize(run));
+			entry.run_faces.emplace_back(font_key, RunFace{ .face = collector.RunFace(run), .size_dip = collector.RunFontSize(run) });
 			auto const& indices = collector.RunIndices(run);
 			auto const& advances = collector.RunAdvances(run);
 			auto const& offsets = collector.RunOffsets(run);
@@ -482,7 +511,11 @@ namespace pr::view3d::ui
 		if (FAILED(entry.layout->GetMetrics(&metrics)))
 			throw EngineException(EStatus::InternalError, "TextShaper: GetMetrics failed");
 
-		return metrics.widthIncludingTrailingWhitespace;
+		// Keep the result for later calls with the same text.
+		entry.glyphs = out_glyphs;
+		entry.shaped_width_dip = metrics.widthIncludingTrailingWhitespace;
+		entry.shaped = true;
+		return entry.shaped_width_dip;
 	}
 
 	GlyphBitmap TextShaper::Rasterize(std::uint64_t font_key, float dpi_scale, std::uint32_t glyph_index)

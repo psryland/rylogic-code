@@ -1032,29 +1032,6 @@ namespace pr::rdr12
 		return indexed ? m_draw_indexed.get() : m_draw.get();
 	}
 
-	// Return the nuggets of a LOD that draw for 'step'.
-	void PopulationNuggets(Model const& model, ERenderStep step, std::function<void(Nugget const&)> fn)
-	{
-		// Populations draw the default variant of each nugget, in the same way as an instance without overrides.
-		// Nuggets that do not cast shadows are skipped in the shadow pass, as they are for ordinary instances.
-		for (auto& nug : Enumerate(model.m_nuggets))
-		{
-			for (auto const& dep : nug.Dependents())
-			{
-				if (dep.m_variant != DefaultNugget)
-					continue;
-				if (AllSet(dep.m_nflags, ENuggetFlag::Hidden))
-					continue;
-				if (step == ERenderStep::ShadowMap && AllSet(dep.m_nflags, ENuggetFlag::ShadowCastExclude))
-					continue;
-				if (dep.mat().Pass(step) == nullptr)
-					continue;
-
-				fn(dep);
-			}
-		}
-	}
-
 	// Return the overlay whose vertex shader 'material' applies for 'step', or null if the stock vertex shader is used.
 	Shader const* PopulationVertexOverlay(Material const& material, ERenderStep step)
 	{

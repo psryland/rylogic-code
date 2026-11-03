@@ -36,6 +36,7 @@ namespace pr::rdr12
 		EAnimFlags m_flags;           // Behaviour flags
 		uint64_t m_revision;          // Incremented when a pose upload is recorded, not a GPU-completion proof
 		bool m_gpu_update_required;  // Re-record GPU data even at unchanged animation time after an abandoned recording
+		vector<m4x4> m_matrices;      // Working buffer for the recorded skinning matrices. Upload memory is slow to read, so the pose is built here, then copied.
 
 		Pose(ResourceFactory& factory, SkeletonPtr skeleton, AnimatorPtr animator, EAnimStyle style, EAnimFlags flags, TimeRange time_range, double stretch, double bias);
 

@@ -560,11 +560,12 @@ namespace pr::rdr12
 			}
 		}
 
-		// Order the draws by sort group so that they can be merged with the drawlist by group. Draws within a group keep their population order.
+		// Order the draws by sort key so that they can be merged with the drawlist by group. Within a group, draws that share a shader and texture
+		// become adjacent, so they reuse bound descriptors and pipeline state. Draws with equal keys keep their population order.
 		{
 			std::vector<int> order(m_population_dles.size());
 			std::iota(order.begin(), order.end(), 0);
-			std::ranges::stable_sort(order, {}, [&](int i) { return m_population_dles[i].m_sort_key.Group(); });
+			std::ranges::stable_sort(order, {}, [&](int i) { return m_population_dles[i].m_sort_key.m_value; });
 
 			auto dles = std::move(m_population_dles);
 			auto draws = std::move(m_population_draws);
