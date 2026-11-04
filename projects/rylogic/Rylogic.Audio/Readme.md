@@ -2,8 +2,8 @@
 
 Managed, allocation-conscious ownership and playback APIs for the Rylogic spatial audio engine.
 
-`AudioRuntime` owns the native DLL context and the engines created through it. Each `Engine` owns all `Clip`, `Voice`, and
-`AudioStream` objects created through it. Mutable and lifetime operations, and all native queries, must run on the OS thread
+`AudioRuntime` owns the native DLL context and the engines created through it. Each `Engine` owns all `Clip`, `Voice`,
+`AudioStream`, and `AudioGroup` objects created through it. Mutable and lifetime operations, and all native queries, must run on the OS thread
 that created the engine. A `Clip` tracks the voices that reference it and rejects disposal while any of them remain live; a
 `Voice` always references the `Clip` it plays.
 
@@ -23,10 +23,11 @@ using var audio = new AudioRuntime();
 using var engine = audio.CreateEngine();
 
 var data = AudioData.Load("effects/impact.wav");
+using var effects = engine.CreateGroup();
 using var clip = engine.CreateClip(data);
 using var voice = engine.CreateVoice(clip, new VoiceOptions
 {
-	Bus = EAudioBus.Effects,
+	Group = effects,
 	Spatial = true,
 	Priority = 100,
 });
@@ -42,6 +43,24 @@ voice.Play();
 
 Positions use a right-handed world space in metres, velocities use metres per second, and cone angles use radians. The
 native backend performs its X3DAudio coordinate conversion internally.
+
+## Groups, ramps, and metering
+
+`Engine.CreateGroup(parent, options)` creates a submix group that feeds its parent group, or the master output when the parent
+is null. Groups nest to any depth. Each group has a linear gain and low-pass and high-pass cutoffs in Hz. The low-pass cutoff must
+be positive and passes everything from a sixth of the output sample rate upwards (`GroupOptions.LowPassOpenHz`, the default); a
+high-pass cutoff of 0 passes everything. Cutoffs ramp linearly in Hz. Voices and streams choose their group in `VoiceOptions.Group` or `StreamOptions.Group`. A group rejects disposal
+while child groups, voices, or streams still route through it.
+
+Every mix setter takes a ramp time in seconds: `AudioGroup.SetGain`/`SetFilter`, and `Voice`/`AudioStream` `SetGain`, `SetPitch`,
+and `SetWidth`. Setters record ramp targets; they do not change the live audio graph. `Engine.Update` applies the current ramp
+values to active playback, so ramp smoothness follows the update rate. A ramp of 0 applies its target without interpolation
+on the next `Engine.Update`, not during the setter call. A new target starts from the current ramp value. Newly started or
+recreated sources also use their current ramp values. Graph changes become audible when the audio processing thread consumes
+them; `Update` does not synchronously render audio. Width (0 = mono, 1 = full source width) affects only non-spatial stereo sources.
+
+`Diagnostics.MeterPeak(channel)` and `MeterRms(channel)` report linear master output levels for the first
+`m_meter_channel_count` channels during the most recent processing pass.
 
 ## Owner thread and asynchronous loading
 

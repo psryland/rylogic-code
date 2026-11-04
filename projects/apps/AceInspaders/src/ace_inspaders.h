@@ -198,12 +198,13 @@ namespace ace
 			auto voice_desc = pr::audio::VoiceDesc{
 				.header = {sizeof(pr::audio::VoiceDesc), pr::audio::AUDIO_STRUCT_VERSION},
 				.clip = sound.m_clip,
-				.bus = pr::audio::EBus::Effects,
+				.group = 0,
 				.spatial = false,
 				.loop_count = 0,
 				.priority = 100,
 				.volume = 1.0f,
 				.pitch = 1.0f,
+				.width = 1.0f,
 			};
 			for (auto& voice : sound.m_voices)
 				voice = m_audio.VoiceCreate(voice_desc);

@@ -75,6 +75,30 @@ public sealed class AudioStream :IDisposable
 		return state;
 	}
 
+	/// <summary>Move the stream's linear gain to 'gain' over 'ramp_seconds'. Zero applies without interpolation on the next <see cref="Engine.Update"/>.</summary>
+	public void SetGain(float gain, float ramp_seconds = 0.0f)
+	{
+		Engine.EnsureOwner();
+		Native.Check(Native.Audio_StreamGainSet(Engine.Handle, Handle.Value, gain, ramp_seconds));
+	}
+
+	/// <summary>Move the stream's pitch ratio to 'pitch' over 'ramp_seconds'. Zero applies without interpolation on the next <see cref="Engine.Update"/>.</summary>
+	public void SetPitch(float pitch, float ramp_seconds = 0.0f)
+	{
+		Engine.EnsureOwner();
+		Native.Check(Native.Audio_StreamPitchSet(Engine.Handle, Handle.Value, pitch, ramp_seconds));
+	}
+
+	/// <summary>
+	/// Move the stereo width in [0,1] to 'width' over 'ramp_seconds'. Zero applies without interpolation on the next <see cref="Engine.Update"/>.
+	/// Width affects only stereo streams.
+	/// </summary>
+	public void SetWidth(float width, float ramp_seconds = 0.0f)
+	{
+		Engine.EnsureOwner();
+		Native.Check(Native.Audio_StreamWidthSet(Engine.Handle, Handle.Value, width, ramp_seconds));
+	}
+
 	/// <summary>Destroy this stream.</summary>
 	public void Dispose()
 	{

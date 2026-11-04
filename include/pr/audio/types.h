@@ -9,14 +9,18 @@
 
 namespace pr::audio
 {
-	inline constexpr std::uint32_t AUDIO_API_VERSION = 0x00010000U;
-	inline constexpr std::uint32_t AUDIO_STRUCT_VERSION = 1U;
+	inline constexpr std::uint32_t AUDIO_API_VERSION = 0x00020000U;
+	inline constexpr std::uint32_t AUDIO_STRUCT_VERSION = 2U;
 	inline constexpr std::uint32_t AUDIO_INFINITE_LOOP = 0xFFFFFFFFU;
+	inline constexpr std::uint32_t AUDIO_MAX_METER_CHANNELS = 8U;
 
 	using EngineHandle = std::uint64_t;
 	using ClipHandle = std::uint64_t;
 	using VoiceHandle = std::uint64_t;
 	using StreamHandle = std::uint64_t;
+
+	// Identifies a submix group. The null handle (0) means the engine's master output.
+	using GroupHandle = std::uint64_t;
 
 	// Result of an audio API operation.
 	enum class EStatus : std::int32_t
@@ -46,17 +50,7 @@ namespace pr::audio
 		Diagnostics = 7,
 		StreamDesc = 8,
 		StreamState = 9,
-	};
-
-	// Mixer bus used to group related voices.
-	enum class EBus : std::int32_t
-	{
-		Effects = 0,
-		Ambience = 1,
-		Speech = 2,
-		Music = 3,
-		Interface = 4,
-		Count = 5,
+		GroupDesc = 10,
 	};
 
 	// Current transport state of a voice.
@@ -137,17 +131,34 @@ namespace pr::audio
 		float reverb_send;
 	};
 
+	// Initial routing and mix properties for one submix group.
+	// 'parent' is the group this group feeds, or 0 for the master output.
+	// 'low_pass_hz' and 'high_pass_hz' are filter cutoffs in Hz. The low-pass cutoff must be positive; a cutoff of at least a sixth of the output
+	// sample rate (e.g. 20000 Hz) passes all frequencies. A high-pass cutoff of 0 passes all frequencies. Ramps move cutoffs linearly in Hz, so an
+	// open low-pass ramps smoothly into a closing one.
+	struct GroupDesc
+	{
+		StructHeader header;
+		GroupHandle parent;
+		float gain;
+		float low_pass_hz;
+		float high_pass_hz;
+	};
+
 	// Initial playback and routing properties for one voice.
+	// 'group' is the submix group the voice feeds, or 0 for the master output.
+	// 'width' is the stereo width in [0,1] for non-spatial stereo clips; 0 is mono and 1 is the full source width.
 	struct VoiceDesc
 	{
 		StructHeader header;
 		ClipHandle clip;
-		EBus bus;
+		GroupHandle group;
 		std::int32_t spatial;
 		std::uint32_t loop_count;
 		std::uint32_t priority;
 		float volume;
 		float pitch;
+		float width;
 	};
 
 	// Observable transport state for one voice.
@@ -162,14 +173,16 @@ namespace pr::audio
 	};
 
 	// Initial playback and routing properties for one decoded Ogg Vorbis stream.
+	// 'group' and 'width' have the same meaning as in VoiceDesc.
 	struct StreamDesc
 	{
 		StructHeader header;
-		EBus bus;
+		GroupHandle group;
 		std::uint32_t loop_count;
 		std::uint32_t priority;
 		float volume;
 		float pitch;
+		float width;
 	};
 
 	// Observable transport and decode state for one stream.
@@ -209,8 +222,15 @@ namespace pr::audio
 		std::uint32_t output_channel_count;
 		std::uint32_t output_sample_rate;
 		float engine_buffer_ms;
+
+		// Linear peak and RMS levels of the master output during the most recent processing pass, per output channel.
+		// Only the first 'meter_channel_count' entries are valid.
+		std::uint32_t meter_channel_count;
+		float meter_peak[AUDIO_MAX_METER_CHANNELS];
+		float meter_rms[AUDIO_MAX_METER_CHANNELS];
 	};
 
+	static_assert(std::is_standard_layout_v<GroupDesc>);
 	static_assert(std::is_standard_layout_v<Config>);
 	static_assert(std::is_standard_layout_v<ListenerState>);
 	static_assert(std::is_standard_layout_v<EmitterState>);

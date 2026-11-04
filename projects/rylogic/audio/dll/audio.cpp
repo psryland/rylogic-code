@@ -302,6 +302,7 @@ AUDIO_API EStatus __stdcall Audio_StructSize(EStructId struct_id, std::uint32_t*
 				case EStructId::Diagnostics: { *size = sizeof(Diagnostics); break; }
 				case EStructId::StreamDesc: { *size = sizeof(StreamDesc); break; }
 				case EStructId::StreamState: { *size = sizeof(StreamState); break; }
+				case EStructId::GroupDesc: { *size = sizeof(GroupDesc); break; }
 				default: { throw std::invalid_argument("Unknown audio structure identifier"); }
 			}
 		}, __FILE__, __LINE__);
@@ -401,20 +402,41 @@ AUDIO_API void __stdcall Audio_EngineAbandon(EngineHandle engine)
 
 AUDIO_ENGINE_CALL(Audio_EngineUpdate, (EngineHandle engine), EngineFromHandle(context, engine).Update())
 AUDIO_ENGINE_CALL(Audio_ListenerSet, (EngineHandle engine, ListenerState const* listener), Validate(listener, "ListenerState"); EngineFromHandle(context, engine).ListenerSet(*listener))
-AUDIO_ENGINE_CALL(Audio_BusGainSet, (EngineHandle engine, EBus bus, float gain), EngineFromHandle(context, engine).BusGainSet(bus, gain))
 AUDIO_ENGINE_CALL(Audio_ClipDestroy, (EngineHandle engine, ClipHandle clip), EngineFromHandle(context, engine).ClipDestroy(clip))
+AUDIO_ENGINE_CALL(Audio_GroupDestroy, (EngineHandle engine, GroupHandle group), EngineFromHandle(context, engine).GroupDestroy(group))
+AUDIO_ENGINE_CALL(Audio_GroupGainSet, (EngineHandle engine, GroupHandle group, float gain, float ramp_s), EngineFromHandle(context, engine).GroupGainSet(group, gain, ramp_s))
+AUDIO_ENGINE_CALL(Audio_GroupFilterSet, (EngineHandle engine, GroupHandle group, float low_pass_hz, float high_pass_hz, float ramp_s), EngineFromHandle(context, engine).GroupFilterSet(group, low_pass_hz, high_pass_hz, ramp_s))
 AUDIO_ENGINE_CALL(Audio_VoiceDestroy, (EngineHandle engine, VoiceHandle voice), EngineFromHandle(context, engine).VoiceDestroy(voice))
 AUDIO_ENGINE_CALL(Audio_VoicePlay, (EngineHandle engine, VoiceHandle voice), EngineFromHandle(context, engine).VoicePlay(voice))
 AUDIO_ENGINE_CALL(Audio_VoicePause, (EngineHandle engine, VoiceHandle voice), EngineFromHandle(context, engine).VoicePause(voice))
 AUDIO_ENGINE_CALL(Audio_VoiceStop, (EngineHandle engine, VoiceHandle voice), EngineFromHandle(context, engine).VoiceStop(voice))
 AUDIO_ENGINE_CALL(Audio_VoiceEmitterClear, (EngineHandle engine, VoiceHandle voice), EngineFromHandle(context, engine).VoiceEmitterClear(voice))
+AUDIO_ENGINE_CALL(Audio_VoiceGainSet, (EngineHandle engine, VoiceHandle voice, float gain, float ramp_s), EngineFromHandle(context, engine).VoiceGainSet(voice, gain, ramp_s))
+AUDIO_ENGINE_CALL(Audio_VoicePitchSet, (EngineHandle engine, VoiceHandle voice, float pitch, float ramp_s), EngineFromHandle(context, engine).VoicePitchSet(voice, pitch, ramp_s))
+AUDIO_ENGINE_CALL(Audio_VoiceWidthSet, (EngineHandle engine, VoiceHandle voice, float width, float ramp_s), EngineFromHandle(context, engine).VoiceWidthSet(voice, width, ramp_s))
 AUDIO_ENGINE_CALL(Audio_StreamDestroy, (EngineHandle engine, StreamHandle stream), EngineFromHandle(context, engine).StreamDestroy(stream))
 AUDIO_ENGINE_CALL(Audio_StreamPlay, (EngineHandle engine, StreamHandle stream), EngineFromHandle(context, engine).StreamPlay(stream))
 AUDIO_ENGINE_CALL(Audio_StreamPause, (EngineHandle engine, StreamHandle stream), EngineFromHandle(context, engine).StreamPause(stream))
 AUDIO_ENGINE_CALL(Audio_StreamStop, (EngineHandle engine, StreamHandle stream), EngineFromHandle(context, engine).StreamStop(stream))
 AUDIO_ENGINE_CALL(Audio_StreamSeek, (EngineHandle engine, StreamHandle stream, std::uint64_t pcm_position), EngineFromHandle(context, engine).StreamSeek(stream, pcm_position))
+AUDIO_ENGINE_CALL(Audio_StreamGainSet, (EngineHandle engine, StreamHandle stream, float gain, float ramp_s), EngineFromHandle(context, engine).StreamGainSet(stream, gain, ramp_s))
+AUDIO_ENGINE_CALL(Audio_StreamPitchSet, (EngineHandle engine, StreamHandle stream, float pitch, float ramp_s), EngineFromHandle(context, engine).StreamPitchSet(stream, pitch, ramp_s))
+AUDIO_ENGINE_CALL(Audio_StreamWidthSet, (EngineHandle engine, StreamHandle stream, float width, float ramp_s), EngineFromHandle(context, engine).StreamWidthSet(stream, width, ramp_s))
 
 #undef AUDIO_ENGINE_CALL
+
+// Create one submix group.
+AUDIO_API EStatus __stdcall Audio_GroupCreate(EngineHandle engine, GroupDesc const* desc, GroupHandle* group)
+{
+	return ApiCall([&](Context& context)
+		{
+			Validate(desc, "GroupDesc");
+			if (group == nullptr)
+				throw std::invalid_argument("Audio group output is null");
+
+			*group = EngineFromHandle(context, engine).GroupCreate(*desc);
+		}, __FILE__, __LINE__);
+}
 
 // Create one resident WAV clip.
 AUDIO_API EStatus __stdcall Audio_ClipCreateWave(EngineHandle engine, void const* wave_file, std::uint64_t wave_file_size, ClipHandle* clip)

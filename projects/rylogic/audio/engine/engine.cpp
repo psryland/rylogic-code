@@ -19,6 +19,10 @@ namespace pr::audio
 		inline constexpr std::size_t k_stream_decode_chunk_bytes = 4096;
 		inline constexpr auto k_stream_worker_interval = std::chrono::milliseconds(5);
 
+		// XAudio2 processes submix voices in ascending stage order and a submix may only send to a higher stage.
+		// Top-level groups use this stage and each child uses its parent's stage minus one, so children always mix before their parents.
+		inline constexpr std::uint32_t k_root_group_stage = 1U << 20;
+
 		// Convert an engine buffering bound in milliseconds to a frame count at a given sample rate.
 		std::uint64_t FrameCountForMs(std::uint32_t sample_rate, float milliseconds)
 		{
@@ -61,6 +65,54 @@ namespace pr::audio
 			auto dot = normal_forward.x * normal_up.x + normal_forward.y * normal_up.y + normal_forward.z * normal_up.z;
 			if (std::abs(dot) > 0.01f)
 				throw std::invalid_argument(FmtS("%s forward and up vectors must be orthogonal", name));
+		}
+
+		// Reject a mix value that is not finite or lies outside [lo, hi].
+		void CheckRange(float value, float lo, float hi, char const* name)
+		{
+			if (!std::isfinite(value) || value < lo || value > hi)
+				throw std::invalid_argument(FmtS("%s is not finite or is out of range", name));
+		}
+
+		// Reject a value, such as a pitch ratio or a low-pass cutoff, that is not finite and positive.
+		void CheckPositive(float value, char const* name)
+		{
+			if (!std::isfinite(value) || !(value > 0.0f))
+				throw std::invalid_argument(FmtS("%s must be finite and positive", name));
+		}
+
+		// Convert a cutoff in Hz to an XAudio2 state-variable filter coefficient. Cutoffs at or above a sixth of the sample rate map to the maximum
+		// coefficient, which makes a low-pass filter pass everything. A cutoff of 0 maps to 0, which makes a high-pass filter pass everything.
+		float CutoffToRadians(float hz, std::uint32_t sample_rate)
+		{
+			// Same mapping as the XAudio2CutoffFrequencyToRadians helper, which xaudio2.h only defines under XAUDIO2_HELPER_FUNCTIONS
+			if (hz * 6.0f >= static_cast<float>(sample_rate))
+				return XAUDIO2_MAX_FILTER_FREQUENCY;
+
+			return 2.0f * std::sin(std::numbers::pi_v<float> * hz / static_cast<float>(sample_rate));
+		}
+
+		// Build the output matrix that narrows a stereo source by 'width' (0 = mono, 1 = unchanged) for 'output_channels' destination channels.
+		// The XAudio2 matrix is indexed [destination * source_channels + source].
+		std::vector<float> StereoWidthMatrix(float width, std::uint32_t output_channels)
+		{
+			// A mono output receives the average of both source channels
+			auto matrix = std::vector<float>(2 * output_channels, 0.0f);
+			if (output_channels == 1)
+			{
+				matrix[0] = 0.5f;
+				matrix[1] = 0.5f;
+				return matrix;
+			}
+
+			// Blend each side toward the centre; other output channels (centre, LFE, surrounds) receive nothing, like the default stereo matrix
+			auto same = (1.0f + width) * 0.5f;
+			auto other = (1.0f - width) * 0.5f;
+			matrix[0 * 2 + 0] = same;
+			matrix[0 * 2 + 1] = other;
+			matrix[1 * 2 + 0] = other;
+			matrix[1 * 2 + 1] = same;
+			return matrix;
 		}
 
 		// Parse one little-endian integer from a bounded byte range.
@@ -291,6 +343,9 @@ namespace pr::audio
 			std::uint64_t m_samples_played;
 			VoiceCallback m_callback;
 			XAudioVoicePtr<IXAudio2SourceVoice> m_source;
+			Ramp m_gain;
+			Ramp m_pitch;
+			Ramp m_width;
 
 			explicit Voice(VoiceDesc const& desc)
 				: m_desc(desc)
@@ -301,6 +356,29 @@ namespace pr::audio
 				, m_samples_played(0)
 				, m_callback()
 				, m_source()
+				, m_gain(desc.volume)
+				, m_pitch(desc.pitch)
+				, m_width(desc.width)
+			{}
+		};
+
+		// Runtime state for one submix group. The submix voice applies the gain and low-pass filter; the high-pass filter is applied on its send to the parent.
+		struct Group
+		{
+			GroupDesc m_desc;
+			std::uint32_t m_stage;
+			Ramp m_gain;
+			Ramp m_low_pass;
+			Ramp m_high_pass;
+			XAudioVoicePtr<IXAudio2SubmixVoice> m_submix;
+
+			Group(GroupDesc const& desc, std::uint32_t stage)
+				: m_desc(desc)
+				, m_stage(stage)
+				, m_gain(desc.gain)
+				, m_low_pass(desc.low_pass_hz)
+				, m_high_pass(desc.high_pass_hz)
+				, m_submix()
 			{}
 		};
 
@@ -309,10 +387,10 @@ namespace pr::audio
 		ListenerState m_listener;
 		pr::RefPtr<IXAudio2> m_xaudio;
 		XAudioVoicePtr<IXAudio2MasteringVoice> m_master;
-		std::array<XAudioVoicePtr<IXAudio2SubmixVoice>, static_cast<std::size_t>(EBus::Count)> m_buses;
 		XAudioVoicePtr<IXAudio2SubmixVoice> m_reverb_bus;
 		std::vector<Slot<Clip>> m_clips;
 		std::vector<Slot<Voice>> m_voices;
+		std::vector<Slot<Group>> m_groups;
 		std::deque<Event> m_events;
 		std::uint64_t m_event_sequence;
 		std::uint32_t m_event_overflow_count;
@@ -338,10 +416,10 @@ namespace pr::audio
 			, m_listener(DefaultListener())
 			, m_xaudio()
 			, m_master()
-			, m_buses()
 			, m_reverb_bus()
 			, m_clips()
 			, m_voices()
+			, m_groups()
 			, m_events()
 			, m_event_sequence(0)
 			, m_event_overflow_count(0)
@@ -389,8 +467,7 @@ namespace pr::audio
 				slot.m_object.reset();
 			for (auto& slot : m_voices)
 				slot.m_object.reset();
-			for (auto& bus : m_buses)
-				bus.reset();
+			DestroyGroupVoices();
 			m_reverb_bus.reset();
 			m_master.reset();
 			if (m_xaudio != nullptr)
@@ -428,12 +505,21 @@ namespace pr::audio
 			CheckHR(m_master->GetChannelMask(&channel_mask), "IXAudio2MasteringVoice::GetChannelMask");
 			X3DAudioInitialize(channel_mask, m_config.speed_of_sound, m_x3d);
 
-			for (auto& bus : m_buses)
-			{
-				auto submix = static_cast<IXAudio2SubmixVoice*>(nullptr);
-				CheckHR(m_xaudio->CreateSubmixVoice(&submix, m_output_channels, m_output_sample_rate), "IXAudio2::CreateSubmixVoice");
-				bus.reset(submix);
-			}
+			// Meter the master output so callers can observe the final mix level
+			auto meter_effect = static_cast<IUnknown*>(nullptr);
+			CheckHR(XAudio2CreateVolumeMeter(&meter_effect), "XAudio2CreateVolumeMeter");
+			auto meter_desc = XAUDIO2_EFFECT_DESCRIPTOR{
+				.pEffect = meter_effect,
+				.InitialState = TRUE,
+				.OutputChannels = m_output_channels,
+			};
+			auto meter_chain = XAUDIO2_EFFECT_CHAIN{
+				.EffectCount = 1,
+				.pEffectDescriptors = &meter_desc,
+			};
+			auto meter_result = m_master->SetEffectChain(&meter_chain);
+			meter_effect->Release();
+			CheckHR(meter_result, "IXAudio2MasteringVoice::SetEffectChain(meter)");
 
 			// Keep reverberation on a dedicated mono effect send so callers can control room contribution per spatial voice.
 			auto reverb_effect = static_cast<IUnknown*>(nullptr);
@@ -490,8 +576,7 @@ namespace pr::audio
 				stream.m_inflight.clear();
 				stream.Seek(stream.m_position_base + played);
 			}
-			for (auto& bus : m_buses)
-				bus.reset();
+			DestroyGroupVoices();
 			m_reverb_bus.reset();
 			m_master.reset();
 			if (m_xaudio != nullptr)
@@ -499,6 +584,7 @@ namespace pr::audio
 			m_xaudio = nullptr;
 
 			CreateGraph();
+			CreateGroupVoices();
 
 			// Restore the highest-priority active voices first so a device reset preserves virtualization policy.
 			auto candidates = std::vector<std::size_t>{};
@@ -592,6 +678,114 @@ namespace pr::audio
 			return *slot.m_object;
 		}
 
+		// Resolve a group handle and distinguish invalid from stale references.
+		Group& GroupFromHandle(GroupHandle handle)
+		{
+			auto index = HandleIndex(handle);
+			if (index >= m_groups.size())
+				throw Exception(EStatus::InvalidHandle, "Audio group handle is invalid");
+
+			auto& slot = m_groups[index];
+			if (slot.m_generation != HandleGeneration(handle) || !slot.m_object)
+				throw Exception(EStatus::StaleHandle, "Audio group handle is stale");
+
+			return *slot.m_object;
+		}
+
+		// Return the XAudio2 voice that receives output routed to 'group', where 0 means the master output.
+		IXAudio2Voice* GroupOutput(GroupHandle group)
+		{
+			if (group == 0)
+				return m_master.get();
+
+			return GroupFromHandle(group).m_submix.get();
+		}
+
+		// Create the submix voice for one group. Its parent's submix must already exist.
+		void CreateGroupVoice(Group& group)
+		{
+			// The send filter carries the group's high-pass; the voice's own filter carries the low-pass
+			auto send = XAUDIO2_SEND_DESCRIPTOR{
+				.Flags = XAUDIO2_SEND_USEFILTER,
+				.pOutputVoice = GroupOutput(group.m_desc.parent),
+			};
+			auto sends = XAUDIO2_VOICE_SENDS{
+				.SendCount = 1,
+				.pSends = &send,
+			};
+			auto submix = static_cast<IXAudio2SubmixVoice*>(nullptr);
+			CheckHR(m_xaudio->CreateSubmixVoice(&submix, m_output_channels, m_output_sample_rate, XAUDIO2_VOICE_USEFILTER, group.m_stage, &sends, nullptr), "IXAudio2::CreateSubmixVoice(group)");
+			group.m_submix.reset(submix);
+			ApplyGroupMix(group, Clock::now());
+		}
+
+		// Apply a group's current gain and filter ramp values to its submix voice.
+		void ApplyGroupMix(Group& group, Clock::time_point now)
+		{
+			auto low_pass = XAUDIO2_FILTER_PARAMETERS{
+				.Type = LowPassFilter,
+				.Frequency = CutoffToRadians(group.m_low_pass.Value(now), m_output_sample_rate),
+				.OneOverQ = 1.0f,
+			};
+			auto high_pass = XAUDIO2_FILTER_PARAMETERS{
+				.Type = HighPassFilter,
+				.Frequency = CutoffToRadians(group.m_high_pass.Value(now), m_output_sample_rate),
+				.OneOverQ = 1.0f,
+			};
+			CheckHR(group.m_submix->SetVolume(group.m_gain.Value(now)), "IXAudio2Voice::SetVolume(group)");
+			CheckHR(group.m_submix->SetFilterParameters(&low_pass), "IXAudio2Voice::SetFilterParameters(group)");
+			CheckHR(group.m_submix->SetOutputFilterParameters(GroupOutput(group.m_desc.parent), &high_pass), "IXAudio2Voice::SetOutputFilterParameters(group)");
+		}
+
+		// Return the indices of live groups ordered by processing stage, deepest (lowest stage) first.
+		std::vector<std::size_t> GroupsDeepestFirst() const
+		{
+			auto order = std::vector<std::size_t>{};
+			for (auto i = std::size_t{}; i != m_groups.size(); ++i)
+			{
+				if (m_groups[i].m_object)
+					order.push_back(i);
+			}
+			std::stable_sort(order.begin(), order.end(), [&](std::size_t lhs, std::size_t rhs)
+				{
+					return m_groups[lhs].m_object->m_stage < m_groups[rhs].m_object->m_stage;
+				});
+			return order;
+		}
+
+		// Destroy every group submix voice, children before parents, because XAudio2 cannot destroy a voice that is still a send target.
+		// Logical group state is retained so CreateGroupVoices can rebuild the tree.
+		void DestroyGroupVoices()
+		{
+			for (auto index : GroupsDeepestFirst())
+				m_groups[index].m_object->m_submix.reset();
+		}
+
+		// Recreate every group submix voice, parents before children, after the output graph has been rebuilt.
+		void CreateGroupVoices()
+		{
+			auto order = GroupsDeepestFirst();
+			for (auto it = order.rbegin(); it != order.rend(); ++it)
+				CreateGroupVoice(*m_groups[*it].m_object);
+		}
+
+		// Apply a stream's current gain, pitch, and width ramp values to its source voice. Callers must hold m_streams_mutex.
+		void ApplyStreamMix(Stream& stream, Clock::time_point now)
+		{
+			if (!stream.m_source_voice)
+				return;
+
+			// Push the current ramp values to XAudio2; width only has meaning for a stereo source
+			auto pitch = std::clamp(stream.m_pitch.Value(now), XAUDIO2_MIN_FREQ_RATIO, XAUDIO2_DEFAULT_FREQ_RATIO);
+			CheckHR(stream.m_source_voice->SetFrequencyRatio(pitch), "IXAudio2SourceVoice::SetFrequencyRatio");
+			CheckHR(stream.m_source_voice->SetVolume(stream.m_gain.Value(now)), "IXAudio2Voice::SetVolume");
+			if (stream.m_channel_count == 2)
+			{
+				auto matrix = StereoWidthMatrix(stream.m_width.Value(now), m_output_channels);
+				CheckHR(stream.m_source_voice->SetOutputMatrix(GroupOutput(stream.m_desc.group), 2, m_output_channels, matrix.data()), "IXAudio2Voice::SetOutputMatrix(width)");
+			}
+		}
+
 		// Count currently materialized XAudio2 source voices.
 		std::uint32_t RenderedVoiceCount() const
 		{
@@ -645,7 +839,7 @@ namespace pr::audio
 			auto sends_desc = std::array{
 				XAUDIO2_SEND_DESCRIPTOR{
 					.Flags = 0,
-					.pOutputVoice = m_buses.at(static_cast<std::size_t>(voice.m_desc.bus)).get(),
+					.pOutputVoice = GroupOutput(voice.m_desc.group),
 				},
 				XAUDIO2_SEND_DESCRIPTOR{
 					.Flags = 0,
@@ -705,13 +899,21 @@ namespace pr::audio
 				return;
 
 			auto& clip = ClipFromHandle(voice.m_desc.clip);
-			auto pitch = std::clamp(voice.m_desc.pitch, XAUDIO2_MIN_FREQ_RATIO, XAUDIO2_DEFAULT_FREQ_RATIO);
+			auto now = Clock::now();
+			auto volume = voice.m_gain.Value(now);
+			auto pitch = std::clamp(voice.m_pitch.Value(now), XAUDIO2_MIN_FREQ_RATIO, XAUDIO2_DEFAULT_FREQ_RATIO);
 			if (!voice.m_has_emitter)
 			{
+				// Non-spatial voices play at their own gain and pitch, with no reverb send; stereo clips are narrowed by the voice width
 				auto reverb_matrix = std::vector<float>(clip.m_channel_count, 0.0f);
 				CheckHR(voice.m_source->SetFrequencyRatio(pitch), "IXAudio2SourceVoice::SetFrequencyRatio");
-				CheckHR(voice.m_source->SetVolume(std::max(0.0f, voice.m_desc.volume)), "IXAudio2Voice::SetVolume");
+				CheckHR(voice.m_source->SetVolume(volume), "IXAudio2Voice::SetVolume");
 				CheckHR(voice.m_source->SetOutputMatrix(m_reverb_bus.get(), clip.m_channel_count, 1, reverb_matrix.data()), "IXAudio2Voice::SetOutputMatrix(reverb)");
+				if (clip.m_channel_count == 2)
+				{
+					auto matrix = StereoWidthMatrix(voice.m_width.Value(now), m_output_channels);
+					CheckHR(voice.m_source->SetOutputMatrix(GroupOutput(voice.m_desc.group), 2, m_output_channels, matrix.data()), "IXAudio2Voice::SetOutputMatrix(width)");
+				}
 				return;
 			}
 			if (clip.m_channel_count != 1)
@@ -771,13 +973,13 @@ namespace pr::audio
 
 			auto obstruction = std::clamp(state.obstruction, 0.0f, 1.0f);
 			auto occlusion = std::clamp(state.occlusion, 0.0f, 1.0f);
-			auto gain = std::max(0.0f, voice.m_desc.volume) * (1.0f - 0.35f * obstruction) * (1.0f - 0.65f * occlusion);
+			auto gain = volume * (1.0f - 0.35f * obstruction) * (1.0f - 0.65f * occlusion);
 			auto filter = XAUDIO2_FILTER_PARAMETERS{
 				.Type = LowPassFilter,
 				.Frequency = std::clamp(dsp.LPFDirectCoefficient * (1.0f - 0.5f * obstruction - 0.75f * occlusion), 0.01f, 1.0f),
 				.OneOverQ = 1.0f,
 			};
-			CheckHR(voice.m_source->SetOutputMatrix(m_buses.at(static_cast<std::size_t>(voice.m_desc.bus)).get(), 1, m_output_channels, matrix.data()), "IXAudio2Voice::SetOutputMatrix");
+			CheckHR(voice.m_source->SetOutputMatrix(GroupOutput(voice.m_desc.group), 1, m_output_channels, matrix.data()), "IXAudio2Voice::SetOutputMatrix");
 			auto reverb_send = std::clamp(state.reverb_send, 0.0f, 1.0f) * dsp.ReverbLevel;
 			CheckHR(voice.m_source->SetOutputMatrix(m_reverb_bus.get(), 1, 1, &reverb_send), "IXAudio2Voice::SetOutputMatrix(reverb)");
 			CheckHR(voice.m_source->SetFrequencyRatio(std::clamp(pitch * dsp.DopplerFactor, XAUDIO2_MIN_FREQ_RATIO, XAUDIO2_DEFAULT_FREQ_RATIO)), "IXAudio2SourceVoice::SetFrequencyRatio");
@@ -785,7 +987,7 @@ namespace pr::audio
 			CheckHR(voice.m_source->SetFilterParameters(&filter), "IXAudio2Voice::SetFilterParameters");
 		}
 
-		// Materialize the XAudio2 source voice for a stream, bound to its configured bus. Callers must hold m_streams_mutex.
+		// Materialize the XAudio2 source voice for a stream, bound to its configured group. Callers must hold m_streams_mutex.
 		void RealizeStream(Stream& stream)
 		{
 			if (stream.m_source_voice)
@@ -802,7 +1004,7 @@ namespace pr::audio
 			};
 			auto send = XAUDIO2_SEND_DESCRIPTOR{
 				.Flags = 0,
-				.pOutputVoice = m_buses.at(static_cast<std::size_t>(stream.m_desc.bus)).get(),
+				.pOutputVoice = GroupOutput(stream.m_desc.group),
 			};
 			auto sends = XAUDIO2_VOICE_SENDS{
 				.SendCount = 1,
@@ -812,10 +1014,7 @@ namespace pr::audio
 			CheckHR(m_xaudio->CreateSourceVoice(&source, &format, XAUDIO2_VOICE_USEFILTER, XAUDIO2_DEFAULT_FREQ_RATIO, &stream.m_callback, &sends), "IXAudio2::CreateSourceVoice");
 			stream.m_source_voice.reset(source);
 			stream.m_source_started = false;
-
-			auto pitch = std::clamp(stream.m_desc.pitch, XAUDIO2_MIN_FREQ_RATIO, XAUDIO2_DEFAULT_FREQ_RATIO);
-			CheckHR(stream.m_source_voice->SetFrequencyRatio(pitch), "IXAudio2SourceVoice::SetFrequencyRatio");
-			CheckHR(stream.m_source_voice->SetVolume(std::max(0.0f, stream.m_desc.volume)), "IXAudio2Voice::SetVolume");
+			ApplyStreamMix(stream, Clock::now());
 		}
 
 		// Hand one decoded chunk to XAudio2 and track it in m_inflight until it completes. Callers must hold m_streams_mutex.
@@ -953,8 +1152,11 @@ namespace pr::audio
 		m_impl->CheckThread();
 		ValidateStruct(desc, "VoiceDesc");
 		m_impl->ClipFromHandle(desc.clip);
-		if (desc.bus < EBus::Effects || desc.bus >= EBus::Count || desc.volume < 0.0f || desc.pitch <= 0.0f)
-			throw std::invalid_argument("Voice description contains invalid routing, gain, or pitch");
+		if (desc.group != 0)
+			m_impl->GroupFromHandle(desc.group);
+		CheckRange(desc.volume, 0.0f, std::numeric_limits<float>::max(), "Voice volume");
+		CheckPositive(desc.pitch, "Voice pitch");
+		CheckRange(desc.width, 0.0f, 1.0f, "Voice width");
 
 		auto live_count = std::uint32_t{};
 		for (auto const& slot : m_impl->m_voices)
@@ -1124,14 +1326,122 @@ namespace pr::audio
 		voice.m_has_emitter = false;
 	}
 
-	// Set the linear gain for a mixer bus.
-	void Engine::BusGainSet(EBus bus, float gain)
+	// Ramp a voice's linear gain to 'gain' over 'ramp_s' seconds, starting from its current value.
+	void Engine::VoiceGainSet(VoiceHandle voice_handle, float gain, float ramp_s)
 	{
 		m_impl->CheckThread();
-		if (bus < EBus::Effects || bus >= EBus::Count || !std::isfinite(gain) || gain < 0.0f)
-			throw std::invalid_argument("Audio bus or gain is invalid");
+		CheckRange(gain, 0.0f, std::numeric_limits<float>::max(), "Voice gain");
+		CheckRange(ramp_s, 0.0f, std::numeric_limits<float>::max(), "Ramp duration");
+		m_impl->VoiceFromHandle(voice_handle).m_gain.Set(gain, ramp_s, Clock::now());
+	}
 
-		CheckHR(m_impl->m_buses.at(static_cast<std::size_t>(bus))->SetVolume(gain), "IXAudio2Voice::SetVolume");
+	// Ramp a voice's frequency ratio to 'pitch' over 'ramp_s' seconds. 'pitch' must be positive.
+	void Engine::VoicePitchSet(VoiceHandle voice_handle, float pitch, float ramp_s)
+	{
+		m_impl->CheckThread();
+		CheckPositive(pitch, "Voice pitch");
+		CheckRange(ramp_s, 0.0f, std::numeric_limits<float>::max(), "Ramp duration");
+		m_impl->VoiceFromHandle(voice_handle).m_pitch.Set(pitch, ramp_s, Clock::now());
+	}
+
+	// Ramp a voice's stereo width to 'width' in [0,1] over 'ramp_s' seconds. Width affects only non-spatial stereo clips.
+	void Engine::VoiceWidthSet(VoiceHandle voice_handle, float width, float ramp_s)
+	{
+		m_impl->CheckThread();
+		CheckRange(width, 0.0f, 1.0f, "Voice width");
+		CheckRange(ramp_s, 0.0f, std::numeric_limits<float>::max(), "Ramp duration");
+		m_impl->VoiceFromHandle(voice_handle).m_width.Set(width, ramp_s, Clock::now());
+	}
+
+	// Create a submix group feeding another group or the master output.
+	GroupHandle Engine::GroupCreate(GroupDesc const& desc)
+	{
+		// Validate the description and derive the processing stage from the parent
+		m_impl->CheckThread();
+		ValidateStruct(desc, "GroupDesc");
+		CheckRange(desc.gain, 0.0f, std::numeric_limits<float>::max(), "Group gain");
+		CheckPositive(desc.low_pass_hz, "Group low-pass cutoff");
+		CheckRange(desc.high_pass_hz, 0.0f, std::numeric_limits<float>::max(), "Group high-pass cutoff");
+		auto stage = k_root_group_stage;
+		if (desc.parent != 0)
+		{
+			// Children mix one stage before their parent; the stage range bounds the nesting depth
+			auto& parent = m_impl->GroupFromHandle(desc.parent);
+			if (parent.m_stage <= 1)
+				throw Exception(EStatus::ResourceLimit, "Audio group nesting is too deep");
+
+			stage = parent.m_stage - 1;
+		}
+
+		// Build the submix before taking a slot so a failure leaves no partial group
+		auto group = std::make_unique<Impl::Group>(desc, stage);
+		m_impl->CreateGroupVoice(*group);
+		for (auto i = std::size_t{}; i != m_impl->m_groups.size(); ++i)
+		{
+			auto& slot = m_impl->m_groups[i];
+			if (!slot.m_object)
+			{
+				slot.m_object = std::move(group);
+				return MakeHandle(i, slot.m_generation);
+			}
+		}
+
+		m_impl->m_groups.push_back({});
+		m_impl->m_groups.back().m_object = std::move(group);
+		return MakeHandle(m_impl->m_groups.size() - 1, m_impl->m_groups.back().m_generation);
+	}
+
+	// Release a group that has no child groups and is not used by any voice or stream.
+	void Engine::GroupDestroy(GroupHandle group)
+	{
+		// Reject destruction while anything still routes into this group
+		m_impl->CheckThread();
+		auto index = HandleIndex(group);
+		m_impl->GroupFromHandle(group);
+		for (auto const& slot : m_impl->m_groups)
+		{
+			if (slot.m_object && slot.m_object->m_desc.parent == group)
+				throw Exception(EStatus::InvalidArgument, "Cannot destroy an audio group that has child groups");
+		}
+		for (auto const& slot : m_impl->m_voices)
+		{
+			if (slot.m_object && slot.m_object->m_desc.group == group)
+				throw Exception(EStatus::InvalidArgument, "Cannot destroy an audio group while a voice uses it");
+		}
+		{
+			// Streams are guarded by the stream mutex
+			auto lock = std::lock_guard<std::mutex>(m_impl->m_streams_mutex);
+			for (auto const& slot : m_impl->m_streams)
+			{
+				if (slot.m_object && slot.m_object->m_desc.group == group)
+					throw Exception(EStatus::InvalidArgument, "Cannot destroy an audio group while a stream uses it");
+			}
+		}
+
+		m_impl->m_groups[index].m_object.reset();
+		AdvanceGeneration(m_impl->m_groups[index].m_generation);
+	}
+
+	// Ramp a group's linear gain to 'gain' over 'ramp_s' seconds, starting from its current value.
+	void Engine::GroupGainSet(GroupHandle group, float gain, float ramp_s)
+	{
+		m_impl->CheckThread();
+		CheckRange(gain, 0.0f, std::numeric_limits<float>::max(), "Group gain");
+		CheckRange(ramp_s, 0.0f, std::numeric_limits<float>::max(), "Ramp duration");
+		m_impl->GroupFromHandle(group).m_gain.Set(gain, ramp_s, Clock::now());
+	}
+
+	// Ramp a group's low-pass and high-pass cutoffs in Hz over 'ramp_s' seconds.
+	void Engine::GroupFilterSet(GroupHandle group, float low_pass_hz, float high_pass_hz, float ramp_s)
+	{
+		m_impl->CheckThread();
+		CheckPositive(low_pass_hz, "Group low-pass cutoff");
+		CheckRange(high_pass_hz, 0.0f, std::numeric_limits<float>::max(), "Group high-pass cutoff");
+		CheckRange(ramp_s, 0.0f, std::numeric_limits<float>::max(), "Ramp duration");
+		auto& target = m_impl->GroupFromHandle(group);
+		auto now = Clock::now();
+		target.m_low_pass.Set(low_pass_hz, ramp_s, now);
+		target.m_high_pass.Set(high_pass_hz, ramp_s, now);
 	}
 
 	// Create a resident stream by copying the complete bytes of an Ogg Vorbis file for background decoding.
@@ -1139,8 +1449,11 @@ namespace pr::audio
 	{
 		m_impl->CheckThread();
 		ValidateStruct(desc, "StreamDesc");
-		if (desc.bus < EBus::Effects || desc.bus >= EBus::Count || desc.volume < 0.0f || desc.pitch <= 0.0f)
-			throw std::invalid_argument("Stream description contains invalid routing, gain, or pitch");
+		if (desc.group != 0)
+			m_impl->GroupFromHandle(desc.group);
+		CheckRange(desc.volume, 0.0f, std::numeric_limits<float>::max(), "Stream volume");
+		CheckPositive(desc.pitch, "Stream pitch");
+		CheckRange(desc.width, 0.0f, 1.0f, "Stream width");
 		if (ogg_file.empty())
 			throw std::invalid_argument("Ogg Vorbis file data is empty");
 
@@ -1293,12 +1606,50 @@ namespace pr::audio
 		};
 	}
 
-	// Commit spatial state, process callback flags, and publish owner-thread events.
+	// Ramp a stream's linear gain to 'gain' over 'ramp_s' seconds, starting from its current value.
+	void Engine::StreamGainSet(StreamHandle stream_handle, float gain, float ramp_s)
+	{
+		m_impl->CheckThread();
+		CheckRange(gain, 0.0f, std::numeric_limits<float>::max(), "Stream gain");
+		CheckRange(ramp_s, 0.0f, std::numeric_limits<float>::max(), "Ramp duration");
+		auto lock = std::lock_guard<std::mutex>(m_impl->m_streams_mutex);
+		m_impl->StreamFromHandle(stream_handle).m_gain.Set(gain, ramp_s, Clock::now());
+	}
+
+	// Ramp a stream's frequency ratio to 'pitch' over 'ramp_s' seconds. 'pitch' must be positive.
+	void Engine::StreamPitchSet(StreamHandle stream_handle, float pitch, float ramp_s)
+	{
+		m_impl->CheckThread();
+		CheckPositive(pitch, "Stream pitch");
+		CheckRange(ramp_s, 0.0f, std::numeric_limits<float>::max(), "Ramp duration");
+		auto lock = std::lock_guard<std::mutex>(m_impl->m_streams_mutex);
+		m_impl->StreamFromHandle(stream_handle).m_pitch.Set(pitch, ramp_s, Clock::now());
+	}
+
+	// Ramp a stream's stereo width to 'width' in [0,1] over 'ramp_s' seconds. Width affects only stereo streams.
+	void Engine::StreamWidthSet(StreamHandle stream_handle, float width, float ramp_s)
+	{
+		m_impl->CheckThread();
+		CheckRange(width, 0.0f, 1.0f, "Stream width");
+		CheckRange(ramp_s, 0.0f, std::numeric_limits<float>::max(), "Ramp duration");
+		auto lock = std::lock_guard<std::mutex>(m_impl->m_streams_mutex);
+		m_impl->StreamFromHandle(stream_handle).m_width.Set(width, ramp_s, Clock::now());
+	}
+
+	// Commit spatial state, advance gain, pitch, width, and filter ramps, process callback flags, and publish owner-thread events.
 	void Engine::Update()
 	{
 		m_impl->CheckThread();
 		if (FAILED(m_impl->m_critical_error.exchange(S_OK, std::memory_order_acq_rel)))
 			m_impl->ResetGraph();
+
+		// Advance group gain and filter ramps
+		auto now = Clock::now();
+		for (auto& slot : m_impl->m_groups)
+		{
+			if (slot.m_object)
+				m_impl->ApplyGroupMix(*slot.m_object, now);
+		}
 
 		for (auto i = std::size_t{}; i != m_impl->m_voices.size(); ++i)
 		{
@@ -1355,6 +1706,7 @@ namespace pr::audio
 				continue;
 
 			m_impl->PumpStream(MakeHandle(i, slot.m_generation), *slot.m_object);
+			m_impl->ApplyStreamMix(*slot.m_object, now);
 		}
 	}
 
@@ -1394,6 +1746,22 @@ namespace pr::audio
 		diagnostics.queued_event_count = static_cast<std::uint32_t>(m_impl->m_events.size());
 		diagnostics.event_overflow_count = m_impl->m_event_overflow_count;
 		diagnostics.device_reset_count = m_impl->m_device_reset_count;
+
+		// Read the master meter; the effect fills one entry per output channel, which may exceed the reported channel capacity
+		auto peak = std::array<float, XAUDIO2_MAX_AUDIO_CHANNELS>{};
+		auto rms = std::array<float, XAUDIO2_MAX_AUDIO_CHANNELS>{};
+		auto levels = XAUDIO2FX_VOLUMEMETER_LEVELS{
+			.pPeakLevels = peak.data(),
+			.pRMSLevels = rms.data(),
+			.ChannelCount = m_impl->m_output_channels,
+		};
+		CheckHR(m_impl->m_master->GetEffectParameters(0, &levels, sizeof(levels)), "IXAudio2Voice::GetEffectParameters(meter)");
+		diagnostics.meter_channel_count = std::min(m_impl->m_output_channels, AUDIO_MAX_METER_CHANNELS);
+		for (auto i = std::uint32_t{}; i != diagnostics.meter_channel_count; ++i)
+		{
+			diagnostics.meter_peak[i] = peak[i];
+			diagnostics.meter_rms[i] = rms[i];
+		}
 		return diagnostics;
 	}
 }

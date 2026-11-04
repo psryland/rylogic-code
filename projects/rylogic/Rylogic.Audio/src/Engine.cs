@@ -6,7 +6,7 @@ using Microsoft.Win32.SafeHandles;
 
 namespace Rylogic.Audio;
 
-/// <summary>Owns one native audio engine, its clips, voices, and streams.</summary>
+/// <summary>Owns one native audio engine, its clips, voices, streams, and submix groups.</summary>
 public sealed class Engine :IDisposable
 {
 	private readonly AudioRuntime m_runtime;
@@ -14,6 +14,7 @@ public sealed class Engine :IDisposable
 	private readonly HashSet<Clip> m_clips;
 	private readonly HashSet<Voice> m_voices;
 	private readonly HashSet<AudioStream> m_streams;
+	private readonly HashSet<AudioGroup> m_groups;
 	private EngineSafeHandle? m_handle;
 
 	/// <summary>Adopt a newly-created native engine.</summary>
@@ -24,6 +25,7 @@ public sealed class Engine :IDisposable
 		m_clips = new HashSet<Clip>();
 		m_voices = new HashSet<Voice>();
 		m_streams = new HashSet<AudioStream>();
+		m_groups = new HashSet<AudioGroup>();
 		m_handle = new EngineSafeHandle(handle, runtime);
 	}
 
@@ -43,11 +45,17 @@ public sealed class Engine :IDisposable
 		Native.Check(Native.Audio_ListenerSet(Handle, &listener));
 	}
 
-	/// <summary>Replace the linear gain applied to every voice and stream routed through one mixer bus.</summary>
-	public void SetBusGain(EAudioBus bus, float gain)
+	/// <summary>Create a submix group that feeds 'parent', or the master output when 'parent' is null.</summary>
+	public unsafe AudioGroup CreateGroup(AudioGroup? parent = null, GroupOptions? options = null)
 	{
 		EnsureOwner();
-		Native.Check(Native.Audio_BusGainSet(Handle, bus, gain));
+		options ??= new GroupOptions();
+		var desc = Native.GroupDesc.From(ResolveGroup(parent, nameof(parent)), options);
+		Native.Check(Native.Audio_GroupCreate(Handle, &desc, out var handle));
+
+		var group = new AudioGroup(this, parent, new GroupHandle(handle));
+		m_groups.Add(group);
+		return group;
 	}
 
 	/// <summary>Create a clip from a wave-encoded payload. The engine copies the payload; the clip owns no reference to it.</summary>
@@ -78,7 +86,7 @@ public sealed class Engine :IDisposable
 			throw new ArgumentException("The clip must belong to this engine.", nameof(clip));
 
 		options ??= new VoiceOptions();
-		var desc = Native.VoiceDesc.From(clip.Handle, options);
+		var desc = Native.VoiceDesc.From(clip.Handle, ResolveGroup(options.Group, nameof(options)), options);
 		Native.Check(Native.Audio_VoiceCreate(Handle, &desc, out var handle));
 
 		var voice = new Voice(this, clip, new VoiceHandle(handle));
@@ -105,7 +113,10 @@ public sealed class Engine :IDisposable
 		return CreateStreamCore(ogg_data, options);
 	}
 
-	/// <summary>Advance engine-owned bookkeeping such as voice virtualisation and event queueing.</summary>
+	/// <summary>
+	/// Apply mix values to the native graph and advance voice virtualisation and event queueing. Zero-duration targets apply without interpolation.
+	/// Graph changes become audible when the audio processing thread consumes them, not synchronously with this call.
+	/// </summary>
 	public void Update()
 	{
 		EnsureOwner();
@@ -183,6 +194,8 @@ public sealed class Engine :IDisposable
 		m_clips.CopyTo(clips);
 		var streams = new AudioStream[m_streams.Count];
 		m_streams.CopyTo(streams);
+		var groups = new AudioGroup[m_groups.Count];
+		m_groups.CopyTo(groups);
 
 		// Voices must be invalidated before the clips they reference; native destruction owns the underlying device teardown.
 		Native.Check(Native.Audio_EngineDestroy(Handle));
@@ -192,6 +205,8 @@ public sealed class Engine :IDisposable
 			clip.ReleaseFromEngine();
 		foreach (var stream in streams)
 			stream.ReleaseFromEngine();
+		foreach (var group in groups)
+			group.ReleaseFromEngine();
 
 		m_handle.MarkDestroyed();
 		m_handle.Dispose();
@@ -237,6 +252,23 @@ public sealed class Engine :IDisposable
 		m_streams.Remove(stream);
 	}
 
+	/// <summary>Remove a disposed group from managed ownership tracking.</summary>
+	internal void Remove(AudioGroup group)
+	{
+		m_groups.Remove(group);
+	}
+
+	/// <summary>Return the native handle of a routing target, where null means the master output. The group must belong to this engine.</summary>
+	private GroupHandle ResolveGroup(AudioGroup? group, string param_name)
+	{
+		if (group == null)
+			return default;
+		if (!ReferenceEquals(group.Engine, this))
+			throw new ArgumentException("The group must belong to this engine.", param_name);
+
+		return group.Handle;
+	}
+
 	/// <summary>Create one resident clip from caller-owned bytes without retaining the managed buffer.</summary>
 	private unsafe Clip CreateClipCore(ReadOnlySpan<byte> wave_data)
 	{
@@ -261,7 +293,7 @@ public sealed class Engine :IDisposable
 			throw new ArgumentException("Ogg Vorbis data must not be empty.", nameof(ogg_data));
 
 		options ??= new StreamOptions();
-		var desc = Native.StreamDesc.From(options);
+		var desc = Native.StreamDesc.From(ResolveGroup(options.Group, nameof(options)), options);
 		fixed (byte* ptr = ogg_data)
 		{
 			Native.Check(Native.Audio_StreamCreateOgg(Handle, &desc, ptr, (ulong)ogg_data.Length, out var handle));

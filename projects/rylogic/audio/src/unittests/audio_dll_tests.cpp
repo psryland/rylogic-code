@@ -10,6 +10,7 @@
 #include "pr/audio/audio-dll.h"
 #include "pr/common/unittests.h"
 #include "src/dll_test.h"
+#include "../../engine/handle_util.h"
 
 namespace pr::unittests
 {
@@ -32,6 +33,10 @@ namespace pr::unittests
 			decltype(&Audio_EngineAbandon) EngineAbandon;
 			decltype(&Audio_EngineUpdate) EngineUpdate;
 			decltype(&Audio_ListenerSet) ListenerSet;
+			decltype(&Audio_GroupCreate) GroupCreate;
+			decltype(&Audio_GroupDestroy) GroupDestroy;
+			decltype(&Audio_GroupGainSet) GroupGainSet;
+			decltype(&Audio_GroupFilterSet) GroupFilterSet;
 			decltype(&Audio_ClipCreateWave) ClipCreateWave;
 			decltype(&Audio_ClipDestroy) ClipDestroy;
 			decltype(&Audio_VoiceCreate) VoiceCreate;
@@ -40,6 +45,9 @@ namespace pr::unittests
 			decltype(&Audio_VoiceStop) VoiceStop;
 			decltype(&Audio_VoiceStateGet) VoiceStateGet;
 			decltype(&Audio_VoiceEmitterSet) VoiceEmitterSet;
+			decltype(&Audio_VoiceGainSet) VoiceGainSet;
+			decltype(&Audio_VoicePitchSet) VoicePitchSet;
+			decltype(&Audio_VoiceWidthSet) VoiceWidthSet;
 			decltype(&Audio_StreamCreateOgg) StreamCreateOgg;
 			decltype(&Audio_StreamDestroy) StreamDestroy;
 			decltype(&Audio_StreamPlay) StreamPlay;
@@ -47,6 +55,9 @@ namespace pr::unittests
 			decltype(&Audio_StreamStop) StreamStop;
 			decltype(&Audio_StreamSeek) StreamSeek;
 			decltype(&Audio_StreamStateGet) StreamStateGet;
+			decltype(&Audio_StreamGainSet) StreamGainSet;
+			decltype(&Audio_StreamPitchSet) StreamPitchSet;
+			decltype(&Audio_StreamWidthSet) StreamWidthSet;
 			decltype(&Audio_EventsCopy) EventsCopy;
 			decltype(&Audio_DiagnosticsGet) DiagnosticsGet;
 
@@ -63,6 +74,10 @@ namespace pr::unittests
 				, EngineAbandon(m_module.Proc<decltype(EngineAbandon)>("Audio_EngineAbandon"))
 				, EngineUpdate(m_module.Proc<decltype(EngineUpdate)>("Audio_EngineUpdate"))
 				, ListenerSet(m_module.Proc<decltype(ListenerSet)>("Audio_ListenerSet"))
+				, GroupCreate(m_module.Proc<decltype(GroupCreate)>("Audio_GroupCreate"))
+				, GroupDestroy(m_module.Proc<decltype(GroupDestroy)>("Audio_GroupDestroy"))
+				, GroupGainSet(m_module.Proc<decltype(GroupGainSet)>("Audio_GroupGainSet"))
+				, GroupFilterSet(m_module.Proc<decltype(GroupFilterSet)>("Audio_GroupFilterSet"))
 				, ClipCreateWave(m_module.Proc<decltype(ClipCreateWave)>("Audio_ClipCreateWave"))
 				, ClipDestroy(m_module.Proc<decltype(ClipDestroy)>("Audio_ClipDestroy"))
 				, VoiceCreate(m_module.Proc<decltype(VoiceCreate)>("Audio_VoiceCreate"))
@@ -71,6 +86,9 @@ namespace pr::unittests
 				, VoiceStop(m_module.Proc<decltype(VoiceStop)>("Audio_VoiceStop"))
 				, VoiceStateGet(m_module.Proc<decltype(VoiceStateGet)>("Audio_VoiceStateGet"))
 				, VoiceEmitterSet(m_module.Proc<decltype(VoiceEmitterSet)>("Audio_VoiceEmitterSet"))
+				, VoiceGainSet(m_module.Proc<decltype(VoiceGainSet)>("Audio_VoiceGainSet"))
+				, VoicePitchSet(m_module.Proc<decltype(VoicePitchSet)>("Audio_VoicePitchSet"))
+				, VoiceWidthSet(m_module.Proc<decltype(VoiceWidthSet)>("Audio_VoiceWidthSet"))
 				, StreamCreateOgg(m_module.Proc<decltype(StreamCreateOgg)>("Audio_StreamCreateOgg"))
 				, StreamDestroy(m_module.Proc<decltype(StreamDestroy)>("Audio_StreamDestroy"))
 				, StreamPlay(m_module.Proc<decltype(StreamPlay)>("Audio_StreamPlay"))
@@ -78,6 +96,9 @@ namespace pr::unittests
 				, StreamStop(m_module.Proc<decltype(StreamStop)>("Audio_StreamStop"))
 				, StreamSeek(m_module.Proc<decltype(StreamSeek)>("Audio_StreamSeek"))
 				, StreamStateGet(m_module.Proc<decltype(StreamStateGet)>("Audio_StreamStateGet"))
+				, StreamGainSet(m_module.Proc<decltype(StreamGainSet)>("Audio_StreamGainSet"))
+				, StreamPitchSet(m_module.Proc<decltype(StreamPitchSet)>("Audio_StreamPitchSet"))
+				, StreamWidthSet(m_module.Proc<decltype(StreamWidthSet)>("Audio_StreamWidthSet"))
 				, EventsCopy(m_module.Proc<decltype(EventsCopy)>("Audio_EventsCopy"))
 				, DiagnosticsGet(m_module.Proc<decltype(DiagnosticsGet)>("Audio_DiagnosticsGet"))
 			{}
@@ -87,8 +108,8 @@ namespace pr::unittests
 		void __stdcall SwallowError(void*, char const*, char const*, int)
 		{}
 
-		// Create a short valid mono PCM16 WAV file without external fixtures.
-		std::vector<std::byte> MakeWave(std::uint32_t sample_count = 480)
+		// Create a short valid mono PCM16 WAV file without external fixtures. A non-zero amplitude in [0,1] fills it with a 480Hz tone; otherwise it is silent.
+		std::vector<std::byte> MakeWave(std::uint32_t sample_count = 480, float amplitude = 0.0f)
 		{
 			auto data_size = sample_count * sizeof(std::int16_t);
 			auto bytes = std::vector<std::byte>(44 + data_size);
@@ -110,6 +131,13 @@ namespace pr::unittests
 			write(34, std::uint16_t{16});
 			write(36, std::uint32_t{0x61746164});
 			write(40, data_size);
+
+			// One tone period is exactly 100 samples, so a clip whose length is a multiple of 100 loops without a click
+			for (auto i = std::uint32_t{}; i != sample_count; ++i)
+			{
+				auto phase = 2.0 * 3.14159265358979 * i / 100.0;
+				write(44 + i * sizeof(std::int16_t), static_cast<std::int16_t>(amplitude * 32767.0 * std::sin(phase)));
+			}
 			return bytes;
 		}
 
@@ -323,16 +351,29 @@ namespace pr::unittests
 			0x1D,0xD9,0xF0,0x8B,0xCB,0x54,0x8F,0x60,0x52,0xBE,0x1B,
 		};
 
-		// Build a valid StreamDesc referencing the fixture's routing bus with sane defaults.
-		StreamDesc MakeStreamDesc(EBus bus = EBus::Effects, std::uint32_t loop_count = 0)
+		// Build a valid StreamDesc routed to the master output with sane defaults.
+		StreamDesc MakeStreamDesc(std::uint32_t loop_count = 0, GroupHandle group = 0)
 		{
 			return {
 				.header = {sizeof(StreamDesc), AUDIO_STRUCT_VERSION},
-				.bus = bus,
+				.group = group,
 				.loop_count = loop_count,
 				.priority = 100,
 				.volume = 1.0f,
 				.pitch = 1.0f,
+				.width = 1.0f,
+			};
+		}
+
+		// Build a valid GroupDesc with unity gain and both filters open (a low-pass above a sixth of any output sample rate).
+		GroupDesc MakeGroupDesc(GroupHandle parent = 0)
+		{
+			return {
+				.header = {sizeof(GroupDesc), AUDIO_STRUCT_VERSION},
+				.parent = parent,
+				.gain = 1.0f,
+				.low_pass_hz = 20000.0f,
+				.high_pass_hz = 0.0f,
 			};
 		}
 
@@ -353,6 +394,16 @@ namespace pr::unittests
 
 				std::this_thread::sleep_for(std::chrono::milliseconds(2));
 			}
+		}
+
+		// Read the live graph's highest output peak without advancing owner-thread mix state.
+		float MasterPeak(AudioApi& api, EngineHandle engine)
+		{
+			// Meter observations must not apply pending targets as a side effect.
+			auto diagnostics = Diagnostics{};
+			PR_EXPECT(api.DiagnosticsGet(engine, &diagnostics) == EStatus::Success);
+			PR_EXPECT(diagnostics.meter_channel_count > 0 && diagnostics.meter_channel_count <= AUDIO_MAX_METER_CHANNELS);
+			return *std::max_element(diagnostics.meter_peak, diagnostics.meter_peak + diagnostics.meter_channel_count);
 		}
 	}
 
@@ -375,6 +426,7 @@ namespace pr::unittests
 				std::pair{EStructId::Diagnostics, static_cast<std::uint32_t>(sizeof(pr::audio::Diagnostics))},
 				std::pair{EStructId::StreamDesc, static_cast<std::uint32_t>(sizeof(pr::audio::StreamDesc))},
 				std::pair{EStructId::StreamState, static_cast<std::uint32_t>(sizeof(pr::audio::StreamState))},
+				std::pair{EStructId::GroupDesc, static_cast<std::uint32_t>(sizeof(pr::audio::GroupDesc))},
 			};
 			for (auto const& [id, expected] : sizes)
 			{
@@ -403,12 +455,13 @@ namespace pr::unittests
 			auto desc = VoiceDesc{
 				.header = {sizeof(VoiceDesc), AUDIO_STRUCT_VERSION},
 				.clip = clip,
-				.bus = EBus::Effects,
+				.group = 0,
 				.spatial = true,
 				.loop_count = 0,
 				.priority = 100,
 				.volume = 1.0f,
 				.pitch = 1.0f,
+				.width = 1.0f,
 			};
 			auto voice = VoiceHandle{};
 			PR_EXPECT(fix.m_api.VoiceCreate(fix.m_engine, &desc, &voice) == EStatus::Success);
@@ -524,12 +577,13 @@ namespace pr::unittests
 			auto desc = VoiceDesc{
 				.header = {sizeof(VoiceDesc), AUDIO_STRUCT_VERSION},
 				.clip = clip,
-				.bus = EBus::Effects,
+				.group = 0,
 				.spatial = false,
 				.loop_count = AUDIO_INFINITE_LOOP,
 				.priority = 10,
 				.volume = 0.0f,
 				.pitch = 1.0f,
+				.width = 1.0f,
 			};
 			auto low = VoiceHandle{};
 			auto high = VoiceHandle{};
@@ -572,7 +626,7 @@ namespace pr::unittests
 		PRUnitTestMethod(StreamLifecycleAndStaleHandle, Extended)
 		{
 			auto fix = AudioFixture{};
-			auto desc = MakeStreamDesc(EBus::Music, AUDIO_INFINITE_LOOP);
+			auto desc = MakeStreamDesc(AUDIO_INFINITE_LOOP);
 			auto stream = StreamHandle{};
 			PR_EXPECT(fix.m_api.StreamCreateOgg(fix.m_engine, &desc, k_ogg_fixture_bytes, sizeof(k_ogg_fixture_bytes), &stream) == EStatus::Success);
 
@@ -640,7 +694,7 @@ namespace pr::unittests
 		PRUnitTestMethod(StreamPlaybackToCompletion, Extended)
 		{
 			auto fix = AudioFixture{};
-			auto desc = MakeStreamDesc(EBus::Effects, 0);
+			auto desc = MakeStreamDesc(0);
 			auto stream = StreamHandle{};
 			PR_EXPECT(fix.m_api.StreamCreateOgg(fix.m_engine, &desc, k_ogg_fixture_bytes, sizeof(k_ogg_fixture_bytes), &stream) == EStatus::Success);
 			PR_EXPECT(fix.m_api.StreamPlay(fix.m_engine, stream) == EStatus::Success);
@@ -680,7 +734,7 @@ namespace pr::unittests
 		PRUnitTestMethod(StreamSeekRepositionsPlayback, Extended)
 		{
 			auto fix = AudioFixture{};
-			auto desc = MakeStreamDesc(EBus::Effects, AUDIO_INFINITE_LOOP);
+			auto desc = MakeStreamDesc(AUDIO_INFINITE_LOOP);
 			auto stream = StreamHandle{};
 			PR_EXPECT(fix.m_api.StreamCreateOgg(fix.m_engine, &desc, k_ogg_fixture_bytes, sizeof(k_ogg_fixture_bytes), &stream) == EStatus::Success);
 			PR_EXPECT(fix.m_api.StreamPlay(fix.m_engine, stream) == EStatus::Success);
@@ -703,6 +757,292 @@ namespace pr::unittests
 			PR_EXPECT(state.pcm_position == state.pcm_total);
 
 			PR_EXPECT(fix.m_api.StreamDestroy(fix.m_engine, stream) == EStatus::Success);
+		}
+
+		// M2-T1: groups nest, route voices and streams, and refuse destruction while in use.
+		PRUnitTestMethod(GroupLifecycleAndRouting, Extended)
+		{
+			// Build a two-level group tree
+			auto fix = AudioFixture{};
+			auto root_desc = MakeGroupDesc();
+			auto root = GroupHandle{};
+			PR_EXPECT(fix.m_api.GroupCreate(fix.m_engine, &root_desc, &root) == EStatus::Success);
+			auto child_desc = MakeGroupDesc(root);
+			auto child = GroupHandle{};
+			PR_EXPECT(fix.m_api.GroupCreate(fix.m_engine, &child_desc, &child) == EStatus::Success);
+			PR_EXPECT(root != 0 && child != 0 && root != child);
+
+			// Invalid descriptions and outputs are rejected
+			auto bad_desc = MakeGroupDesc();
+			bad_desc.gain = std::numeric_limits<float>::quiet_NaN();
+			auto bad = GroupHandle{};
+			PR_EXPECT(fix.m_api.GroupCreate(fix.m_engine, &bad_desc, &bad) == EStatus::InvalidArgument);
+			bad_desc = MakeGroupDesc();
+			bad_desc.low_pass_hz = -1.0f;
+			PR_EXPECT(fix.m_api.GroupCreate(fix.m_engine, &bad_desc, &bad) == EStatus::InvalidArgument);
+			bad_desc.low_pass_hz = 0.0f;
+			PR_EXPECT(fix.m_api.GroupCreate(fix.m_engine, &bad_desc, &bad) == EStatus::InvalidArgument);
+			PR_EXPECT(fix.m_api.GroupCreate(fix.m_engine, &root_desc, nullptr) == EStatus::InvalidArgument);
+
+			// A voice and a stream route into the child group
+			auto wave = MakeWave(4800);
+			auto clip = ClipHandle{};
+			PR_EXPECT(fix.m_api.ClipCreateWave(fix.m_engine, wave.data(), wave.size(), &clip) == EStatus::Success);
+			auto voice_desc = VoiceDesc{
+				.header = {sizeof(VoiceDesc), AUDIO_STRUCT_VERSION},
+				.clip = clip,
+				.group = child,
+				.spatial = false,
+				.loop_count = AUDIO_INFINITE_LOOP,
+				.priority = 100,
+				.volume = 1.0f,
+				.pitch = 1.0f,
+				.width = 1.0f,
+			};
+			auto voice = VoiceHandle{};
+			PR_EXPECT(fix.m_api.VoiceCreate(fix.m_engine, &voice_desc, &voice) == EStatus::Success);
+			PR_EXPECT(fix.m_api.VoicePlay(fix.m_engine, voice) == EStatus::Success);
+			auto stream_desc = MakeStreamDesc(AUDIO_INFINITE_LOOP, child);
+			auto stream = StreamHandle{};
+			PR_EXPECT(fix.m_api.StreamCreateOgg(fix.m_engine, &stream_desc, k_ogg_fixture_bytes, sizeof(k_ogg_fixture_bytes), &stream) == EStatus::Success);
+			PR_EXPECT(fix.m_api.StreamPlay(fix.m_engine, stream) == EStatus::Success);
+			PR_EXPECT(fix.m_api.EngineUpdate(fix.m_engine) == EStatus::Success);
+
+			// Groups cannot be destroyed while a child group, voice, or stream uses them
+			PR_EXPECT(fix.m_api.GroupDestroy(fix.m_engine, root) == EStatus::InvalidArgument);
+			PR_EXPECT(fix.m_api.GroupDestroy(fix.m_engine, child) == EStatus::InvalidArgument);
+			PR_EXPECT(fix.m_api.VoiceDestroy(fix.m_engine, voice) == EStatus::Success);
+			PR_EXPECT(fix.m_api.GroupDestroy(fix.m_engine, child) == EStatus::InvalidArgument);
+			PR_EXPECT(fix.m_api.StreamDestroy(fix.m_engine, stream) == EStatus::Success);
+
+			// Once unused, groups release leaf-first and their handles become stale
+			PR_EXPECT(fix.m_api.GroupDestroy(fix.m_engine, child) == EStatus::Success);
+			PR_EXPECT(fix.m_api.GroupDestroy(fix.m_engine, root) == EStatus::Success);
+			PR_EXPECT(fix.m_api.GroupDestroy(fix.m_engine, root) == EStatus::StaleHandle);
+			PR_EXPECT(fix.m_api.GroupGainSet(fix.m_engine, child, 0.5f, 0.0f) == EStatus::StaleHandle);
+			auto orphan_desc = MakeGroupDesc(root);
+			PR_EXPECT(fix.m_api.GroupCreate(fix.m_engine, &orphan_desc, &bad) == EStatus::StaleHandle);
+			voice_desc.group = child;
+			PR_EXPECT(fix.m_api.VoiceCreate(fix.m_engine, &voice_desc, &voice) == EStatus::StaleHandle);
+			PR_EXPECT(fix.m_api.ClipDestroy(fix.m_engine, clip) == EStatus::Success);
+		}
+
+		// M2-T2: ramps interpolate linearly, hold their target afterwards, and a zero ramp evaluates directly to its target.
+		PRUnitTestMethod(RampsReachTargets, Extended)
+		{
+			// Exercise the ramp arithmetic with explicit times so the result does not depend on scheduling
+			using Clock = pr::audio::Ramp::Clock;
+			auto t0 = Clock::time_point{} + std::chrono::seconds(10);
+			auto ramp = pr::audio::Ramp{1.0f};
+			PR_EXPECT(ramp.Value(t0) == 1.0f);
+			ramp.Set(0.0f, 2.0f, t0);
+			PR_EXPECT(ramp.Value(t0) == 1.0f);
+			PR_EXPECT(std::abs(ramp.Value(t0 + std::chrono::milliseconds(500)) - 0.75f) < 1e-5f);
+			PR_EXPECT(std::abs(ramp.Value(t0 + std::chrono::seconds(1)) - 0.5f) < 1e-5f);
+			PR_EXPECT(ramp.Value(t0 + std::chrono::seconds(2)) == 0.0f);
+			PR_EXPECT(ramp.Value(t0 + std::chrono::seconds(60)) == 0.0f);
+			PR_EXPECT(ramp.Target() == 0.0f);
+
+			// Retargeting mid-ramp starts from the current value so the output stays continuous
+			ramp.Set(0.0f, 0.0f, t0);
+			ramp.Set(1.0f, 2.0f, t0);
+			ramp.Set(0.0f, 1.0f, t0 + std::chrono::seconds(1));
+			PR_EXPECT(std::abs(ramp.Value(t0 + std::chrono::seconds(1)) - 0.5f) < 1e-5f);
+			PR_EXPECT(std::abs(ramp.Value(t0 + std::chrono::milliseconds(1500)) - 0.25f) < 1e-5f);
+
+			// A zero-length ramp evaluates to its target; applying that value to the audio graph is a separate Update boundary
+			ramp.Set(0.8f, 0.0f, t0);
+			PR_EXPECT(ramp.Value(t0) == 0.8f);
+
+			// Every setter accepts valid ramps and rejects out-of-domain values through the ABI
+			auto fix = AudioFixture{};
+			auto group_desc = MakeGroupDesc();
+			auto group = GroupHandle{};
+			PR_EXPECT(fix.m_api.GroupCreate(fix.m_engine, &group_desc, &group) == EStatus::Success);
+			auto wave = MakeWave(4800);
+			auto clip = ClipHandle{};
+			PR_EXPECT(fix.m_api.ClipCreateWave(fix.m_engine, wave.data(), wave.size(), &clip) == EStatus::Success);
+			auto voice_desc = VoiceDesc{
+				.header = {sizeof(VoiceDesc), AUDIO_STRUCT_VERSION},
+				.clip = clip,
+				.group = group,
+				.spatial = false,
+				.loop_count = AUDIO_INFINITE_LOOP,
+				.priority = 100,
+				.volume = 1.0f,
+				.pitch = 1.0f,
+				.width = 1.0f,
+			};
+			auto voice = VoiceHandle{};
+			PR_EXPECT(fix.m_api.VoiceCreate(fix.m_engine, &voice_desc, &voice) == EStatus::Success);
+			auto stream_desc = MakeStreamDesc(AUDIO_INFINITE_LOOP, group);
+			auto stream = StreamHandle{};
+			PR_EXPECT(fix.m_api.StreamCreateOgg(fix.m_engine, &stream_desc, k_ogg_fixture_bytes, sizeof(k_ogg_fixture_bytes), &stream) == EStatus::Success);
+			PR_EXPECT(fix.m_api.VoicePlay(fix.m_engine, voice) == EStatus::Success);
+			PR_EXPECT(fix.m_api.StreamPlay(fix.m_engine, stream) == EStatus::Success);
+
+			PR_EXPECT(fix.m_api.GroupGainSet(fix.m_engine, group, 0.5f, 0.1f) == EStatus::Success);
+			PR_EXPECT(fix.m_api.GroupFilterSet(fix.m_engine, group, 2000.0f, 100.0f, 0.1f) == EStatus::Success);
+			PR_EXPECT(fix.m_api.VoiceGainSet(fix.m_engine, voice, 0.5f, 0.1f) == EStatus::Success);
+			PR_EXPECT(fix.m_api.VoicePitchSet(fix.m_engine, voice, 1.5f, 0.1f) == EStatus::Success);
+			PR_EXPECT(fix.m_api.VoiceWidthSet(fix.m_engine, voice, 0.0f, 0.1f) == EStatus::Success);
+			PR_EXPECT(fix.m_api.StreamGainSet(fix.m_engine, stream, 0.5f, 0.1f) == EStatus::Success);
+			PR_EXPECT(fix.m_api.StreamPitchSet(fix.m_engine, stream, 0.5f, 0.1f) == EStatus::Success);
+			PR_EXPECT(fix.m_api.StreamWidthSet(fix.m_engine, stream, 0.0f, 0.1f) == EStatus::Success);
+			PollUntil(fix.m_api, fix.m_engine, [] { return false; }, std::chrono::milliseconds(200));
+
+			auto nan = std::numeric_limits<float>::quiet_NaN();
+			PR_EXPECT(fix.m_api.GroupGainSet(fix.m_engine, group, -1.0f, 0.0f) == EStatus::InvalidArgument);
+			PR_EXPECT(fix.m_api.GroupGainSet(fix.m_engine, group, 1.0f, -1.0f) == EStatus::InvalidArgument);
+			PR_EXPECT(fix.m_api.GroupFilterSet(fix.m_engine, group, nan, 0.0f, 0.0f) == EStatus::InvalidArgument);
+			PR_EXPECT(fix.m_api.GroupFilterSet(fix.m_engine, group, 0.0f, 0.0f, 0.0f) == EStatus::InvalidArgument);
+			PR_EXPECT(fix.m_api.VoicePitchSet(fix.m_engine, voice, 0.0f, 0.0f) == EStatus::InvalidArgument);
+			PR_EXPECT(fix.m_api.VoiceWidthSet(fix.m_engine, voice, 1.5f, 0.0f) == EStatus::InvalidArgument);
+			PR_EXPECT(fix.m_api.StreamGainSet(fix.m_engine, stream, nan, 0.0f) == EStatus::InvalidArgument);
+			PR_EXPECT(fix.m_api.StreamWidthSet(fix.m_engine, stream, -0.1f, 0.0f) == EStatus::InvalidArgument);
+
+			PR_EXPECT(fix.m_api.StreamDestroy(fix.m_engine, stream) == EStatus::Success);
+			PR_EXPECT(fix.m_api.VoiceDestroy(fix.m_engine, voice) == EStatus::Success);
+			PR_EXPECT(fix.m_api.ClipDestroy(fix.m_engine, clip) == EStatus::Success);
+			PR_EXPECT(fix.m_api.GroupDestroy(fix.m_engine, group) == EStatus::Success);
+		}
+
+		// Zero-duration voice and group gains leave live playback unchanged until one Update applies the exact target.
+		PRUnitTestMethod(ZeroDurationGainsWaitForUpdate, Extended)
+		{
+			// Exercise both dispatch paths against a steady resident tone, which cannot underrun between updates.
+			for (auto group_control : {false, true})
+			{
+				// Route one looping tone through a unity-gain group.
+				auto fix = AudioFixture{};
+				auto group_desc = MakeGroupDesc();
+				auto group = GroupHandle{};
+				PR_EXPECT(fix.m_api.GroupCreate(fix.m_engine, &group_desc, &group) == EStatus::Success);
+				auto wave = MakeWave(4800, 0.1f);
+				auto clip = ClipHandle{};
+				PR_EXPECT(fix.m_api.ClipCreateWave(fix.m_engine, wave.data(), wave.size(), &clip) == EStatus::Success);
+				auto voice_desc = VoiceDesc{
+					.header = {sizeof(VoiceDesc), AUDIO_STRUCT_VERSION},
+					.clip = clip,
+					.group = group,
+					.spatial = false,
+					.loop_count = AUDIO_INFINITE_LOOP,
+					.priority = 100,
+					.volume = 1.0f,
+					.pitch = 1.0f,
+					.width = 1.0f,
+				};
+				auto voice = VoiceHandle{};
+				PR_EXPECT(fix.m_api.VoiceCreate(fix.m_engine, &voice_desc, &voice) == EStatus::Success);
+				PR_EXPECT(fix.m_api.VoicePlay(fix.m_engine, voice) == EStatus::Success);
+				PR_EXPECT(PollUntil(fix.m_api, fix.m_engine, [&]
+					{
+						// Require actual output before testing a change to the live graph.
+						return MasterPeak(fix.m_api, fix.m_engine) > 0.05f;
+					}));
+				auto before = MasterPeak(fix.m_api, fix.m_engine);
+
+				// The zero-duration target must not change live output during the setter call or subsequent audio passes.
+				auto set_gain = group_control ? fix.m_api.GroupGainSet : fix.m_api.VoiceGainSet;
+				auto handle = group_control ? group : voice;
+				PR_EXPECT(set_gain(fix.m_engine, handle, 0.25f, 0.0f) == EStatus::Success);
+				std::this_thread::sleep_for(std::chrono::milliseconds(100));
+				PR_EXPECT(std::abs(MasterPeak(fix.m_api, fix.m_engine) - before) < before * 0.05f);
+
+				// One Update must apply the exact quarter-gain target, not start an interpolated fade.
+				PR_EXPECT(fix.m_api.EngineUpdate(fix.m_engine) == EStatus::Success);
+				std::this_thread::sleep_for(std::chrono::milliseconds(100));
+				PR_EXPECT(std::abs(MasterPeak(fix.m_api, fix.m_engine) - before * 0.25f) < before * 0.02f);
+				PR_EXPECT(fix.m_api.VoiceDestroy(fix.m_engine, voice) == EStatus::Success);
+				PR_EXPECT(fix.m_api.ClipDestroy(fix.m_engine, clip) == EStatus::Success);
+				PR_EXPECT(fix.m_api.GroupDestroy(fix.m_engine, group) == EStatus::Success);
+			}
+		}
+
+		// A zero-duration stream gain becomes audible only after Update submits the new target to the native source.
+		PRUnitTestMethod(ZeroDurationStreamGainWaitsForUpdate, Extended)
+		{
+			// Start a muted stream and wait until the source has consumed audio, not merely accepted a play request.
+			auto fix = AudioFixture{};
+			auto desc = MakeStreamDesc(AUDIO_INFINITE_LOOP);
+			desc.volume = 0.0f;
+			auto stream = StreamHandle{};
+			PR_EXPECT(fix.m_api.StreamCreateOgg(fix.m_engine, &desc, k_ogg_fixture_bytes, sizeof(k_ogg_fixture_bytes), &stream) == EStatus::Success);
+			PR_EXPECT(fix.m_api.StreamPlay(fix.m_engine, stream) == EStatus::Success);
+			PR_EXPECT(PollUntil(fix.m_api, fix.m_engine, [&]
+				{
+					// Observing a completed buffer establishes that the native source is processing the muted stream.
+					auto state = StreamState{};
+					PR_EXPECT(fix.m_api.StreamStateGet(fix.m_engine, stream, &state) == EStatus::Success);
+					return state.pcm_position > 0;
+				}));
+
+			// Keep the pre-update observation below the 40 ms decode look-ahead so silence is not just stream starvation.
+			PR_EXPECT(fix.m_api.StreamGainSet(fix.m_engine, stream, 1.0f, 0.0f) == EStatus::Success);
+			auto before_update = std::chrono::steady_clock::now() + std::chrono::milliseconds(20);
+			do
+			{
+				// The setter must leave the muted graph unchanged while XAudio2 processes queued audio.
+				PR_EXPECT(MasterPeak(fix.m_api, fix.m_engine) < 1e-6f);
+				std::this_thread::sleep_for(std::chrono::milliseconds(2));
+			}
+			while (std::chrono::steady_clock::now() < before_update);
+
+			// Apply the target once, then observe only the native meter while that submitted audio is processed.
+			PR_EXPECT(fix.m_api.EngineUpdate(fix.m_engine) == EStatus::Success);
+			auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(100);
+			auto heard = false;
+			do
+			{
+				// No further Update may hide a failure to apply the zero-duration target on the first one.
+				heard = MasterPeak(fix.m_api, fix.m_engine) > 0.01f;
+				if (!heard)
+					std::this_thread::sleep_for(std::chrono::milliseconds(2));
+			}
+			while (!heard && std::chrono::steady_clock::now() < deadline);
+			PR_EXPECT(heard);
+			PR_EXPECT(fix.m_api.StreamDestroy(fix.m_engine, stream) == EStatus::Success);
+		}
+
+		// M2-T3: the master meter reads silence when idle and a level while a tone plays.
+		PRUnitTestMethod(MasterMeterTracksOutput, Extended)
+		{
+			// Nothing is playing, so every channel reads silence. XAudio2 leaves a tiny noise floor (about 1e-18) rather than exact zero.
+			auto fix = AudioFixture{};
+			PollUntil(fix.m_api, fix.m_engine, [] { return false; }, std::chrono::milliseconds(50));
+			auto diagnostics = Diagnostics{};
+			PR_EXPECT(fix.m_api.DiagnosticsGet(fix.m_engine, &diagnostics) == EStatus::Success);
+			PR_EXPECT(diagnostics.meter_channel_count > 0 && diagnostics.meter_channel_count <= AUDIO_MAX_METER_CHANNELS);
+			for (auto i = std::uint32_t{}; i != diagnostics.meter_channel_count; ++i)
+				PR_EXPECT(diagnostics.meter_peak[i] < 1e-6f && diagnostics.meter_rms[i] < 1e-6f);
+
+			// A looping half-scale tone produces a level on the meter
+			auto wave = MakeWave(4800, 0.5f);
+			auto clip = ClipHandle{};
+			PR_EXPECT(fix.m_api.ClipCreateWave(fix.m_engine, wave.data(), wave.size(), &clip) == EStatus::Success);
+			auto voice_desc = VoiceDesc{
+				.header = {sizeof(VoiceDesc), AUDIO_STRUCT_VERSION},
+				.clip = clip,
+				.group = 0,
+				.spatial = false,
+				.loop_count = AUDIO_INFINITE_LOOP,
+				.priority = 100,
+				.volume = 1.0f,
+				.pitch = 1.0f,
+				.width = 1.0f,
+			};
+			auto voice = VoiceHandle{};
+			PR_EXPECT(fix.m_api.VoiceCreate(fix.m_engine, &voice_desc, &voice) == EStatus::Success);
+			PR_EXPECT(fix.m_api.VoicePlay(fix.m_engine, voice) == EStatus::Success);
+			auto heard = PollUntil(fix.m_api, fix.m_engine, [&]
+				{
+					PR_EXPECT(fix.m_api.DiagnosticsGet(fix.m_engine, &diagnostics) == EStatus::Success);
+					return std::any_of(diagnostics.meter_peak, diagnostics.meter_peak + diagnostics.meter_channel_count, [](float level) { return level > 0.05f; });
+				});
+			PR_EXPECT(heard);
+
+			PR_EXPECT(fix.m_api.VoiceDestroy(fix.m_engine, voice) == EStatus::Success);
+			PR_EXPECT(fix.m_api.ClipDestroy(fix.m_engine, clip) == EStatus::Success);
 		}
 	};
 }

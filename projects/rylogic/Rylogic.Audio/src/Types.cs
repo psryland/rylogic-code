@@ -20,17 +20,6 @@ public enum EStatus
 	InternalError = 10,
 }
 
-/// <summary>Mixer bus used to group related voices and streams for bulk gain control.</summary>
-public enum EAudioBus
-{
-	Effects = 0,
-	Ambience = 1,
-	Speech = 2,
-	Music = 3,
-	Interface = 4,
-	Count = 5,
-}
-
 /// <summary>Current transport state of a voice or stream.</summary>
 public enum EPlaybackState
 {
@@ -241,6 +230,67 @@ public readonly struct StreamHandle :IEquatable<StreamHandle>
 	}
 }
 
+/// <summary>An immutable generation-aware submix group identity with no native pointer semantics. The null handle identifies the master output.</summary>
+[StructLayout(LayoutKind.Sequential)]
+public readonly struct GroupHandle :IEquatable<GroupHandle>
+{
+	private readonly ulong m_value;
+
+	/// <summary>Initialise a typed handle from its stable binary identity.</summary>
+	internal GroupHandle(ulong value)
+	{
+		m_value = value;
+	}
+
+	/// <summary>True when this handle identifies no group, which means the master output.</summary>
+	public bool IsNull
+	{
+		get
+		{
+			return m_value == 0;
+		}
+	}
+
+	/// <summary>The fixed-width value passed to the native ABI.</summary>
+	internal ulong Value
+	{
+		get
+		{
+			return m_value;
+		}
+	}
+
+	/// <inheritdoc/>
+	public bool Equals(GroupHandle other)
+	{
+		return m_value == other.m_value;
+	}
+
+	/// <inheritdoc/>
+	public override bool Equals(object? obj)
+	{
+		return obj is GroupHandle other && Equals(other);
+	}
+
+	/// <inheritdoc/>
+	public override int GetHashCode()
+	{
+		return m_value.GetHashCode();
+	}
+
+	/// <summary>Compare two typed identities.</summary>
+	public static bool operator ==(GroupHandle lhs, GroupHandle rhs)
+	{
+		return lhs.Equals(rhs);
+	}
+
+	/// <summary>Compare two typed identities.</summary>
+	public static bool operator !=(GroupHandle lhs, GroupHandle rhs)
+	{
+		return !lhs.Equals(rhs);
+	}
+}
+
 /// <summary>Configurable engine capacities and physical constants. Pass null to accept the native engine's defaults.</summary>
 public sealed class EngineOptions
 {
@@ -327,18 +377,36 @@ public struct EmitterState
 	}
 }
 
+/// <summary>
+/// Configuration applied when creating a submix group. Cutoffs are in Hz. The low-pass cutoff must be positive; one at or above a sixth of the output
+/// sample rate, such as the default <see cref="LowPassOpenHz"/>, passes all frequencies. A high-pass cutoff of 0 passes all frequencies.
+/// </summary>
+public sealed class GroupOptions
+{
+	/// <summary>A low-pass cutoff that passes all frequencies at any supported output sample rate.</summary>
+	public const float LowPassOpenHz = 20000.0f;
+
+	public float Gain { get; set; } = 1.0f;
+	public float LowPassHz { get; set; } = LowPassOpenHz;
+	public float HighPassHz { get; set; }
+}
+
 /// <summary>Configuration applied when creating a voice bound to a clip.</summary>
 public sealed class VoiceOptions
 {
 	/// <summary>A loop count that plays the clip indefinitely until explicitly stopped.</summary>
 	public const uint InfiniteLoopCount = 0xFFFFFFFFU;
 
-	public EAudioBus Bus { get; set; } = EAudioBus.Effects;
+	/// <summary>The submix group the voice feeds, or null for the master output. The group must belong to the same engine.</summary>
+	public AudioGroup? Group { get; set; }
 	public bool Spatial { get; set; }
 	public uint LoopCount { get; set; }
 	public uint Priority { get; set; } = 100;
 	public float Volume { get; set; } = 1.0f;
 	public float Pitch { get; set; } = 1.0f;
+
+	/// <summary>Stereo width in [0,1] for non-spatial stereo clips; 0 is mono and 1 is the full source width.</summary>
+	public float Width { get; set; } = 1.0f;
 }
 
 /// <summary>Configuration applied when creating a stream decoding an Ogg Vorbis payload.</summary>
@@ -347,11 +415,15 @@ public sealed class StreamOptions
 	/// <summary>A loop count that plays the stream indefinitely until explicitly stopped.</summary>
 	public const uint InfiniteLoopCount = 0xFFFFFFFFU;
 
-	public EAudioBus Bus { get; set; } = EAudioBus.Effects;
+	/// <summary>The submix group the stream feeds, or null for the master output. The group must belong to the same engine.</summary>
+	public AudioGroup? Group { get; set; }
 	public uint LoopCount { get; set; }
 	public uint Priority { get; set; } = 100;
 	public float Volume { get; set; } = 1.0f;
 	public float Pitch { get; set; } = 1.0f;
+
+	/// <summary>Stereo width in [0,1] for stereo streams; 0 is mono and 1 is the full source width.</summary>
+	public float Width { get; set; } = 1.0f;
 }
 
 /// <summary>Caller-owned observable transport state for one voice.</summary>
@@ -417,10 +489,13 @@ public readonly struct AudioEvent
 	}
 }
 
-/// <summary>Bounded runtime counts useful for diagnostics and stress tests.</summary>
+/// <summary>Bounded runtime counts and master output levels useful for diagnostics and stress tests.</summary>
 [StructLayout(LayoutKind.Sequential)]
-public struct Diagnostics
+public unsafe struct Diagnostics
 {
+	/// <summary>The maximum number of output channels reported by the master meter.</summary>
+	public const int MaxMeterChannels = 8;
+
 	private NativeHeader m_header;
 	public uint m_logical_voice_count;
 	public uint m_rendered_voice_count;
@@ -432,6 +507,29 @@ public struct Diagnostics
 	public uint m_output_channel_count;
 	public uint m_output_sample_rate;
 	public float m_engine_buffer_ms;
+
+	/// <summary>The number of valid master meter channels.</summary>
+	public uint m_meter_channel_count;
+	private fixed float m_meter_peak[MaxMeterChannels];
+	private fixed float m_meter_rms[MaxMeterChannels];
+
+	/// <summary>The linear peak level of one master output channel during the most recent processing pass.</summary>
+	public float MeterPeak(int channel)
+	{
+		if ((uint)channel >= m_meter_channel_count)
+			throw new ArgumentOutOfRangeException(nameof(channel));
+
+		return m_meter_peak[channel];
+	}
+
+	/// <summary>The linear RMS level of one master output channel during the most recent processing pass.</summary>
+	public float MeterRms(int channel)
+	{
+		if ((uint)channel >= m_meter_channel_count)
+			throw new ArgumentOutOfRangeException(nameof(channel));
+
+		return m_meter_rms[channel];
+	}
 }
 
 /// <summary>Base exception for failures reported by the native Audio ABI.</summary>

@@ -91,6 +91,11 @@ namespace pr::audio
 		XAudioVoicePtr<IXAudio2SourceVoice> m_source_voice;
 		bool m_source_started;
 
+		// Owner-thread mix controls, applied to the source voice on each engine update.
+		Ramp m_gain;
+		Ramp m_pitch;
+		Ramp m_width;
+
 		// Open an Ogg Vorbis decoder over a complete copy of a compressed file. Throws Exception(UnsupportedFormat)
 		// if the header cannot be parsed.
 		explicit Stream(StreamDesc const& desc, std::vector<std::byte> ogg_file);
