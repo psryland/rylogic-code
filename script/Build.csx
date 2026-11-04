@@ -1196,6 +1196,9 @@ public class AllNative : Group
 			require_all_projects: true,
 			link_configs: ["Debug", "Release"]);
 
+		// Sign the staged copies of native runtime libraries and tools so the build outputs themselves are untouched
+		Tools.SignBinaries(Directory.EnumerateFiles(staging_dir, "*.*", SearchOption.AllDirectories).Where(x => x.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) || x.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)));
+
 		// Stage the native package in the release feed so the canonical root package and cache can be refreshed exactly.
 		Package = new Nuget()
 		{
@@ -1414,18 +1417,6 @@ void Main(IList<string> args)
 					BuildOptions.ProfileDir = args[i++];
 					break;
 				}
-			case "-cert_pfx":
-				{
-					if (!IsDataArg(i)) throw new Exception("Code signing certificate PFX path expected");
-					UserVars.CodeSignCert_Pfx = args[i++];
-					break;
-				}
-			case "-cert_pw":
-				{
-					if (!IsDataArg(i)) throw new Exception("Code signing certificate password expected");
-					UserVars.CodeSignCert_Pw = args[i++];
-					break;
-				}
 			case "-workspace":
 				{
 					if (!IsDataArg(i)) throw new Exception("Workspace argument missing");
@@ -1507,9 +1498,9 @@ void Main(IList<string> args)
 		builders.Add(builder);
 	}
 
-	// Warn once if Azure signing is not configured for deploy/publish
+	// Warn once if the signing tool is missing for deploy/publish. Signing itself enforces the CI policy.
 	if (deploy && !Tools.SigningAvailable)
-		Console.WriteLine("Warning: Azure Trusted Signing not configured. Artifacts will not be signed.");
+		Console.WriteLine("Warning: Sign CLI not installed. Artifacts will not be signed.");
 
 	// Clean every selected project before anything is built.
 	if (clean)

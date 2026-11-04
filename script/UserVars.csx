@@ -56,32 +56,28 @@ public class UserVars
 	public static string Git => m_git ??= FindOnPath("git");
 	private static string? m_git;
 
-	/// <summary>Assembly sign tool (Windows SDK signtool.exe)</summary>
-	public static string SignTool => Path([WinSDK, "bin", WinSDKVersion, "x64\\signtool.exe"]);
+	/// <summary>Sign CLI ('dotnet tool install -g sign --prerelease') used for Azure Artifact Signing. Empty if not installed.</summary>
+	public static string SignCli => m_sign_cli ??= TryFindOnPath("sign") ?? "";
+	private static string? m_sign_cli;
 
-	/// <summary>Code signing certificate PFX path. Empty if not configured.</summary>
-	public static string CodeSignCert_Pfx
-	{
-		get => m_code_sign_cert_pfx ??= UserSecret("RylogicCodeSignCertPfx") ?? "";
-		set => m_code_sign_cert_pfx = value;
-	}
-	private static string? m_code_sign_cert_pfx = null;
+	/// <summary>Azure Artifact Signing account endpoint. The region must match the account's region.</summary>
+	public static string CodeSign_Endpoint => "https://jpe.codesigning.azure.net/";
 
-	/// <summary>Code signing certificate password. Empty if not configured.</summary>
-	public static string CodeSignCert_Pw
-	{
-		get => m_code_sign_cert_pw ??= UserSecret("RylogicCodeSigningCertPassword") ?? "";
-		set => m_code_sign_cert_pw = value;
-	}
-	private static string? m_code_sign_cert_pw = null;
+	/// <summary>Azure Artifact Signing account name</summary>
+	public static string CodeSign_Account => "rylogic-signing";
 
-	/// <summary>Code signing certificate thumbprint (for VSIX signing). Empty if not configured.</summary>
-	public static string CodeSignCert_Thumbprint
-	{
-		get => m_code_sign_cert_thumbprint ??= UserSecret("RylogicCodeSignCertThumbprint") ?? "";
-		set => m_code_sign_cert_thumbprint = value;
-	}
-	private static string? m_code_sign_cert_thumbprint = null;
+	/// <summary>Azure Artifact Signing certificate profile name</summary>
+	public static string CodeSign_Profile => "rylogic";
+
+	/// <summary>Entra tenant that owns the Azure Artifact Signing account</summary>
+	public static string CodeSign_TenantId => "cf93725b-6330-4c8b-bcf8-32e7d6df504a";
+
+	/// <summary>
+	/// Azure CLI profile directory (AZURE_CONFIG_DIR) logged in to the signing tenant. Empty uses the default Azure CLI profile.
+	/// A separate profile lets signing use a different account from the one used for everyday Azure CLI work.
+	/// </summary>
+	public static string CodeSign_AzureConfigDir => m_code_sign_azure_config_dir ?? "";
+	private static string? m_code_sign_azure_config_dir;
 
 	/// <summary>Nuget package manager</summary>
 	public static string Nuget => Path([Root, "tools\\nuget\\nuget.exe"]);
@@ -154,6 +150,12 @@ public class UserVars
 	/// <summary>Find a tool on PATH using where.exe</summary>
 	private static string FindOnPath(string tool_name)
 	{
+		return TryFindOnPath(tool_name) ?? throw new Exception($"Could not find '{tool_name}' on PATH. Install it or set the path in Script/UserVars.json.");
+	}
+
+	/// <summary>Find a tool on PATH using where.exe. Returns null if not found.</summary>
+	private static string? TryFindOnPath(string tool_name)
+	{
 		try
 		{
 			var psi = new ProcessStartInfo("where.exe", tool_name)
@@ -172,7 +174,7 @@ public class UserVars
 			}
 		}
 		catch { }
-		throw new Exception($"Could not find '{tool_name}' on PATH. Install it or set the path in Script/UserVars.json.");
+		return null;
 	}
 
 	/// <summary>Find Visual Studio installation using vswhere.exe</summary>
@@ -330,9 +332,8 @@ public class UserVars
 						case "Pwsh": m_pwsh = prop.Value.GetString(); break;
 						case "WinSDK": m_win_sdk = prop.Value.GetString(); break;
 						case "WinSDKVersion": m_win_sdk_version = prop.Value.GetString(); break;
-						case "CodeSignCert_Pfx": m_code_sign_cert_pfx = prop.Value.GetString(); break;
-						case "CodeSignCert_Pw": m_code_sign_cert_pw = prop.Value.GetString(); break;
-						case "CodeSignCert_Thumbprint": m_code_sign_cert_thumbprint = prop.Value.GetString(); break;
+						case "SignCli": m_sign_cli = prop.Value.GetString(); break;
+						case "CodeSign_AzureConfigDir": m_code_sign_azure_config_dir = prop.Value.GetString(); break;
 						default:
 						{
 							if (prop.Name == "") break; // Ignore empty names

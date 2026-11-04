@@ -13,8 +13,29 @@ Rylogic packages are built from an immutable version tag and published by
    - workflow: `publish-nuget.yml`
    - environment: `nuget-release`
 
-The workflow requests an OIDC token only in the approval-protected publish job. `NuGet/login@v1`
-exchanges it for a short-lived API key; no persistent nuget.org API key is stored in GitHub.
+The workflow requests an OIDC token only in the approval-protected publish job and the tag-restricted
+signing build job. `NuGet/login@v1` exchanges it for a short-lived API key; no persistent nuget.org
+API key is stored in GitHub.
+
+## Code signing
+
+Release binaries (managed DLLs, and native runtime DLLs and tools) are Authenticode-signed with Azure
+Artifact Signing (account `rylogic-signing`, certificate profile `rylogic`, in the Rylogic tenant).
+`.nupkg` files are not NuGet-signed: Artifact Signing certificates rotate every few days and so cannot
+be registered with nuget.org, which adds its own repository signature instead. `Tools.SignBinaries`
+in `script/Tools.csx` signs through the Sign CLI (`dotnet tool install -g sign --prerelease`).
+
+CI setup (already done):
+- Entra app `rylogic-code-signing-ci` in the Rylogic tenant, with a federated credential for subject
+  `repo:psryland/rylogic-code:environment:code-signing` and the *Artifact Signing Certificate Profile
+  Signer* role on the signing account. It has no subscription access.
+- GitHub environment `code-signing`, limited to `rylogic-v*` tags, with environment variables
+  `AZURE_CODESIGN_CLIENT_ID` and `AZURE_CODESIGN_TENANT_ID`.
+
+A signing failure fails the CI build. Local builds sign when the Azure CLI is logged in to the Rylogic
+tenant and otherwise warn and continue unsigned. To keep a separate Azure CLI profile for signing, log
+in with `$env:AZURE_CONFIG_DIR = '<dir>'; az login --tenant <rylogic-tenant>` and set
+`"CodeSign_AzureConfigDir": "<dir>"` in `script/UserVars.json`.
 
 ## Publishing a release
 
@@ -28,7 +49,7 @@ The workflow first builds the tagged native package into its private local feed 
 projects restore the same unpublished version, then rebuilds every package from the tagged commit,
 validates the exact archive inventory, requires both Debug and Release native link assets, restores
 representative .NET 10 and .NET Framework 4.8.1 consumers, and publishes without `--skip-duplicate`.
-Reusing an existing version therefore fails instead of silently succeeding. Packages are currently unsigned.
+Reusing an existing version therefore fails instead of silently succeeding.
 
 ## Package sources
 
