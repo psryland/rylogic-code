@@ -631,7 +631,7 @@ namespace pr::rdr12
 	}
 
 	// Present the frame to the display
-	void Window::Present(Frame& frame, EGpuFlush flush)
+	void Window::Present(Frame& frame, EGpuFlush flush, bool display)
 	{
 		// Be careful that you never have the message-pump thread wait on the render thread.
 		// For instance, calling IDXGISwapChain1::Present1 (from the render thread) may cause
@@ -683,11 +683,12 @@ namespace pr::rdr12
 		});
 
 		// Present with the debug swap chain so that graphics debugging detects a frame
-		if (m_swap_chain_dbg != nullptr)
+		if (m_swap_chain_dbg != nullptr && display)
 			m_swap_chain_dbg->Present(m_vsync, 0);
 
 		// If there is no swap chain, then we must be using a custom swap chain. They can handle their own presentation.
-		if (m_swap_chain != nullptr)
+		// A hidden frame is not presented, so the next frame renders over the same back buffer.
+		if (m_swap_chain != nullptr && display)
 		{
 			// Render to the display
 			// IDXGISwapChain1::Present1 will inform you if your output window is entirely occluded via DXGI_STATUS_OCCLUDED.
@@ -738,12 +739,13 @@ namespace pr::rdr12
 			}
 		}
 
-		// Set the next sync point for the swap chain back buffer
+		// Set the next sync point for the swap chain back buffer. Only a displayed frame advances to the next back buffer.
 		auto sync_point = m_gsync.AddSyncPoint(rdr().GfxQueue());
 		frame.bb_main().m_sync_point = sync_point;
 		frame.bb_post().m_sync_point = sync_point;
 		m_frame_output = frame_output;
-		++m_bb_index %= BBCount();
+		if (display)
+			++m_bb_index %= BBCount();
 
 		// Signal the frame-ready event once the GPU releases the back buffer that the next NewFrame waits for.
 		// Clear any earlier signal first. A frame rendered without waiting for the event (e.g. a caller's timeout fallback) leaves the previous

@@ -24,9 +24,8 @@ namespace pr::rdr12
 {
 	using namespace ::pr::compute;
 
-	ResourceFactory::ResourceFactory(Renderer& rdr)
-		: m_rdr(rdr)
-		, m_gsync(rdr.D3DDevice())
+	ResourceFactoryState::ResourceFactoryState(Renderer& rdr)
+		: m_gsync(rdr.D3DDevice())
 		, m_keep_alive(m_gsync)
 		, m_gfx_cmd_alloc_pool(m_gsync)
 		, m_gfx_cmd_list(rdr.D3DDevice(), m_gfx_cmd_alloc_pool.Get(), nullptr, "ResourceFactory", EColours::LightGreen)
@@ -34,10 +33,42 @@ namespace pr::rdr12
 		, m_mipmap_gen(rdr, m_gsync, m_gfx_cmd_list)
 		, m_flush_required()
 	{}
+
+	ResourceFactory::ResourceFactory(Renderer& rdr, EResourceFactoryLifetime lifetime)
+		: m_rdr(rdr)
+		, m_owned()
+		, m_state()
+	{
+		// Scoped factories use the open resource batch of this thread when there is one, so that creation shares one command list and one GPU wait.
+		switch (lifetime)
+		{
+			case EResourceFactoryLifetime::Scoped:
+			{
+				m_state = rdr.ResourceBatch();
+				break;
+			}
+			case EResourceFactoryLifetime::Retained:
+			{
+				break;
+			}
+			default:
+			{
+				throw std::runtime_error("Unknown resource factory lifetime");
+			}
+		}
+
+		// Otherwise the factory records into its own state
+		if (m_state == nullptr)
+		{
+			m_owned = std::make_unique<ResourceFactoryState>(rdr);
+			m_state = m_owned.get();
+		}
+	}
 	ResourceFactory::~ResourceFactory()
 	{
-		// Wait till stock resources are created
-		FlushToGpu(EGpuFlush::Block);
+		// An owned state must not be destroyed while the GPU still uses it, so wait for the created resources to be finished.
+		// A batch state outlives this factory, so the work only needs submitting before later rendering can use the resources.
+		FlushToGpu(m_owned != nullptr ? EGpuFlush::Block : EGpuFlush::Async);
 	}
 
 	// Renderer access
@@ -53,39 +84,39 @@ namespace pr::rdr12
 	// Access the command list associated with this factory instance
 	GfxCmdList& ResourceFactory::CmdList()
 	{
-		m_flush_required = true;
-		return m_gfx_cmd_list;
+		m_state->m_flush_required = true;
+		return m_state->m_gfx_cmd_list;
 	}
 
 	// Access the upload buffer associated with this factory instance
 	GpuUploadBuffer& ResourceFactory::UploadBuffer()
 	{
-		m_flush_required = true;
-		return m_upload_buffer;
+		m_state->m_flush_required = true;
+		return m_state->m_upload_buffer;
 	}
 
 	// Flush creation commands to the GPU. Returns the sync point for when they've been executed
 	uint64_t ResourceFactory::FlushToGpu(EGpuFlush flush)
 	{
-		if (!m_flush_required || flush == EGpuFlush::DontFlush)
-			return m_gsync.LastAddedSyncPoint();
+		if (!m_state->m_flush_required || flush == EGpuFlush::DontFlush)
+			return m_state->m_gsync.LastAddedSyncPoint();
 
 		// Close the command list
-		m_gfx_cmd_list.Close();
+		m_state->m_gfx_cmd_list.Close();
 
 		pix::BeginEvent(rdr().GfxQueue(), s_cast<uint32_t>(EColours::LightGreen), "ResourceManager Flush");
 
 		// Execute the command list
-		rdr().ExecuteGfxCommandLists({ m_gfx_cmd_list });
+		rdr().ExecuteGfxCommandLists({ m_state->m_gfx_cmd_list });
 
-		m_flush_required = false;
+		m_state->m_flush_required = false;
 
 		// Add a sync point
-		auto sync_point = m_gsync.AddSyncPoint(rdr().GfxQueue());
-		m_gfx_cmd_list.SyncPoint(sync_point);
+		auto sync_point = m_state->m_gsync.AddSyncPoint(rdr().GfxQueue());
+		m_state->m_gfx_cmd_list.SyncPoint(sync_point);
 
 		// Reset the command list
-		m_gfx_cmd_list.Reset(m_gfx_cmd_alloc_pool.Get());
+		m_state->m_gfx_cmd_list.Reset(m_state->m_gfx_cmd_alloc_pool.Get());
 
 		// Wait till done?
 		if (flush == EGpuFlush::Block)
@@ -98,7 +129,7 @@ namespace pr::rdr12
 	// Wait for the GPU to finish processing the internal command list
 	void ResourceFactory::Wait(uint64_t sync_point) const
 	{
-		m_gsync.Wait(sync_point);
+		m_state->m_gsync.Wait(sync_point);
 	}
 
 	// Create and initialise a resource
@@ -138,7 +169,7 @@ namespace pr::rdr12
 			{
 				// Note: here 'desc.Data' is an array of mip-level-zero images.
 				// The span of images expected by 'UpdateSubresource' is for each mip level.
-				UpdateSubresourceScope map(m_gfx_cmd_list, m_upload_buffer, res.get(), i, 0, 1, desc.DataAlignment);
+				UpdateSubresourceScope map(m_state->m_gfx_cmd_list, m_state->m_upload_buffer, res.get(), i, 0, 1, desc.DataAlignment);
 				map.Write(desc.Data[i], AllSet(desc.MiscFlags, ResDesc::EMiscFlags::PartialInitData));
 				map.Commit(EFinalState::Override, desc.DefaultState);
 			}
@@ -147,11 +178,11 @@ namespace pr::rdr12
 			// 'm_mipmap_gen' should use the same cmd-list as the resource manager, so that mips are generated as
 			// textures are created. Remember cmd-lists are executed serially.
 			if (desc.MipLevels != 1)
-				m_mipmap_gen.Generate(res.get());
+				m_state->m_mipmap_gen.Generate(res.get());
 		}
 
 		// Transition the resource to the default state
-		BarrierBatch barriers(m_gfx_cmd_list);
+		BarrierBatch barriers(m_state->m_gfx_cmd_list);
 		barriers.Transition(res.get(), desc.DefaultState);
 		barriers.Commit();
 
@@ -159,7 +190,7 @@ namespace pr::rdr12
 		DefaultResState(res.get(), desc.DefaultState);
 
 		// Note if a flush is required
-		m_flush_required = m_flush_required || has_init_data || desc.DefaultState != D3D12_RESOURCE_STATE_COMMON;
+		m_state->m_flush_required = m_state->m_flush_required || has_init_data || desc.DefaultState != D3D12_RESOURCE_STATE_COMMON;
 
 		// Trace the pointers of resources that have been created
 		#if 0
@@ -170,8 +201,8 @@ namespace pr::rdr12
 		}
 		#endif
 
-		m_keep_alive.Add(res);
-		m_flush_required = true;
+		m_state->m_keep_alive.Add(res);
+		m_state->m_flush_required = true;
 
 		return res;
 	}
@@ -179,8 +210,8 @@ namespace pr::rdr12
 	// Record mip generation for all mips below mip 0 of a 2D texture
 	void ResourceFactory::GenerateMips(ID3D12Resource* texture)
 	{
-		m_mipmap_gen.Generate(texture);
-		m_flush_required = true;
+		m_state->m_mipmap_gen.Generate(texture);
+		m_state->m_flush_required = true;
 	}
 
 	// Create a model.
@@ -1092,7 +1123,7 @@ namespace pr::rdr12
 		// Allocate a new sampler instance
 		SamplerPtr inst(::pr::compute::New<Sampler>(rdr(), desc), true);
 		assert(rdr().mem_tracker().add(inst.get()));
-		m_keep_alive.Add(inst);
+		m_state->m_keep_alive.Add(inst);
 
 		// Add the sampler instance pointer (not ref counted) to the lookup table.
 		// The caller owns the sampler, when released it will be removed from this lookup.

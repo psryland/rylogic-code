@@ -58,7 +58,7 @@ namespace pr::rdr12
 		, m_area_max()
 		, m_cover(s_cast<size_t>(std::max(width, 0)) * s_cast<size_t>(std::max(height, 0)), 0.0f)
 		, m_tex()
-		, m_factory(new ResourceFactory(rdr))
+		, m_factory(new ResourceFactory(rdr, EResourceFactoryLifetime::Retained))
 	{
 		// Bilinear filtering needs at least two texels in each direction.
 		if (width < 2 || height < 2 || width > 4096 || height > 4096)

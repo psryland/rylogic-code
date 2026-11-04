@@ -1047,6 +1047,19 @@ VIEW3D_API void __stdcall View3D_WindowRender(view3d::Window window)
 	CatchAndReport(View3D_WindowRender, window,);
 }
 
+// Render the window and execute the frame on the GPU without showing it
+VIEW3D_API void __stdcall View3D_WindowRenderHidden(view3d::Window window)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		window->Render(false);
+	}
+	CatchAndReport(View3D_WindowRenderHidden, window,);
+}
+
 // Wait for any previous frames to complete rendering within the GPU
 VIEW3D_API void __stdcall View3D_WindowGSyncWait(view3d::Window window)
 {
@@ -2902,6 +2915,16 @@ VIEW3D_API void __stdcall View3D_PopulationBlockRemove(view3d::Population popula
 	}
 	CatchAndReport(View3D_PopulationBlockRemove, , );
 }
+VIEW3D_API void __stdcall View3D_PopulationCoverageSet(view3d::Population population, float coverage)
+{
+	try
+	{
+		Validate(population);
+		DllLockGuard;
+		population->SetCoverage(coverage);
+	}
+	CatchAndReport(View3D_PopulationCoverageSet, , );
+}
 
 // Copy instance records into a range of slots
 VIEW3D_API void __stdcall View3D_PopulationInstancesUpdate(view3d::Population population, int first, view3d::PopulationInstance const* instances, int count)
@@ -4057,6 +4080,28 @@ VIEW3D_API void __stdcall View3D_ObjectDetailStrengthMapSet(view3d::Object objec
 }
 
 // Materials ******************************
+
+// Begin a resource batch on the calling thread
+VIEW3D_API void __stdcall View3D_ResourceBatchBegin()
+{
+	try
+	{
+		DllLockGuard;
+		Dll().m_rdr.BeginResourceBatch();
+	}
+	CatchAndReport(View3D_ResourceBatchBegin, ,);
+}
+
+// End the resource batch opened by 'View3D_ResourceBatchBegin'
+VIEW3D_API void __stdcall View3D_ResourceBatchEnd()
+{
+	try
+	{
+		DllLockGuard;
+		Dll().m_rdr.EndResourceBatch();
+	}
+	CatchAndReport(View3D_ResourceBatchEnd, ,);
+}
 
 // Create a texture from data in memory.
 // Set 'data' to 0 to leave the texture uninitialised, if not 0 then data must point to width x height pixel data

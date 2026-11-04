@@ -277,6 +277,7 @@ namespace pr::rdr12
 		ESortGroup m_sort_group;                     // The sort group of every draw of the population. Replaces the group of the LOD nuggets' sort keys.
 		int m_instance_capacity;                     // The number of instance slots.
 		int m_payload_size;                          // The size of the caller payload buffer in bytes. Zero means no payload.
+		float m_coverage;                            // The fraction of each instance's pixels that are drawn, in [0,1]. See 'SetCoverage'.
 		D3DPtr<ID3D12Resource> m_instances;          // StructuredBuffer<View3DPopulationInstance>[m_instance_capacity]
 		D3DPtr<ID3D12Resource> m_live_counts;        // StructuredBuffer<uint>[block capacity]
 		D3DPtr<ID3D12Resource> m_payload;            // ByteAddressBuffer[m_payload_size], or null
@@ -315,6 +316,11 @@ namespace pr::rdr12
 		// Stop drawing block 'index'.
 		void RemoveBlock(int index);
 
+		// Draw a fraction 'coverage', in [0,1], of the pixels of every instance with a screen-door dither, in every view. One draws instances in full,
+		// and zero draws nothing. Within LOD transitions and fade bands, each entry keeps 'coverage' of its own pixels, so complementary entries still
+		// never cover a pixel twice. Throws std::invalid_argument for values outside [0,1].
+		void SetCoverage(float coverage);
+
 		// Call 'fn' with the bounds of each active block, and return the content revision consistent with those blocks.
 		uint64_t ActiveBlocks(std::function<void(BBox const&)> fn);
 
@@ -336,6 +342,10 @@ namespace pr::rdr12
 		// Return the classification scratch buffer for 'view_key', growing it to at least 'size' bytes.
 		ID3D12Resource* ViewBuffer(uint64_t view_key, int64_t size);
 
+		// Create the classification scratch buffers of 'view_keys', of at least 'size' bytes, and their diagnostics readback rings, before the
+		// classifications that use them. Creating these resources is slow, so a caller can do it at a time it chooses. Existing resources are kept.
+		void ReserveViews(std::span<uint64_t const> view_keys, int64_t size);
+
 		// Record a copy of the list header of 'view_key's classification into the view's readback ring. 'scratch' must be in the copy source state.
 		// 'gsync' is the timeline that will execute 'cmd_list', and 'cpu' holds the CPU counters of the classification. Nothing waits for the GPU.
 		void ReadBackDiagnostics(GfxCmdList& cmd_list, GpuSync const& gsync, uint64_t view_key, PopulationViewStats const& cpu);
@@ -353,12 +363,19 @@ namespace pr::rdr12
 
 		// Publish readback slots whose copies have completed. Callers hold 'm_mutex'.
 		void PollDiagnostics();
+
+		// Return the scratch buffer of 'view', growing it to at least 'size' bytes. Callers hold 'm_mutex'.
+		ID3D12Resource* GrowViewBuffer(ViewScratch& view, int64_t size);
+
+		// Create the diagnostics readback ring of 'view' if it has none. Callers hold 'm_mutex'.
+		void CreateReadback(ViewScratch& view);
 	};
 
 	// The consuming view of a population classification.
 	struct PopulationViewDesc
 	{
-		// A key that identifies the view across frames, so its scratch buffer is reused.
+		// A key that identifies the classification's scratch buffer across frames, so the buffer is reused.
+		// Classifications of one population that are recorded before their draws need different keys.
 		uint64_t m_key;
 
 		// World to screen (clip) transform. Supplies the frustum side planes.
@@ -431,6 +448,9 @@ namespace pr::rdr12
 		// Classify 'pop' for 'view', recording compute work into 'cmd_list'. 'step' selects the nuggets that have a material pass for that render step.
 		// 'gsync' is the timeline that executes 'cmd_list'; it dates the diagnostics readback. Leaves the compute root signature and PSO changed.
 		PopulationViewLists Cull(GfxCmdList& cmd_list, GpuUploadBuffer& upload, GpuSync const& gsync, Population& pop, PopulationViewDesc const& view, ERenderStep step);
+
+		// The size of the classification scratch buffer that 'Cull' uses for 'pop' and 'step'.
+		int64_t ViewSize(Population const& pop, ERenderStep step) const;
 
 		// The command signature for an indexed or non-indexed draw.
 		ID3D12CommandSignature* DrawSignature(bool indexed);

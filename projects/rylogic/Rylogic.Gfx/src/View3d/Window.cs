@@ -840,6 +840,15 @@ namespace Rylogic.Gfx
 				View3D_WindowRender(Handle);
 			}
 
+			/// <summary>
+			/// Render the window and execute the frame on the GPU without showing it; the next frame renders over the same back buffer.
+			/// Use it to pay the first-use costs of new content (pipeline states, driver work) before the frames that show it.
+			/// </summary>
+			public void RenderHidden()
+			{
+				View3D_WindowRenderHidden(Handle);
+			}
+
 			/// <summary>Wait for submitted commands to complete on the GPU</summary>
 			public void GSyncWait()
 			{

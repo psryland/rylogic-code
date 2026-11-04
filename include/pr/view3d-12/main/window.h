@@ -127,8 +127,8 @@ namespace pr::rdr12
 		// Start rendering a new frame. Returns an object that scenes can render into
 		Frame& NewFrame();
 
-		// Present the frame to the display
-		void Present(Frame& frame, EGpuFlush flush = EGpuFlush::Async);
+		// Present the frame to the display. A frame that is not 'display'ed is executed on the GPU but not shown, and the next frame reuses its back buffer.
+		void Present(Frame& frame, EGpuFlush flush = EGpuFlush::Async, bool display = true);
 
 		// Wait for the GPU to finish rendering the current frame. Use before shutdown
 		void WaitForGpu();

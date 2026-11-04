@@ -252,6 +252,7 @@ namespace pr::rdr12
 
 	// Resources
 	struct ResourceFactory;
+	struct ResourceFactoryState;
 	struct ResourceStore;
 	
 	// Samplers

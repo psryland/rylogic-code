@@ -14,6 +14,7 @@
 //
 // Smooth LOD transitions use screen-door dithering, not alpha blending. During a transition, one instance appears in two adjacent LOD lists
 // with complementary dither masks. Prototype distance fade bands use the same dither, so a far prototype can take over from a near one.
+// A population-wide coverage (see View3D_PopulationCoverageSet) further thins every entry with the same dither, to dissolve a population in or out.
 // Every pixel shader used by a population material must call 'View3DPopulationClipDither' (the stock forward
 // and shadow pixel shaders do). The dither value is zero for ordinary (non-population) draws, which keeps every pixel.
 //

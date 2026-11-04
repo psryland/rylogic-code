@@ -94,7 +94,7 @@ namespace pr::rdr12
 	materials::DetailStrengthMap::DetailStrengthMap(Renderer& rdr, int width, int height)
 		: m_tex()
 		, m_sam()
-		, m_factory(new ResourceFactory(rdr))
+		, m_factory(new ResourceFactory(rdr, EResourceFactoryLifetime::Retained))
 		, m_width(width)
 		, m_height(height)
 		, m_row_u(v4::XAxis())

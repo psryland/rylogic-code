@@ -12,6 +12,7 @@
 //   float4 MyShade(inout PSIn In, bool is_front_face)
 //   {
 //       In = ApplyDetailNormals(In);                          // Tilt the normal by the detail layers, or call 'DetailShade' for the whole stock shading.
+//                                                             // 'ApplyDetailNormals(In, strength)' takes the strength from the shader instead of a map.
 //       ...                                                   // Modify 'In', for example its colour or normal.
 //       return ForwardShade(In, is_front_face).diff;          // The stock simple-material shading, in linear colour before dithering.
 //   }
@@ -149,9 +150,41 @@ void AccumulateDetailLayers(float3 ws, float3 ws_dx, float3 ws_dy, DetailDirecti
 	}
 }
 
-// Return 'In' with its world normal tilted by the summed height gradient of the detail-normal layers. Also sets the unresolved slope
-// variance used by the shading, from the layers' detail that the mip filtering has averaged away plus the base variance.
-PSIn ApplyDetailNormals(PSIn In)
+// Return the directions, strengths and weights for a strength texel (height scale, added slope variance, turn x, turn y). A zero height scale draws
+// no layers.
+DetailDirections DetailStrengthDirections(float4 texel)
+{
+	// Patterns are drawn only in fixed directions, so a changing angle cross-fades between the two fixed patterns either side of it
+	// instead of moving one. Opposite angles can filter to a zero vector, which leaves the layers unturned. atan2 is in [-pi, pi], so
+	// adding a full turn keeps the steps positive. The second direction is the first turned by one step. The angle's length does not matter.
+	DetailDirections dirs = (DetailDirections)0;
+	float strength = max(texel.x, 0.0f);
+	float2 angle = dot(texel.zw, texel.zw) != 0.0f ? texel.zw : float2(1, 0);
+	float steps = atan2(angle.y, angle.x) * (DetailTurnDirections / 6.28318530718f) + DetailTurnDirections;
+	float first = floor(steps);
+	float fade = steps - first;
+	float2 step_turn = float2(cos(6.28318530718f / DetailTurnDirections), sin(6.28318530718f / DetailTurnDirections));
+	sincos(first * (6.28318530718f / DetailTurnDirections), dirs.turn[0].y, dirs.turn[0].x);
+	dirs.turn[1] = float2(dirs.turn[0].x * step_turn.x - dirs.turn[0].y * step_turn.y, dirs.turn[0].y * step_turn.x + dirs.turn[0].x * step_turn.y);
+
+	// Both directions draw at the same strength, and a fragment without strength draws neither. Patterns in different directions are
+	// unrelated, so a weighted sum of them has a smaller spread of slopes than either one: the square root of the sum of the squared weights,
+	// instead of the sum of the weights, which is 1. Scaling the slopes by the inverse of that keeps the contrast steady through a cross-fade.
+	// The unresolved variance is an average, so it keeps the plain weights.
+	float2 share = strength > 0.0f ? float2(1.0f - fade, fade) : float2(0, 0);
+	float contrast = rsqrt((1.0f - fade) * (1.0f - fade) + fade * fade);
+	dirs.strength[0] = strength;
+	dirs.strength[1] = strength;
+	dirs.variance_weight[0] = share.x;
+	dirs.variance_weight[1] = share.y;
+	dirs.gradient_weight[0] = contrast * share.x;
+	dirs.gradient_weight[1] = contrast * share.y;
+	return dirs;
+}
+
+// Return 'In' with its world normal tilted by the layers drawn in 'dirs', and set the unresolved slope variance used by the shading to the layers'
+// averaged-away detail plus 'variance'. Call in uniform flow control, because it takes screen derivatives.
+PSIn TiltDetailNormal(PSIn In, DetailDirections dirs, float variance)
 {
 	// Fragments without an interpolated normal keep the stock fallback normal.
 	float3 normal = In.ws_norm.xyz;
@@ -160,60 +193,56 @@ PSIn ApplyDetailNormals(PSIn In)
 
 	normal = normalize(normal);
 
-	// Without a strength map the layers are drawn once, unscaled and unturned. The screen derivatives are taken here, in uniform flow control.
+	// Sum the layers' height gradient, choosing mip levels from the screen derivatives of the position.
 	float3 ws = In.ws_vert.xyz;
-	float3 ws_dx = ddx(ws);
-	float3 ws_dy = ddy(ws);
-	float variance = g_detail.surface.x;
-	DetailDirections dirs = (DetailDirections)0;
-	if (g_detail.info.y == 0)
-	{
-		dirs.turn[0] = float2(1, 0);
-		dirs.strength[0] = 1.0f;
-		dirs.gradient_weight[0] = 1.0f;
-		dirs.variance_weight[0] = 1.0f;
-	}
-	else
-	{
-		// Filter the strength map bilinearly. The filtered angle vector turns smoothly between texel centres; its length does not matter.
-		// The map's projection puts [0,1] across the grid, and its clamp sampler extends the edge texels beyond it.
-		float2 uv = float2(dot(ws, g_detail.strength_row_u.xyz) + g_detail.strength_row_u.w, dot(ws, g_detail.strength_row_v.xyz) + g_detail.strength_row_v.w);
-		float4 texel = g_roughness_texture.SampleLevel(g_roughness_sampler, uv, 0);
-		float strength = max(texel.x, 0.0f);
-		variance += max(texel.y, 0.0f);
-
-		// Patterns are drawn only in fixed directions, so a changing angle cross-fades between the two fixed patterns either side of it
-		// instead of moving one. Opposite angles can filter to a zero vector, which leaves the layers unturned. atan2 is in [-pi, pi], so
-		// adding a full turn keeps the steps positive. The second direction is the first turned by one step.
-		float2 angle = dot(texel.zw, texel.zw) != 0.0f ? texel.zw : float2(1, 0);
-		float steps = atan2(angle.y, angle.x) * (DetailTurnDirections / 6.28318530718f) + DetailTurnDirections;
-		float first = floor(steps);
-		float fade = steps - first;
-		float2 step_turn = float2(cos(6.28318530718f / DetailTurnDirections), sin(6.28318530718f / DetailTurnDirections));
-		sincos(first * (6.28318530718f / DetailTurnDirections), dirs.turn[0].y, dirs.turn[0].x);
-		dirs.turn[1] = float2(dirs.turn[0].x * step_turn.x - dirs.turn[0].y * step_turn.y, dirs.turn[0].y * step_turn.x + dirs.turn[0].x * step_turn.y);
-
-		// Both directions draw at the filtered strength, and a fragment without strength draws neither. Patterns in different directions are
-		// unrelated, so a weighted sum of them has a smaller spread of slopes than either one: the square root of the sum of the squared weights,
-		// instead of the sum of the weights, which is 1. Scaling the slopes by the inverse of that keeps the contrast steady through a cross-fade.
-		// The unresolved variance is an average, so it keeps the plain weights.
-		float2 share = strength > 0.0f ? float2(1.0f - fade, fade) : float2(0, 0);
-		float contrast = rsqrt((1.0f - fade) * (1.0f - fade) + fade * fade);
-		dirs.strength[0] = strength;
-		dirs.strength[1] = strength;
-		dirs.variance_weight[0] = share.x;
-		dirs.variance_weight[1] = share.y;
-		dirs.gradient_weight[0] = contrast * share.x;
-		dirs.gradient_weight[1] = contrast * share.y;
-	}
 	float3 gradient = float3(0, 0, 0);
-	AccumulateDetailLayers(ws, ws_dx, ws_dy, dirs, gradient, variance);
+	AccumulateDetailLayers(ws, ddx(ws), ddy(ws), dirs, gradient, variance);
 	g_unresolved_slope_variance = variance;
 
 	// A height field displaced along the normal tilts the normal against the tangential part of its gradient.
 	gradient -= dot(gradient, normal) * normal;
 	In.ws_norm = float4(normalize(normal - gradient), 0);
 	return In;
+}
+
+// Return 'In' with its world normal tilted by the detail-normal layers, scaled and turned by 'strength': (height scale, added slope variance,
+// turn x, turn y), as a strength map texel holds. The turn's length does not matter, and a zero turn leaves the layers unturned. Also sets the
+// unresolved slope variance used by the shading, from the layers' detail that the mip filtering has averaged away plus the base variance and the
+// added variance. Use this to supply the strength from the shader itself in place of a strength map.
+PSIn ApplyDetailNormals(PSIn In, float4 strength)
+{
+	// The added variance is a variance, so a negative value means none.
+	return TiltDetailNormal(In, DetailStrengthDirections(strength), g_detail.surface.x + max(strength.y, 0.0f));
+}
+
+// Return 'In' with its world normal tilted by the summed height gradient of the detail-normal layers. Also sets the unresolved slope
+// variance used by the shading, from the layers' detail that the mip filtering has averaged away plus the base variance.
+PSIn ApplyDetailNormals(PSIn In)
+{
+	// Without a strength map the layers are drawn once, unscaled and unturned.
+	if (g_detail.info.y == 0)
+	{
+		DetailDirections dirs = (DetailDirections)0;
+		dirs.turn[0] = float2(1, 0);
+		dirs.strength[0] = 1.0f;
+		dirs.gradient_weight[0] = 1.0f;
+		dirs.variance_weight[0] = 1.0f;
+		return TiltDetailNormal(In, dirs, g_detail.surface.x);
+	}
+
+	// Filter the strength map bilinearly, so the strength and the turn change smoothly between texel centres. The map's projection puts [0,1]
+	// across the grid, and its clamp sampler extends the edge texels beyond it.
+	float3 ws = In.ws_vert.xyz;
+	float2 uv = float2(dot(ws, g_detail.strength_row_u.xyz) + g_detail.strength_row_u.w, dot(ws, g_detail.strength_row_v.xyz) + g_detail.strength_row_v.w);
+	return ApplyDetailNormals(In, g_roughness_texture.SampleLevel(g_roughness_sampler, uv, 0));
+}
+
+// Return the visualisation colour of a height strength: blue at 0, through green at 1, to red at 2 or more.
+float3 DetailStrengthColour(float strength)
+{
+	// Map [0, 2] onto the blue-green-red ramp.
+	float t = saturate(strength * 0.5f);
+	return saturate(float3(2.0f * t - 1.0f, 1.0f - abs(2.0f * t - 1.0f), 1.0f - 2.0f * t));
 }
 
 // Shade a simple-material fragment with its normal tilted by the detail-normal layers.
@@ -223,12 +252,10 @@ float4 DetailShade(inout PSIn In, bool is_front_face)
 	In = ApplyDetailNormals(In);
 	float4 diff = ForwardShade(In, is_front_face).diff;
 
-	// The visualisation replaces the shaded colour with the height strength, from blue at 0 through green at 1 to red at 2 or more.
+	// The visualisation replaces the shaded colour with the height strength.
 	if (g_detail.info.z != 0)
-	{
-		float t = saturate(DetailStrength(In.ws_vert.xyz).x * 0.5f);
-		diff.rgb = saturate(float3(2.0f * t - 1.0f, 1.0f - abs(2.0f * t - 1.0f), 1.0f - 2.0f * t));
-	}
+		diff.rgb = DetailStrengthColour(DetailStrength(In.ws_vert.xyz).x);
+
 	return diff;
 }
 

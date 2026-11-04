@@ -1,4 +1,4 @@
-﻿//********************************
+//********************************
 // PR3D Model file format
 //  Copyright (c) Rylogic Ltd 2014
 //********************************
@@ -265,6 +265,12 @@ namespace pr::geometry
 			int stride() const
 			{
 				return m_stride;
+			}
+
+			// The index data as bytes, whatever the stride
+			std::span<byte_t> as_bytes() const
+			{
+				return m_span;
 			}
 
 			// Access the raw pointer. sizeof(Idx) must == stride()
