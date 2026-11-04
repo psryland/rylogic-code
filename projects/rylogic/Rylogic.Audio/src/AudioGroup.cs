@@ -45,14 +45,17 @@ public sealed class AudioGroup :IDisposable
 		}
 	}
 
-	/// <summary>Move the group's linear gain to 'gain' over 'ramp_seconds' (0 applies immediately).</summary>
+	/// <summary>Move the group's linear gain to 'gain' over 'ramp_seconds'. Zero applies without interpolation on the next <see cref="Engine.Update"/>.</summary>
 	public void SetGain(float gain, float ramp_seconds = 0.0f)
 	{
 		Engine.EnsureOwner();
 		Native.Check(Native.Audio_GroupGainSet(Engine.Handle, Handle.Value, gain, ramp_seconds));
 	}
 
-	/// <summary>Move the group's cutoffs (Hz) to new values over 'ramp_seconds' (0 applies immediately). See <see cref="GroupOptions"/> for the open values.</summary>
+	/// <summary>
+	/// Move the group's cutoffs (Hz) to new values over 'ramp_seconds'. Zero applies without interpolation on the next <see cref="Engine.Update"/>.
+	/// See <see cref="GroupOptions"/> for the open values.
+	/// </summary>
 	public void SetFilter(float low_pass_hz, float high_pass_hz, float ramp_seconds = 0.0f)
 	{
 		Engine.EnsureOwner();

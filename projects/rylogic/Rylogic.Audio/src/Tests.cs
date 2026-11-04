@@ -267,6 +267,62 @@ public sealed class TestAudio
 		Assert.True(world.IsDisposed);
 	}
 
+	/// <summary>Observe zero-duration managed group and voice gains at the native output before and after a single Update.</summary>
+	[Test]
+	public void ZeroDurationGainsWaitForUpdate()
+	{
+		// Use a steady resident tone so a lack of Update cannot cause stream starvation.
+		using var runtime = new AudioRuntime();
+		using var engine = runtime.CreateEngine();
+		using var group = engine.CreateGroup();
+		using var clip = engine.CreateClip(AudioData.FromWave(MakeWave(sample_rate: 48000, seconds: 0.1)));
+		using var voice = engine.CreateVoice(clip, new VoiceOptions { Group = group, LoopCount = VoiceOptions.InfiniteLoopCount });
+		voice.Play();
+
+		// Meter reads must not apply pending targets or otherwise cross the Update boundary.
+		float ReadPeak()
+		{
+			// Read every rendered channel because the endpoint may be mono, stereo, or surround.
+			var diagnostics = engine.GetDiagnostics();
+			Assert.True(diagnostics.m_meter_channel_count > 0);
+			var peak = 0.0f;
+			for (var channel = 0; channel != diagnostics.m_meter_channel_count; ++channel)
+				peak = Math.Max(peak, diagnostics.MeterPeak(channel));
+
+			return peak;
+		}
+		Action<float, float>[] setters = { group.SetGain, voice.SetGain };
+		foreach (var set_gain in setters)
+		{
+			// Restore unity gain and require a live signal before observing each setter.
+			set_gain(1.0f, 0.0f);
+			var heard = false;
+			for (var attempt = 0; attempt != 100 && !heard; ++attempt)
+			{
+				// Only startup may use repeated updates; the contract boundary below uses exactly one.
+				engine.Update();
+				heard = ReadPeak() > 0.05f;
+				if (!heard)
+					Thread.Sleep(10);
+			}
+			Assert.True(heard);
+			var before = ReadPeak();
+
+			// A zero-duration target must leave live output unchanged until the next Update.
+			set_gain(0.25f, 0.0f);
+			Thread.Sleep(100);
+			Assert.True(Math.Abs(ReadPeak() - before) < before * 0.05f);
+
+			// One Update applies the exact target without a fade; meter reads allow only audio-thread processing afterwards.
+			engine.Update();
+			Thread.Sleep(100);
+			Assert.True(Math.Abs(ReadPeak() - before * 0.25f) < before * 0.02f);
+			set_gain(1.0f, 0.0f);
+			engine.Update();
+			Thread.Sleep(100);
+		}
+	}
+
 	/// <summary>Exercise Ogg lifecycle, gapless short looping, seek, natural completion, and malformed rejection.</summary>
 	[Test]
 	public void OggStreamLifecycle()

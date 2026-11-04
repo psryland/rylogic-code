@@ -9,7 +9,7 @@ Rylogic Audio is a Windows 11 native spatial-audio library. The static C++ API i
 - XAudio2 2.9 owns one output graph per `Engine`.
 - Each engine renders one listener/output mix. Independent rendered perspectives use separate engines.
 - X3DAudio supplies speaker matrixing, distance attenuation, Doppler, source cones, and direct-path low-pass values.
-- Effects, ambience, speech, music, and interface buses provide application-neutral mix categories.
+- Caller-defined, nestable submix groups provide shared gain and low-/high-pass filtering for routed voices and streams.
 - Spatial voices send a caller-controlled room contribution to a dedicated XAudio2 reverb effect bus.
 - Ogg Vorbis streams are decoded from engine-owned compressed bytes on a bounded worker thread. XAudio2 callbacks only publish atomic completion/underrun state.
 
@@ -33,6 +33,15 @@ Every mutable engine operation runs on the OS thread that created the engine. Wr
 return `EStatus::WrongThread`. Runtime completion, underrun, virtualization, device-reset, and
 queue-overflow notifications are drained through `Audio_EventsCopy`; no user callback runs on an
 XAudio2 real-time thread.
+
+## Mix updates
+
+Group gain/filter setters and voice/stream gain, pitch, and width setters record ramp targets without changing the live
+audio graph. Call `Engine::Update` (`Audio_EngineUpdate` in the DLL API) to apply current ramp values to active playback.
+A duration of zero applies the target without interpolation on the next update, not during the setter call. Non-zero ramps
+use elapsed steady-clock time, with their audible steps determined by the update rate. Newly started or recreated sources
+also use their current ramp values. XAudio2 consumes graph changes on its processing thread, so an update is not a synchronous
+audio-rendering boundary.
 
 ## Capacity and latency
 

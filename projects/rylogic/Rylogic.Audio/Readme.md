@@ -53,9 +53,11 @@ high-pass cutoff of 0 passes everything. Cutoffs ramp linearly in Hz. Voices and
 while child groups, voices, or streams still route through it.
 
 Every mix setter takes a ramp time in seconds: `AudioGroup.SetGain`/`SetFilter`, and `Voice`/`AudioStream` `SetGain`, `SetPitch`,
-and `SetWidth`. The engine moves the value linearly toward its target during `Engine.Update`, so ramp smoothness follows the
-update rate. A ramp of 0 applies immediately, and a new target starts from the current value. Width (0 = mono, 1 = full source
-width) affects only non-spatial stereo sources.
+and `SetWidth`. Setters record ramp targets; they do not change the live audio graph. `Engine.Update` applies the current ramp
+values to active playback, so ramp smoothness follows the update rate. A ramp of 0 applies its target without interpolation
+on the next `Engine.Update`, not during the setter call. A new target starts from the current ramp value. Newly started or
+recreated sources also use their current ramp values. Graph changes become audible when the audio processing thread consumes
+them; `Update` does not synchronously render audio. Width (0 = mono, 1 = full source width) affects only non-spatial stereo sources.
 
 `Diagnostics.MeterPeak(channel)` and `MeterRms(channel)` report linear master output levels for the first
 `m_meter_channel_count` channels during the most recent processing pass.

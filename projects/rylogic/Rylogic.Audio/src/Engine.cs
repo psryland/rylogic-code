@@ -113,7 +113,10 @@ public sealed class Engine :IDisposable
 		return CreateStreamCore(ogg_data, options);
 	}
 
-	/// <summary>Advance engine-owned bookkeeping such as voice virtualisation and event queueing.</summary>
+	/// <summary>
+	/// Apply mix values to the native graph and advance voice virtualisation and event queueing. Zero-duration targets apply without interpolation.
+	/// Graph changes become audible when the audio processing thread consumes them, not synchronously with this call.
+	/// </summary>
 	public void Update()
 	{
 		EnsureOwner();

@@ -395,6 +395,16 @@ namespace pr::unittests
 				std::this_thread::sleep_for(std::chrono::milliseconds(2));
 			}
 		}
+
+		// Read the live graph's highest output peak without advancing owner-thread mix state.
+		float MasterPeak(AudioApi& api, EngineHandle engine)
+		{
+			// Meter observations must not apply pending targets as a side effect.
+			auto diagnostics = Diagnostics{};
+			PR_EXPECT(api.DiagnosticsGet(engine, &diagnostics) == EStatus::Success);
+			PR_EXPECT(diagnostics.meter_channel_count > 0 && diagnostics.meter_channel_count <= AUDIO_MAX_METER_CHANNELS);
+			return *std::max_element(diagnostics.meter_peak, diagnostics.meter_peak + diagnostics.meter_channel_count);
+		}
 	}
 
 	PRUnitTestClass(AudioDllTests)
@@ -817,7 +827,7 @@ namespace pr::unittests
 			PR_EXPECT(fix.m_api.ClipDestroy(fix.m_engine, clip) == EStatus::Success);
 		}
 
-		// M2-T2: ramps interpolate linearly, hold their target afterwards, and a zero ramp is immediate.
+		// M2-T2: ramps interpolate linearly, hold their target afterwards, and a zero ramp evaluates directly to its target.
 		PRUnitTestMethod(RampsReachTargets, Extended)
 		{
 			// Exercise the ramp arithmetic with explicit times so the result does not depend on scheduling
@@ -840,7 +850,7 @@ namespace pr::unittests
 			PR_EXPECT(std::abs(ramp.Value(t0 + std::chrono::seconds(1)) - 0.5f) < 1e-5f);
 			PR_EXPECT(std::abs(ramp.Value(t0 + std::chrono::milliseconds(1500)) - 0.25f) < 1e-5f);
 
-			// A zero-length ramp applies immediately
+			// A zero-length ramp evaluates to its target; applying that value to the audio graph is a separate Update boundary
 			ramp.Set(0.8f, 0.0f, t0);
 			PR_EXPECT(ramp.Value(t0) == 0.8f);
 
@@ -895,6 +905,103 @@ namespace pr::unittests
 			PR_EXPECT(fix.m_api.VoiceDestroy(fix.m_engine, voice) == EStatus::Success);
 			PR_EXPECT(fix.m_api.ClipDestroy(fix.m_engine, clip) == EStatus::Success);
 			PR_EXPECT(fix.m_api.GroupDestroy(fix.m_engine, group) == EStatus::Success);
+		}
+
+		// Zero-duration voice and group gains leave live playback unchanged until one Update applies the exact target.
+		PRUnitTestMethod(ZeroDurationGainsWaitForUpdate, Extended)
+		{
+			// Exercise both dispatch paths against a steady resident tone, which cannot underrun between updates.
+			for (auto group_control : {false, true})
+			{
+				// Route one looping tone through a unity-gain group.
+				auto fix = AudioFixture{};
+				auto group_desc = MakeGroupDesc();
+				auto group = GroupHandle{};
+				PR_EXPECT(fix.m_api.GroupCreate(fix.m_engine, &group_desc, &group) == EStatus::Success);
+				auto wave = MakeWave(4800, 0.1f);
+				auto clip = ClipHandle{};
+				PR_EXPECT(fix.m_api.ClipCreateWave(fix.m_engine, wave.data(), wave.size(), &clip) == EStatus::Success);
+				auto voice_desc = VoiceDesc{
+					.header = {sizeof(VoiceDesc), AUDIO_STRUCT_VERSION},
+					.clip = clip,
+					.group = group,
+					.spatial = false,
+					.loop_count = AUDIO_INFINITE_LOOP,
+					.priority = 100,
+					.volume = 1.0f,
+					.pitch = 1.0f,
+					.width = 1.0f,
+				};
+				auto voice = VoiceHandle{};
+				PR_EXPECT(fix.m_api.VoiceCreate(fix.m_engine, &voice_desc, &voice) == EStatus::Success);
+				PR_EXPECT(fix.m_api.VoicePlay(fix.m_engine, voice) == EStatus::Success);
+				PR_EXPECT(PollUntil(fix.m_api, fix.m_engine, [&]
+					{
+						// Require actual output before testing a change to the live graph.
+						return MasterPeak(fix.m_api, fix.m_engine) > 0.05f;
+					}));
+				auto before = MasterPeak(fix.m_api, fix.m_engine);
+
+				// The zero-duration target must not change live output during the setter call or subsequent audio passes.
+				auto set_gain = group_control ? fix.m_api.GroupGainSet : fix.m_api.VoiceGainSet;
+				auto handle = group_control ? group : voice;
+				PR_EXPECT(set_gain(fix.m_engine, handle, 0.25f, 0.0f) == EStatus::Success);
+				std::this_thread::sleep_for(std::chrono::milliseconds(100));
+				PR_EXPECT(std::abs(MasterPeak(fix.m_api, fix.m_engine) - before) < before * 0.05f);
+
+				// One Update must apply the exact quarter-gain target, not start an interpolated fade.
+				PR_EXPECT(fix.m_api.EngineUpdate(fix.m_engine) == EStatus::Success);
+				std::this_thread::sleep_for(std::chrono::milliseconds(100));
+				PR_EXPECT(std::abs(MasterPeak(fix.m_api, fix.m_engine) - before * 0.25f) < before * 0.02f);
+				PR_EXPECT(fix.m_api.VoiceDestroy(fix.m_engine, voice) == EStatus::Success);
+				PR_EXPECT(fix.m_api.ClipDestroy(fix.m_engine, clip) == EStatus::Success);
+				PR_EXPECT(fix.m_api.GroupDestroy(fix.m_engine, group) == EStatus::Success);
+			}
+		}
+
+		// A zero-duration stream gain becomes audible only after Update submits the new target to the native source.
+		PRUnitTestMethod(ZeroDurationStreamGainWaitsForUpdate, Extended)
+		{
+			// Start a muted stream and wait until the source has consumed audio, not merely accepted a play request.
+			auto fix = AudioFixture{};
+			auto desc = MakeStreamDesc(AUDIO_INFINITE_LOOP);
+			desc.volume = 0.0f;
+			auto stream = StreamHandle{};
+			PR_EXPECT(fix.m_api.StreamCreateOgg(fix.m_engine, &desc, k_ogg_fixture_bytes, sizeof(k_ogg_fixture_bytes), &stream) == EStatus::Success);
+			PR_EXPECT(fix.m_api.StreamPlay(fix.m_engine, stream) == EStatus::Success);
+			PR_EXPECT(PollUntil(fix.m_api, fix.m_engine, [&]
+				{
+					// Observing a completed buffer establishes that the native source is processing the muted stream.
+					auto state = StreamState{};
+					PR_EXPECT(fix.m_api.StreamStateGet(fix.m_engine, stream, &state) == EStatus::Success);
+					return state.pcm_position > 0;
+				}));
+
+			// Keep the pre-update observation below the 40 ms decode look-ahead so silence is not just stream starvation.
+			PR_EXPECT(fix.m_api.StreamGainSet(fix.m_engine, stream, 1.0f, 0.0f) == EStatus::Success);
+			auto before_update = std::chrono::steady_clock::now() + std::chrono::milliseconds(20);
+			do
+			{
+				// The setter must leave the muted graph unchanged while XAudio2 processes queued audio.
+				PR_EXPECT(MasterPeak(fix.m_api, fix.m_engine) < 1e-6f);
+				std::this_thread::sleep_for(std::chrono::milliseconds(2));
+			}
+			while (std::chrono::steady_clock::now() < before_update);
+
+			// Apply the target once, then observe only the native meter while that submitted audio is processed.
+			PR_EXPECT(fix.m_api.EngineUpdate(fix.m_engine) == EStatus::Success);
+			auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(100);
+			auto heard = false;
+			do
+			{
+				// No further Update may hide a failure to apply the zero-duration target on the first one.
+				heard = MasterPeak(fix.m_api, fix.m_engine) > 0.01f;
+				if (!heard)
+					std::this_thread::sleep_for(std::chrono::milliseconds(2));
+			}
+			while (!heard && std::chrono::steady_clock::now() < deadline);
+			PR_EXPECT(heard);
+			PR_EXPECT(fix.m_api.StreamDestroy(fix.m_engine, stream) == EStatus::Success);
 		}
 
 		// M2-T3: the master meter reads silence when idle and a level while a tone plays.

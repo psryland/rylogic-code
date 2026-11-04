@@ -77,12 +77,15 @@ namespace pr::audio
 		void VoiceEmitterClear(VoiceHandle voice);
 
 		// Ramp a voice's linear gain to 'gain' over 'ramp_s' seconds, starting from its current value.
+		// Update applies the value to playing voices; zero duration applies the target without interpolation on the next Update.
 		void VoiceGainSet(VoiceHandle voice, float gain, float ramp_s);
 
 		// Ramp a voice's frequency ratio to 'pitch' over 'ramp_s' seconds. 'pitch' must be positive.
+		// Update applies the value to playing voices; zero duration applies the target without interpolation on the next Update.
 		void VoicePitchSet(VoiceHandle voice, float pitch, float ramp_s);
 
 		// Ramp a voice's stereo width to 'width' in [0,1] over 'ramp_s' seconds. Width affects only non-spatial stereo clips.
+		// Update applies the value to playing voices; zero duration applies the target without interpolation on the next Update.
 		void VoiceWidthSet(VoiceHandle voice, float width, float ramp_s);
 
 		// Create a submix group feeding another group or the master output.
@@ -92,9 +95,11 @@ namespace pr::audio
 		void GroupDestroy(GroupHandle group);
 
 		// Ramp a group's linear gain to 'gain' over 'ramp_s' seconds, starting from its current value.
+		// Update applies the value to the submix; zero duration applies the target without interpolation on the next Update.
 		void GroupGainSet(GroupHandle group, float gain, float ramp_s);
 
 		// Ramp a group's low-pass and high-pass cutoffs in Hz over 'ramp_s' seconds. See GroupDesc for the passthrough values.
+		// Update applies the values to the submix; zero duration applies the targets without interpolation on the next Update.
 		void GroupFilterSet(GroupHandle group, float low_pass_hz, float high_pass_hz, float ramp_s);
 
 		// Create a resident stream by copying the complete bytes of an Ogg Vorbis file for background decoding.
@@ -119,15 +124,19 @@ namespace pr::audio
 		StreamState StreamStateGet(StreamHandle stream) const;
 
 		// Ramp a stream's linear gain to 'gain' over 'ramp_s' seconds, starting from its current value.
+		// Update applies the value to the source; zero duration applies the target without interpolation on the next Update.
 		void StreamGainSet(StreamHandle stream, float gain, float ramp_s);
 
 		// Ramp a stream's frequency ratio to 'pitch' over 'ramp_s' seconds. 'pitch' must be positive.
+		// Update applies the value to the source; zero duration applies the target without interpolation on the next Update.
 		void StreamPitchSet(StreamHandle stream, float pitch, float ramp_s);
 
 		// Ramp a stream's stereo width to 'width' in [0,1] over 'ramp_s' seconds. Width affects only stereo streams.
+		// Update applies the value to the source; zero duration applies the target without interpolation on the next Update.
 		void StreamWidthSet(StreamHandle stream, float width, float ramp_s);
 
 		// Commit spatial state, advance gain, pitch, width, and filter ramps, process callback flags, and publish owner-thread events.
+		// Zero-duration mix targets are applied without interpolation. XAudio2 makes graph changes audible on its processing thread.
 		void Update();
 
 		// Copy and consume buffered runtime events.
