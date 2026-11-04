@@ -233,7 +233,7 @@ public class Tools
 		}
 	}
 
-	// Authenticode-sign EXE and DLL files in place using Azure Artifact Signing.
+	// Authenticode-sign EXE, DLL and MSI files in place using Azure Artifact Signing.
 	// Files that already have an embedded signature (e.g. third-party redistributables, or files signed by an earlier run) are left unchanged.
 	// In CI, a failure throws so that a release is never published unsigned. Locally, a failure is reported as a warning and the files stay unsigned.
 	public static void SignBinaries(IEnumerable<string> files)
@@ -282,6 +282,12 @@ public class Tools
 
 			Console.WriteLine($"Warning: Code signing skipped for {unsigned.Count} file(s): {ex.Message}");
 		}
+	}
+
+	// Returns the EXE and DLL files under 'dir' (recursively), i.e. the files that can be Authenticode-signed
+	public static IEnumerable<string> EnumerateBinaries(string dir)
+	{
+		return Directory.EnumerateFiles(dir, "*.*", SearchOption.AllDirectories).Where(x => x.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) || x.EndsWith(".exe", StringComparison.OrdinalIgnoreCase));
 	}
 
 	// True if 'filepath' has an embedded Authenticode signature. The signature is not validated.

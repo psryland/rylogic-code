@@ -1041,9 +1041,14 @@ public class LDraw : Managed
 			"lib",
 		];
 
+		var target_dir = Tools.Path([ProjDir, "bin/Release", Frameworks[0]]);
+		var host_target_dir = Tools.Path([ProjDir, "..", "LDrawMcpHost", "bin/Release", Frameworks[0]]);
+
+		// Sign the build outputs before they are copied or harvested, so both the deployed and the installed files carry the signature
+		Tools.SignBinaries(Tools.EnumerateBinaries(target_dir).Concat(Tools.EnumerateBinaries(host_target_dir)));
+
 		// Copy build products to the output directory
 		Console.WriteLine($"Deploying files to '{DeployDir}\\':\n");
-		var target_dir = Tools.Path([ProjDir, "bin/Release", Frameworks[0]]);
 		foreach (var file in file_list)
 			Tools.Copy(Tools.Path([target_dir, file]), DeployDir, full_paths: false, indent: "    ");
 		foreach (var dir in dir_list)
@@ -1054,7 +1059,6 @@ public class LDraw : Managed
 		// (target_dir, scanned by heat for *.dll + the runtimeconfig/deps regexes) and into the plain deploy dir for parity.
 		// Shared assemblies (Rylogic.Core.dll etc.) are byte-identical here because both projects are produced by the
 		// single solution build above, so overwriting LDraw's copies in target_dir is safe.
-		var host_target_dir = Tools.Path([ProjDir, "..", "LDrawMcpHost", "bin/Release", Frameworks[0]]);
 		Console.WriteLine($"Bundling MCP host from '{host_target_dir}\\':\n");
 		foreach (var file in System.IO.Directory.GetFiles(host_target_dir))
 		{
@@ -1070,6 +1074,9 @@ public class LDraw : Managed
 				new HarvestPath("binaries", "INSTALLFOLDER", ".", false, [new Regex(@".*\.dll"), new Regex(@"LDraw\.runtimeconfig\.json"), new Regex(@"LDrawMcpHost\.runtimeconfig\.json"), new Regex(@"LDrawMcpHost\.deps\.json")]),
 				new HarvestPath("lib_files", "lib", "lib", true),
 			]);
+
+		// Sign the installer so Windows shows Rylogic as the verified publisher
+		Tools.SignBinaries([MsiPath]);
 		Console.WriteLine($"{MsiPath} created.\n");
 	}
 
@@ -1197,7 +1204,7 @@ public class AllNative : Group
 			link_configs: ["Debug", "Release"]);
 
 		// Sign the staged copies of native runtime libraries and tools so the build outputs themselves are untouched
-		Tools.SignBinaries(Directory.EnumerateFiles(staging_dir, "*.*", SearchOption.AllDirectories).Where(x => x.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) || x.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)));
+		Tools.SignBinaries(Tools.EnumerateBinaries(staging_dir));
 
 		// Stage the native package in the release feed so the canonical root package and cache can be refreshed exactly.
 		Package = new Nuget()
