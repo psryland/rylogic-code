@@ -221,8 +221,9 @@ namespace pr::rdr12
 		// Remove all objects from this scene
 		void RemoveAllObjects();
 
-		// Render this window into whatever render target is currently set
-		void Render();
+		// Render this window into whatever render target is currently set. A frame that is not 'display'ed is executed on the GPU but not shown,
+		// which pays the first-use costs of its content (pipeline states, driver work) ahead of the frames that show it.
+		void Render(bool display = true);
 
 		// Attach or detach a UI provider. Providers record each pass in attach order.
 		view3d::ui::EHostStatus UIProviderAttach(view3d::ui::Provider const& provider);

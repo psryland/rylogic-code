@@ -165,7 +165,7 @@ namespace pr::rdr12
 
 		// Queue on the graphics queue, so the copy is ordered after the frames that read the old values and before the frames that read the new ones.
 		if (m_writer == nullptr)
-			m_writer = std::make_unique<ResourceFactory>(rdr());
+			m_writer = std::make_unique<ResourceFactory>(rdr(), EResourceFactoryLifetime::Retained);
 
 		::pr::compute::UpdateSubresourceScope map(m_writer->CmdList(), m_writer->UploadBuffer(), buffer, 4, s_cast<int>(offset), s_cast<int>(data.size()));
 		std::memcpy(map.ptr<std::byte>(), data.data(), data.size());
@@ -208,7 +208,7 @@ namespace pr::rdr12
 
 		// Queue on the graphics queue, so the dispatch is ordered after the frames that read the old values and before the frames that read the new ones.
 		if (m_writer == nullptr)
-			m_writer = std::make_unique<ResourceFactory>(rdr());
+			m_writer = std::make_unique<ResourceFactory>(rdr(), EResourceFactoryLifetime::Retained);
 
 		auto cbuf = m_writer->UploadBuffer().Alloc(s_cast<int>(constants.size()), D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
 		std::memcpy(cbuf.m_mem + cbuf.m_ofs, constants.data(), constants.size());

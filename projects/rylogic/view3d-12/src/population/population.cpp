@@ -30,7 +30,7 @@ namespace pr::rdr12
 			uint32_t list_count;
 			uint32_t prototype_count;
 			uint32_t header_size;
-			uint32_t pad0;
+			float coverage;
 			uint32_t pad1;
 		};
 		static_assert(sizeof(CullConstants) == 128, "Must match CullConstants in population_cull.hlsl");
@@ -90,6 +90,21 @@ namespace pr::rdr12
 
 		// The state that shaders read population buffers in.
 		constexpr auto ShaderReadState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+
+		// The byte offset of the first list entry in a classification of 'pop' with 'arg_count' argument records. The header and the records come first.
+		int64_t ListBase(Population const& pop, int64_t arg_count)
+		{
+			// List entries are 16-byte aligned
+			return PadTo<int64_t>(pop.HeaderSize() + arg_count * PopulationCuller::ArgStride, 16);
+		}
+
+		// The size of a classification of 'pop' whose list entries start at 'list_base'. Each instance has up to two list entries, because a LOD
+		// transition adds a complementary entry.
+		int64_t ClassificationSize(Population const& pop, int64_t list_base)
+		{
+			// The entries follow the header and argument records
+			return list_base + int64_t(pop.m_instance_capacity) * 2 * sizeof(PopulationEntry);
+		}
 
 		// Create a default-heap buffer of 'size' bytes. Buffers start, and return to, the common state.
 		D3DPtr<ID3D12Resource> CreateBuffer(ID3D12Device4* device, int64_t size, D3D12_RESOURCE_FLAGS flags, char const* name)
@@ -278,6 +293,7 @@ namespace pr::rdr12
 		, m_sort_group(sort_group)
 		, m_instance_capacity(instance_capacity)
 		, m_payload_size(payload_size)
+		, m_coverage(1.0f)
 		, m_instances()
 		, m_live_counts()
 		, m_payload()
@@ -434,6 +450,21 @@ namespace pr::rdr12
 
 		std::lock_guard lock(m_mutex);
 		m_blocks[index].m_active = false;
+		++m_revision;
+	}
+
+	// Draw a fraction 'coverage' of the pixels of every instance.
+	void Population::SetCoverage(float coverage)
+	{
+		// The revision changes only with the coverage, so cached shadow views are redrawn only while it changes.
+		if (!(coverage >= 0.0f && coverage <= 1.0f))
+			throw std::invalid_argument(std::format("Population coverage {} is outside [0,1]", coverage));
+
+		std::lock_guard lock(m_mutex);
+		if (m_coverage == coverage)
+			return;
+
+		m_coverage = coverage;
 		++m_revision;
 	}
 
@@ -639,18 +670,40 @@ namespace pr::rdr12
 	// Return the classification scratch buffer for 'view_key'.
 	ID3D12Resource* Population::ViewBuffer(uint64_t view_key, int64_t size)
 	{
-		// Grow the view's buffer when it is too small. The old buffer may still be in use by frames in flight.
+		// Views are created on first use
 		std::lock_guard lock(m_mutex);
-		auto& view = m_views[view_key];
+		return GrowViewBuffer(m_views[view_key], size);
+	}
+
+	// Create the classification resources of 'view_keys' ahead of their first use.
+	void Population::ReserveViews(std::span<uint64_t const> view_keys, int64_t size)
+	{
+		// Each key gets its scratch buffer and its readback ring. Keys that already have them keep them.
+		std::lock_guard lock(m_mutex);
+		for (auto key : view_keys)
+		{
+			auto& view = m_views[key];
+			GrowViewBuffer(view, size);
+			CreateReadback(view);
+		}
+	}
+
+	// Return the scratch buffer of 'view', growing it to at least 'size' bytes.
+	ID3D12Resource* Population::GrowViewBuffer(ViewScratch& view, int64_t size)
+	{
+		// Grow the view's buffer when it is too small. The old buffer may still be in use by frames in flight.
+		// The view layout changes a little with the drawn nuggets and grows with the instance capacity, so the buffer grows by at least half
+		// and is rounded up to the 64 KB buffer allocation granularity. Small layout changes then reuse the buffer instead of replacing it.
 		if (view.m_res == nullptr || view.m_size < size)
 		{
 			if (view.m_res != nullptr)
 				m_rdr->DeferRelease(view.m_res);
 
-			m_scratch_bytes += size - view.m_size;
+			auto new_size = PadTo<int64_t>(std::max(size, view.m_size + view.m_size / 2), D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT);
+			m_scratch_bytes += new_size - view.m_size;
 			m_scratch_high_water = std::max(m_scratch_high_water, m_scratch_bytes);
-			view.m_res = CreateBuffer(m_rdr->d3d(), size, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, "Population:View");
-			view.m_size = size;
+			view.m_res = CreateBuffer(m_rdr->d3d(), new_size, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, "Population:View");
+			view.m_size = new_size;
 		}
 		return view.m_res.get();
 	}
@@ -660,31 +713,7 @@ namespace pr::rdr12
 	{
 		std::lock_guard lock(m_mutex);
 		auto& view = m_views.at(view_key);
-
-		// Views get their readback ring on first use. Readback buffers stay mapped, because the GPU only writes them and the CPU reads completed slots.
-		if (view.m_readback == nullptr)
-		{
-			auto heap = D3D12_HEAP_PROPERTIES{ .Type = D3D12_HEAP_TYPE_READBACK };
-			auto desc = D3D12_RESOURCE_DESC{
-				.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER,
-				.Alignment = 0,
-				.Width = s_cast<uint64_t>(ReadbackSlots * HeaderSize()),
-				.Height = 1,
-				.DepthOrArraySize = 1,
-				.MipLevels = 1,
-				.Format = DXGI_FORMAT_UNKNOWN,
-				.SampleDesc = { .Count = 1, .Quality = 0 },
-				.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
-				.Flags = D3D12_RESOURCE_FLAG_NONE,
-			};
-			Check(m_rdr->d3d()->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_COPY_DEST, nullptr, __uuidof(ID3D12Resource), (void**)view.m_readback.address_of()));
-			DefaultResState(view.m_readback.get(), D3D12_RESOURCE_STATE_COPY_DEST);
-			DebugName(view.m_readback, "Population:Diagnostics");
-
-			void* mapped = nullptr;
-			Check(view.m_readback->Map(0, nullptr, &mapped));
-			view.m_mapped = static_cast<std::byte const*>(mapped);
-		}
+		CreateReadback(view);
 
 		// Publish completed slots first, so the slot reused below is the oldest. If every slot is still pending, the oldest result is superseded.
 		// Copies on one queue complete in order, so the slot's earlier copy cannot land after this one.
@@ -703,6 +732,35 @@ namespace pr::rdr12
 		slot.m_sequence = ++view.m_sequence;
 		slot.m_cpu = cpu;
 		cmd_list.CopyBufferRegion(view.m_readback.get(), s_cast<uint64_t>(slot_index * HeaderSize()), view.m_res.get(), 0, HeaderSize());
+	}
+
+	// Create the diagnostics readback ring of 'view' if it has none.
+	void Population::CreateReadback(ViewScratch& view)
+	{
+		// Readback buffers stay mapped, because the GPU only writes them and the CPU reads completed slots.
+		if (view.m_readback != nullptr)
+			return;
+
+		auto heap = D3D12_HEAP_PROPERTIES{ .Type = D3D12_HEAP_TYPE_READBACK };
+		auto desc = D3D12_RESOURCE_DESC{
+			.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER,
+			.Alignment = 0,
+			.Width = s_cast<uint64_t>(ReadbackSlots * HeaderSize()),
+			.Height = 1,
+			.DepthOrArraySize = 1,
+			.MipLevels = 1,
+			.Format = DXGI_FORMAT_UNKNOWN,
+			.SampleDesc = { .Count = 1, .Quality = 0 },
+			.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
+			.Flags = D3D12_RESOURCE_FLAG_NONE,
+		};
+		Check(m_rdr->d3d()->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_COPY_DEST, nullptr, __uuidof(ID3D12Resource), (void**)view.m_readback.address_of()));
+		DefaultResState(view.m_readback.get(), D3D12_RESOURCE_STATE_COPY_DEST);
+		DebugName(view.m_readback, "Population:Diagnostics");
+
+		void* mapped = nullptr;
+		Check(view.m_readback->Map(0, nullptr, &mapped));
+		view.m_mapped = static_cast<std::byte const*>(mapped);
 	}
 
 	// Return the current diagnostics.
@@ -863,9 +921,11 @@ namespace pr::rdr12
 		auto block_depth = std::vector<float>{};
 		auto max_capacity = 0;
 		auto cpu_stats = PopulationViewStats{};
+		auto coverage = 1.0f;
 		{
 			// Index the raw block array, because checked vector indexing dominates this loop in unoptimised builds.
 			std::lock_guard lock(pop.m_mutex);
+			coverage = pop.m_coverage;
 			auto const* blocks = pop.m_blocks.data();
 			visible.reserve(std::min<size_t>(pop.m_blocks.size(), MaxVisibleBlocks));
 			block_depth.reserve(visible.capacity());
@@ -937,8 +997,8 @@ namespace pr::rdr12
 		}
 
 		// Size the view buffer: header, argument records, then up to two list entries per instance (a transition adds a complementary entry).
-		auto list_base = PadTo<int64_t>(header_size + isize(args) * ArgStride, 16);
-		auto view_size = list_base + int64_t(pop.m_instance_capacity) * 2 * sizeof(PopulationEntry);
+		auto list_base = ListBase(pop, isize(args));
+		auto view_size = ClassificationSize(pop, list_base);
 		auto scratch = pop.ViewBuffer(view.m_key, view_size);
 		lists.m_scratch = scratch;
 		lists.m_list_base = s_cast<uint32_t>(list_base);
@@ -956,6 +1016,7 @@ namespace pr::rdr12
 		cb.list_count = s_cast<uint32_t>(pop.m_lists.size());
 		cb.prototype_count = s_cast<uint32_t>(pop.m_prototypes.size());
 		cb.header_size = s_cast<uint32_t>(header_size);
+		cb.coverage = coverage;
 
 		// Upload the per-view inputs. Root SRVs need a valid address even when a table is empty.
 		auto upload_table = [&]<typename T>(std::vector<T> const& table)
@@ -1028,6 +1089,17 @@ namespace pr::rdr12
 		barriers.Transition(scratch, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT | ShaderReadState);
 		barriers.Commit();
 		return lists;
+	}
+
+	// The size of the classification scratch buffer that 'Cull' uses for 'pop' and 'step'.
+	int64_t PopulationCuller::ViewSize(Population const& pop, ERenderStep step) const
+	{
+		// Each drawn nugget of each list has an indexed and a non-indexed argument record, as in 'Cull'.
+		auto arg_count = int64_t{};
+		for (auto const& proxy : pop.m_proxies)
+			PopulationNuggets(*proxy.m_model.get(), step, [&](Nugget const&) { arg_count += 2; });
+
+		return ClassificationSize(pop, ListBase(pop, arg_count));
 	}
 
 	// The command signature for an indexed or non-indexed draw.

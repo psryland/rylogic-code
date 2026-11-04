@@ -908,7 +908,7 @@ namespace pr
 			float m_slope_bias;             // Depth bias scaled by the depth slope of each triangle
 			float m_normal_bias;            // Receiver offset along the surface normal (in shadow texels)
 			BOOL  m_cache_views;            // Re-render shadow views only when their content changes
-			int   m_far_cascade_refresh_interval; // Frames between content refreshes of each directional cascade after the first. A cascade whose view moves is rendered at once. Zero or one means every frame
+			int   m_far_cascade_refresh_interval; // Frames between refreshes of each directional cascade after the first. View and content changes wait for the cascade's turn. Until then the cascade shows its last rendered view, or no shadow if it has none. Zero or one means every frame
 		};
 		struct TextureOptions
 		{
@@ -1391,6 +1391,10 @@ extern "C"
 	// Render the window
 	VIEW3D_API void __stdcall View3D_WindowRender(pr::view3d::Window window);
 
+	// Render the window and execute the frame on the GPU without showing it. The next frame renders over the same back buffer.
+	// Use it to pay the first-use costs of new content (pipeline states, driver work) before the frames that show it.
+	VIEW3D_API void __stdcall View3D_WindowRenderHidden(pr::view3d::Window window);
+
 	// Wait for any previous frames to complete rendering within the GPU
 	VIEW3D_API void __stdcall View3D_WindowGSyncWait(pr::view3d::Window window);
 
@@ -1798,6 +1802,11 @@ extern "C"
 	// Stop drawing block 'index'.
 	VIEW3D_API void __stdcall View3D_PopulationBlockRemove(pr::view3d::Population population, int index);
 
+	// Draw a fraction 'coverage', in [0,1], of the pixels of every instance with a screen-door dither, in every view. One draws instances in full, and
+	// zero draws nothing. Use it to dissolve a whole population in or out. Within LOD transitions and fade bands, each entry keeps 'coverage' of its own
+	// pixels, so complementary entries still never cover a pixel twice.
+	VIEW3D_API void __stdcall View3D_PopulationCoverageSet(pr::view3d::Population population, float coverage);
+
 	// Copy 'count' instance records into the slots [first, first + count). The data is copied during the call and shown from the next frame.
 	VIEW3D_API void __stdcall View3D_PopulationInstancesUpdate(pr::view3d::Population population, int first, pr::view3d::PopulationInstance const* instances, int count);
 
@@ -1979,6 +1988,15 @@ extern "C"
 	// Name follows LdrObject::Apply; getters return the first packed value/decoded weight, or zero if absent.
 	VIEW3D_API pr::view3d::Colour __stdcall View3D_ObjectColourBlendGet(pr::view3d::Object object, char const* name);
 	VIEW3D_API void __stdcall View3D_ObjectColourBlendSet(pr::view3d::Object object, pr::view3d::Colour blend, char const* name);
+
+	// Resource batches ******************************
+
+	// Begin a resource batch on the calling thread. Until the matching 'View3D_ResourceBatchEnd', resource creation calls made on this thread
+	// (textures, samplers, shaders, objects, buffers, ...) submit their GPU work without waiting for it to finish, and share one command list.
+	// 'View3D_ResourceBatchEnd' then waits once for all of it. Created resources can be used immediately. Batches nest; every begin needs one end.
+	// Only one thread can have a batch open at a time.
+	VIEW3D_API void __stdcall View3D_ResourceBatchBegin();
+	VIEW3D_API void __stdcall View3D_ResourceBatchEnd();
 
 	// Materials ******************************
 

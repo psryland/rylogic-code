@@ -4,6 +4,7 @@
 //*********************************************
 #include "pr/view3d-12/main/renderer.h"
 #include "pr/view3d-12/main/config.h"
+#include "pr/view3d-12/resource/resource_factory.h"
 #include "pr/view3d-12/texture/texture_base.h"
 #include "pr/view3d-12/texture/texture_2d.h"
 #include "pr/view3d-12/sampler/sampler.h"
@@ -276,6 +277,9 @@ namespace pr::rdr12
 		,m_res_store(rdr())
 		,m_skinned_geometry(rdr())
 		,m_population_culler(rdr())
+		,m_resource_batch()
+		,m_resource_batch_thread()
+		,m_resource_batch_depth()
 	{
 		try
 		{
@@ -321,6 +325,9 @@ namespace pr::rdr12
 	// Release resources acquired in the constructor body. Called exactly once, from the destructor or a failed constructor.
 	void Renderer::Teardown()
 	{
+		// Every resource batch must be ended by its owner before the renderer is destroyed
+		assert(m_resource_batch_depth == 0 && "A resource batch is still open");
+
 		// Finish outstanding work before the callbacks and windows it may use are removed
 		LastTask();
 		FlushDeferredReleases();
@@ -435,6 +442,49 @@ namespace pr::rdr12
 		return ++m_id32_src;
 	}
 	
+	// Begin a resource batch on the calling thread
+	void Renderer::BeginResourceBatch()
+	{
+		// Only one thread can own the batch. A nested begin on the owning thread only deepens it.
+		auto const thread_id = ::GetCurrentThreadId();
+		auto const owner = m_resource_batch_thread.load();
+		if (owner != 0 && owner != thread_id)
+			throw std::runtime_error("A resource batch is already open on another thread");
+		if (owner == thread_id)
+		{
+			++m_resource_batch_depth;
+			return;
+		}
+
+		// Publish the owning thread only after the state exists, so factories on other threads never see a partly built batch
+		m_resource_batch = std::make_unique<ResourceFactoryState>(*this);
+		m_resource_batch_depth = 1;
+		m_resource_batch_thread.store(thread_id);
+	}
+
+	// End the resource batch opened by 'BeginResourceBatch'
+	void Renderer::EndResourceBatch()
+	{
+		// Only the owning thread can end its batch, and only the outermost end releases the state
+		if (m_resource_batch_thread.load() != ::GetCurrentThreadId())
+			throw std::runtime_error("No resource batch is open on this thread");
+		if (--m_resource_batch_depth != 0)
+			return;
+
+		// Stop new factories joining the batch, then wait for the GPU before releasing the state it uses.
+		// Every factory of the batch has already submitted its work, so the last sync point covers all of it.
+		m_resource_batch_thread.store(0);
+		auto state = std::move(m_resource_batch);
+		state->m_gsync.Wait(state->m_gsync.LastAddedSyncPoint());
+	}
+
+	// Return the shared factory state if the calling thread has a resource batch open
+	ResourceFactoryState* Renderer::ResourceBatch()
+	{
+		// Other threads never match the owning thread id, so they never touch the batch state
+		return m_resource_batch_thread.load() == ::GetCurrentThreadId() ? m_resource_batch.get() : nullptr;
+	}
+
 	// Use the 'ResolveFilepath' event to resolve a filepath
 	std::filesystem::path Renderer::ResolvePath(std::string_view path) const
 	{

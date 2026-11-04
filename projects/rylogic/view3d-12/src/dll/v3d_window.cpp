@@ -680,7 +680,7 @@ namespace pr::rdr12
 	}
 
 	// Render this window into whatever render target is currently set
-	void V3dWindow::Render()
+	void V3dWindow::Render(bool display)
 	{
 		// Notes:
 		// - Don't be tempted to call 'Validate()' at the start of Render so that objects
@@ -838,8 +838,10 @@ namespace pr::rdr12
 		// Draw screen-space roots as the final back-buffer writer before presentation.
 		RecordUIProvider(view3d::ui::EPass::FinalOverlay, frame);
 
-		// Present the frame to the swap chain
-		m_wnd.Present(frame);
+		// Present the frame to the swap chain. A hidden frame leaves the window invalidated, because nothing new was shown.
+		m_wnd.Present(frame, EGpuFlush::Async, display);
+		if (!display)
+			return;
 
 		// No longer invalidated
 		Validate();
@@ -1595,7 +1597,7 @@ namespace pr::rdr12
 		D3DPtr<ID3D12PipelineState> m_distance_pso; // Pipeline state of the distance pass
 
 		EnvMapCaptureResources(Renderer& rdr, int face_size, Colour bkgd_colour)
-			: m_factory(rdr)
+			: m_factory(rdr, EResourceFactoryLifetime::Retained)
 			, m_face_size(face_size)
 			, m_bkgd_colour(bkgd_colour)
 			, m_wnd(rdr, Settings(rdr, face_size, bkgd_colour))

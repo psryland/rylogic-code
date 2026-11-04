@@ -39,7 +39,7 @@ struct CullConstants
 	uint list_count;      // The number of visible lists: one per (prototype, LOD).
 	uint prototype_count; // The number of prototypes.
 	uint header_size;     // The size of the list header in bytes.
-	uint pad0;
+	float coverage;       // The fraction of each entry's pixels that are drawn, in [0,1]. See ApplyCoverage.
 	uint pad1;
 };
 
@@ -115,15 +115,36 @@ uint DitherWord(uint seed, float coverage)
 	return VIEW3D_POPULATION_DITHER_ACTIVE | (seed << VIEW3D_POPULATION_DITHER_SEED_SHIFT) | uint(saturate(coverage) * 65535.0f + 0.5f);
 }
 
+// Return 'word' reduced to the population coverage 'coverage' in (0,1]. 'seed' is the instance's dither seed.
+uint ApplyCoverage(uint word, uint seed, float coverage)
+{
+	// Full coverage leaves the entry unchanged, and a fully drawn entry keeps 'coverage' of its pixels.
+	if (coverage >= 1)
+		return word;
+	if ((word & VIEW3D_POPULATION_DITHER_ACTIVE) == 0)
+		return DitherWord(seed, coverage);
+
+	// An entry keeps the pixels whose hash is below its threshold 'k', or not below it when complementary. Scaling a plain entry's threshold to
+	// 'k * coverage', and raising a complementary entry's threshold to '1 - (1 - k) * coverage', keeps 'coverage' of each entry's own pixels.
+	// Both results are subsets of the original masks, so complementary entries still never cover a pixel twice.
+	float k = (word & VIEW3D_POPULATION_DITHER_COVERAGE_MASK) / 65535.0f;
+	if ((word & VIEW3D_POPULATION_DITHER_COMPLEMENT) != 0)
+		return DitherWord(seed, 1 - (1 - k) * coverage) | VIEW3D_POPULATION_DITHER_COMPLEMENT;
+
+	return DitherWord(seed, k * coverage);
+}
+
 // Decide which lists 'source' appears in for this view.
 Classification Classify(uint source)
 {
-	// Start with a culled result.
+	// Start with a culled result. Populations with zero coverage draw nothing.
 	Classification result;
 	result.list0 = ~0u;
 	result.dither0 = 0;
 	result.list1 = ~0u;
 	result.dither1 = 0;
+	if (g_cull.coverage <= 0)
+		return result;
 
 	// Disabled instances, and instances naming no prototype, are never drawn. Root views are not range checked, so the index must be.
 	View3DPopulationInstance inst = g_instances[source];
@@ -183,7 +204,7 @@ Classification Classify(uint source)
 	// A distance fade replaces the LOD transition, because an entry has one coverage. The LOD switch inside a fade band is abrupt.
 	if (fade_word != 0)
 	{
-		result.dither0 = fade_word;
+		result.dither0 = ApplyCoverage(fade_word, seed, g_cull.coverage);
 		return result;
 	}
 
@@ -198,9 +219,10 @@ Classification Classify(uint source)
 		if (lod + 1 != proto.lod_count)
 		{
 			result.list1 = proto.list_first + lod + 1;
-			result.dither1 = word | VIEW3D_POPULATION_DITHER_COMPLEMENT;
+			result.dither1 = ApplyCoverage(word | VIEW3D_POPULATION_DITHER_COMPLEMENT, seed, g_cull.coverage);
 		}
 	}
+	result.dither0 = ApplyCoverage(result.dither0, seed, g_cull.coverage);
 	return result;
 }
 

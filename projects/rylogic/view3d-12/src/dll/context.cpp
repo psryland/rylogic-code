@@ -319,13 +319,17 @@ namespace pr::rdr12
 			}
 		}
 
-		// Reject invalid IDs at the owning input boundary rather than relying on undefined IA fetches.
-		for (auto index : indices)
+		// Reject invalid IDs at the owning input boundary rather than relying on undefined IA fetches. Both ordinary and procedural models have an
+		// explicit valid ID domain. Objects can have millions of indices, so the largest is found with a plain pointer loop and checked once.
+		auto largest = TIndex{};
+		for (auto ptr = indices.data(), end = ptr + indices.size(); ptr != end; ++ptr)
 		{
-			// Both ordinary and procedural models have an explicit valid ID domain.
-			if (s_cast<int64_t>(index) >= logical_vcount)
-				throw std::out_of_range("Object index exceeds the declared vertex-ID domain");
+			// Keep the largest index seen so far.
+			if (*ptr > largest)
+				largest = *ptr;
 		}
+		if (!indices.empty() && s_cast<int64_t>(largest) >= logical_vcount)
+			throw std::out_of_range("Object index exceeds the declared vertex-ID domain");
 
 		// Translate public nugget descriptions into renderer materials and ranges.
 		auto physical_geom = EGeom::None;

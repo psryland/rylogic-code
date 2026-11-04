@@ -10,12 +10,47 @@
 
 namespace pr::rdr12
 {
+	// The command recording and upload state that a resource factory uses to create resources.
+	// Each factory normally owns one. Factories created inside a resource batch share the batch's state instead (see Renderer::BeginResourceBatch).
+	struct ResourceFactoryState
+	{
+		using GpuSync = ::pr::compute::GpuSync;
+		using KeepAlive = ::pr::compute::KeepAlive;
+		using GfxCmdAllocPool = ::pr::compute::GfxCmdAllocPool;
+		using GfxCmdList = ::pr::compute::GfxCmdList;
+		using GpuUploadBuffer = ::pr::compute::GpuUploadBuffer;
+
+		GpuSync         m_gsync;              // Sync with GPU
+		KeepAlive       m_keep_alive;         // Keep alive for the resource manager
+		GfxCmdAllocPool m_gfx_cmd_alloc_pool; // A pool of command allocators.
+		GfxCmdList      m_gfx_cmd_list;       // Command list for resource manager operations.
+		GpuUploadBuffer m_upload_buffer;      // Upload memory buffer for initialising resources
+		MipMapGenerator m_mipmap_gen;         // Utility class for generating mip maps for a texture
+		bool            m_flush_required;     // True if commands have been added to the command list and need sending to the GPU
+
+		explicit ResourceFactoryState(Renderer& rdr);
+		ResourceFactoryState(ResourceFactoryState const&) = delete;
+		ResourceFactoryState& operator = (ResourceFactoryState const&) = delete;
+	};
+
+	// How long a resource factory lives, relative to the code that creates it
+	enum class EResourceFactoryLifetime
+	{
+		// The factory lives only for the creation call that constructs it. It joins the open resource batch of its thread, if any.
+		Scoped,
+
+		// The factory is kept for later use (e.g. as a member). It always owns its state, because a resource batch ends before the factory does.
+		Retained,
+	};
+
 	struct ResourceFactory
 	{
 		// Notes:
 		// - The resource factory is an instance-able object used to create resources.
 		// - Multiple resource factories can exist at any one time.
 		// - The resource factory is expected to be used on one thread only.
+		// - Outside a resource batch, the destructor waits for the GPU to finish the factory's work. Inside a batch, the destructor
+		//   only submits the work, and the GPU ordering of the graphics queue ensures it completes before later rendering uses the resources.
 
 	private:
 
@@ -26,18 +61,13 @@ namespace pr::rdr12
 		using GpuUploadBuffer = ::pr::compute::GpuUploadBuffer;
 		using ResDesc = ::pr::compute::ResDesc;
 
-		Renderer&       m_rdr;                // The owning renderer instance
-		GpuSync         m_gsync;              // Sync with GPU
-		KeepAlive       m_keep_alive;         // Keep alive for the resource manager
-		GfxCmdAllocPool m_gfx_cmd_alloc_pool; // A pool of command allocators.
-		GfxCmdList      m_gfx_cmd_list;       // Command list for resource manager operations.
-		GpuUploadBuffer m_upload_buffer;      // Upload memory buffer for initialising resources
-		MipMapGenerator m_mipmap_gen;         // Utility class for generating mip maps for a texture
-		bool            m_flush_required;     // True if commands have been added to the command list and need sending to the GPU
+		Renderer&                             m_rdr;   // The owning renderer instance
+		std::unique_ptr<ResourceFactoryState> m_owned; // The state owned by this factory. Null when the factory uses a resource batch.
+		ResourceFactoryState*                 m_state; // The state used to record creation work. Either 'm_owned' or the open resource batch.
 
 	public:
 
-		ResourceFactory(Renderer& rdr);
+		explicit ResourceFactory(Renderer& rdr, EResourceFactoryLifetime lifetime = EResourceFactoryLifetime::Scoped);
 		ResourceFactory(ResourceFactory const&) = delete;
 		ResourceFactory& operator = (ResourceFactory const&) = delete;
 		~ResourceFactory();

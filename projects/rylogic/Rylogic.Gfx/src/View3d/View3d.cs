@@ -1234,8 +1234,8 @@ namespace Rylogic.Gfx
 			public bool CacheViews;
 
 			/// <summary>
-			/// Frames between content refreshes of each directional cascade after the first. Content changes wait for the cascade's turn, and the
-			/// cascades take turns on different frames. A cascade whose view moves is always rendered at once. Zero or one means every frame
+			/// Frames between refreshes of each directional cascade after the first. View and content changes wait for the cascade's turn, and the
+			/// cascades take turns on different frames. Until then the cascade shows its last rendered view, or no shadow if it has none. Zero or one means every frame
 			/// </summary>
 			public int FarCascadeRefreshInterval;
 
@@ -1765,6 +1765,15 @@ namespace Rylogic.Gfx
 			return value;
 		}
 
+		/// <summary>
+		/// Open a resource batch on the calling thread. Until the returned scope is disposed, resource creation on this thread submits its GPU work without
+		/// waiting for it, and disposing the scope waits once for all of it. Created resources can be used immediately. Batches nest. Only one thread can
+		/// have a batch open at a time.</summary>
+		public Scope ResourceBatch()
+		{
+			return Scope.Create(View3D_ResourceBatchBegin, View3D_ResourceBatchEnd);
+		}
+
 		/// <summary>The D3D12 device-removal reason, or zero while the device remains usable.</summary>
 		public int DeviceRemovedReason
 		{
@@ -2113,6 +2122,7 @@ namespace Rylogic.Gfx
 
 		// Render the window
 		[DllImport(Dll)] private static extern void View3D_WindowRender(HWindow window);
+		[DllImport(Dll)] private static extern void View3D_WindowRenderHidden(HWindow window);
 
 		// Wait for any previous frames to complete rendering within the GPU
 		[DllImport(Dll)] private static extern void View3D_WindowGSyncWait(HWindow window);
@@ -2491,6 +2501,8 @@ namespace Rylogic.Gfx
 
 		// Create one of the stock textures
 		[DllImport(Dll)] private static extern HTexture View3D_TextureCreateStock(EStockTexture stock_texture);
+		[DllImport(Dll)] private static extern void View3D_ResourceBatchBegin();
+		[DllImport(Dll)] private static extern void View3D_ResourceBatchEnd();
 
 		// Load a texture from file, embedded resource, or stock assets. Specify width == 0, height == 0 to use the dimensions of the file
 		[DllImport(Dll)] private static extern HTexture View3D_TextureCreateFromUri([MarshalAs(UnmanagedType.LPStr)] string resource, int width, int height, ref TextureOptions options);
@@ -2688,6 +2700,7 @@ namespace Rylogic.Gfx
 		// Miscellaneous
 		[DllImport(Dll)]
 		private static extern void View3D_Flush();
+
 
 		[DllImport(Dll)]
 		private static extern HWND View3D_LdrEditorCreate(HWND parent);

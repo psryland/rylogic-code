@@ -79,6 +79,7 @@ namespace pr::rdr12
 		, m_element_views()
 		, m_dirty()
 		, m_frame_number()
+		, m_max_dirty()
 		, m_volatile()
 		, m_casters()
 	{
@@ -316,7 +317,7 @@ namespace pr::rdr12
 			if (!casts)
 				continue;
 
-			// Populations without active blocks draw nothing
+			// Populations without active blocks draw nothing, so no view sees them. They remain casters so that their buffers exist before their blocks do.
 			auto caster = PopulationCaster{ .m_pop = pop, .m_blocks = {}, .m_hash = HashSeed, .m_views = 0, .m_volatile = false };
 			auto revision = pop->ActiveBlocks([&](BBox const& bbox)
 			{
@@ -324,8 +325,6 @@ namespace pr::rdr12
 				caster.m_blocks.push_back(bbox);
 				Grow(caster_bounds, bbox);
 			});
-			if (caster.m_blocks.empty())
-				continue;
 
 			// Hash everything that can change the depth the population writes into a view. The revision covers blocks, instances, and payload.
 			// The draw range is measured from the scene camera, so the camera position matters only when a prototype limits the range.
@@ -380,13 +379,11 @@ namespace pr::rdr12
 	// Find the views that each element can see, and the views whose content has changed since they were last rendered
 	void RenderSmap::FindDirtyViews(std::span<ElementInfo const> elements)
 	{
-		// Hash each view's transform separately from its content. A change of transform makes the atlas content invalid at once, but a change of
-		// content can wait when the view is deferred. The atlas region is compared by the view cache.
+		// Hash each view's transform separately from its content, so the view cache can tell which part of a view has changed. The atlas region is compared by the view cache.
 		auto const view_count = isize(m_views.m_views);
 		auto const all_views = view_count == 32 ? ~0U : (1U << view_count) - 1;
 		std::array<uint64_t, MaxShadowViews> view_hashes;
 		std::array<uint64_t, MaxShadowViews> hashes;
-		std::array<IRect, MaxShadowViews> rects;
 		pr::vector<ShadowViewVolume, MaxShadowViews> volumes;
 		for (int v = 0; v != view_count; ++v)
 		{
@@ -395,7 +392,6 @@ namespace pr::rdr12
 			HashMix(view_hashes[v], view.m_w2s);
 			HashMix(view_hashes[v], view.m_clamp_depth);
 			hashes[v] = HashSeed;
-			rects[v] = view.m_atlas_rect;
 
 			// Clamped views also see casters in front of their near plane
 			volumes.push_back(ShadowViewVolume(view.m_w2s, !view.m_clamp_depth));
@@ -458,30 +454,54 @@ namespace pr::rdr12
 				forced |= caster.m_views;
 		}
 
-		// Directional cascades after the first refresh changed content only on their turn. Their texels are coarse and they are far from the camera,
-		// so a few frames of delay is not visible. Cascade 'c' takes its turn when the frame number modulo the interval is 'c - 1' modulo the interval,
-		// which spreads the cascades across frames. A cascade whose view moves is not deferred, because its old content no longer matches its view.
+		// Directional cascades after the first are rendered only on their turn. Their texels are coarse and they are far from the camera, so a few
+		// frames of delay is not visible. Cascade 'c' takes its turn when the frame number modulo the interval is 'c - 1' modulo the interval,
+		// which spreads the cascades across frames, including after a change of camera or settings that moves every cascade at once.
 		++m_frame_number;
 		auto deferred = uint32_t(0);
+		m_max_dirty = view_count;
 		if (auto const interval = m_settings.m_far_cascade_refresh_interval; interval > 1)
 		{
 			auto const lights = scn().ResolvedLights();
+			auto turns = pr::vector<int, MaxShadowViews>(s_cast<size_t>(interval), 0);
+			auto far_count = 0;
 			for (int v = 0; v != view_count; ++v)
 			{
 				// Only far cascades wait for their turn
 				auto const& view = m_views.m_views[v];
 				if (lights[view.m_light_index].m_type != ELight::Directional || view.m_face == 0)
 					continue;
-				if (m_frame_number % interval == s_cast<uint64_t>((view.m_face - 1) % interval))
+
+				// Count the far cascades that take each turn, to find the most views that can render in one frame
+				auto const turn = s_cast<uint64_t>((view.m_face - 1) % interval);
+				++turns[s_cast<size_t>(turn)];
+				++far_count;
+				if (m_frame_number % interval == turn)
 					continue;
 
 				deferred |= 1U << v;
 			}
+			m_max_dirty = view_count - far_count + *std::ranges::max_element(turns);
 		}
 
-		// Compare with the content already in the atlas
+		// Compare with the content already in the atlas. Deferred views are replaced by the views that match their atlas content, so the forward pass samples them consistently.
 		auto const count = s_cast<size_t>(view_count);
-		m_dirty = m_cache.Update({ rects.data(), count }, { view_hashes.data(), count }, { hashes.data(), count }, deferred, m_settings.m_cache_views) | (forced & ~deferred);
+		m_dirty = m_cache.Update({ m_views.m_views.data(), count }, { view_hashes.data(), count }, { hashes.data(), count }, deferred, m_settings.m_cache_views) | (forced & ~deferred);
+	}
+
+	// The population view key of a population's 'classification'th classification in a frame
+	uint64_t RenderSmap::PopulationViewKey(uint64_t classification) const
+	{
+		// The key is the order of the classification within the frame, not the view slot. A population then keeps only as many buffers as it has
+		// classifications in one frame, and the buffers are reused when different views refresh in later frames. Keying by view slot would create
+		// a new buffer each time a rarely refreshed view is rendered for the first time.
+		// The key names the scene rather than this step, because the scene removes the step whenever no light casts shadows and adds a new one later.
+		// A key per step would make each new step allocate new view buffers, and the population would keep the old ones.
+		auto key = HashSeed;
+		HashPtr(key, &scn());
+		HashWord(key, s_cast<uint64_t>(m_step_id));
+		HashWord(key, classification);
+		return key;
 	}
 
 	// Perform the render step
@@ -524,22 +544,31 @@ namespace pr::rdr12
 		pr::vector<DrawListElement> pop_dles;
 		if (!m_casters.empty())
 		{
-			// Measure the draw distance from the scene camera, as the forward pass does. Each view slot keeps its own classification buffer.
+			// Measure the draw distance from the scene camera, as the forward pass does.
+			// All classifications are recorded before any draw, so each classification of a population in this frame needs its own buffer. See 'PopulationViewKey'.
 			auto pix_cull = pix::EventScope<ID3D12GraphicsCommandList>(m_cmd_list.get(), 0xFF5AC8A0, "View3D::PopulationShadowCull");
 			auto const range_origin = scn().m_cam.CameraToWorld().pos;
+
+			// Create every caster's buffers for the most classifications that one frame can need, including casters that no rendered view sees yet.
+			// Creating a buffer is slow, so this keeps the creation in the first frame that renders shadows, instead of spreading stalls over the
+			// later frames in which the camera or the views change.
+			pr::vector<uint64_t, MaxShadowViews> keys;
+			for (int c = 0; c != m_max_dirty; ++c)
+				keys.push_back(PopulationViewKey(s_cast<uint64_t>(c)));
+			for (auto& caster : m_casters)
+				caster.m_pop->ReserveViews(keys, rdr().PopulationCulling().ViewSize(*caster.m_pop.get(), m_step_id));
+
 			for (auto& caster : m_casters)
 			{
 				auto const caster_first_element = isize(pop_dles);
+				auto classification = uint64_t{};
 				for (int i = 0, iend = isize(views); i != iend; ++i)
 				{
 					// Only views that can see an active block need a classification
 					if ((caster.m_views & (1U << view_index[i])) == 0)
 						continue;
 
-					auto key = HashSeed;
-					HashPtr(key, this);
-					HashWord(key, s_cast<uint64_t>(view_index[i]));
-					auto desc = PopulationProjectionView(key, views[i].m_w2s, s_cast<float>(views[i].m_atlas_rect.SizeY()), range_origin);
+					auto desc = PopulationProjectionView(PopulationViewKey(classification++), views[i].m_w2s, s_cast<float>(views[i].m_atlas_rect.SizeY()), range_origin);
 					auto shadow = PopulationShadow{
 						.m_lists = rdr().PopulationCulling().Cull(m_cmd_list, m_upload_buffer, m_gsync, *caster.m_pop.get(), desc, m_step_id),
 						.m_view = i,

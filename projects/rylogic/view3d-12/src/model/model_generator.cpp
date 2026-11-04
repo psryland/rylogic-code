@@ -1402,19 +1402,35 @@ namespace pr::rdr12
 			? cdata.m_idx_stride
 			: vcount > 0xFFFF ? isizeof<uint32_t>() : isizeof<uint16_t>();
 
-		// Generate the geometry
+		// Generate the vertices. The indices are copied separately below.
 		Cache cache{ vcount, icount, 0, idx_stride };
 		auto vptr = cache.m_vcont.data();
-		auto iptr = cache.m_icont.begin<int>();
 		auto props = geometry::Mesh(
 			cdata.m_verts,
-			cdata.m_idxbuf,
+			geometry::index_cspan{ std::span<std::byte const>{}, idx_stride },
 			cdata.m_colours,
 			cdata.m_normals,
 			cdata.m_tex_coords,
 			[&](v4 p, Colour32 c, v4 n, v2 t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
-			[&](int idx) { *iptr++ = idx; }
+			[](int) {}
 		);
+
+		// Meshes can have millions of indices, so copy them as one block when their width is unchanged. Otherwise convert each index.
+		if (cdata.m_idxbuf.stride() == idx_stride)
+		{
+			// Same width, so the bytes are identical.
+			auto const src = cdata.m_idxbuf.as_bytes();
+			std::span<std::byte> dst = cache.m_icont;
+			std::memcpy(dst.data(), src.data(), src.size());
+		}
+		else
+		{
+			// Different widths, so convert through 'int'.
+			auto iptr = cache.m_icont.begin<int>();
+			auto src = cdata.m_idxbuf.begin<int>();
+			for (auto i = 0; i != icount; ++i)
+				*iptr++ = *src++;
+		}
 
 		// Create the nuggets
 		cache.m_ncont.insert(cache.m_ncont.begin(), cdata.m_nuggets.begin(), cdata.m_nuggets.end());

@@ -91,6 +91,11 @@ namespace pr::rdr12
 		SkinnedGeometryCache m_skinned_geometry;
 		PopulationCuller m_population_culler;
 
+		// The shared resource factory state of the open resource batch, its owning thread, and its nesting depth. See 'BeginResourceBatch'.
+		std::unique_ptr<ResourceFactoryState> m_resource_batch;
+		std::atomic<DWORD> m_resource_batch_thread;
+		int m_resource_batch_depth;
+
 		// Release resources acquired in the constructor body
 		void Teardown();
 
@@ -231,6 +236,17 @@ namespace pr::rdr12
 
 		// Generate a unique Id on each call
 		int NewId32();
+
+		// Begin a resource batch on the calling thread. Until the matching 'EndResourceBatch', every resource factory created on this thread
+		// shares one command list and upload buffer, and submits its work without waiting for the GPU. Batches nest. Throws if another thread
+		// has a batch open. Resources created in a batch can be used for rendering immediately, because the graphics queue runs the creation work first.
+		void BeginResourceBatch();
+
+		// End the resource batch opened by 'BeginResourceBatch'. The outermost end waits once for the GPU to finish all of the batch's work.
+		void EndResourceBatch();
+
+		// Return the shared factory state if the calling thread has a resource batch open, otherwise null.
+		ResourceFactoryState* ResourceBatch();
 
 		// Use the 'ResolveFilepath' event to resolve a filepath
 		std::filesystem::path ResolvePath(std::string_view path) const;

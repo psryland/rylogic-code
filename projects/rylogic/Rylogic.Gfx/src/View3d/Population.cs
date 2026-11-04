@@ -240,6 +240,15 @@ public sealed partial class View3d
 			View3D_PopulationBlockRemove(Live, index);
 		}
 
+		/// <summary>
+		/// Draw a fraction 'coverage', in [0,1], of the pixels of every instance with a screen-door dither, in every view. One draws instances in full,
+		/// and zero draws nothing. Use it to dissolve the whole population in or out.
+		/// </summary>
+		public void CoverageSet(float coverage)
+		{
+			View3D_PopulationCoverageSet(Live, coverage);
+		}
+
 		/// <summary>Copy 'instances' into the slots starting at 'first'.</summary>
 		public void InstancesUpdate(int first, ReadOnlySpan<PopulationInstance> instances)
 		{
@@ -319,6 +328,9 @@ public sealed partial class View3d
 
 	[DllImport(Dll)]
 	private static extern void View3D_PopulationBlockRemove(IntPtr population, int index);
+
+	[DllImport(Dll)]
+	private static extern void View3D_PopulationCoverageSet(IntPtr population, float coverage);
 
 	[DllImport(Dll)]
 	private static extern unsafe void View3D_PopulationInstancesUpdate(IntPtr population, int first, PopulationInstance* instances, int count);

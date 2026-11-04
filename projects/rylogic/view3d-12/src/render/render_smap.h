@@ -26,8 +26,9 @@ namespace pr::rdr12
 		//  - With 'ShadowSettings::m_cache_views', a view is only re-rendered when a hash of its content changes. The hash covers
 		//    the view transform, its atlas region, and every element the view can see. Elements drawn with a custom vertex shader
 		//    (e.g. procedural geometry) can change without the hash changing, so views that see them are rendered every frame.
-		//    'ShadowSettings::m_far_cascade_refresh_interval' defers content changes in directional cascades after the first until their turn,
-		//    because their texels are too coarse to show a few frames of delay. A cascade whose transform changes is still rendered at once.
+		//    'ShadowSettings::m_far_cascade_refresh_interval' defers view and content changes in directional cascades after the first until their turn,
+		//    because their texels are too coarse to show a few frames of delay. A deferred cascade is shaded with the view its atlas content was
+		//    rendered with, or covers no receivers if its region has no content for it.
 		//    Changes to texture content (alpha clipped casters) are not detected.
 		//  - Populations cast shadows. Each view that sees an active block classifies the population on the GPU, then draws the visible
 		//    instances with indirect draws into that single view. Each (population, view) pair keeps its own classification buffer.
@@ -68,6 +69,7 @@ namespace pr::rdr12
 		pr::vector<uint32_t> m_element_views; // Per draw list element, a bit mask of the views that can see it
 		uint32_t m_dirty;                 // Bit mask of the views to render this frame
 		uint64_t m_frame_number;          // Counts prepared frames. Chooses which far cascades may refresh their content this frame
+		int m_max_dirty;                  // The most views that can render in one frame with the current views and far cascade refresh interval
 		std::unordered_set<Nugget const*> m_volatile; // Nuggets drawn with a custom vertex shader. Views that see them are rendered every frame
 		pr::vector<PopulationCaster> m_casters; // The scene's populations for the current frame. Valid from 'Prepare' until the next frame.
 
@@ -78,7 +80,8 @@ namespace pr::rdr12
 		// Compile-time derived type
 		inline static constexpr ERenderStep Id = ERenderStep::ShadowMap;
 
-		// The shadow views for the current frame. Valid from 'Prepare' until the next frame.
+		// The shadow views for the current frame, as the forward pass samples them. Valid from 'Prepare' until the next frame.
+		// Deferred views are those that match their current atlas content, rather than the views chosen for this frame.
 		ShadowViewSet const& Views() const;
 
 		// The shadow atlas depth texture
@@ -103,5 +106,8 @@ namespace pr::rdr12
 
 		// Find the views that each element can see, and the views whose content has changed since they were last rendered
 		void FindDirtyViews(std::span<ElementInfo const> elements);
+
+		// The population view key of a population's 'classification'th classification in a frame. See 'Execute'.
+		uint64_t PopulationViewKey(uint64_t classification) const;
 	};
 }
