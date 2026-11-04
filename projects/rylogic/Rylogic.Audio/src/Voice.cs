@@ -86,6 +86,27 @@ public sealed class Voice :IDisposable
 		Native.Check(Native.Audio_VoiceEmitterClear(Engine.Handle, Handle.Value));
 	}
 
+	/// <summary>Move the voice's linear gain to 'gain' over 'ramp_seconds' (0 applies immediately).</summary>
+	public void SetGain(float gain, float ramp_seconds = 0.0f)
+	{
+		Engine.EnsureOwner();
+		Native.Check(Native.Audio_VoiceGainSet(Engine.Handle, Handle.Value, gain, ramp_seconds));
+	}
+
+	/// <summary>Move the voice's pitch ratio to 'pitch' over 'ramp_seconds' (0 applies immediately).</summary>
+	public void SetPitch(float pitch, float ramp_seconds = 0.0f)
+	{
+		Engine.EnsureOwner();
+		Native.Check(Native.Audio_VoicePitchSet(Engine.Handle, Handle.Value, pitch, ramp_seconds));
+	}
+
+	/// <summary>Move the stereo width in [0,1] to 'width' over 'ramp_seconds'. Width affects only non-spatial stereo clips.</summary>
+	public void SetWidth(float width, float ramp_seconds = 0.0f)
+	{
+		Engine.EnsureOwner();
+		Native.Check(Native.Audio_VoiceWidthSet(Engine.Handle, Handle.Value, width, ramp_seconds));
+	}
+
 	/// <summary>Destroy this voice and deregister it from the clip it played.</summary>
 	public void Dispose()
 	{

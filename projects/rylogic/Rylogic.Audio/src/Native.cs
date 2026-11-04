@@ -9,8 +9,8 @@ namespace Rylogic.Audio;
 internal static unsafe class Native
 {
 	internal const string Dll = "audio";
-	internal const uint ApiVersion = 0x00010000U;
-	internal const uint StructVersion = 1U;
+	internal const uint ApiVersion = 0x00020000U;
+	internal const uint StructVersion = 2U;
 	private static IntPtr m_module;
 
 	/// <summary>Load the configuration-appropriate native runtime before the first P/Invoke.</summary>
@@ -46,6 +46,7 @@ internal static unsafe class Native
 		Diagnostics = 7,
 		StreamDesc = 8,
 		StreamState = 9,
+		GroupDesc = 10,
 	}
 
 	[StructLayout(LayoutKind.Sequential)]
@@ -80,30 +81,55 @@ internal static unsafe class Native
 	}
 
 	[StructLayout(LayoutKind.Sequential)]
+	internal struct GroupDesc
+	{
+		internal NativeHeader m_header;
+		internal ulong m_parent;
+		internal float m_gain;
+		internal float m_low_pass_hz;
+		internal float m_high_pass_hz;
+
+		/// <summary>Convert a parent group and caller-facing options into the exact ABI layout.</summary>
+		internal static GroupDesc From(GroupHandle parent, GroupOptions options)
+		{
+			return new GroupDesc
+			{
+				m_header = NativeHeader.Create<GroupDesc>(),
+				m_parent = parent.Value,
+				m_gain = options.Gain,
+				m_low_pass_hz = options.LowPassHz,
+				m_high_pass_hz = options.HighPassHz,
+			};
+		}
+	}
+
+	[StructLayout(LayoutKind.Sequential)]
 	internal struct VoiceDesc
 	{
 		internal NativeHeader m_header;
 		internal ulong m_clip;
-		internal EAudioBus m_bus;
+		internal ulong m_group;
 		internal int m_spatial;
 		internal uint m_loop_count;
 		internal uint m_priority;
 		internal float m_volume;
 		internal float m_pitch;
+		internal float m_width;
 
-		/// <summary>Convert a target clip and caller-facing options into the exact ABI layout.</summary>
-		internal static VoiceDesc From(ClipHandle clip, VoiceOptions options)
+		/// <summary>Convert a target clip, destination group, and caller-facing options into the exact ABI layout.</summary>
+		internal static VoiceDesc From(ClipHandle clip, GroupHandle group, VoiceOptions options)
 		{
 			return new VoiceDesc
 			{
 				m_header = NativeHeader.Create<VoiceDesc>(),
 				m_clip = clip.Value,
-				m_bus = options.Bus,
+				m_group = group.Value,
 				m_spatial = options.Spatial ? 1 : 0,
 				m_loop_count = options.LoopCount,
 				m_priority = options.Priority,
 				m_volume = options.Volume,
 				m_pitch = options.Pitch,
+				m_width = options.Width,
 			};
 		}
 	}
@@ -112,23 +138,25 @@ internal static unsafe class Native
 	internal struct StreamDesc
 	{
 		internal NativeHeader m_header;
-		internal EAudioBus m_bus;
+		internal ulong m_group;
 		internal uint m_loop_count;
 		internal uint m_priority;
 		internal float m_volume;
 		internal float m_pitch;
+		internal float m_width;
 
-		/// <summary>Convert caller-facing options into the exact ABI layout.</summary>
-		internal static StreamDesc From(StreamOptions options)
+		/// <summary>Convert a destination group and caller-facing options into the exact ABI layout.</summary>
+		internal static StreamDesc From(GroupHandle group, StreamOptions options)
 		{
 			return new StreamDesc
 			{
 				m_header = NativeHeader.Create<StreamDesc>(),
-				m_bus = options.Bus,
+				m_group = group.Value,
 				m_loop_count = options.LoopCount,
 				m_priority = options.Priority,
 				m_volume = options.Volume,
 				m_pitch = options.Pitch,
+				m_width = options.Width,
 			};
 		}
 	}
@@ -204,7 +232,11 @@ internal static unsafe class Native
 	[DllImport(Dll)] internal static extern void Audio_EngineAbandon(ulong engine);
 	[DllImport(Dll)] internal static extern EStatus Audio_EngineUpdate(ulong engine);
 	[DllImport(Dll)] internal static extern EStatus Audio_ListenerSet(ulong engine, ListenerState* listener);
-	[DllImport(Dll)] internal static extern EStatus Audio_BusGainSet(ulong engine, EAudioBus bus, float gain);
+
+	[DllImport(Dll)] internal static extern EStatus Audio_GroupCreate(ulong engine, GroupDesc* desc, out ulong group);
+	[DllImport(Dll)] internal static extern EStatus Audio_GroupDestroy(ulong engine, ulong group);
+	[DllImport(Dll)] internal static extern EStatus Audio_GroupGainSet(ulong engine, ulong group, float gain, float ramp_s);
+	[DllImport(Dll)] internal static extern EStatus Audio_GroupFilterSet(ulong engine, ulong group, float low_pass_hz, float high_pass_hz, float ramp_s);
 
 	[DllImport(Dll)] internal static extern EStatus Audio_ClipCreateWave(ulong engine, byte* wave_file, ulong wave_file_size, out ulong clip);
 	[DllImport(Dll)] internal static extern EStatus Audio_ClipDestroy(ulong engine, ulong clip);
@@ -217,6 +249,9 @@ internal static unsafe class Native
 	[DllImport(Dll)] internal static extern EStatus Audio_VoiceStateGet(ulong engine, ulong voice, VoiceState* state);
 	[DllImport(Dll)] internal static extern EStatus Audio_VoiceEmitterSet(ulong engine, ulong voice, EmitterState* emitter);
 	[DllImport(Dll)] internal static extern EStatus Audio_VoiceEmitterClear(ulong engine, ulong voice);
+	[DllImport(Dll)] internal static extern EStatus Audio_VoiceGainSet(ulong engine, ulong voice, float gain, float ramp_s);
+	[DllImport(Dll)] internal static extern EStatus Audio_VoicePitchSet(ulong engine, ulong voice, float pitch, float ramp_s);
+	[DllImport(Dll)] internal static extern EStatus Audio_VoiceWidthSet(ulong engine, ulong voice, float width, float ramp_s);
 
 	[DllImport(Dll)] internal static extern EStatus Audio_StreamCreateOgg(ulong engine, StreamDesc* desc, byte* ogg_file, ulong ogg_file_size, out ulong stream);
 	[DllImport(Dll)] internal static extern EStatus Audio_StreamDestroy(ulong engine, ulong stream);
@@ -225,6 +260,9 @@ internal static unsafe class Native
 	[DllImport(Dll)] internal static extern EStatus Audio_StreamStop(ulong engine, ulong stream);
 	[DllImport(Dll)] internal static extern EStatus Audio_StreamSeek(ulong engine, ulong stream, ulong pcm_position);
 	[DllImport(Dll)] internal static extern EStatus Audio_StreamStateGet(ulong engine, ulong stream, StreamState* state);
+	[DllImport(Dll)] internal static extern EStatus Audio_StreamGainSet(ulong engine, ulong stream, float gain, float ramp_s);
+	[DllImport(Dll)] internal static extern EStatus Audio_StreamPitchSet(ulong engine, ulong stream, float pitch, float ramp_s);
+	[DllImport(Dll)] internal static extern EStatus Audio_StreamWidthSet(ulong engine, ulong stream, float width, float ramp_s);
 
 	[DllImport(Dll)] internal static extern EStatus Audio_EventsCopy(ulong engine, Event* events, uint capacity, out uint required);
 	[DllImport(Dll)] internal static extern EStatus Audio_DiagnosticsGet(ulong engine, Diagnostics* diagnostics);

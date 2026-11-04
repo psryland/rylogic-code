@@ -129,6 +129,9 @@ namespace pr::audio
 		, m_callback()
 		, m_source_voice()
 		, m_source_started(false)
+		, m_gain(desc.volume)
+		, m_pitch(desc.pitch)
+		, m_width(desc.width)
 	{
 		if (ov_open_callbacks(&m_source, &m_ogg, nullptr, 0, MemorySource::Callbacks()) != 0)
 			throw Exception(EStatus::UnsupportedFormat, "Ogg Vorbis stream could not be opened");

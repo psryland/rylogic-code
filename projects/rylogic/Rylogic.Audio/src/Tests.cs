@@ -23,6 +23,7 @@ public sealed class TestAudio
 		Assert.Equal(8, sizeof(ClipHandle));
 		Assert.Equal(8, sizeof(VoiceHandle));
 		Assert.Equal(8, sizeof(StreamHandle));
+		Assert.Equal(8, sizeof(GroupHandle));
 		AssertNativeSize(Native.EStructId.Config, Marshal.SizeOf<Native.Config>());
 		AssertNativeSize(Native.EStructId.ListenerState, Marshal.SizeOf<ListenerState>());
 		AssertNativeSize(Native.EStructId.EmitterState, Marshal.SizeOf<EmitterState>());
@@ -32,6 +33,7 @@ public sealed class TestAudio
 		AssertNativeSize(Native.EStructId.Diagnostics, Marshal.SizeOf<Diagnostics>());
 		AssertNativeSize(Native.EStructId.StreamDesc, Marshal.SizeOf<Native.StreamDesc>());
 		AssertNativeSize(Native.EStructId.StreamState, Marshal.SizeOf<StreamState>());
+		AssertNativeSize(Native.EStructId.GroupDesc, Marshal.SizeOf<Native.GroupDesc>());
 	}
 
 	/// <summary>Exercise multiple voices per clip, clip disposal rejection, and dependency-ordered engine disposal.</summary>
@@ -105,7 +107,6 @@ public sealed class TestAudio
 		using var runtime = new AudioRuntime();
 		using var engine = runtime.CreateEngine();
 		engine.SetListener(new ListenerState(v3.Zero, new v3(0, 0, 1), new v3(0, 1, 0), v3.Zero));
-		engine.SetBusGain(EAudioBus.Effects, 0.5f);
 
 		using var clip = engine.CreateClip(AudioData.FromWave(MakeWave()));
 		using var voice = engine.CreateVoice(clip, new VoiceOptions { Spatial = true });
@@ -204,6 +205,66 @@ public sealed class TestAudio
 		Assert.True(diagnostics.m_output_sample_rate > 0);
 
 		voice.Stop();
+	}
+
+	/// <summary>M2-T4: route voices and streams through nested groups, ramp every mix control, read the meter, and release groups with the engine.</summary>
+	[Test]
+	public void GroupsRampsAndMeter()
+	{
+		using var runtime = new AudioRuntime();
+		using var other = runtime.CreateEngine();
+		var engine = runtime.CreateEngine();
+
+		// Build a two-level tree and route a voice and a stream through the child
+		var world = engine.CreateGroup(null, new GroupOptions { Gain = 0.8f });
+		var ambience = engine.CreateGroup(world, new GroupOptions { LowPassHz = 4000.0f });
+		Assert.True(ReferenceEquals(world, ambience.Parent));
+		using var clip = engine.CreateClip(AudioData.FromWave(MakeWave(seconds: 0.5)));
+		var voice = engine.CreateVoice(clip, new VoiceOptions { Group = ambience, LoopCount = VoiceOptions.InfiniteLoopCount });
+		var stream = engine.CreateStream(AudioData.Load(FixturePath), new StreamOptions { Group = ambience, LoopCount = StreamOptions.InfiniteLoopCount });
+		voice.Play();
+		stream.Play();
+
+		// Every mix control accepts a ramp and rejects out-of-domain values
+		world.SetGain(0.5f, 0.1f);
+		ambience.SetFilter(2000.0f, 100.0f, 0.1f);
+		voice.SetGain(0.5f, 0.1f);
+		voice.SetPitch(1.25f, 0.1f);
+		voice.SetWidth(0.5f, 0.1f);
+		stream.SetGain(0.5f, 0.1f);
+		stream.SetPitch(0.8f, 0.1f);
+		stream.SetWidth(0.0f, 0.1f);
+		ExpectStatus(EStatus.InvalidArgument, () => world.SetGain(-1.0f));
+		ExpectStatus(EStatus.InvalidArgument, () => ambience.SetFilter(0.0f, 0.0f));
+		ExpectStatus(EStatus.InvalidArgument, () => voice.SetWidth(2.0f));
+		ExpectStatus(EStatus.InvalidArgument, () => stream.SetPitch(1.0f, -1.0f));
+
+		// The meter reports levels for the output channels while sound plays
+		var heard = false;
+		for (var attempt = 0; attempt != 100 && !heard; ++attempt)
+		{
+			engine.Update();
+			var diagnostics = engine.GetDiagnostics();
+			Assert.True(diagnostics.m_meter_channel_count > 0 && diagnostics.m_meter_channel_count <= Rylogic.Audio.Diagnostics.MaxMeterChannels);
+			for (var i = 0; i != diagnostics.m_meter_channel_count; ++i)
+				heard |= diagnostics.MeterPeak(i) > 0.01f;
+
+			if (!heard)
+				Thread.Sleep(10);
+		}
+		Assert.True(heard);
+
+		// A group cannot be destroyed while it still has children or routed sounds, and groups cannot cross engines
+		ExpectStatus(EStatus.InvalidArgument, () => world.Dispose());
+		Assert.Throws<ArgumentException>(() => other.CreateGroup(world));
+		Assert.Throws<ArgumentException>(() => other.CreateVoice(other.CreateClip(AudioData.FromWave(MakeWave())), new VoiceOptions { Group = world }));
+
+		// Disposing the engine releases every remaining group
+		voice.Dispose();
+		engine.Dispose();
+		Assert.True(stream.IsDisposed);
+		Assert.True(ambience.IsDisposed);
+		Assert.True(world.IsDisposed);
 	}
 
 	/// <summary>Exercise Ogg lifecycle, gapless short looping, seek, natural completion, and malformed rejection.</summary>

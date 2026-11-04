@@ -120,12 +120,13 @@ namespace view3d_test
 				auto voice_desc = audio::VoiceDesc{
 					.header = {sizeof(audio::VoiceDesc), audio::AUDIO_STRUCT_VERSION},
 					.clip = m_clip,
-					.bus = audio::EBus::Effects,
+					.group = 0,
 					.spatial = true,
 					.loop_count = audio::AUDIO_INFINITE_LOOP,
 					.priority = 100,
 					.volume = 0.3f,
 					.pitch = 1.0f,
+					.width = 1.0f,
 				};
 				CheckAudio(Audio_VoiceCreate(m_engine, &voice_desc, &m_voice), "Audio_VoiceCreate");
 				CheckAudio(Audio_VoicePlay(m_engine, m_voice), "Audio_VoicePlay");

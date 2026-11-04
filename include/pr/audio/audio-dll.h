@@ -58,7 +58,11 @@ extern "C"
 	AUDIO_API void __stdcall Audio_EngineAbandon(pr::audio::EngineHandle engine);
 	AUDIO_API pr::audio::EStatus __stdcall Audio_EngineUpdate(pr::audio::EngineHandle engine);
 	AUDIO_API pr::audio::EStatus __stdcall Audio_ListenerSet(pr::audio::EngineHandle engine, pr::audio::ListenerState const* listener);
-	AUDIO_API pr::audio::EStatus __stdcall Audio_BusGainSet(pr::audio::EngineHandle engine, pr::audio::EBus bus, float gain);
+
+	AUDIO_API pr::audio::EStatus __stdcall Audio_GroupCreate(pr::audio::EngineHandle engine, pr::audio::GroupDesc const* desc, pr::audio::GroupHandle* group);
+	AUDIO_API pr::audio::EStatus __stdcall Audio_GroupDestroy(pr::audio::EngineHandle engine, pr::audio::GroupHandle group);
+	AUDIO_API pr::audio::EStatus __stdcall Audio_GroupGainSet(pr::audio::EngineHandle engine, pr::audio::GroupHandle group, float gain, float ramp_s);
+	AUDIO_API pr::audio::EStatus __stdcall Audio_GroupFilterSet(pr::audio::EngineHandle engine, pr::audio::GroupHandle group, float low_pass_hz, float high_pass_hz, float ramp_s);
 
 	AUDIO_API pr::audio::EStatus __stdcall Audio_ClipCreateWave(pr::audio::EngineHandle engine, void const* wave_file, std::uint64_t wave_file_size, pr::audio::ClipHandle* clip);
 	AUDIO_API pr::audio::EStatus __stdcall Audio_ClipDestroy(pr::audio::EngineHandle engine, pr::audio::ClipHandle clip);
@@ -71,6 +75,9 @@ extern "C"
 	AUDIO_API pr::audio::EStatus __stdcall Audio_VoiceStateGet(pr::audio::EngineHandle engine, pr::audio::VoiceHandle voice, pr::audio::VoiceState* state);
 	AUDIO_API pr::audio::EStatus __stdcall Audio_VoiceEmitterSet(pr::audio::EngineHandle engine, pr::audio::VoiceHandle voice, pr::audio::EmitterState const* emitter);
 	AUDIO_API pr::audio::EStatus __stdcall Audio_VoiceEmitterClear(pr::audio::EngineHandle engine, pr::audio::VoiceHandle voice);
+	AUDIO_API pr::audio::EStatus __stdcall Audio_VoiceGainSet(pr::audio::EngineHandle engine, pr::audio::VoiceHandle voice, float gain, float ramp_s);
+	AUDIO_API pr::audio::EStatus __stdcall Audio_VoicePitchSet(pr::audio::EngineHandle engine, pr::audio::VoiceHandle voice, float pitch, float ramp_s);
+	AUDIO_API pr::audio::EStatus __stdcall Audio_VoiceWidthSet(pr::audio::EngineHandle engine, pr::audio::VoiceHandle voice, float width, float ramp_s);
 
 	AUDIO_API pr::audio::EStatus __stdcall Audio_StreamCreateOgg(pr::audio::EngineHandle engine, pr::audio::StreamDesc const* desc, void const* ogg_file, std::uint64_t ogg_file_size, pr::audio::StreamHandle* stream);
 	AUDIO_API pr::audio::EStatus __stdcall Audio_StreamDestroy(pr::audio::EngineHandle engine, pr::audio::StreamHandle stream);
@@ -79,6 +86,9 @@ extern "C"
 	AUDIO_API pr::audio::EStatus __stdcall Audio_StreamStop(pr::audio::EngineHandle engine, pr::audio::StreamHandle stream);
 	AUDIO_API pr::audio::EStatus __stdcall Audio_StreamSeek(pr::audio::EngineHandle engine, pr::audio::StreamHandle stream, std::uint64_t pcm_position);
 	AUDIO_API pr::audio::EStatus __stdcall Audio_StreamStateGet(pr::audio::EngineHandle engine, pr::audio::StreamHandle stream, pr::audio::StreamState* state);
+	AUDIO_API pr::audio::EStatus __stdcall Audio_StreamGainSet(pr::audio::EngineHandle engine, pr::audio::StreamHandle stream, float gain, float ramp_s);
+	AUDIO_API pr::audio::EStatus __stdcall Audio_StreamPitchSet(pr::audio::EngineHandle engine, pr::audio::StreamHandle stream, float pitch, float ramp_s);
+	AUDIO_API pr::audio::EStatus __stdcall Audio_StreamWidthSet(pr::audio::EngineHandle engine, pr::audio::StreamHandle stream, float width, float ramp_s);
 
 	AUDIO_API pr::audio::EStatus __stdcall Audio_EventsCopy(pr::audio::EngineHandle engine, pr::audio::Event* events, std::uint32_t capacity, std::uint32_t* required);
 	AUDIO_API pr::audio::EStatus __stdcall Audio_DiagnosticsGet(pr::audio::EngineHandle engine, pr::audio::Diagnostics* diagnostics);
