@@ -14,6 +14,7 @@ using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text.RegularExpressions;
 using Rylogic.Extn;
@@ -85,7 +86,8 @@ public class Tools
 	// 'return_output' will return the output of the program as a string. If false, the output is printed to stdout
 	// 'expected_return_code' is the expected return code. If the program returns a different code, an exception is raised
 	// Returns (result,output)
-	public static (bool Result, string Output) Run(IList<string> args, bool throw_on_error = true, bool return_output = true, int expected_return_code = 0, bool show_arguments = false, string? cwd = null, bool shell = false, Encoding? encoding = null)
+	// 'env' adds or replaces environment variables for the child process only
+	public static (bool Result, string Output) Run(IList<string> args, bool throw_on_error = true, bool return_output = true, int expected_return_code = 0, bool show_arguments = false, string? cwd = null, bool shell = false, Encoding? encoding = null, IReadOnlyDictionary<string, string>? env = null)
 	{
 		if (args.Count == 0)
 			throw new ArgumentException("args must contain at least one element (the program to run)");
@@ -111,6 +113,8 @@ public class Tools
 				psi.StandardOutputEncoding = encoding ?? Encoding.UTF8;
 				psi.StandardErrorEncoding = encoding ?? Encoding.UTF8;
 			}
+			foreach (var kv in env ?? new Dictionary<string, string>())
+				psi.Environment[kv.Key] = kv.Value;
 
 			using var proc = new Process { StartInfo = psi };
 			proc.Start();
@@ -210,76 +214,97 @@ public class Tools
 	}
 	private static bool m_vc_env_setup = false;
 
-	// True if code signing is configured (PFX certificate available and not expired)
+	// True when the Sign CLI used for Azure Artifact Signing is installed.
+	// Azure credentials are only checked when signing runs.
 	public static bool SigningAvailable
 	{
 		get
 		{
-			try
-			{
-				if (string.IsNullOrEmpty(UserVars.CodeSignCert_Pfx) || string.IsNullOrEmpty(UserVars.CodeSignCert_Pw))
-					return false;
-
-				// Check the cert is within its validity period. If it isn't, signing will fail
-				// (NU3018 etc.), so skip it cleanly rather than aborting the build.
-				using var cert = X509CertificateLoader.LoadPkcs12FromFile(UserVars.CodeSignCert_Pfx, UserVars.CodeSignCert_Pw);
-				var now = DateTime.Now;
-				if (now < cert.NotBefore || now > cert.NotAfter)
-				{
-					Console.WriteLine($"Signing disabled: certificate not within validity period ({cert.NotBefore:d} - {cert.NotAfter:d})");
-					return false;
-				}
-				return true;
-			}
-			catch { return false; }
+			return !string.IsNullOrEmpty(UserVars.SignCli);
 		}
 	}
 
-	// Sign an assembly (EXE or DLL) using signtool.exe
-	// Skips signing if no certificate is configured.
-	public static void SignAssembly(string target)
+	// True when running under a CI service (GitHub Actions sets CI=true).
+	public static bool IsCI
 	{
-		if (!SigningAvailable)
+		get
 		{
-			Console.WriteLine($"Signing skipped (not configured): {System.IO.Path.GetFileName(target)}");
-			return;
+			return string.Equals(Environment.GetEnvironmentVariable("CI"), "true", StringComparison.OrdinalIgnoreCase);
 		}
-
-		Run([UserVars.SignTool, "sign",
-			"/f", UserVars.CodeSignCert_Pfx,
-			"/p", UserVars.CodeSignCert_Pw,
-			"/fd", "SHA256",
-			"/tr", "http://timestamp.digicert.com",
-			"/td", "SHA256",
-			target]);
 	}
 
-	// Sign a VSIX extension package
-	// Requires 'dotnet tool install -g OpenVsixSignTool'
-	public static void SignVsix(string vsix_filepath, string algo)
+	// Authenticode-sign EXE, DLL and MSI files in place using Azure Artifact Signing.
+	// Files that already have an embedded signature (e.g. third-party redistributables, or files signed by an earlier run) are left unchanged.
+	// In CI, a failure throws so that a release is never published unsigned. Locally, a failure is reported as a warning and the files stay unsigned.
+	public static void SignBinaries(IEnumerable<string> files)
 	{
-		if (string.IsNullOrEmpty(UserVars.CodeSignCert_Thumbprint))
-		{
-			Console.WriteLine($"Signing skipped (not configured): {System.IO.Path.GetFileName(vsix_filepath)}");
+		// Keep existing publisher signatures and avoid spending signatures on files that are already signed
+		var unsigned = files.Where(x => !HasAuthenticodeSignature(x)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+		if (unsigned.Count == 0)
 			return;
-		}
 
-		Run(["openvsixsigntool", "sign", "--sha1", UserVars.CodeSignCert_Thumbprint, "-fd", algo, vsix_filepath]);
+		try
+		{
+			// The Sign CLI is a dotnet global tool, so a missing install is the most likely local failure
+			if (!SigningAvailable)
+				throw new Exception("Sign CLI not found. Install it with 'dotnet tool install -g sign --prerelease'.");
+
+			// Authenticate through the Azure CLI, which works both locally ('az login') and in CI ('azure/login').
+			// AZURE_TENANT_ID pins the token to the tenant that owns the signing account, and AZURE_CONFIG_DIR optionally
+			// selects an Azure CLI profile logged in with an account from that tenant.
+			var env = new Dictionary<string, string> { ["AZURE_TENANT_ID"] = UserVars.CodeSign_TenantId };
+			if (!string.IsNullOrEmpty(UserVars.CodeSign_AzureConfigDir))
+				env["AZURE_CONFIG_DIR"] = UserVars.CodeSign_AzureConfigDir;
+
+			Console.WriteLine($"Signing {unsigned.Count} file(s) with Azure Artifact Signing");
+			Run([UserVars.SignCli, "code", "trusted-signing",
+				"--trusted-signing-endpoint", UserVars.CodeSign_Endpoint,
+				"--trusted-signing-account", UserVars.CodeSign_Account,
+				"--trusted-signing-certificate-profile", UserVars.CodeSign_Profile,
+				"--azure-credential-type", "azure-cli",
+				"--description", "Rylogic",
+				"--description-url", "https://www.rylogic.co.nz",
+				"--verbosity", "Warning",
+				.. unsigned],
+				env: env
+			);
+
+			// Confirm every file was actually signed, since a silent partial failure would ship unsigned binaries
+			var still_unsigned = unsigned.Where(x => !HasAuthenticodeSignature(x)).ToList();
+			if (still_unsigned.Count != 0)
+				throw new Exception($"Sign CLI did not sign: {string.Join(", ", still_unsigned)}");
+		}
+		catch (Exception ex)
+		{
+			// Local builds are allowed to be unsigned, CI release builds are not
+			if (IsCI)
+				throw new Exception($"Code signing failed: {ex.Message}", ex);
+
+			Console.WriteLine($"Warning: Code signing skipped for {unsigned.Count} file(s): {ex.Message}");
+		}
 	}
 
-	// Sign a NuGet package (.nupkg)
-	public static void SignNugetPackage(string nupkg_filepath)
+	// Returns the EXE and DLL files under 'dir' (recursively), i.e. the files that can be Authenticode-signed
+	public static IEnumerable<string> EnumerateBinaries(string dir)
 	{
-		if (!SigningAvailable)
-		{
-			Console.WriteLine($"Signing skipped (not configured): {System.IO.Path.GetFileName(nupkg_filepath)}");
-			return;
-		}
+		return Directory.EnumerateFiles(dir, "*.*", SearchOption.AllDirectories).Where(x => x.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) || x.EndsWith(".exe", StringComparison.OrdinalIgnoreCase));
+	}
 
-		Run([UserVars.Nuget, "sign", nupkg_filepath,
-			"-CertificatePath", UserVars.CodeSignCert_Pfx,
-			"-CertificatePassword", UserVars.CodeSignCert_Pw,
-			"-Timestamper", "http://timestamp.digicert.com"]);
+	// True if 'filepath' has an embedded Authenticode signature. The signature is not validated.
+	public static bool HasAuthenticodeSignature(string filepath)
+	{
+		// CreateFromSignedFile throws when the file has no embedded signature
+		try
+		{
+			#pragma warning disable SYSLIB0057
+			using var cert = X509Certificate.CreateFromSignedFile(filepath);
+			#pragma warning restore SYSLIB0057
+			return true;
+		}
+		catch (CryptographicException)
+		{
+			return false;
+		}
 	}
 
 	// Run the units tests in a .net assembly

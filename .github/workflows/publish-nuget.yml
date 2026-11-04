@@ -14,8 +14,11 @@ jobs:
     name: Build and validate packages
     runs-on: windows-2025
     timeout-minutes: 90
+    # The code-signing environment only accepts rylogic-v* tags and supplies the signing identity, without a reviewer.
+    environment: code-signing
     permissions:
       contents: read
+      id-token: write
     outputs:
       version: ${{ steps.version.outputs.version }}
 
@@ -60,6 +63,9 @@ jobs:
       - name: Install dotnet-script
         run: dotnet tool install --global dotnet-script --version 2.0.0
 
+      - name: Install Sign CLI
+        run: dotnet tool install --global sign --version 0.9.1-beta.25379.1
+
       - name: Validate tag version
         id: version
         shell: pwsh
@@ -84,9 +90,25 @@ jobs:
 
           "version=$project_version" >> $env:GITHUB_OUTPUT
 
+      # Azure CLI cannot refresh a GitHub OIDC login, so log in before each signing build step to keep the token fresh.
+      # The identity can only sign with the Artifact Signing account, so it needs no subscription access.
+      - name: Azure login for code signing (native)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CODESIGN_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_CODESIGN_TENANT_ID }}
+          allow-no-subscriptions: true
+
       - name: Bootstrap native package
         shell: pwsh
         run: dotnet-script .\script\Build.csx -project AllNative -build -deploy -configs Debug Release -notests -nopack
+
+      - name: Azure login for code signing (managed)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CODESIGN_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_CODESIGN_TENANT_ID }}
+          allow-no-subscriptions: true
 
       - name: Build public package set
         shell: pwsh

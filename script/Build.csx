@@ -1041,9 +1041,14 @@ public class LDraw : Managed
 			"lib",
 		];
 
+		var target_dir = Tools.Path([ProjDir, "bin/Release", Frameworks[0]]);
+		var host_target_dir = Tools.Path([ProjDir, "..", "LDrawMcpHost", "bin/Release", Frameworks[0]]);
+
+		// Sign the build outputs before they are copied or harvested, so both the deployed and the installed files carry the signature
+		Tools.SignBinaries(Tools.EnumerateBinaries(target_dir).Concat(Tools.EnumerateBinaries(host_target_dir)));
+
 		// Copy build products to the output directory
 		Console.WriteLine($"Deploying files to '{DeployDir}\\':\n");
-		var target_dir = Tools.Path([ProjDir, "bin/Release", Frameworks[0]]);
 		foreach (var file in file_list)
 			Tools.Copy(Tools.Path([target_dir, file]), DeployDir, full_paths: false, indent: "    ");
 		foreach (var dir in dir_list)
@@ -1054,7 +1059,6 @@ public class LDraw : Managed
 		// (target_dir, scanned by heat for *.dll + the runtimeconfig/deps regexes) and into the plain deploy dir for parity.
 		// Shared assemblies (Rylogic.Core.dll etc.) are byte-identical here because both projects are produced by the
 		// single solution build above, so overwriting LDraw's copies in target_dir is safe.
-		var host_target_dir = Tools.Path([ProjDir, "..", "LDrawMcpHost", "bin/Release", Frameworks[0]]);
 		Console.WriteLine($"Bundling MCP host from '{host_target_dir}\\':\n");
 		foreach (var file in System.IO.Directory.GetFiles(host_target_dir))
 		{
@@ -1070,6 +1074,9 @@ public class LDraw : Managed
 				new HarvestPath("binaries", "INSTALLFOLDER", ".", false, [new Regex(@".*\.dll"), new Regex(@"LDraw\.runtimeconfig\.json"), new Regex(@"LDrawMcpHost\.runtimeconfig\.json"), new Regex(@"LDrawMcpHost\.deps\.json")]),
 				new HarvestPath("lib_files", "lib", "lib", true),
 			]);
+
+		// Sign the installer so Windows shows Rylogic as the verified publisher
+		Tools.SignBinaries([MsiPath]);
 		Console.WriteLine($"{MsiPath} created.\n");
 	}
 
@@ -1195,6 +1202,9 @@ public class AllNative : Group
 			Tools.Path([UserVars.Root, "obj\\nuget\\Rylogic.Native\\x64\\Release\\package"], check_exists: false),
 			require_all_projects: true,
 			link_configs: ["Debug", "Release"]);
+
+		// Sign the staged copies of native runtime libraries and tools so the build outputs themselves are untouched
+		Tools.SignBinaries(Tools.EnumerateBinaries(staging_dir));
 
 		// Stage the native package in the release feed so the canonical root package and cache can be refreshed exactly.
 		Package = new Nuget()
@@ -1414,18 +1424,6 @@ void Main(IList<string> args)
 					BuildOptions.ProfileDir = args[i++];
 					break;
 				}
-			case "-cert_pfx":
-				{
-					if (!IsDataArg(i)) throw new Exception("Code signing certificate PFX path expected");
-					UserVars.CodeSignCert_Pfx = args[i++];
-					break;
-				}
-			case "-cert_pw":
-				{
-					if (!IsDataArg(i)) throw new Exception("Code signing certificate password expected");
-					UserVars.CodeSignCert_Pw = args[i++];
-					break;
-				}
 			case "-workspace":
 				{
 					if (!IsDataArg(i)) throw new Exception("Workspace argument missing");
@@ -1507,9 +1505,9 @@ void Main(IList<string> args)
 		builders.Add(builder);
 	}
 
-	// Warn once if Azure signing is not configured for deploy/publish
+	// Warn once if the signing tool is missing for deploy/publish. Signing itself enforces the CI policy.
 	if (deploy && !Tools.SigningAvailable)
-		Console.WriteLine("Warning: Azure Trusted Signing not configured. Artifacts will not be signed.");
+		Console.WriteLine("Warning: Sign CLI not installed. Artifacts will not be signed.");
 
 	// Clean every selected project before anything is built.
 	if (clean)

@@ -75,6 +75,9 @@ public class Nuget
 			xml_metadata.Element(XName.Get("description", ns))?.SetValue(Description);
 		xml_metadata.Element(XName.Get("tags", ns))?.SetValue(Tags);
 
+		// Sign marked binaries in one batch, since each Sign CLI run has a fixed authentication cost
+		Tools.SignBinaries(Files.Where(x => x.Sign).Select(x => x.Path));
+
 		// Add each file to the spec
 		var xml_files = xml_nuspec.Element(XName.Get("files", ns)) ?? throw new Exception("files element not found in nuspec template");
 		foreach (var file in Files)
@@ -82,10 +85,6 @@ public class Nuget
 			// Check the file exists
 			if (!file.Path.Contains('?') && !file.Path.Contains('*') && !IOPath.Exists(file.Path))
 				throw new Exception($"File missing for package {PackageName}: {file.Path}");
-
-			// Sign if required
-			if (file.Sign)
-				Tools.SignAssembly(file.Path);
 
 			// Add the file to the spec
 			xml_files.Add2(new XElement(XName.Get("file", ns),
@@ -165,11 +164,11 @@ public class Nuget
 			"-Verbosity", "detailed",
 		]);
 
-		// Validate and sign the staged package before publishing it into the canonical feed and cache.
+		// Validate the staged package before publishing it into the canonical feed and cache.
+		// Packages are not NuGet-signed: the binaries inside are Authenticode-signed and nuget.org adds its repository signature.
 		StagedPackagePath = Tools.Path([package_output_path, $"{PackageName}.{Version}.nupkg"]);
 		PackagePath = Tools.Path([UserVars.Root, $"lib\\packages\\{PackageName}.{Version}.nupkg"], check_exists: false);
 		ValidateStagedPackage?.Invoke(StagedPackagePath);
-		Tools.SignNugetPackage(StagedPackagePath);
 		SyncPackageOutputs(StagedPackagePath, PackagePath);
 	}
 
