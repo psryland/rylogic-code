@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+	<!-- The authoring application runs only on development machines; games reference the library, never this app -->
+	<PropertyGroup>
+		<OutputType>Exe</OutputType>
+		<RootNamespace>Rylogic.Audio.Authoring.App</RootNamespace>
+		<AssemblyName>Rylogic.Audio.Authoring.App</AssemblyName>
+		<TargetFrameworks>$(PrimaryTarget)</TargetFrameworks>
+		<IsPackable>false</IsPackable>
+		<Version>$(RylogicLibraryVersion)</Version>
+		<Description>Browser-based tool for choosing source recordings, editing preparation recipes and previewing the prepared audio.</Description>
+	</PropertyGroup>
+
+	<!-- The UI is served from beside the executable, so the app runs from any working folder -->
+	<ItemGroup>
+		<Content Update="wwwroot\**" CopyToOutputDirectory="PreserveNewest" />
+	</ItemGroup>
+
+	<!-- Dependencies -->
+	<ItemGroup>
+		<ProjectReference Include="$(RylogicRoot)projects\rylogic\Rylogic.Audio.Authoring\Rylogic.Audio.Authoring.csproj" />
+	</ItemGroup>
+
+</Project>
