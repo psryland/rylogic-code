@@ -116,6 +116,30 @@ public sealed class TestAudio
 		voice.ClearEmitter();
 	}
 
+	/// <summary>M4-T7: position a mono stream from creation, move and clear its emitter, and reject an out-of-range pan at creation.</summary>
+	[Test]
+	public void PositionedStream()
+	{
+		using var runtime = new AudioRuntime();
+		using var engine = runtime.CreateEngine();
+		engine.SetListener(new ListenerState(v3.Zero, new v3(0, 0, 1), new v3(0, 1, 0), v3.Zero));
+
+		// A spatial mono stream plays through the emitter path, and can move between flat and positioned playback
+		using var stream = engine.CreateStream(AudioData.Load(FixturePath), new StreamOptions { Spatial = true, LoopCount = StreamOptions.InfiniteLoopCount });
+		stream.Play();
+		stream.SetEmitter(EmitterState.AtPosition(new v3(2, 0, 0)));
+		engine.Update();
+		stream.ClearEmitter();
+		engine.Update();
+		stream.SetEmitter(EmitterState.AtPosition(new v3(-2, 0, 0)));
+		engine.Update();
+		stream.Stop();
+
+		// Pan is range-checked when the stream is created
+		ExpectStatus(EStatus.InvalidArgument, () => engine.CreateStream(AudioData.Load(FixturePath), new StreamOptions { Pan = 2.0f }));
+		ExpectStatus(EStatus.InvalidArgument, () => engine.CreateVoice(engine.CreateClip(AudioData.FromWave(MakeWave())), new VoiceOptions { Pan = -2.0f }));
+	}
+
 	/// <summary>Play a short clip to completion and confirm the typed voice-ended event, count, copy, and drain.</summary>
 	[Test]
 	public void Events()
@@ -231,12 +255,16 @@ public sealed class TestAudio
 		voice.SetGain(0.5f, 0.1f);
 		voice.SetPitch(1.25f, 0.1f);
 		voice.SetWidth(0.5f, 0.1f);
+		voice.SetPan(-0.5f, 0.1f);
 		stream.SetGain(0.5f, 0.1f);
 		stream.SetPitch(0.8f, 0.1f);
 		stream.SetWidth(0.0f, 0.1f);
+		stream.SetPan(0.75f, 0.1f);
 		ExpectStatus(EStatus.InvalidArgument, () => world.SetGain(-1.0f));
 		ExpectStatus(EStatus.InvalidArgument, () => ambience.SetFilter(0.0f, 0.0f));
 		ExpectStatus(EStatus.InvalidArgument, () => voice.SetWidth(2.0f));
+		ExpectStatus(EStatus.InvalidArgument, () => voice.SetPan(-1.5f));
+		ExpectStatus(EStatus.InvalidArgument, () => stream.SetPan(1.5f));
 		ExpectStatus(EStatus.InvalidArgument, () => stream.SetPitch(1.0f, -1.0f));
 
 		// The meter reports levels for the output channels while sound plays

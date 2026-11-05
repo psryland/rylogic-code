@@ -407,6 +407,12 @@ public sealed class VoiceOptions
 
 	/// <summary>Stereo width in [0,1] for non-spatial stereo clips; 0 is mono and 1 is the full source width.</summary>
 	public float Width { get; set; } = 1.0f;
+
+	/// <summary>
+	/// Left/right balance in [-1,1] for non-spatial stereo clips. 0 leaves both sides at full level; a positive pan lowers the left side toward silence
+	/// at 1, and a negative pan lowers the right side. Pan never raises either side.
+	/// </summary>
+	public float Pan { get; set; }
 }
 
 /// <summary>Configuration applied when creating a stream decoding an Ogg Vorbis payload.</summary>
@@ -417,13 +423,19 @@ public sealed class StreamOptions
 
 	/// <summary>The submix group the stream feeds, or null for the master output. The group must belong to the same engine.</summary>
 	public AudioGroup? Group { get; set; }
+
+	/// <summary>True to position the stream with default emitter properties from creation. A spatial stream must decode to a single channel.</summary>
+	public bool Spatial { get; set; }
 	public uint LoopCount { get; set; }
 	public uint Priority { get; set; } = 100;
 	public float Volume { get; set; } = 1.0f;
 	public float Pitch { get; set; } = 1.0f;
 
-	/// <summary>Stereo width in [0,1] for stereo streams; 0 is mono and 1 is the full source width.</summary>
+	/// <summary>Stereo width in [0,1] for non-spatial stereo streams; 0 is mono and 1 is the full source width.</summary>
 	public float Width { get; set; } = 1.0f;
+
+	/// <summary>Left/right balance in [-1,1] for non-spatial stereo streams. See <see cref="VoiceOptions.Pan"/>.</summary>
+	public float Pan { get; set; }
 }
 
 /// <summary>Caller-owned observable transport state for one voice.</summary>

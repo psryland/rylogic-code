@@ -9,8 +9,8 @@
 
 namespace pr::audio
 {
-	inline constexpr std::uint32_t AUDIO_API_VERSION = 0x00020000U;
-	inline constexpr std::uint32_t AUDIO_STRUCT_VERSION = 2U;
+	inline constexpr std::uint32_t AUDIO_API_VERSION = 0x00030000U;
+	inline constexpr std::uint32_t AUDIO_STRUCT_VERSION = 3U;
 	inline constexpr std::uint32_t AUDIO_INFINITE_LOOP = 0xFFFFFFFFU;
 	inline constexpr std::uint32_t AUDIO_MAX_METER_CHANNELS = 8U;
 
@@ -112,7 +112,7 @@ namespace pr::audio
 		Vector3 velocity;
 	};
 
-	// Spatial properties applied to a mono positional voice.
+	// Spatial properties applied to a mono positional voice or stream.
 	struct EmitterState
 	{
 		StructHeader header;
@@ -148,6 +148,8 @@ namespace pr::audio
 	// Initial playback and routing properties for one voice.
 	// 'group' is the submix group the voice feeds, or 0 for the master output.
 	// 'width' is the stereo width in [0,1] for non-spatial stereo clips; 0 is mono and 1 is the full source width.
+	// 'pan' is the left/right balance in [-1,1] for non-spatial stereo clips. 0 leaves both sides at full level; a positive pan lowers the left
+	// side toward silence at 1, and a negative pan lowers the right side. Pan never raises either side, so it cannot make a sound louder.
 	struct VoiceDesc
 	{
 		StructHeader header;
@@ -159,6 +161,7 @@ namespace pr::audio
 		float volume;
 		float pitch;
 		float width;
+		float pan;
 	};
 
 	// Observable transport state for one voice.
@@ -173,16 +176,18 @@ namespace pr::audio
 	};
 
 	// Initial playback and routing properties for one decoded Ogg Vorbis stream.
-	// 'group' and 'width' have the same meaning as in VoiceDesc.
+	// 'group', 'spatial', 'width', and 'pan' have the same meaning as in VoiceDesc. A spatial stream must decode to a single channel.
 	struct StreamDesc
 	{
 		StructHeader header;
 		GroupHandle group;
+		std::int32_t spatial;
 		std::uint32_t loop_count;
 		std::uint32_t priority;
 		float volume;
 		float pitch;
 		float width;
+		float pan;
 	};
 
 	// Observable transport and decode state for one stream.

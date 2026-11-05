@@ -110,6 +110,16 @@ public sealed class Voice :IDisposable
 		Native.Check(Native.Audio_VoiceWidthSet(Engine.Handle, Handle.Value, width, ramp_seconds));
 	}
 
+	/// <summary>
+	/// Move the playing voice's left/right balance in [-1,1] to 'pan' over 'ramp_seconds'. Zero applies without interpolation on the next <see cref="Engine.Update"/>.
+	/// Pan affects only non-spatial stereo clips. See <see cref="VoiceOptions.Pan"/>.
+	/// </summary>
+	public void SetPan(float pan, float ramp_seconds = 0.0f)
+	{
+		Engine.EnsureOwner();
+		Native.Check(Native.Audio_VoicePanSet(Engine.Handle, Handle.Value, pan, ramp_seconds));
+	}
+
 	/// <summary>Destroy this voice and deregister it from the clip it played.</summary>
 	public void Dispose()
 	{

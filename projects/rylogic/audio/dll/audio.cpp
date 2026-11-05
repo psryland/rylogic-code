@@ -414,6 +414,7 @@ AUDIO_ENGINE_CALL(Audio_VoiceEmitterClear, (EngineHandle engine, VoiceHandle voi
 AUDIO_ENGINE_CALL(Audio_VoiceGainSet, (EngineHandle engine, VoiceHandle voice, float gain, float ramp_s), EngineFromHandle(context, engine).VoiceGainSet(voice, gain, ramp_s))
 AUDIO_ENGINE_CALL(Audio_VoicePitchSet, (EngineHandle engine, VoiceHandle voice, float pitch, float ramp_s), EngineFromHandle(context, engine).VoicePitchSet(voice, pitch, ramp_s))
 AUDIO_ENGINE_CALL(Audio_VoiceWidthSet, (EngineHandle engine, VoiceHandle voice, float width, float ramp_s), EngineFromHandle(context, engine).VoiceWidthSet(voice, width, ramp_s))
+AUDIO_ENGINE_CALL(Audio_VoicePanSet, (EngineHandle engine, VoiceHandle voice, float pan, float ramp_s), EngineFromHandle(context, engine).VoicePanSet(voice, pan, ramp_s))
 AUDIO_ENGINE_CALL(Audio_StreamDestroy, (EngineHandle engine, StreamHandle stream), EngineFromHandle(context, engine).StreamDestroy(stream))
 AUDIO_ENGINE_CALL(Audio_StreamPlay, (EngineHandle engine, StreamHandle stream), EngineFromHandle(context, engine).StreamPlay(stream))
 AUDIO_ENGINE_CALL(Audio_StreamPause, (EngineHandle engine, StreamHandle stream), EngineFromHandle(context, engine).StreamPause(stream))
@@ -422,6 +423,8 @@ AUDIO_ENGINE_CALL(Audio_StreamSeek, (EngineHandle engine, StreamHandle stream, s
 AUDIO_ENGINE_CALL(Audio_StreamGainSet, (EngineHandle engine, StreamHandle stream, float gain, float ramp_s), EngineFromHandle(context, engine).StreamGainSet(stream, gain, ramp_s))
 AUDIO_ENGINE_CALL(Audio_StreamPitchSet, (EngineHandle engine, StreamHandle stream, float pitch, float ramp_s), EngineFromHandle(context, engine).StreamPitchSet(stream, pitch, ramp_s))
 AUDIO_ENGINE_CALL(Audio_StreamWidthSet, (EngineHandle engine, StreamHandle stream, float width, float ramp_s), EngineFromHandle(context, engine).StreamWidthSet(stream, width, ramp_s))
+AUDIO_ENGINE_CALL(Audio_StreamPanSet, (EngineHandle engine, StreamHandle stream, float pan, float ramp_s), EngineFromHandle(context, engine).StreamPanSet(stream, pan, ramp_s))
+AUDIO_ENGINE_CALL(Audio_StreamEmitterClear, (EngineHandle engine, StreamHandle stream), EngineFromHandle(context, engine).StreamEmitterClear(stream))
 
 #undef AUDIO_ENGINE_CALL
 
@@ -483,6 +486,16 @@ AUDIO_API EStatus __stdcall Audio_VoiceEmitterSet(EngineHandle engine, VoiceHand
 		{
 			Validate(emitter, "EmitterState");
 			EngineFromHandle(context, engine).VoiceEmitterSet(voice, *emitter);
+		}, __FILE__, __LINE__);
+}
+
+// Enable or update spatial properties for one stream.
+AUDIO_API EStatus __stdcall Audio_StreamEmitterSet(EngineHandle engine, StreamHandle stream, EmitterState const* emitter)
+{
+	return ApiCall([&](Context& context)
+		{
+			Validate(emitter, "EmitterState");
+			EngineFromHandle(context, engine).StreamEmitterSet(stream, *emitter);
 		}, __FILE__, __LINE__);
 }
 

@@ -91,10 +91,13 @@ namespace pr::audio
 		XAudioVoicePtr<IXAudio2SourceVoice> m_source_voice;
 		bool m_source_started;
 
-		// Owner-thread mix controls, applied to the source voice on each engine update.
+		// Owner-thread mix controls, applied to the source voice on each engine update. The emitter applies only while 'm_has_emitter' is set.
 		Ramp m_gain;
 		Ramp m_pitch;
 		Ramp m_width;
+		Ramp m_pan;
+		EmitterState m_emitter;
+		bool m_has_emitter;
 
 		// Open an Ogg Vorbis decoder over a complete copy of a compressed file. Throws Exception(UnsupportedFormat)
 		// if the header cannot be parsed.

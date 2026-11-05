@@ -88,6 +88,10 @@ namespace pr::audio
 		// Update applies the value to playing voices; zero duration applies the target without interpolation on the next Update.
 		void VoiceWidthSet(VoiceHandle voice, float width, float ramp_s);
 
+		// Ramp a voice's left/right balance to 'pan' in [-1,1] over 'ramp_s' seconds. See VoiceDesc for the balance law. Pan affects only non-spatial stereo clips.
+		// Update applies the value to playing voices; zero duration applies the target without interpolation on the next Update.
+		void VoicePanSet(VoiceHandle voice, float pan, float ramp_s);
+
 		// Create a submix group feeding another group or the master output.
 		GroupHandle GroupCreate(GroupDesc const& desc);
 
@@ -134,6 +138,16 @@ namespace pr::audio
 		// Ramp a stream's stereo width to 'width' in [0,1] over 'ramp_s' seconds. Width affects only stereo streams.
 		// Update applies the value to the source; zero duration applies the target without interpolation on the next Update.
 		void StreamWidthSet(StreamHandle stream, float width, float ramp_s);
+
+		// Ramp a stream's left/right balance to 'pan' in [-1,1] over 'ramp_s' seconds. See VoiceDesc for the balance law. Pan affects only non-spatial stereo streams.
+		// Update applies the value to the source; zero duration applies the target without interpolation on the next Update.
+		void StreamPanSet(StreamHandle stream, float pan, float ramp_s);
+
+		// Enable or update spatial properties for a mono stream.
+		void StreamEmitterSet(StreamHandle stream, EmitterState const& emitter);
+
+		// Disable spatial processing for a stream.
+		void StreamEmitterClear(StreamHandle stream);
 
 		// Commit spatial state, advance gain, pitch, width, and filter ramps, process callback flags, and publish owner-thread events.
 		// Zero-duration mix targets are applied without interpolation. XAudio2 makes graph changes audible on its processing thread.

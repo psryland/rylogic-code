@@ -84,6 +84,8 @@ extern "C"
 	AUDIO_API pr::audio::EStatus __stdcall Audio_VoicePitchSet(pr::audio::EngineHandle engine, pr::audio::VoiceHandle voice, float pitch, float ramp_s);
 	// Set the voice's width ramp target; zero duration applies to playing voices without interpolation on the next Audio_EngineUpdate.
 	AUDIO_API pr::audio::EStatus __stdcall Audio_VoiceWidthSet(pr::audio::EngineHandle engine, pr::audio::VoiceHandle voice, float width, float ramp_s);
+	// Set the voice's pan ramp target; zero duration applies to playing voices without interpolation on the next Audio_EngineUpdate.
+	AUDIO_API pr::audio::EStatus __stdcall Audio_VoicePanSet(pr::audio::EngineHandle engine, pr::audio::VoiceHandle voice, float pan, float ramp_s);
 
 	AUDIO_API pr::audio::EStatus __stdcall Audio_StreamCreateOgg(pr::audio::EngineHandle engine, pr::audio::StreamDesc const* desc, void const* ogg_file, std::uint64_t ogg_file_size, pr::audio::StreamHandle* stream);
 	AUDIO_API pr::audio::EStatus __stdcall Audio_StreamDestroy(pr::audio::EngineHandle engine, pr::audio::StreamHandle stream);
@@ -98,6 +100,10 @@ extern "C"
 	AUDIO_API pr::audio::EStatus __stdcall Audio_StreamPitchSet(pr::audio::EngineHandle engine, pr::audio::StreamHandle stream, float pitch, float ramp_s);
 	// Set the stream's width ramp target; zero duration applies without interpolation on the next Audio_EngineUpdate.
 	AUDIO_API pr::audio::EStatus __stdcall Audio_StreamWidthSet(pr::audio::EngineHandle engine, pr::audio::StreamHandle stream, float width, float ramp_s);
+	// Set the stream's pan ramp target; zero duration applies without interpolation on the next Audio_EngineUpdate.
+	AUDIO_API pr::audio::EStatus __stdcall Audio_StreamPanSet(pr::audio::EngineHandle engine, pr::audio::StreamHandle stream, float pan, float ramp_s);
+	AUDIO_API pr::audio::EStatus __stdcall Audio_StreamEmitterSet(pr::audio::EngineHandle engine, pr::audio::StreamHandle stream, pr::audio::EmitterState const* emitter);
+	AUDIO_API pr::audio::EStatus __stdcall Audio_StreamEmitterClear(pr::audio::EngineHandle engine, pr::audio::StreamHandle stream);
 
 	AUDIO_API pr::audio::EStatus __stdcall Audio_EventsCopy(pr::audio::EngineHandle engine, pr::audio::Event* events, std::uint32_t capacity, std::uint32_t* required);
 	AUDIO_API pr::audio::EStatus __stdcall Audio_DiagnosticsGet(pr::audio::EngineHandle engine, pr::audio::Diagnostics* diagnostics);
