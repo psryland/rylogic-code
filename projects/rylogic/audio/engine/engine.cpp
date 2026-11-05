@@ -81,6 +81,21 @@ namespace pr::audio
 				throw std::invalid_argument(FmtS("%s must be finite and positive", name));
 		}
 
+		// Reject emitter state that positioning cannot use: a bad header, non-finite vectors, a bad basis, an empty distance range or invalid cone angles.
+		void ValidateEmitter(EmitterState const& emitter)
+		{
+			ValidateStruct(emitter, "EmitterState");
+			Position(emitter.position);
+			Position(emitter.velocity);
+			ValidateBasis(emitter.forward, emitter.up, "Emitter orientation");
+			if (!std::isfinite(emitter.min_distance) || !std::isfinite(emitter.max_distance) || !(emitter.min_distance > 0.0f) || !(emitter.max_distance > emitter.min_distance))
+				throw std::invalid_argument("Emitter distance range is invalid");
+			if (!std::isfinite(emitter.cone_inner_angle) || !std::isfinite(emitter.cone_outer_angle) || !(emitter.cone_inner_angle >= 0.0f && emitter.cone_inner_angle <= emitter.cone_outer_angle && emitter.cone_outer_angle <= X3DAUDIO_2PI))
+				throw std::invalid_argument("Emitter cone angles are invalid");
+			if (!std::isfinite(emitter.cone_outer_gain) || !std::isfinite(emitter.doppler_scale) || !std::isfinite(emitter.obstruction) || !std::isfinite(emitter.occlusion) || !std::isfinite(emitter.reverb_send))
+				throw std::invalid_argument("Emitter acoustic parameters must be finite");
+		}
+
 		// Convert a cutoff in Hz to an XAudio2 state-variable filter coefficient. Cutoffs at or above a sixth of the sample rate map to the maximum
 		// coefficient, which makes a low-pass filter pass everything. A cutoff of 0 maps to 0, which makes a high-pass filter pass everything.
 		float CutoffToRadians(float hz, std::uint32_t sample_rate)
@@ -92,11 +107,11 @@ namespace pr::audio
 			return 2.0f * std::sin(std::numbers::pi_v<float> * hz / static_cast<float>(sample_rate));
 		}
 
-		// Build the output matrix that narrows a stereo source by 'width' (0 = mono, 1 = unchanged) for 'output_channels' destination channels.
-		// The XAudio2 matrix is indexed [destination * source_channels + source].
-		std::vector<float> StereoWidthMatrix(float width, std::uint32_t output_channels)
+		// Build the output matrix that narrows a stereo source by 'width' (0 = mono, 1 = unchanged) and balances it by 'pan' (see VoiceDesc) for
+		// 'output_channels' destination channels. The XAudio2 matrix is indexed [destination * source_channels + source].
+		std::vector<float> StereoMatrix(float width, float pan, std::uint32_t output_channels)
 		{
-			// A mono output receives the average of both source channels
+			// A mono output receives the average of both source channels, so balance has no meaning
 			auto matrix = std::vector<float>(2 * output_channels, 0.0f);
 			if (output_channels == 1)
 			{
@@ -105,13 +120,16 @@ namespace pr::audio
 				return matrix;
 			}
 
-			// Blend each side toward the centre; other output channels (centre, LFE, surrounds) receive nothing, like the default stereo matrix
+			// Blend each side toward the centre, then lower the side opposite the pan. Other output channels (centre, LFE, surrounds) receive
+			// nothing, like the default stereo matrix.
 			auto same = (1.0f + width) * 0.5f;
 			auto other = (1.0f - width) * 0.5f;
-			matrix[0 * 2 + 0] = same;
-			matrix[0 * 2 + 1] = other;
-			matrix[1 * 2 + 0] = other;
-			matrix[1 * 2 + 1] = same;
+			auto left = std::min(1.0f, 1.0f - pan);
+			auto right = std::min(1.0f, 1.0f + pan);
+			matrix[0 * 2 + 0] = same * left;
+			matrix[0 * 2 + 1] = other * left;
+			matrix[1 * 2 + 0] = other * right;
+			matrix[1 * 2 + 1] = same * right;
 			return matrix;
 		}
 
@@ -346,6 +364,7 @@ namespace pr::audio
 			Ramp m_gain;
 			Ramp m_pitch;
 			Ramp m_width;
+			Ramp m_pan;
 
 			explicit Voice(VoiceDesc const& desc)
 				: m_desc(desc)
@@ -359,6 +378,7 @@ namespace pr::audio
 				, m_gain(desc.volume)
 				, m_pitch(desc.pitch)
 				, m_width(desc.width)
+				, m_pan(desc.pan)
 			{}
 		};
 
@@ -769,21 +789,112 @@ namespace pr::audio
 				CreateGroupVoice(*m_groups[*it].m_object);
 		}
 
-		// Apply a stream's current gain, pitch, and width ramp values to its source voice. Callers must hold m_streams_mutex.
+		// Apply a stream's current mix ramps, and its emitter when it has one, to its source voice. Callers must hold m_streams_mutex.
 		void ApplyStreamMix(Stream& stream, Clock::time_point now)
 		{
 			if (!stream.m_source_voice)
 				return;
 
-			// Push the current ramp values to XAudio2; width only has meaning for a stereo source
-			auto pitch = std::clamp(stream.m_pitch.Value(now), XAUDIO2_MIN_FREQ_RATIO, XAUDIO2_DEFAULT_FREQ_RATIO);
-			CheckHR(stream.m_source_voice->SetFrequencyRatio(pitch), "IXAudio2SourceVoice::SetFrequencyRatio");
-			CheckHR(stream.m_source_voice->SetVolume(stream.m_gain.Value(now)), "IXAudio2Voice::SetVolume");
-			if (stream.m_channel_count == 2)
+			// Stream creation and emitter setting guarantee a positioned stream is mono
+			auto gain = stream.m_gain.Value(now);
+			auto pitch = stream.m_pitch.Value(now);
+			if (stream.m_has_emitter)
+				ApplyPositionedMix(*stream.m_source_voice, stream.m_desc.group, stream.m_emitter, gain, pitch);
+			else
+				ApplyFlatMix(*stream.m_source_voice, stream.m_desc.group, stream.m_channel_count, gain, pitch, stream.m_width.Value(now), stream.m_pan.Value(now));
+		}
+
+		// Apply gain, pitch, width, and pan to a non-spatial source that has a group send and a reverb send. Width and pan affect only stereo sources.
+		void ApplyFlatMix(IXAudio2SourceVoice& source, GroupHandle group, std::uint32_t channel_count, float gain, float pitch, float width, float pan)
+		{
+			// Silence the reverb send and open the direct filter, since either may hold values from an earlier positioned mix
+			auto reverb_matrix = std::vector<float>(channel_count, 0.0f);
+			auto filter = XAUDIO2_FILTER_PARAMETERS{
+				.Type = LowPassFilter,
+				.Frequency = XAUDIO2_MAX_FILTER_FREQUENCY,
+				.OneOverQ = 1.0f,
+			};
+			CheckHR(source.SetFrequencyRatio(std::clamp(pitch, XAUDIO2_MIN_FREQ_RATIO, XAUDIO2_DEFAULT_FREQ_RATIO)), "IXAudio2SourceVoice::SetFrequencyRatio");
+			CheckHR(source.SetVolume(gain), "IXAudio2Voice::SetVolume");
+			CheckHR(source.SetOutputMatrix(m_reverb_bus.get(), channel_count, 1, reverb_matrix.data()), "IXAudio2Voice::SetOutputMatrix(reverb)");
+			CheckHR(source.SetFilterParameters(&filter), "IXAudio2Voice::SetFilterParameters");
+
+			// Narrow and balance a stereo source; mono sources keep their existing group matrix
+			if (channel_count == 2)
 			{
-				auto matrix = StereoWidthMatrix(stream.m_width.Value(now), m_output_channels);
-				CheckHR(stream.m_source_voice->SetOutputMatrix(GroupOutput(stream.m_desc.group), 2, m_output_channels, matrix.data()), "IXAudio2Voice::SetOutputMatrix(width)");
+				auto matrix = StereoMatrix(width, pan, m_output_channels);
+				CheckHR(source.SetOutputMatrix(GroupOutput(group), 2, m_output_channels, matrix.data()), "IXAudio2Voice::SetOutputMatrix(stereo)");
 			}
+		}
+
+		// Apply gain and pitch to a mono source placed by 'state' relative to the listener. The emitter adds distance attenuation, cone gain,
+		// speaker panning, doppler pitch, a direct-path low-pass, and a reverb send. 'state' must already be validated (see ValidateEmitter).
+		void ApplyPositionedMix(IXAudio2SourceVoice& source, GroupHandle group, EmitterState const& state, float gain, float pitch)
+		{
+			// Describe the listener and the emitter's cone and distance curve. The curve holds full volume out to the minimum distance, then falls
+			// linearly to silence at the maximum distance.
+			auto listener = X3DAUDIO_LISTENER{
+				.OrientFront = Direction(m_listener.forward, "Listener forward"),
+				.OrientTop = Direction(m_listener.up, "Listener up"),
+				.Position = Position(m_listener.position),
+				.Velocity = Position(m_listener.velocity),
+			};
+			auto min_fraction = std::clamp(state.min_distance / state.max_distance, 0.0f, 0.999f);
+			auto cone = X3DAUDIO_CONE{
+				.InnerAngle = state.cone_inner_angle,
+				.OuterAngle = state.cone_outer_angle,
+				.InnerVolume = 1.0f,
+				.OuterVolume = std::clamp(state.cone_outer_gain, 0.0f, 1.0f),
+				.InnerLPF = 0.0f,
+				.OuterLPF = 0.75f,
+				.InnerReverb = 0.0f,
+				.OuterReverb = 1.0f,
+			};
+			auto volume_points = std::array{
+				X3DAUDIO_DISTANCE_CURVE_POINT{0.0f, 1.0f},
+				X3DAUDIO_DISTANCE_CURVE_POINT{min_fraction, 1.0f},
+				X3DAUDIO_DISTANCE_CURVE_POINT{1.0f, 0.0f},
+			};
+			auto volume_curve = X3DAUDIO_DISTANCE_CURVE{
+				.pPoints = volume_points.data(),
+				.PointCount = static_cast<UINT32>(volume_points.size()),
+			};
+			auto emitter = X3DAUDIO_EMITTER{
+				.pCone = state.cone_outer_angle < X3DAUDIO_2PI ? &cone : nullptr,
+				.OrientFront = Direction(state.forward, "Emitter forward"),
+				.OrientTop = Direction(state.up, "Emitter up"),
+				.Position = Position(state.position),
+				.Velocity = Position(state.velocity),
+				.ChannelCount = 1,
+				.pVolumeCurve = &volume_curve,
+				.CurveDistanceScaler = state.max_distance,
+				.DopplerScaler = std::max(0.0f, state.doppler_scale),
+			};
+
+			// Calculate the speaker matrix, doppler factor, direct low-pass, and reverb level
+			auto matrix = std::vector<float>(m_output_channels);
+			auto dsp = X3DAUDIO_DSP_SETTINGS{
+				.pMatrixCoefficients = matrix.data(),
+				.SrcChannelCount = 1,
+				.DstChannelCount = m_output_channels,
+			};
+			X3DAudioCalculate(m_x3d, &listener, &emitter, X3DAUDIO_CALCULATE_MATRIX | X3DAUDIO_CALCULATE_DOPPLER | X3DAUDIO_CALCULATE_LPF_DIRECT | X3DAUDIO_CALCULATE_REVERB, &dsp);
+
+			// Obstruction and occlusion lower the level and close the direct filter further
+			auto obstruction = std::clamp(state.obstruction, 0.0f, 1.0f);
+			auto occlusion = std::clamp(state.occlusion, 0.0f, 1.0f);
+			auto occluded_gain = gain * (1.0f - 0.35f * obstruction) * (1.0f - 0.65f * occlusion);
+			auto filter = XAUDIO2_FILTER_PARAMETERS{
+				.Type = LowPassFilter,
+				.Frequency = std::clamp(dsp.LPFDirectCoefficient * (1.0f - 0.5f * obstruction - 0.75f * occlusion), 0.01f, 1.0f),
+				.OneOverQ = 1.0f,
+			};
+			auto reverb_send = std::clamp(state.reverb_send, 0.0f, 1.0f) * dsp.ReverbLevel;
+			CheckHR(source.SetOutputMatrix(GroupOutput(group), 1, m_output_channels, matrix.data()), "IXAudio2Voice::SetOutputMatrix");
+			CheckHR(source.SetOutputMatrix(m_reverb_bus.get(), 1, 1, &reverb_send), "IXAudio2Voice::SetOutputMatrix(reverb)");
+			CheckHR(source.SetFrequencyRatio(std::clamp(pitch * dsp.DopplerFactor, XAUDIO2_MIN_FREQ_RATIO, XAUDIO2_DEFAULT_FREQ_RATIO)), "IXAudio2SourceVoice::SetFrequencyRatio");
+			CheckHR(source.SetVolume(occluded_gain), "IXAudio2Voice::SetVolume");
+			CheckHR(source.SetFilterParameters(&filter), "IXAudio2Voice::SetFilterParameters");
 		}
 
 		// Count currently materialized XAudio2 source voices.
@@ -892,99 +1003,26 @@ namespace pr::audio
 			CheckHR(voice.m_source->SubmitSourceBuffer(&buffer), "IXAudio2SourceVoice::SubmitSourceBuffer");
 		}
 
-		// Apply current spatial state to one realized source voice.
+		// Apply the current mix ramps, and the emitter when the voice has one, to one realized source voice.
 		void ApplySpatial(Voice& voice)
 		{
 			if (!voice.m_source)
 				return;
 
+			// Positioning needs a single source channel; the clip is only known once the voice plays
 			auto& clip = ClipFromHandle(voice.m_desc.clip);
 			auto now = Clock::now();
-			auto volume = voice.m_gain.Value(now);
-			auto pitch = std::clamp(voice.m_pitch.Value(now), XAUDIO2_MIN_FREQ_RATIO, XAUDIO2_DEFAULT_FREQ_RATIO);
+			auto gain = voice.m_gain.Value(now);
+			auto pitch = voice.m_pitch.Value(now);
 			if (!voice.m_has_emitter)
 			{
-				// Non-spatial voices play at their own gain and pitch, with no reverb send; stereo clips are narrowed by the voice width
-				auto reverb_matrix = std::vector<float>(clip.m_channel_count, 0.0f);
-				CheckHR(voice.m_source->SetFrequencyRatio(pitch), "IXAudio2SourceVoice::SetFrequencyRatio");
-				CheckHR(voice.m_source->SetVolume(volume), "IXAudio2Voice::SetVolume");
-				CheckHR(voice.m_source->SetOutputMatrix(m_reverb_bus.get(), clip.m_channel_count, 1, reverb_matrix.data()), "IXAudio2Voice::SetOutputMatrix(reverb)");
-				if (clip.m_channel_count == 2)
-				{
-					auto matrix = StereoWidthMatrix(voice.m_width.Value(now), m_output_channels);
-					CheckHR(voice.m_source->SetOutputMatrix(GroupOutput(voice.m_desc.group), 2, m_output_channels, matrix.data()), "IXAudio2Voice::SetOutputMatrix(width)");
-				}
+				ApplyFlatMix(*voice.m_source, voice.m_desc.group, clip.m_channel_count, gain, pitch, voice.m_width.Value(now), voice.m_pan.Value(now));
 				return;
 			}
 			if (clip.m_channel_count != 1)
 				throw std::invalid_argument("Only mono clips can be spatialized");
 
-			auto listener = X3DAUDIO_LISTENER{
-				.OrientFront = Direction(m_listener.forward, "Listener forward"),
-				.OrientTop = Direction(m_listener.up, "Listener up"),
-				.Position = Position(m_listener.position),
-				.Velocity = Position(m_listener.velocity),
-			};
-			auto& state = voice.m_emitter;
-			if (!(state.min_distance > 0.0f) || !(state.max_distance > state.min_distance))
-				throw std::invalid_argument("Emitter distance range is invalid");
-
-			auto min_fraction = std::clamp(state.min_distance / state.max_distance, 0.0f, 0.999f);
-			if (!(state.cone_inner_angle >= 0.0f && state.cone_inner_angle <= state.cone_outer_angle && state.cone_outer_angle <= X3DAUDIO_2PI))
-				throw std::invalid_argument("Emitter cone angles are invalid");
-
-			auto cone = X3DAUDIO_CONE{
-				.InnerAngle = state.cone_inner_angle,
-				.OuterAngle = state.cone_outer_angle,
-				.InnerVolume = 1.0f,
-				.OuterVolume = std::clamp(state.cone_outer_gain, 0.0f, 1.0f),
-				.InnerLPF = 0.0f,
-				.OuterLPF = 0.75f,
-				.InnerReverb = 0.0f,
-				.OuterReverb = 1.0f,
-			};
-			auto volume_points = std::array{
-				X3DAUDIO_DISTANCE_CURVE_POINT{0.0f, 1.0f},
-				X3DAUDIO_DISTANCE_CURVE_POINT{min_fraction, 1.0f},
-				X3DAUDIO_DISTANCE_CURVE_POINT{1.0f, 0.0f},
-			};
-			auto volume_curve = X3DAUDIO_DISTANCE_CURVE{
-				.pPoints = volume_points.data(),
-				.PointCount = static_cast<UINT32>(volume_points.size()),
-			};
-			auto emitter = X3DAUDIO_EMITTER{
-				.pCone = state.cone_outer_angle < X3DAUDIO_2PI ? &cone : nullptr,
-				.OrientFront = Direction(state.forward, "Emitter forward"),
-				.OrientTop = Direction(state.up, "Emitter up"),
-				.Position = Position(state.position),
-				.Velocity = Position(state.velocity),
-				.ChannelCount = 1,
-				.pVolumeCurve = &volume_curve,
-				.CurveDistanceScaler = state.max_distance,
-				.DopplerScaler = std::max(0.0f, state.doppler_scale),
-			};
-			auto matrix = std::vector<float>(m_output_channels);
-			auto dsp = X3DAUDIO_DSP_SETTINGS{
-				.pMatrixCoefficients = matrix.data(),
-				.SrcChannelCount = 1,
-				.DstChannelCount = m_output_channels,
-			};
-			X3DAudioCalculate(m_x3d, &listener, &emitter, X3DAUDIO_CALCULATE_MATRIX | X3DAUDIO_CALCULATE_DOPPLER | X3DAUDIO_CALCULATE_LPF_DIRECT | X3DAUDIO_CALCULATE_REVERB, &dsp);
-
-			auto obstruction = std::clamp(state.obstruction, 0.0f, 1.0f);
-			auto occlusion = std::clamp(state.occlusion, 0.0f, 1.0f);
-			auto gain = volume * (1.0f - 0.35f * obstruction) * (1.0f - 0.65f * occlusion);
-			auto filter = XAUDIO2_FILTER_PARAMETERS{
-				.Type = LowPassFilter,
-				.Frequency = std::clamp(dsp.LPFDirectCoefficient * (1.0f - 0.5f * obstruction - 0.75f * occlusion), 0.01f, 1.0f),
-				.OneOverQ = 1.0f,
-			};
-			CheckHR(voice.m_source->SetOutputMatrix(GroupOutput(voice.m_desc.group), 1, m_output_channels, matrix.data()), "IXAudio2Voice::SetOutputMatrix");
-			auto reverb_send = std::clamp(state.reverb_send, 0.0f, 1.0f) * dsp.ReverbLevel;
-			CheckHR(voice.m_source->SetOutputMatrix(m_reverb_bus.get(), 1, 1, &reverb_send), "IXAudio2Voice::SetOutputMatrix(reverb)");
-			CheckHR(voice.m_source->SetFrequencyRatio(std::clamp(pitch * dsp.DopplerFactor, XAUDIO2_MIN_FREQ_RATIO, XAUDIO2_DEFAULT_FREQ_RATIO)), "IXAudio2SourceVoice::SetFrequencyRatio");
-			CheckHR(voice.m_source->SetVolume(gain), "IXAudio2Voice::SetVolume");
-			CheckHR(voice.m_source->SetFilterParameters(&filter), "IXAudio2Voice::SetFilterParameters");
+			ApplyPositionedMix(*voice.m_source, voice.m_desc.group, voice.m_emitter, gain, pitch);
 		}
 
 		// Materialize the XAudio2 source voice for a stream, bound to its configured group. Callers must hold m_streams_mutex.
@@ -1002,13 +1040,19 @@ namespace pr::audio
 				.wBitsPerSample = 16,
 				.cbSize = 0,
 			};
-			auto send = XAUDIO2_SEND_DESCRIPTOR{
-				.Flags = 0,
-				.pOutputVoice = GroupOutput(stream.m_desc.group),
+			auto sends_desc = std::array{
+				XAUDIO2_SEND_DESCRIPTOR{
+					.Flags = 0,
+					.pOutputVoice = GroupOutput(stream.m_desc.group),
+				},
+				XAUDIO2_SEND_DESCRIPTOR{
+					.Flags = 0,
+					.pOutputVoice = m_reverb_bus.get(),
+				},
 			};
 			auto sends = XAUDIO2_VOICE_SENDS{
-				.SendCount = 1,
-				.pSends = &send,
+				.SendCount = static_cast<UINT32>(sends_desc.size()),
+				.pSends = sends_desc.data(),
 			};
 			auto source = static_cast<IXAudio2SourceVoice*>(nullptr);
 			CheckHR(m_xaudio->CreateSourceVoice(&source, &format, XAUDIO2_VOICE_USEFILTER, XAUDIO2_DEFAULT_FREQ_RATIO, &stream.m_callback, &sends), "IXAudio2::CreateSourceVoice");
@@ -1157,6 +1201,7 @@ namespace pr::audio
 		CheckRange(desc.volume, 0.0f, std::numeric_limits<float>::max(), "Voice volume");
 		CheckPositive(desc.pitch, "Voice pitch");
 		CheckRange(desc.width, 0.0f, 1.0f, "Voice width");
+		CheckRange(desc.pan, -1.0f, 1.0f, "Voice pan");
 
 		auto live_count = std::uint32_t{};
 		for (auto const& slot : m_impl->m_voices)
@@ -1303,16 +1348,7 @@ namespace pr::audio
 	void Engine::VoiceEmitterSet(VoiceHandle voice_handle, EmitterState const& emitter)
 	{
 		m_impl->CheckThread();
-		ValidateStruct(emitter, "EmitterState");
-		Position(emitter.position);
-		Position(emitter.velocity);
-		ValidateBasis(emitter.forward, emitter.up, "Emitter orientation");
-		if (!std::isfinite(emitter.min_distance) || !std::isfinite(emitter.max_distance) || !(emitter.min_distance > 0.0f) || !(emitter.max_distance > emitter.min_distance))
-			throw std::invalid_argument("Emitter distance range is invalid");
-		if (!std::isfinite(emitter.cone_inner_angle) || !std::isfinite(emitter.cone_outer_angle) || !(emitter.cone_inner_angle >= 0.0f && emitter.cone_inner_angle <= emitter.cone_outer_angle && emitter.cone_outer_angle <= X3DAUDIO_2PI))
-			throw std::invalid_argument("Emitter cone angles are invalid");
-		if (!std::isfinite(emitter.cone_outer_gain) || !std::isfinite(emitter.doppler_scale) || !std::isfinite(emitter.obstruction) || !std::isfinite(emitter.occlusion) || !std::isfinite(emitter.reverb_send))
-			throw std::invalid_argument("Emitter acoustic parameters must be finite");
+		ValidateEmitter(emitter);
 		auto& voice = m_impl->VoiceFromHandle(voice_handle);
 		voice.m_emitter = emitter;
 		voice.m_has_emitter = true;
@@ -1351,6 +1387,15 @@ namespace pr::audio
 		CheckRange(width, 0.0f, 1.0f, "Voice width");
 		CheckRange(ramp_s, 0.0f, std::numeric_limits<float>::max(), "Ramp duration");
 		m_impl->VoiceFromHandle(voice_handle).m_width.Set(width, ramp_s, Clock::now());
+	}
+
+	// Ramp a voice's left/right balance to 'pan' in [-1,1] over 'ramp_s' seconds. Pan affects only non-spatial stereo clips.
+	void Engine::VoicePanSet(VoiceHandle voice_handle, float pan, float ramp_s)
+	{
+		m_impl->CheckThread();
+		CheckRange(pan, -1.0f, 1.0f, "Voice pan");
+		CheckRange(ramp_s, 0.0f, std::numeric_limits<float>::max(), "Ramp duration");
+		m_impl->VoiceFromHandle(voice_handle).m_pan.Set(pan, ramp_s, Clock::now());
 	}
 
 	// Create a submix group feeding another group or the master output.
@@ -1454,6 +1499,7 @@ namespace pr::audio
 		CheckRange(desc.volume, 0.0f, std::numeric_limits<float>::max(), "Stream volume");
 		CheckPositive(desc.pitch, "Stream pitch");
 		CheckRange(desc.width, 0.0f, 1.0f, "Stream width");
+		CheckRange(desc.pan, -1.0f, 1.0f, "Stream pan");
 		if (ogg_file.empty())
 			throw std::invalid_argument("Ogg Vorbis file data is empty");
 
@@ -1465,7 +1511,11 @@ namespace pr::audio
 			throw Exception(EStatus::ResourceLimit, "Audio stream capacity reached");
 
 		// Copy the compressed file into engine ownership before parsing so the caller's buffer can be freed immediately.
+		// The channel count is only known after parsing, so the mono requirement for positioning is checked here.
 		auto stream = std::make_unique<Stream>(desc, std::vector<std::byte>(ogg_file.begin(), ogg_file.end()));
+		if (stream->m_has_emitter && stream->m_channel_count != 1)
+			throw std::invalid_argument("Only mono streams can be spatialized");
+
 		m_impl->RealizeStream(*stream);
 
 		for (auto i = std::size_t{}; i != m_impl->m_streams.size(); ++i)
@@ -1634,6 +1684,38 @@ namespace pr::audio
 		CheckRange(ramp_s, 0.0f, std::numeric_limits<float>::max(), "Ramp duration");
 		auto lock = std::lock_guard<std::mutex>(m_impl->m_streams_mutex);
 		m_impl->StreamFromHandle(stream_handle).m_width.Set(width, ramp_s, Clock::now());
+	}
+
+	// Ramp a stream's left/right balance to 'pan' in [-1,1] over 'ramp_s' seconds. Pan affects only non-spatial stereo streams.
+	void Engine::StreamPanSet(StreamHandle stream_handle, float pan, float ramp_s)
+	{
+		m_impl->CheckThread();
+		CheckRange(pan, -1.0f, 1.0f, "Stream pan");
+		CheckRange(ramp_s, 0.0f, std::numeric_limits<float>::max(), "Ramp duration");
+		auto lock = std::lock_guard<std::mutex>(m_impl->m_streams_mutex);
+		m_impl->StreamFromHandle(stream_handle).m_pan.Set(pan, ramp_s, Clock::now());
+	}
+
+	// Enable or update spatial properties for a mono stream.
+	void Engine::StreamEmitterSet(StreamHandle stream_handle, EmitterState const& emitter)
+	{
+		m_impl->CheckThread();
+		ValidateEmitter(emitter);
+		auto lock = std::lock_guard<std::mutex>(m_impl->m_streams_mutex);
+		auto& stream = m_impl->StreamFromHandle(stream_handle);
+		if (stream.m_channel_count != 1)
+			throw std::invalid_argument("Only mono streams can be spatialized");
+
+		stream.m_emitter = emitter;
+		stream.m_has_emitter = true;
+	}
+
+	// Disable spatial processing for a stream.
+	void Engine::StreamEmitterClear(StreamHandle stream_handle)
+	{
+		m_impl->CheckThread();
+		auto lock = std::lock_guard<std::mutex>(m_impl->m_streams_mutex);
+		m_impl->StreamFromHandle(stream_handle).m_has_emitter = false;
 	}
 
 	// Commit spatial state, advance gain, pitch, width, and filter ramps, process callback flags, and publish owner-thread events.

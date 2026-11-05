@@ -44,6 +44,9 @@ voice.Play();
 Positions use a right-handed world space in metres, velocities use metres per second, and cone angles use radians. The
 native backend performs its X3DAudio coordinate conversion internally.
 
+Streams can be positioned the same way: set `StreamOptions.Spatial` or call `AudioStream.SetEmitter`, and call `ClearEmitter` to
+return to flat playback. A positioned stream must decode to a single channel.
+
 ## Groups, ramps, and metering
 
 `Engine.CreateGroup(parent, options)` creates a submix group that feeds its parent group, or the master output when the parent
@@ -53,11 +56,13 @@ high-pass cutoff of 0 passes everything. Cutoffs ramp linearly in Hz. Voices and
 while child groups, voices, or streams still route through it.
 
 Every mix setter takes a ramp time in seconds: `AudioGroup.SetGain`/`SetFilter`, and `Voice`/`AudioStream` `SetGain`, `SetPitch`,
-and `SetWidth`. Setters record ramp targets; they do not change the live audio graph. `Engine.Update` applies the current ramp
+and `SetWidth`/`SetPan`. Setters record ramp targets; they do not change the live audio graph. `Engine.Update` applies the current ramp
 values to active playback, so ramp smoothness follows the update rate. A ramp of 0 applies its target without interpolation
 on the next `Engine.Update`, not during the setter call. A new target starts from the current ramp value. Newly started or
 recreated sources also use their current ramp values. Graph changes become audible when the audio processing thread consumes
-them; `Update` does not synchronously render audio. Width (0 = mono, 1 = full source width) affects only non-spatial stereo sources.
+them; `Update` does not synchronously render audio. Width (0 = mono, 1 = full source width) and pan affect only non-spatial stereo
+sources. Pan in [-1,1] balances left and right: 0 leaves both sides at full level, a positive pan lowers the left side toward
+silence at 1, and a negative pan lowers the right side. Pan never makes a sound louder.
 
 `Diagnostics.MeterPeak(channel)` and `MeterRms(channel)` report linear master output levels for the first
 `m_meter_channel_count` channels during the most recent processing pass.

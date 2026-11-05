@@ -91,12 +91,36 @@ public sealed class AudioStream :IDisposable
 
 	/// <summary>
 	/// Move the stereo width in [0,1] to 'width' over 'ramp_seconds'. Zero applies without interpolation on the next <see cref="Engine.Update"/>.
-	/// Width affects only stereo streams.
+	/// Width affects only non-spatial stereo streams.
 	/// </summary>
 	public void SetWidth(float width, float ramp_seconds = 0.0f)
 	{
 		Engine.EnsureOwner();
 		Native.Check(Native.Audio_StreamWidthSet(Engine.Handle, Handle.Value, width, ramp_seconds));
+	}
+
+	/// <summary>
+	/// Move the stream's left/right balance in [-1,1] to 'pan' over 'ramp_seconds'. Zero applies without interpolation on the next <see cref="Engine.Update"/>.
+	/// Pan affects only non-spatial stereo streams. See <see cref="VoiceOptions.Pan"/>.
+	/// </summary>
+	public void SetPan(float pan, float ramp_seconds = 0.0f)
+	{
+		Engine.EnsureOwner();
+		Native.Check(Native.Audio_StreamPanSet(Engine.Handle, Handle.Value, pan, ramp_seconds));
+	}
+
+	/// <summary>Replace the spatial emitter properties, making this a positional stream. The stream must decode to a single channel.</summary>
+	public unsafe void SetEmitter(EmitterState emitter)
+	{
+		Engine.EnsureOwner();
+		Native.Check(Native.Audio_StreamEmitterSet(Engine.Handle, Handle.Value, &emitter));
+	}
+
+	/// <summary>Clear any spatial emitter properties, making this a non-positional stream.</summary>
+	public void ClearEmitter()
+	{
+		Engine.EnsureOwner();
+		Native.Check(Native.Audio_StreamEmitterClear(Engine.Handle, Handle.Value));
 	}
 
 	/// <summary>Destroy this stream.</summary>
