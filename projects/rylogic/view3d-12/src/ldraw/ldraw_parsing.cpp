@@ -671,6 +671,10 @@ namespace pr::rdr12::ldraw
 			}
 		}
 
+		// A translucent base colour blends with the scene, as it does for imported models; an opaque material would ignore its alpha.
+		if (material->m_base_colour.m_colour.a < 1.0f)
+			material->alpha_mode(materials::EAlphaMode::Blend);
+
 		return static_cast<MaterialPtr>(material);
 	}
 

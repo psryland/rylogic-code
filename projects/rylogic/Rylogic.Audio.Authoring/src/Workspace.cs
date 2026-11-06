@@ -70,8 +70,8 @@ public sealed partial class Workspace
 	/// <summary>The background jobs. Slots are 'import:&lt;origin&gt;' and 'render:&lt;sound-id&gt;/&lt;variant-id&gt;'.</summary>
 	public LatestJobs Jobs { get; }
 
-	/// <summary>The file types accepted from the generated folder.</summary>
-	public static IReadOnlyList<string> GeneratedTypes { get; } = [".wav", ".mp3", ".flac", ".ogg"];
+	/// <summary>The file types accepted from local folders.</summary>
+	public static IReadOnlyList<string> LocalTypes { get; } = [".wav", ".mp3", ".flac", ".ogg"];
 
 	/// <summary>The current state for display. Never waits for background work.</summary>
 	public JsonObject Snapshot()
@@ -92,7 +92,7 @@ public sealed partial class Workspace
 				ids.Add(new JsonObject { ["id"] = sound.Id, ["section"] = sound.Section, ["description"] = sound.Description, ["loop"] = sound.Loop, ["properties"] = properties });
 			}
 
-			// Every known origin, with the address that plays it best: the original once imported, else the generated file or the browse preview
+			// Every known origin, with the address that plays it best: the original once imported, else the local file or the browse preview
 			var origins = new JsonObject();
 			foreach (var (origin, record) in m_origins.Origins)
 			{
@@ -135,21 +135,20 @@ public sealed partial class Workspace
 	}
 
 	/// <summary>
-	/// Re-read the catalog and add generated files that are new to the origins registry, assigning each to the sound ID its path suggests. File-system
-	/// reads happen before the lock is taken.
+	/// Re-read the catalog and add local files that are new to the origins registry, crediting each to its folder and assigning it to the sound ID its
+	/// path names. File-system reads happen before the lock is taken.
 	/// </summary>
 	public void Refresh()
 	{
 		// Read everything that touches the disk first
 		var catalog = Catalog.Read(Config.CatalogPath);
-		var generated = new List<string>();
-		if (Config.GeneratedFolder != null && Directory.Exists(Config.GeneratedFolder))
+		var local = new List<(LocalFolder folder, string rel)>();
+		foreach (var folder in Config.LocalFolders.Where(x => Directory.Exists(x.Path)))
 		{
-			generated = Directory.EnumerateFiles(Config.GeneratedFolder, "*", SearchOption.AllDirectories)
-				.Where(x => GeneratedTypes.Contains(Path.GetExtension(x).ToLowerInvariant()))
-				.Select(x => Path.GetRelativePath(Config.GeneratedFolder, x).Replace('\\', '/'))
-				.Order(StringComparer.Ordinal)
-				.ToList();
+			local.AddRange(Directory.EnumerateFiles(folder.Path, "*", SearchOption.AllDirectories)
+				.Where(x => LocalTypes.Contains(Path.GetExtension(x).ToLowerInvariant()))
+				.Select(x => (folder, Path.GetRelativePath(folder.Path, x).Replace('\\', '/')))
+				.OrderBy(x => x.Item2, StringComparer.Ordinal));
 		}
 
 		lock (m_lock)
@@ -157,15 +156,15 @@ public sealed partial class Workspace
 			// The catalog may have been edited while the tool runs
 			m_catalog = catalog;
 
-			// A generated file is identified by its path, so moving it makes a new origin
+			// A local file is identified by its path, so moving it makes a new origin
 			var changed = false;
-			foreach (var rel in generated)
+			foreach (var (folder, rel) in local)
 			{
-				var origin = $"generated:{rel}";
+				var origin = $"local:{folder.Name}/{rel}";
 				if (m_origins.Origins.ContainsKey(origin))
 					continue;
 
-				m_origins.Origins[origin] = new OriginRecord { Title = Path.ChangeExtension(rel, null), User = "generated", Licence = "generated" };
+				m_origins.Origins[origin] = new OriginRecord { Title = Path.ChangeExtension(rel, null), User = folder.Author, Licence = folder.Licence, Url = folder.Url };
 				var guess = GuessSoundId(rel, m_catalog.Select(x => x.Id));
 				if (guess != null)
 				{
@@ -464,9 +463,9 @@ public sealed partial class Workspace
 			{
 				return record.Preview != null ? $"/previews/{EscapePath(record.Preview)}" : null;
 			}
-			case EOriginKind.Generated:
+			case EOriginKind.Local:
 			{
-				return $"/generated/{EscapePath(OriginsFile.ReferenceOf(origin))}";
+				return $"/local/{EscapePath(OriginsFile.ReferenceOf(origin))}";
 			}
 			case EOriginKind.HandMade:
 			{
@@ -543,16 +542,28 @@ public sealed partial class Workspace
 	}
 
 	/// <summary>
-	/// The sound ID whose dot-separated parts best match the words of a generated file's path, or null when no part matches. A trailing 's' is ignored,
-	/// so 'birds' matches 'bird'; between equal matches, the ID with fewer parts wins because more of it matched.
+	/// The sound ID a local file's path names, or null when nothing matches. A folder whose name is a sound ID, ignoring case and with '-', '_' or ' '
+	/// in place of '.' (so 'lab-radio' names 'lab.radio'), assigns everything beneath it; the deepest such folder wins. Otherwise the result is the sound
+	/// ID whose dot-separated parts best match the words of the folder and file names. A trailing 's' is ignored, so 'birds' matches 'bird'; between
+	/// equal matches, the ID with fewer parts wins because more of it matched.
 	/// </summary>
 	public static string? GuessSoundId(string relative_path, IEnumerable<string> sound_ids)
 	{
+		// A folder that names a sound ID is an explicit assignment, so it takes precedence over words in track titles
+		var ids = sound_ids.ToList();
+		foreach (var folder in relative_path.Split('/').SkipLast(1).Reverse())
+		{
+			// Compare in one canonical spelling of the ID
+			var named = ids.FirstOrDefault(x => string.Equals(x, FolderSeparators().Replace(folder, "."), StringComparison.OrdinalIgnoreCase));
+			if (named != null)
+				return named;
+		}
+
 		// Words are the lower-case letter and digit runs of the folder and file names
 		var words = WordSplit().Split(Path.ChangeExtension(relative_path, null).ToLowerInvariant()).Where(x => x.Length != 0).Select(TrimPlural).ToHashSet();
 		string? best = null;
 		var best_score = (matched: 0, shortness: 0);
-		foreach (var id in sound_ids)
+		foreach (var id in ids)
 		{
 			// Score by matched parts, then by fewer parts
 			var parts = id.Split('.');
@@ -570,6 +581,9 @@ public sealed partial class Workspace
 
 	[GeneratedRegex("[^a-z0-9]+")]
 	private static partial Regex WordSplit();
+
+	[GeneratedRegex("[-_ ]")]
+	private static partial Regex FolderSeparators();
 
 	[GeneratedRegex("[^A-Za-z0-9._-]+")]
 	private static partial Regex SafeName();

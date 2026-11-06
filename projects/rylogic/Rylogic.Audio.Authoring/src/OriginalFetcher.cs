@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 namespace Rylogic.Audio.Authoring;
 
 /// <summary>
-/// Brings original recordings into a <see cref="SourceStore"/> from where they came from: Freesound downloads and the project's generated folder. An
+/// Brings original recordings into a <see cref="SourceStore"/> from where they came from: Freesound downloads and the project's local folders. An
 /// original that is already stored is never fetched again, and a fetched original must have the source ID recorded for it, so a missing original can be
 /// fetched again without changing what is rendered. Fetches run one at a time.
 /// </summary>
@@ -95,13 +95,12 @@ public sealed class OriginalFetcher
 						Directory.Delete(download_folder, true);
 				}
 			}
-			case EOriginKind.Generated:
+			case EOriginKind.Local:
 			{
-				// Generated files are already local
-				var folder = m_config.GeneratedFolder ?? throw new InvalidOperationException("The project does not configure a generated folder.");
-				var path = Path.GetFullPath(Path.Combine(folder, OriginsFile.ReferenceOf(origin)));
+				// Local files are already on this machine
+				var path = m_config.LocalPathOf(origin);
 				if (!File.Exists(path))
-					throw new FileNotFoundException($"The generated file '{path}' is missing.", path);
+					throw new FileNotFoundException($"The local file '{path}' is missing.", path);
 
 				return await Sources.ImportAsync(path, provenance, cancel);
 			}

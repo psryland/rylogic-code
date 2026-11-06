@@ -75,7 +75,7 @@ public static partial class Program
 		app.UseDefaultFiles(new DefaultFilesOptions { FileProvider = new PhysicalFileProvider(web_root) });
 		app.UseStaticFiles(new StaticFileOptions { FileProvider = new PhysicalFileProvider(web_root) });
 
-		// The full review state. Refreshing picks up catalog edits and new generated files
+		// The full review state. Refreshing picks up catalog edits and new local files
 		app.MapGet("/api/state", () =>
 		{
 			workspace.Refresh();
@@ -137,9 +137,10 @@ public static partial class Program
 		{
 			return HexId().IsMatch(id) ? AudioFile(workspace.Sources.FlacPath(id)) : Results.NotFound();
 		});
-		app.MapGet("/generated/{**path}", (string path) =>
+		app.MapGet("/local/{name}/{**path}", (string name, string path) =>
 		{
-			return AudioFile(Contained(workspace.Config.GeneratedFolder, path));
+			var folder = workspace.Config.LocalFolders.FirstOrDefault(x => x.Name == name);
+			return AudioFile(Contained(folder?.Path, path));
 		});
 		app.MapGet("/reference/{**path}", (string path) =>
 		{

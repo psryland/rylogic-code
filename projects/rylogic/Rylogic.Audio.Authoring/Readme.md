@@ -21,7 +21,10 @@ A project supplies an `authoring.json` file. Relative paths are resolved against
 	"cache": "../../artifacts/sound-prep",
 	"fetched": "../../artifacts/sound-fetched",
 	"previews": "../../artifacts/sound-candidates",
-	"generated": "../../artifacts/generated-sounds",
+	"local": [
+		{ "name": "generated", "path": "../../artifacts/generated-sounds", "author": "ElevenLabs", "licence": "generated" },
+		{ "name": "archive", "path": "D:/Recordings/Archive", "author": "Example Archive", "licence": "Public domain", "url": "https://example.org" }
+	],
 	"freesound": { "credentials": "%LOCALAPPDATA%/MyGame/freesound.json" }
 }
 ```
@@ -35,6 +38,11 @@ A project supplies an `authoring.json` file. Relative paths are resolved against
   this folder in version control.
 - `origins`: the registry of every recording that has been browsed, and the source each has been imported as.
 - `cache`: disposable renders, named by a hash of everything that can change them. Delete it at any time.
+- `local` (optional): folders of recordings on this machine (generated, recorded or collected), each searched recursively for `.wav`, `.mp3`, `.flac`
+  and `.ogg` files. Every file is an origin `local:<name>/<relative path>` credited to the folder's `author`, `licence` and optional `url`. The authoring
+  tool adds new files as unheard variants of the sound ID named by their subfolder (`lab-radio/`, `lab_radio/` or `lab.radio/` all name `lab.radio`;
+  the deepest such folder wins), or else of the sound ID whose name parts best match the words in the file's path. Accepting one imports it into
+  `originals`, because it cannot be downloaded again.
 
 ## Recipes
 

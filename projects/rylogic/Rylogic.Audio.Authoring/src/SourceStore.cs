@@ -40,7 +40,7 @@ public sealed class SourceStore
 			{
 				return true;
 			}
-			case EOriginKind.Generated:
+			case EOriginKind.Local:
 			case EOriginKind.HandMade:
 			{
 				return false;

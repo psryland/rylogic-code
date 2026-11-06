@@ -391,8 +391,11 @@ function render_ids()
 	p.onclick = () => select_id(POOL);
 	el.appendChild(p);
 
+	// Sections keep their catalog order; the IDs within each section are alphabetical so a sound is easy to find
+	const section_order = [...new Set(state.ids.map(x => x.section))];
+	const ordered = [...state.ids].sort((a, b) => section_order.indexOf(a.section) - section_order.indexOf(b.section) || a.id.localeCompare(b.id));
 	let section = null;
-	for (const { id, section: sec } of state.ids)
+	for (const { id, section: sec } of ordered)
 	{
 		if (sec !== section)
 		{

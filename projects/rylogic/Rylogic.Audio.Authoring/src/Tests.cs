@@ -186,13 +186,13 @@ public sealed class TestAuthoring
 	[Test]
 	public void OriginalsAndCache()
 	{
-		// Import a generated recording; importing the same bytes again returns the same source
+		// Import a local recording; importing the same bytes again returns the same source
 		using var temp = new TempFolder();
 		var ffmpeg = new Ffmpeg();
 		var download = Path.Combine(temp.Path, "tone.wav");
 		File.WriteAllBytes(download, WavFile.Encode(Sine(440, 0.5, 2)));
 		var sources = new SourceStore(Path.Combine(temp.Path, "originals"), null, ffmpeg);
-		var provenance = new SourceSidecar { Kind = EOriginKind.Generated, Origin = "generated:tone.wav" };
+		var provenance = new SourceSidecar { Kind = EOriginKind.Local, Origin = "local:gen/tone.wav" };
 		var sidecar = sources.ImportAsync(download, provenance, CancellationToken.None).GetAwaiter().GetResult();
 		Assert.Equal(sidecar.Id, sources.ImportAsync(download, provenance, CancellationToken.None).GetAwaiter().GetResult().Id);
 		Assert.Equal(SourceStore.SourceIdOf(sidecar.DownloadSha256), sidecar.Id);
@@ -236,19 +236,19 @@ public sealed class TestAuthoring
 		var fetcher = new OriginalFetcher(config, sources, new FreesoundClient(http, null));
 		var download = Path.Combine(temp.Path, "tone.wav");
 		File.WriteAllBytes(download, WavFile.Encode(Sine(440, 0.5, 1)));
-		var source = sources.ImportAsync(download, new SourceSidecar { Kind = EOriginKind.Generated, Origin = "generated:tone.wav" }, CancellationToken.None).GetAwaiter().GetResult().Id;
+		var source = sources.ImportAsync(download, new SourceSidecar { Kind = EOriginKind.Local, Origin = "local:gen/tone.wav" }, CancellationToken.None).GetAwaiter().GetResult().Id;
 		File.WriteAllBytes(Path.Combine(temp.Path, "master.flac"), [1]);
 		string[] sound_ids = ["a", "b", "silent"];
 
 		// Sound 'a' has a rejected variant between a recipe variant and a reference variant; 'b' has only a candidate; 'silent' has no file
 		var a = new PrepFile { Id = "a" };
-		var rendered = a.AddVariant("generated:tone.wav", source, EVariantStatus.Accepted);
+		var rendered = a.AddVariant("local:gen/tone.wav", source, EVariantStatus.Accepted);
 		rendered.Recipe.Add(new RecipeStep { Step = ERecipeStep.Gain, Db = -3 });
-		a.AddVariant("generated:other.wav", null, EVariantStatus.Rejected);
+		a.AddVariant("local:gen/other.wav", null, EVariantStatus.Rejected);
 		a.AddVariant("hand_made:a.1", null, EVariantStatus.Accepted).ReferenceMaster = "master.flac";
 		a.Save(config.PrepFolder);
 		var b = new PrepFile { Id = "b" };
-		b.AddVariant("generated:tone.wav", source, EVariantStatus.Candidate);
+		b.AddVariant("local:gen/tone.wav", source, EVariantStatus.Candidate);
 		b.Save(config.PrepFolder);
 
 		// Only 'a' resolves, to its render and then its reference master
@@ -261,7 +261,7 @@ public sealed class TestAuthoring
 		File.Delete(Path.Combine(temp.Path, "master.flac"));
 		Assert.Throws<FileNotFoundException>(() => PreparedSounds.ResolveAsync(config, cache, fetcher, sound_ids, CancellationToken.None).GetAwaiter().GetResult());
 		a.Variants[2].Status = EVariantStatus.Rejected;
-		a.AddVariant("generated:missing.wav", null, EVariantStatus.Accepted);
+		a.AddVariant("local:gen/missing.wav", null, EVariantStatus.Accepted);
 		a.Save(config.PrepFolder);
 		Assert.Throws<InvalidDataException>(() => PreparedSounds.ResolveAsync(config, cache, fetcher, sound_ids, CancellationToken.None).GetAwaiter().GetResult());
 		Assert.Throws<InvalidDataException>(() => PreparedSounds.ResolveAsync(config, cache, fetcher, ["b", "silent"], CancellationToken.None).GetAwaiter().GetResult());
@@ -271,19 +271,19 @@ public sealed class TestAuthoring
 	[Test]
 	public void OriginalsAreFetchedAgain()
 	{
-		// A project whose generated recording has been imported and adopted by sound 'a'
+		// A project whose local recording has been imported and adopted by sound 'a'
 		using var temp = new TempFolder();
-		File.WriteAllText(Path.Combine(temp.Path, "authoring.json"), """{"schema":1,"catalog":"sounds.json","originals":"originals","fetched":"fetched","generated":"generated","prep":"prep","origins":"origins.json","cache":"cache"}""");
+		File.WriteAllText(Path.Combine(temp.Path, "authoring.json"), """{"schema":1,"catalog":"sounds.json","originals":"originals","fetched":"fetched","local":[{"name":"gen","path":"generated","author":"Generator","licence":"CC0"}],"prep":"prep","origins":"origins.json","cache":"cache"}""");
 		var config = AuthoringConfig.Load(Path.Combine(temp.Path, "authoring.json"));
 		var ffmpeg = new Ffmpeg();
 		var sources = new SourceStore(config.OriginalsFolder, config.FetchedFolder, ffmpeg);
 		var cache = new RenderCache(config.CacheFolder, sources, ffmpeg);
 		using var http = new System.Net.Http.HttpClient();
 		var fetcher = new OriginalFetcher(config, sources, new FreesoundClient(http, null));
-		Directory.CreateDirectory(config.GeneratedFolder!);
-		var generated = Path.Combine(config.GeneratedFolder!, "tone.wav");
+		Directory.CreateDirectory(config.LocalFolderOf("gen").Path);
+		var generated = Path.Combine(config.LocalFolderOf("gen").Path, "tone.wav");
 		File.WriteAllBytes(generated, WavFile.Encode(Sine(440, 0.5, 1)));
-		const string origin = "generated:tone.wav";
+		const string origin = "local:gen/tone.wav";
 		var origins = new OriginsFile();
 		origins.Origins[origin] = new OriginRecord { Title = "Tone" };
 		var source = fetcher.ImportAsync(origin, origins.Origins[origin], CancellationToken.None).GetAwaiter().GetResult().Id;
@@ -424,16 +424,54 @@ public sealed class TestAuthoring
 		Assert.Equal(ERecipeStep.LowPass, PrepFile.Load(workspace.Config.PrepFolder, "wind.test").Variants[0].Recipe[0].Step);
 	}
 
-	/// <summary>Generated files are assigned to the sound ID their path suggests.</summary>
+	/// <summary>Local files are found recursively, credited to their folder, and assigned to the folder's sound ID or else the one their path suggests.</summary>
+	[Test]
+	public void LocalFoldersCreditAndAssign()
+	{
+		// Two local folders: one names its sound ID with a subfolder, the other relies on words in its paths
+		using var temp = new TempFolder();
+		File.WriteAllText(Path.Combine(temp.Path, "sounds.json"), "{\"sections\":[{\"name\":\"Lab\",\"sounds\":[{\"id\":\"lab.radio\"},{\"id\":\"mind.speech\"}]}]}");
+		File.WriteAllText(Path.Combine(temp.Path, "authoring.json"), "{\"schema\":1,\"catalog\":\"sounds.json\",\"originals\":\"originals\",\"prep\":\"prep\",\"origins\":\"origins.json\",\"cache\":\"cache\",\"local\":[{\"name\":\"jazz\",\"path\":\"jazz\",\"author\":\"Archive\",\"licence\":\"Public domain\",\"url\":\"https://example.org\"},{\"name\":\"gen\",\"path\":\"gen\",\"author\":\"Generator\",\"licence\":\"CC0\"}]}");
+		Directory.CreateDirectory(Path.Combine(temp.Path, "jazz", "lab-radio", "disc 1"));
+		Directory.CreateDirectory(Path.Combine(temp.Path, "gen", "speech"));
+		File.WriteAllBytes(Path.Combine(temp.Path, "jazz", "lab-radio", "disc 1", "speech.mp3"), WavFile.Encode(Sine(440, 0.1, 1)));
+		File.WriteAllBytes(Path.Combine(temp.Path, "gen", "speech", "speech-1.wav"), WavFile.Encode(Sine(440, 0.1, 1)));
+		File.WriteAllText(Path.Combine(temp.Path, "gen", "notes.txt"), "not audio");
+		var config = AuthoringConfig.Load(Path.Combine(temp.Path, "authoring.json"));
+		using var http = new System.Net.Http.HttpClient();
+		var workspace = new Workspace(config, new Ffmpeg(), http);
+		workspace.Refresh();
+
+		// Each audio file is an origin credited to its folder, and only audio files are found
+		var origins = OriginsFile.Load(config.OriginsPath).Origins;
+		Assert.Equal(2, origins.Count);
+		Assert.Equal("Archive", origins["local:jazz/lab-radio/disc 1/speech.mp3"].User);
+		Assert.Equal("Public domain", origins["local:jazz/lab-radio/disc 1/speech.mp3"].Licence);
+		Assert.Equal("https://example.org", origins["local:jazz/lab-radio/disc 1/speech.mp3"].Url);
+		Assert.Equal("CC0", origins["local:gen/speech/speech-1.wav"].Licence);
+
+		// A folder named for a sound ID wins over words in the file name; otherwise the words are used
+		Assert.Equal("local:jazz/lab-radio/disc 1/speech.mp3", PrepFile.Load(config.PrepFolder, "lab.radio").Variants.Single().Origin);
+		Assert.Equal("local:gen/speech/speech-1.wav", PrepFile.Load(config.PrepFolder, "mind.speech").Variants.Single().Origin);
+
+		// Origins resolve to their files and cannot leave their folder
+		Assert.Equal(Path.Combine(temp.Path, "jazz", "lab-radio", "disc 1", "speech.mp3"), config.LocalPathOf("local:jazz/lab-radio/disc 1/speech.mp3"));
+		Assert.Throws<InvalidDataException>(() => config.LocalPathOf("local:jazz/../gen/speech/speech-1.wav"));
+		Assert.Throws<InvalidOperationException>(() => config.LocalPathOf("local:missing/track.mp3"));
+	}
+
+	/// <summary>Local files are assigned to the sound ID their folder names, or else the one their path's words suggest.</summary>
 	[Test]
 	public void GuessSoundIds()
 	{
-		// Plural words match singular ID parts, and fewer parts win ties
-		var ids = new[] { "wind.forest.10", "wind.forest.still", "mind.speech", "birds.dawn" };
+		// A folder named for an ID wins over words, and the deepest such folder wins; plural words match singular ID parts, and fewer parts win ties
+		var ids = new[] { "wind.forest.10", "wind.forest.still", "mind.speech", "birds.dawn", "lab.radio" };
+		Assert.Equal("lab.radio", Workspace.GuessSoundId("Lab_Radio/mind speech.mp3", ids));
+		Assert.Equal("wind.forest.10", Workspace.GuessSoundId("lab-radio/wind.forest.10/gust.wav", ids));
 		Assert.Equal("mind.speech", Workspace.GuessSoundId("speech/speech-2.wav", ids));
 		Assert.Equal("wind.forest.still", Workspace.GuessSoundId("winds/forest_still.wav", ids));
 		Assert.Equal("birds.dawn", Workspace.GuessSoundId("bird.mp3", ids));
-		Assert.Equal(null, Workspace.GuessSoundId("radio/broadcast.wav", ids));
+		Assert.Equal(null, Workspace.GuessSoundId("misc/broadcast.wav", ids));
 	}
 }
 #endif

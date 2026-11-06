@@ -14,8 +14,8 @@ public enum EOriginKind
 	/// <summary>Downloaded from Freesound. The origin reference is 'freesound:&lt;sound number&gt;'.</summary>
 	Freesound,
 
-	/// <summary>Made by a generator. The origin reference is 'generated:&lt;path relative to the generated folder&gt;'.</summary>
-	Generated,
+	/// <summary>A file in one of the project's local folders. The origin reference is 'local:&lt;folder name&gt;/&lt;path relative to the folder&gt;'.</summary>
+	Local,
 
 	/// <summary>Made by hand with no separate original. The origin reference is 'hand_made:&lt;name&gt;'.</summary>
 	HandMade,
@@ -292,7 +292,7 @@ public sealed class OriginsFile
 		return colon < 0 ? throw new InvalidDataException($"Origin '{origin}' has no kind prefix.") : origin[..colon] switch
 		{
 			"freesound" => EOriginKind.Freesound,
-			"generated" => EOriginKind.Generated,
+			"local" => EOriginKind.Local,
 			"hand_made" => EOriginKind.HandMade,
 			_ => throw new InvalidDataException($"Origin '{origin}' has an unknown kind."),
 		};
