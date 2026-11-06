@@ -671,6 +671,10 @@ namespace pr::rdr12::ldraw
 			}
 		}
 
+		// A translucent base colour blends with the scene, as it does for imported models; an opaque material would ignore its alpha.
+		if (material->m_base_colour.m_colour.a < 1.0f)
+			material->alpha_mode(materials::EAlphaMode::Blend);
+
 		return static_cast<MaterialPtr>(material);
 	}
 
@@ -786,6 +790,18 @@ namespace pr::rdr12::ldraw
 	{
 		// Set colour on 'obj' (so that render states are set correctly)
 		obj->Colour(true, obj->m_base_colour);
+
+		// An instance material that needs blending makes the renderer skip the opaque nuggets, so the shared model must have alpha variants to draw instead.
+		// Like alpha colours, this is one-way because other instances of the model might still need the variants.
+		if (obj->m_material != nullptr && obj->m_material->RequiresAlpha() && obj->m_model != nullptr)
+		{
+			ResourceFactory factory(obj->m_model->rdr());
+			for (auto& nug : Enumerate(obj->m_model->m_nuggets))
+			{
+				if (!nug.HasAlphaVariant())
+					nug.AlphaVariant(factory, true);
+			}
+		}
 
 		// Groups implicitly tint descendants with their base colour, unless *GroupTint was set explicitly.
 		// This makes the script read naturally (e.g. '*Group "grp" FF00FF00 { ... }' tints children green).
