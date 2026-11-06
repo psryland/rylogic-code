@@ -41,9 +41,9 @@ public sealed class RenderCache
 	public async Task<string> KeyAsync(string source_id, IReadOnlyList<RecipeStep> recipe, CancellationToken cancel)
 	{
 		// Bypassed steps do not affect the output, so toggling bypass back restores the earlier key
-		var flac_sha = await m_sources.FlacSha256Async(source_id, cancel);
+		var original_sha = await m_sources.OriginalSha256Async(source_id, cancel);
 		var steps = AuthoringJson.ToCanonicalString(recipe.Where(x => !x.Bypass).ToList());
-		var text = string.Join('\n', RecipeRenderer.PreparationVersion, flac_sha, steps, m_ffmpeg.Version);
+		var text = string.Join('\n', RecipeRenderer.PreparationVersion, original_sha, steps, m_ffmpeg.Version);
 		return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
 	}
 
@@ -58,7 +58,7 @@ public sealed class RenderCache
 
 		// Always render from the original, never from another render
 		await m_sources.VerifyAsync(source_id, cancel);
-		var original = await m_ffmpeg.DecodeAsync(m_sources.FlacPath(source_id), cancel);
+		var original = await m_ffmpeg.DecodeAsync(m_sources.OriginalPath(source_id), cancel);
 		var rendered = await Task.Run(() => RecipeRenderer.Render(original, recipe), cancel);
 		cancel.ThrowIfCancellationRequested();
 		AuthoringJson.WriteAtomic(path, WavFile.Encode(rendered));

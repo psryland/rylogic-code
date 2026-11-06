@@ -209,7 +209,7 @@ public sealed class TestAuthoring
 
 		// The render is exactly the recipe applied to the decoded original
 		var rendered = WavFile.Read(path);
-		var expected = RecipeRenderer.Render(ffmpeg.DecodeAsync(sources.FlacPath(sidecar.Id), CancellationToken.None).GetAwaiter().GetResult(), recipe);
+		var expected = RecipeRenderer.Render(ffmpeg.DecodeAsync(sources.OriginalPath(sidecar.Id), CancellationToken.None).GetAwaiter().GetResult(), recipe);
 		Assert.True(WavFile.Encode(expected).AsSpan().SequenceEqual(WavFile.Encode(rendered)));
 
 		// Bypassed steps do not change the key; parameter changes do
@@ -218,8 +218,35 @@ public sealed class TestAuthoring
 		Assert.NotEqual(key, cache.KeyAsync(sidecar.Id, [new() { Step = ERecipeStep.Gain, Db = -5 }], CancellationToken.None).GetAwaiter().GetResult());
 
 		// A modified original is detected rather than silently rendered
-		File.AppendAllText(sources.FlacPath(sidecar.Id), "x");
+		File.AppendAllText(sources.OriginalPath(sidecar.Id), "x");
 		Assert.Throws<InvalidDataException>(() => sources.VerifyAsync(sidecar.Id, CancellationToken.None).GetAwaiter().GetResult());
+	}
+
+	/// <summary>A compressed download is stored as received rather than enlarged by conversion, and still renders.</summary>
+	[Test]
+	public void CompressedOriginalsAreKept()
+	{
+		// Encode a short tone as MP3, as a download would arrive
+		using var temp = new TempFolder();
+		var ffmpeg = new Ffmpeg();
+		var wav = Path.Combine(temp.Path, "tone.wav");
+		var mp3 = Path.Combine(temp.Path, "tone.mp3");
+		File.WriteAllBytes(wav, WavFile.Encode(Sine(440, 0.5, 1)));
+		using (var process = System.Diagnostics.Process.Start(ffmpeg.ExePath, ["-hide_banner", "-loglevel", "error", "-i", wav, "-c:a", "libmp3lame", "-b:a", "64k", mp3]))
+		{
+			process.WaitForExit();
+			Assert.Equal(0, process.ExitCode);
+		}
+
+		// The stored original is the MP3 byte-for-byte, and renders from it are verified like any other original
+		var sources = new SourceStore(Path.Combine(temp.Path, "originals"), null, ffmpeg);
+		var sidecar = sources.ImportAsync(mp3, new SourceSidecar { Kind = EOriginKind.Local, Origin = "local:gen/tone.mp3" }, CancellationToken.None).GetAwaiter().GetResult();
+		Assert.Equal(Path.Combine(temp.Path, "originals", $"{sidecar.Id}.mp3"), sources.OriginalPath(sidecar.Id));
+		Assert.True(File.ReadAllBytes(mp3).AsSpan().SequenceEqual(File.ReadAllBytes(sources.OriginalPath(sidecar.Id))));
+		Assert.Equal(sidecar.DownloadSha256, sidecar.OriginalSha256);
+		var cache = new RenderCache(Path.Combine(temp.Path, "cache"), sources, ffmpeg);
+		var path = cache.GetOrRenderAsync(sidecar.Id, [], CancellationToken.None).GetAwaiter().GetResult().path;
+		Assert.True(WavFile.Read(path).Frames > 0);
 	}
 
 	/// <summary>Accepted variants resolve to their prepared files in order; unassigned sounds are absent and broken references fail (P-T11).</summary>
@@ -299,12 +326,12 @@ public sealed class TestAuthoring
 		a.Save(config.PrepFolder);
 
 		// Originals that exist nowhere else stay in the originals folder; a store also finds an original in the fetched folder
-		Assert.Equal(Path.Combine(config.OriginalsFolder, $"{source}.flac"), sources.FlacPath(source));
+		Assert.Equal(Path.Combine(config.OriginalsFolder, $"{source}.flac"), sources.OriginalPath(source));
 		Directory.CreateDirectory(config.FetchedFolder!);
 		foreach (var ext in new[] { "flac", "json" })
 			File.Move(Path.Combine(config.OriginalsFolder, $"{source}.{ext}"), Path.Combine(config.FetchedFolder!, $"{source}.{ext}"));
 
-		Assert.Equal(Path.Combine(config.FetchedFolder!, $"{source}.flac"), sources.FlacPath(source));
+		Assert.Equal(Path.Combine(config.FetchedFolder!, $"{source}.flac"), sources.OriginalPath(source));
 		sources.VerifyAsync(source, CancellationToken.None).GetAwaiter().GetResult();
 
 		// Resolving with the original missing fetches it again, and renders the same audio
@@ -318,7 +345,7 @@ public sealed class TestAuthoring
 		Assert.True(File.ReadAllBytes(resolved["a"][0]).AsSpan().SequenceEqual(expected_bytes));
 
 		// A recording that has changed at its origin is not silently used in place of the recorded source
-		File.Delete(sources.FlacPath(source));
+		File.Delete(sources.OriginalPath(source));
 		File.Delete(sources.SidecarPath(source));
 		File.WriteAllBytes(generated, WavFile.Encode(Sine(220, 0.5, 1)));
 		Assert.Throws<InvalidDataException>(() => fetcher.EnsureAsync(origin, origins.Origins[origin], source, CancellationToken.None).GetAwaiter().GetResult());
@@ -418,7 +445,7 @@ public sealed class TestAuthoring
 		Assert.True(WaitFor(() => RenderUrl() != null, 30));
 		var source = PrepFile.Load(workspace.Config.PrepFolder, "wind.test").Variants[0].Source;
 		Assert.True(source != null && workspace.Sources.Contains(source));
-		Assert.Equal(Path.Combine(temp.Path, "fetched", $"{source}.flac"), workspace.Sources.FlacPath(source!));
+		Assert.Equal(Path.Combine(temp.Path, "fetched", $"{source}.flac"), workspace.Sources.OriginalPath(source!));
 		Assert.Equal(2, Directory.EnumerateFileSystemEntries(Path.Combine(temp.Path, "fetched")).Count());
 
 		// A failing recipe reports its error and keeps the last working render

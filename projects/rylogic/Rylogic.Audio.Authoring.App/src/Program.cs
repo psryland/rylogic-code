@@ -179,9 +179,9 @@ public static partial class Program
 		{
 			return HexId().IsMatch(key) ? AudioFile(workspace.Cache.PathOf(key)) : Results.NotFound();
 		});
-		app.MapGet("/original/{id}.flac", (string id) =>
+		app.MapGet("/original/{id}", (string id) =>
 		{
-			return HexId().IsMatch(id) ? AudioFile(workspace.Sources.FlacPath(id)) : Results.NotFound();
+			return HexId().IsMatch(id) ? AudioFile(workspace.Sources.OriginalPath(id)) : Results.NotFound();
 		});
 		app.MapGet("/local/{name}/{**path}", (string name, string path) =>
 		{

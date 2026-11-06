@@ -256,8 +256,8 @@ public sealed class SourceSidecar
 	/// <summary>SHA-256 of the original download bytes.</summary>
 	public string DownloadSha256 { get; set; } = string.Empty;
 
-	/// <summary>SHA-256 of the stored FLAC, used to prove the original is unchanged.</summary>
-	public string FlacSha256 { get; set; } = string.Empty;
+	/// <summary>SHA-256 of the stored audio file, used to prove the original is unchanged.</summary>
+	public string OriginalSha256 { get; set; } = string.Empty;
 }
 
 /// <summary>What is known about one origin, whether or not it has been imported as a source.</summary>

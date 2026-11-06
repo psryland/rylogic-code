@@ -474,9 +474,9 @@ public sealed partial class Workspace
 	/// <summary>The address that plays 'origin' for review. Caller holds the lock.</summary>
 	private string? PlayUrl(string origin, OriginRecord record)
 	{
-		// Prefer the lossless original; otherwise the browse copy
+		// Prefer the original; otherwise the browse copy
 		if (record.Source != null)
-			return $"/original/{record.Source}.flac";
+			return $"/original/{record.Source}";
 
 		switch (OriginsFile.KindOf(origin))
 		{

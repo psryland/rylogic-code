@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
@@ -8,9 +9,11 @@ using System.Threading.Tasks;
 namespace Rylogic.Audio.Authoring;
 
 /// <summary>
-/// The originals: one lossless '&lt;source-id&gt;.flac' per source with a '&lt;source-id&gt;.json' provenance sidecar. Originals are written once on import
-/// and never modified, so every render can start from the untouched recording. Originals that can be downloaded again (see <see cref="CanFetch"/>) are
-/// kept in the fetched folder, which need not be version controlled; all others are kept in the originals folder. A source is looked up in both.
+/// The originals: one '&lt;source-id&gt;.&lt;type&gt;' audio file per source with a '&lt;source-id&gt;.json' provenance sidecar. A download in one of the
+/// <see cref="StoredTypes"/> is kept byte-for-byte, so compressed recordings are not enlarged; any other type is converted to lossless FLAC. Originals are
+/// written once on import and never modified, so every render can start from the untouched recording. Originals that can be downloaded again (see
+/// <see cref="CanFetch"/>) are kept in the fetched folder, which need not be version controlled; all others are kept in the originals folder. A source is
+/// looked up in both.
 /// </summary>
 public sealed class SourceStore
 {
@@ -52,10 +55,21 @@ public sealed class SourceStore
 		}
 	}
 
-	/// <summary>The stored FLAC of 'source_id'.</summary>
-	public string FlacPath(string source_id)
+	/// <summary>The file types kept as received. FLAC is already lossless, and converting a lossy type would only enlarge it.</summary>
+	public static IReadOnlyList<string> StoredTypes { get; } = [".flac", ".mp3", ".ogg"];
+
+	/// <summary>The stored audio file of 'source_id'. When it is missing, this is where a FLAC would be.</summary>
+	public string OriginalPath(string source_id)
 	{
-		return Path.Combine(FolderOf(source_id), $"{source_id}.flac");
+		// The sidecar does not record the type, so the folder is searched for each type a source can be stored as
+		var folder = FolderOf(source_id);
+		foreach (var type in StoredTypes)
+		{
+			var path = Path.Combine(folder, $"{source_id}{type}");
+			if (File.Exists(path))
+				return path;
+		}
+		return Path.Combine(folder, $"{source_id}.flac");
 	}
 
 	/// <summary>The provenance sidecar of 'source_id'.</summary>
@@ -77,7 +91,7 @@ public sealed class SourceStore
 	/// <summary>True when 'source_id' has been imported.</summary>
 	public bool Contains(string source_id)
 	{
-		return File.Exists(FlacPath(source_id)) && File.Exists(SidecarPath(source_id));
+		return File.Exists(OriginalPath(source_id)) && File.Exists(SidecarPath(source_id));
 	}
 
 	/// <summary>Read the sidecar of 'source_id'.</summary>
@@ -110,21 +124,24 @@ public sealed class SourceStore
 			return existing;
 		}
 
-		// A FLAC is kept byte-for-byte; anything else is converted losslessly from its decoded form
+		// A stored type is kept byte-for-byte; anything else is converted losslessly from its decoded form
 		var folder = CanFetch(provenance.Kind) && FetchedFolder != null ? FetchedFolder : Folder;
 		Directory.CreateDirectory(folder);
-		var flac_path = Path.Combine(folder, $"{id}.flac");
-		if (string.Equals(Path.GetExtension(file_path), ".flac", StringComparison.OrdinalIgnoreCase))
+		var type = Path.GetExtension(file_path).ToLowerInvariant();
+		string original_path;
+		if (StoredTypes.Contains(type))
 		{
+			original_path = Path.Combine(folder, $"{id}{type}");
 			var bytes = await File.ReadAllBytesAsync(file_path, cancel);
-			AuthoringJson.WriteAtomic(flac_path, bytes);
+			AuthoringJson.WriteAtomic(original_path, bytes);
 		}
 		else
 		{
-			await m_ffmpeg.ConvertToFlacAsync(file_path, flac_path, cancel);
+			original_path = Path.Combine(folder, $"{id}.flac");
+			await m_ffmpeg.ConvertToFlacAsync(file_path, original_path, cancel);
 		}
 
-		// The sidecar is written last, so a source only counts as imported once its FLAC is complete
+		// The sidecar is written last, so a source only counts as imported once its audio file is complete
 		var sidecar = new SourceSidecar
 		{
 			Id = id,
@@ -136,30 +153,30 @@ public sealed class SourceStore
 			Url = provenance.Url,
 			DownloadName = provenance.DownloadName ?? Path.GetFileName(file_path),
 			DownloadSha256 = download_sha,
-			FlacSha256 = await Sha256Async(flac_path, cancel),
+			OriginalSha256 = await Sha256Async(original_path, cancel),
 		};
 		AuthoringJson.Write(Path.Combine(folder, $"{id}.json"), sidecar);
 		return sidecar;
 	}
 
-	/// <summary>Throw if the stored FLAC of 'source_id' no longer matches the hash recorded when it was imported.</summary>
+	/// <summary>Throw if the stored audio file of 'source_id' no longer matches the hash recorded when it was imported.</summary>
 	public async Task VerifyAsync(string source_id, CancellationToken cancel)
 	{
 		// A changed original would silently change every render, so it is an error
 		if (!Contains(source_id))
-			throw new FileNotFoundException($"Original '{source_id}' is missing.", FlacPath(source_id));
+			throw new FileNotFoundException($"Original '{source_id}' is missing.", OriginalPath(source_id));
 
-		var expected = Sidecar(source_id).FlacSha256;
-		var actual = await FlacSha256Async(source_id, cancel);
+		var expected = Sidecar(source_id).OriginalSha256;
+		var actual = await OriginalSha256Async(source_id, cancel);
 		if (!string.Equals(expected, actual, StringComparison.OrdinalIgnoreCase))
 			throw new InvalidDataException($"Original '{source_id}' has changed since it was imported.");
 	}
 
-	/// <summary>The SHA-256 of the stored FLAC of 'source_id', remembered until the file's size or time changes.</summary>
-	public async Task<string> FlacSha256Async(string source_id, CancellationToken cancel)
+	/// <summary>The SHA-256 of the stored audio file of 'source_id', remembered until the file's size or time changes.</summary>
+	public async Task<string> OriginalSha256Async(string source_id, CancellationToken cancel)
 	{
 		// Hashing a long recording is slow, so unchanged files are not hashed again
-		var path = FlacPath(source_id);
+		var path = OriginalPath(source_id);
 		var info = new FileInfo(path);
 		if (!info.Exists)
 			throw new FileNotFoundException($"Original '{source_id}' is missing.", path);

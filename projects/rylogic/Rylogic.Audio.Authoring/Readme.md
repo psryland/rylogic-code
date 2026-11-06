@@ -34,7 +34,8 @@ A project supplies an `authoring.json` file. Relative paths are resolved against
 - `catalog`: the project's sound definitions. The library reads each sound's `id`, its section, description, `loop` flag and `load` (`memory` or
   `stream`); every other property belongs to the project. The only changes the library makes to this file are setting a sound's `loop` flag or `load`;
   each edits just the value, keeping the file's layout.
-- `originals`: one lossless `<source-id>.flac` per recording with a `<source-id>.json` provenance sidecar. Keep this folder in version control.
+- `originals`: one `<source-id>.<type>` per recording with a `<source-id>.json` provenance sidecar. FLAC, MP3 and Ogg downloads are kept byte-for-byte;
+  any other type is converted to lossless FLAC. Keep this folder in version control.
 - `fetched` (optional): the same, for recordings that can be downloaded again (Freesound). This folder need not be version controlled: a missing
   original is downloaded again when it is needed and must match its recorded source ID. Without it, these originals are kept in `originals`.
 - `prep`: one `<sound-id>.json` per sound listing its variants in order, each with a stable variant ID, origin, source, review status and recipe. Keep
