@@ -108,36 +108,47 @@ public static partial class Program
 			return Results.Content(reply.ToJsonString(), "application/json");
 		});
 
-		// Run the project's apply command, replying with the new state and the command's result
-		var apply_lock = new SemaphoreSlim(1, 1);
-		app.MapPost("/api/apply", async () =>
+		// Run one of the project's commands, replying with the new state and the command's result. Apply and Send share the project's build outputs, so only one
+		// command runs at a time. The run is not tied to the request, so closing the page does not stop a half-finished command.
+		var command_lock = new SemaphoreSlim(1, 1);
+		async Task<IResult> RunProjectCommand(ProjectCommand? command, string verb, string done)
 		{
-			// One run at a time. The run is not tied to the request, so closing the page does not stop a half-finished command.
 			var notice = (string?)null;
 			var error = (string?)null;
-			if (workspace.Config.Apply is not { } apply)
+			if (command == null)
 			{
-				error = "This project has no apply command.";
+				error = $"This project has no {verb.ToLowerInvariant()} command.";
 			}
-			else if (!await apply_lock.WaitAsync(0))
+			else if (!await command_lock.WaitAsync(0))
 			{
-				error = "Apply is already running.";
+				error = "A project command is already running.";
 			}
 			else
 			{
 				try
 				{
-					(notice, error) = await RunApply(apply);
+					(notice, error) = await RunCommand(command, verb, done);
 				}
 				finally
 				{
-					apply_lock.Release();
+					command_lock.Release();
 				}
 			}
 			var reply = workspace.Snapshot();
 			reply["notice"] = notice;
 			reply["error"] = error;
 			return Results.Content(reply.ToJsonString(), "application/json");
+		}
+		app.MapPost("/api/apply", () => RunProjectCommand(workspace.Config.Apply, "Apply", "Applied"));
+		app.MapPost("/api/send", async (HttpRequest request, CancellationToken cancel) =>
+		{
+			// Only a sound the catalog defines may be substituted into the command line
+			var body = await JsonNode.ParseAsync(request.Body, cancellationToken: cancel);
+			var id = (string?)body?["id"];
+			if (id == null || !Catalog.Read(workspace.Config.CatalogPath).Any(x => x.Id == id))
+				return Results.BadRequest($"'{id}' is not a sound in the catalog.");
+
+			return await RunProjectCommand(workspace.Config.Send?.ForSound(id), "Send", $"Sent {id}");
 		});
 
 		// Freesound login: save the API credential, then send the user to Freesound to grant access
@@ -197,19 +208,19 @@ public static partial class Program
 		await app.RunAsync();
 	}
 
-	/// <summary>Run the apply command to completion. Returns a notice on success, or an error with the end of the command's output on failure.</summary>
-	private static async Task<(string? notice, string? error)> RunApply(ApplyCommand apply)
+	/// <summary>Run 'command' to completion. Returns a notice starting with 'done' on success, or an error with the end of the command's output on failure.</summary>
+	private static async Task<(string? notice, string? error)> RunCommand(ProjectCommand command, string verb, string done)
 	{
 		// Collect both output streams together, so a failure can show what the command printed last
-		var info = new ProcessStartInfo(apply.Command)
+		var info = new ProcessStartInfo(command.Command)
 		{
-			WorkingDirectory = apply.Directory,
+			WorkingDirectory = command.Directory,
 			RedirectStandardOutput = true,
 			RedirectStandardError = true,
 			UseShellExecute = false,
 			CreateNoWindow = true,
 		};
-		foreach (var argument in apply.Arguments)
+		foreach (var argument in command.Arguments)
 			info.ArgumentList.Add(argument);
 
 		var lines = new List<string>();
@@ -224,7 +235,7 @@ public static partial class Program
 		}
 
 		// A command that cannot start is reported like one that fails
-		Console.WriteLine($"Apply: {apply.Display}");
+		Console.WriteLine($"{verb}: {command.Display}");
 		using var process = new Process { StartInfo = info };
 		process.OutputDataReceived += Collect;
 		process.ErrorDataReceived += Collect;
@@ -234,7 +245,7 @@ public static partial class Program
 		}
 		catch (Win32Exception ex)
 		{
-			return (null, $"Apply could not run '{apply.Command}': {ex.Message}");
+			return (null, $"{verb} could not run '{command.Command}': {ex.Message}");
 		}
 		process.BeginOutputReadLine();
 		process.BeginErrorReadLine();
@@ -247,8 +258,8 @@ public static partial class Program
 				Console.WriteLine($"  {line}");
 
 			return process.ExitCode == 0
-				? ($"Applied. {lines.LastOrDefault()}", null)
-				: (null, $"Apply failed (exit code {process.ExitCode}): {string.Join(" | ", lines.TakeLast(6))}");
+				? ($"{done}. {lines.LastOrDefault()}", null)
+				: (null, $"{verb} failed (exit code {process.ExitCode}): {string.Join(" | ", lines.TakeLast(6))}");
 		}
 	}
 

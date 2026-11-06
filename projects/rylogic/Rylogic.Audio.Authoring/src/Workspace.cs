@@ -89,7 +89,7 @@ public sealed partial class Workspace
 				foreach (var (name, value) in sound.Properties)
 					properties[name] = value?.DeepClone();
 
-				ids.Add(new JsonObject { ["id"] = sound.Id, ["section"] = sound.Section, ["description"] = sound.Description, ["loop"] = sound.Loop, ["properties"] = properties });
+				ids.Add(new JsonObject { ["id"] = sound.Id, ["section"] = sound.Section, ["description"] = sound.Description, ["loop"] = sound.Loop, ["load"] = sound.Load, ["properties"] = properties });
 			}
 
 			// Every known origin, with the address that plays it best: the original once imported, else the local file or the browse preview
@@ -131,6 +131,7 @@ public sealed partial class Workspace
 				["pending"] = new JsonArray(pending.Values.Order(StringComparer.Ordinal).Select(x => (JsonNode)x).ToArray()),
 				["freesound"] = new JsonObject { ["configured"] = freesound.Configured, ["connected"] = freesound.Connected },
 				["apply"] = Config.Apply?.Display,
+				["send"] = Config.Send?.Display,
 			};
 		}
 	}
@@ -206,7 +207,19 @@ public sealed partial class Workspace
 				case "loop":
 				{
 					// The catalog belongs to the project, so only its 'loop' value is changed and the catalog is read back
-					Catalog.SetLoop(Config.CatalogPath, Text(action, "id"), action["loop"]?.GetValue<bool>() ?? throw new InvalidOperationException("The 'loop' action needs a 'loop' value."));
+					var loop = action["loop"]?.GetValue<bool>() ?? throw new InvalidOperationException("The 'loop' action needs a 'loop' value.");
+					Catalog.SetValue(Config.CatalogPath, Text(action, "id"), "loop", JsonValue.Create(loop));
+					m_catalog = Catalog.Read(Config.CatalogPath);
+					return null;
+				}
+				case "load":
+				{
+					// Only the catalog's 'load' value changes, and only to a value the project understands
+					var load = Text(action, "load");
+					if (!CatalogSound.Loads.Contains(load))
+						throw new InvalidOperationException($"The 'load' action needs one of: {string.Join(", ", CatalogSound.Loads)}.");
+
+					Catalog.SetValue(Config.CatalogPath, Text(action, "id"), "load", JsonValue.Create(load));
 					m_catalog = Catalog.Read(Config.CatalogPath);
 					return null;
 				}

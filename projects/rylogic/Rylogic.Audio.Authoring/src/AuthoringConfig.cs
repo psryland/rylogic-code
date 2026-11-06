@@ -25,11 +25,12 @@ public sealed partial class AuthoringConfig
 		public string? Previews { get; set; }
 		public List<LocalData>? Local { get; set; }
 		public FreesoundData? Freesound { get; set; }
-		public ApplyData? Apply { get; set; }
+		public CommandData? Apply { get; set; }
+		public CommandData? Send { get; set; }
 	}
 
-	/// <summary>The JSON shape of the apply command.</summary>
-	private sealed class ApplyData
+	/// <summary>The JSON shape of a project command.</summary>
+	private sealed class CommandData
 	{
 		public string Command { get; set; } = string.Empty;
 		public List<string>? Arguments { get; set; }
@@ -89,7 +90,13 @@ public sealed partial class AuthoringConfig
 	public string? FreesoundCredentialsPath { get; }
 
 	/// <summary>The command that makes the project use the current review results, such as an asset cook, or null if the project has none.</summary>
-	public ApplyCommand? Apply { get; }
+	public ProjectCommand? Apply { get; }
+
+	/// <summary>
+	/// The command that makes running instances of the project play the current preparation of one sound, or null if the project has none.
+	/// Each argument has '{id}' replaced by the sound ID (see <see cref="ProjectCommand.ForSound"/>).
+	/// </summary>
+	public ProjectCommand? Send { get; }
 
 	private AuthoringConfig(string config_path, FileData data)
 	{
@@ -105,14 +112,9 @@ public sealed partial class AuthoringConfig
 		PreviewsFolder = Resolve(data.Previews, null);
 		FreesoundCredentialsPath = Resolve(data.Freesound?.Credentials, null);
 
-		// The apply command is run as given; only its working directory is a project path, defaulting to the configuration folder
-		if (data.Apply != null)
-		{
-			if (string.IsNullOrWhiteSpace(data.Apply.Command))
-				throw new InvalidDataException($"'{ConfigPath}' must set 'apply.command'.");
-
-			Apply = new ApplyCommand(data.Apply.Command, data.Apply.Arguments ?? [], Resolve(data.Apply.Directory, null) ?? Root);
-		}
+		// Project commands are run as given; only their working directory is a project path
+		Apply = ReadCommand(data.Apply, "apply");
+		Send = ReadCommand(data.Send, "send");
 
 		// A local folder's name is the first part of its origin references, so it must be unique and contain no path separator
 		var folders = new List<LocalFolder>();
@@ -160,6 +162,18 @@ public sealed partial class AuthoringConfig
 		return new AuthoringConfig(config_path, data);
 	}
 
+	/// <summary>Read the optional command 'name', whose working directory defaults to the configuration folder.</summary>
+	private ProjectCommand? ReadCommand(CommandData? data, string name)
+	{
+		// An absent command means the project does not support the action
+		if (data == null)
+			return null;
+		if (string.IsNullOrWhiteSpace(data.Command))
+			throw new InvalidDataException($"'{ConfigPath}' must set '{name}.command'.");
+
+		return new ProjectCommand(data.Command, data.Arguments ?? [], Resolve(data.Directory, null) ?? Root);
+	}
+
 	/// <summary>Resolve a configured path. 'required_name' names a required setting; optional settings pass null.</summary>
 	private string? Resolve(string? path, string? required_name)
 	{
@@ -184,8 +198,15 @@ public sealed record LocalFolder(string Name, string Path, string Author, string
 /// A project command that the authoring UI runs on request. 'Command' is a program name or path, 'Arguments' are passed to it unchanged,
 /// and 'Directory' is the absolute working directory.
 /// </summary>
-public sealed record ApplyCommand(string Command, IReadOnlyList<string> Arguments, string Directory)
+public sealed record ProjectCommand(string Command, IReadOnlyList<string> Arguments, string Directory)
 {
+	/// <summary>This command with '{id}' in each argument replaced by 'sound_id'.</summary>
+	public ProjectCommand ForSound(string sound_id)
+	{
+		// Only arguments are substituted, so the program and working directory stay fixed
+		return this with { Arguments = Arguments.Select(x => x.Replace("{id}", sound_id, StringComparison.Ordinal)).ToList() };
+	}
+
 	/// <summary>The command line as a user would type it, for display.</summary>
 	public string Display => string.Join(' ', Arguments.Prepend(Command).Select(x => x.Contains(' ') ? $"\"{x}\"" : x));
 }

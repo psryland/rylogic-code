@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using Rylogic.UnitTests;
@@ -264,7 +265,11 @@ public sealed class TestAuthoring
 		a.AddVariant("local:gen/missing.wav", null, EVariantStatus.Accepted);
 		a.Save(config.PrepFolder);
 		Assert.Throws<InvalidDataException>(() => PreparedSounds.ResolveAsync(config, cache, fetcher, sound_ids, CancellationToken.None).GetAwaiter().GetResult());
-		Assert.Throws<InvalidDataException>(() => PreparedSounds.ResolveAsync(config, cache, fetcher, ["b", "silent"], CancellationToken.None).GetAwaiter().GetResult());
+		Assert.Throws<InvalidDataException>(() => PreparedSounds.CheckDefined(config, ["b", "silent"]));
+		PreparedSounds.CheckDefined(config, sound_ids);
+
+		// Resolving a subset ignores the other sounds' files, so one sound can be prepared while another is broken
+		Assert.Equal(0, PreparedSounds.ResolveAsync(config, cache, fetcher, ["b"], CancellationToken.None).GetAwaiter().GetResult().Count);
 	}
 
 	/// <summary>A missing original is fetched again and verified against its recorded source; stores find originals in either folder.</summary>
@@ -460,7 +465,7 @@ public sealed class TestAuthoring
 		Assert.Throws<InvalidOperationException>(() => config.LocalPathOf("local:missing/track.mp3"));
 	}
 
-	/// <summary>The apply command is optional; its arguments are kept as given and its directory is a project path defaulting to the configuration folder.</summary>
+	/// <summary>Project commands are optional; their arguments are kept as given and their directory is a project path defaulting to the configuration folder.</summary>
 	[Test]
 	public void ApplyCommandConfig()
 	{
@@ -486,28 +491,44 @@ public sealed class TestAuthoring
 		// A command is required once 'apply' is given
 		File.WriteAllText(path, $"{{{Common},\"apply\":{{}}}}");
 		Assert.Throws<InvalidDataException>(() => AuthoringConfig.Load(path));
+
+		// The send command substitutes the sound ID into its arguments only
+		File.WriteAllText(path, $"{{{Common},\"send\":{{\"command\":\"{{id}}.cmd\",\"arguments\":[\"--sound={{id}}\",\"x\"]}}}}");
+		var send = AuthoringConfig.Load(path).Send!.ForSound("wind.gust");
+		Assert.Equal("{id}.cmd", send.Command);
+		Assert.Equal(new[] { "--sound=wind.gust", "x" }, send.Arguments);
+		Assert.Null(AuthoringConfig.Load(path).Apply);
 	}
 
-	/// <summary>Setting a sound's loop flag changes only that value, adding it after the ID when missing, and needs exactly one sound with the ID.</summary>
+	/// <summary>
+	/// Setting a sound's value changes only that value, adding it after the ID when missing, and needs exactly one sound with the ID and a scalar value.
+	/// </summary>
 	[Test]
-	public void CatalogSetLoop()
+	public void CatalogSetValue()
 	{
-		// A hand-laid catalog with comments, one sound with a loop flag and one without
+		// A hand-laid catalog with comments, one sound with a loop flag and load, and one with neither
 		using var temp = new TempFolder();
 		var path = Path.Combine(temp.Path, "sounds.json");
-		const string Original = "{\n\t// Comment\n\t\"sections\": [ { \"name\": \"s\", \"sounds\": [\n\t\t{ \"id\": \"x\",   \"loop\": false, \"gain\": 1 },\n\t\t{ \"id\": \"y\", \"gain\": 2 },\n\t] } ],\n}\n";
+		const string Original = "{\n\t// Comment\n\t\"sections\": [ { \"name\": \"s\", \"sounds\": [\n\t\t{ \"id\": \"x\",   \"loop\": false, \"load\": \"memory\", \"len\": [1, 2] },\n\t\t{ \"id\": \"y\", \"gain\": 2 },\n\t] } ],\n}\n";
 		File.WriteAllText(path, Original);
 
-		// Toggle an existing flag, then add a missing one
-		Catalog.SetLoop(path, "x", true);
-		Assert.Equal(Original.Replace("false", "true"), File.ReadAllText(path));
-		Catalog.SetLoop(path, "y", false);
-		Assert.Equal(Original.Replace("false", "true").Replace("\"y\",", "\"y\", \"loop\": false,"), File.ReadAllText(path));
-		Assert.Equal(false, Catalog.Read(path).Single(x => x.Id == "y").Loop);
+		// Change existing values, then add missing ones
+		Catalog.SetValue(path, "x", "loop", JsonValue.Create(true));
+		Catalog.SetValue(path, "x", "load", JsonValue.Create("stream"));
+		var changed = Original.Replace("false", "true").Replace("\"memory\"", "\"stream\"");
+		Assert.Equal(changed, File.ReadAllText(path));
+		Catalog.SetValue(path, "y", "loop", JsonValue.Create(false));
+		Catalog.SetValue(path, "y", "load", JsonValue.Create("memory"));
+		Assert.Equal(changed.Replace("\"y\",", "\"y\", \"load\": \"memory\", \"loop\": false,"), File.ReadAllText(path));
+		var y = Catalog.Read(path).Single(x => x.Id == "y");
+		Assert.Equal(false, y.Loop);
+		Assert.Equal("memory", y.Load);
 
-		// Unknown IDs are rejected without changing the file
+		// Unknown IDs, structured values and the ID itself are rejected without changing the file
 		var before = File.ReadAllText(path);
-		Assert.Throws<InvalidDataException>(() => Catalog.SetLoop(path, "z", true));
+		Assert.Throws<InvalidDataException>(() => Catalog.SetValue(path, "z", "loop", JsonValue.Create(true)));
+		Assert.Throws<InvalidDataException>(() => Catalog.SetValue(path, "x", "len", JsonValue.Create(1)));
+		Assert.Throws<ArgumentException>(() => Catalog.SetValue(path, "x", "id", JsonValue.Create("w")));
 		Assert.Equal(before, File.ReadAllText(path));
 	}
 

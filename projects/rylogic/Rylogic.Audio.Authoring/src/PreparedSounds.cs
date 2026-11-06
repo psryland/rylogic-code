@@ -14,25 +14,34 @@ namespace Rylogic.Audio.Authoring;
 public static class PreparedSounds
 {
 	/// <summary>
+	/// Throw <see cref="InvalidDataException"/> if the preparation folder has a file for a sound that is not in 'defined_ids'.
+	/// Such a file could never be played, so it is reported rather than ignored.
+	/// </summary>
+	public static void CheckDefined(AuthoringConfig config, IReadOnlyCollection<string> defined_ids)
+	{
+		// Every preparation file is named after its sound
+		if (!Directory.Exists(config.PrepFolder))
+			return;
+
+		var known = defined_ids.ToHashSet(StringComparer.Ordinal);
+		foreach (var path in Directory.EnumerateFiles(config.PrepFolder, "*.json"))
+		{
+			var sound_id = Path.GetFileNameWithoutExtension(path);
+			if (!known.Contains(sound_id))
+				throw new InvalidDataException($"Preparation file '{path}' is for sound '{sound_id}', which is not defined.");
+		}
+	}
+
+	/// <summary>
 	/// Return the prepared files of each sound in 'sound_ids' that has accepted variants, in runtime order. A sound with no preparation file or no
 	/// accepted variant is absent, because it is intentionally unassigned. A variant uses its reference master if it has one, otherwise the cached render
-	/// of its recipe from its original, rendering it if needed. A missing original is fetched again through 'fetcher'. Throws <see cref="InvalidDataException"/> for a preparation file of an unknown sound or an
+	/// of its recipe from its original, rendering it if needed. A missing original is fetched again through 'fetcher'. Throws <see cref="InvalidDataException"/> for an
 	/// accepted variant with nothing to prepare from or an original that cannot be fetched as recorded, and <see cref="FileNotFoundException"/> for a referenced file that is missing.
+	/// Preparation files of other sounds are ignored; use <see cref="CheckDefined"/> to report files of undefined sounds.
 	/// </summary>
 	public static async Task<IReadOnlyDictionary<string, IReadOnlyList<string>>> ResolveAsync(AuthoringConfig config, RenderCache cache, OriginalFetcher fetcher, IReadOnlyCollection<string> sound_ids, CancellationToken cancel)
 	{
-		// A preparation file for a sound the project does not define could never be played, so it is reported rather than ignored
-		var known = sound_ids.ToHashSet(StringComparer.Ordinal);
-		if (Directory.Exists(config.PrepFolder))
-		{
-			foreach (var path in Directory.EnumerateFiles(config.PrepFolder, "*.json"))
-			{
-				var sound_id = Path.GetFileNameWithoutExtension(path);
-				if (!known.Contains(sound_id))
-					throw new InvalidDataException($"Preparation file '{path}' is for sound '{sound_id}', which is not defined.");
-			}
-		}
-
+		// The origins registry is read lazily, only when an original must be fetched
 		OriginsFile? origins = null;
 		var result = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
 		foreach (var sound_id in sound_ids)

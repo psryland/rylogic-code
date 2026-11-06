@@ -315,8 +315,14 @@ public sealed class OriginsFile
 /// <summary>One sound ID in the project's catalog. The project owns the meaning of the properties; the authoring tool only displays them.</summary>
 public sealed record CatalogSound(string Id, string Section, string? Description, IReadOnlyDictionary<string, JsonNode?> Properties)
 {
+	/// <summary>The values a sound's 'load' may have: held decoded in memory, or decoded as it plays.</summary>
+	public static readonly IReadOnlyList<string> Loads = ["memory", "stream"];
+
 	/// <summary>True when the project says the sound loops, which enables loop-seam listening.</summary>
 	public bool Loop => Properties.TryGetValue("loop", out var loop) && loop is JsonValue value && value.TryGetValue<bool>(out var flag) && flag;
+
+	/// <summary>How the project loads the sound, one of <see cref="Loads"/>, or null when the catalog does not say.</summary>
+	public string? Load => Properties.TryGetValue("load", out var load) && load is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;
 }
 
 /// <summary>Reads the project's sound catalog: an object with 'sections', each with a 'name' and 'sounds', each sound having an 'id'.</summary>
@@ -347,39 +353,48 @@ public static class Catalog
 	}
 
 	/// <summary>
-	/// Set the 'loop' property of sound 'id' in the catalog at 'path'. Only that value changes in the file, so its hand-made layout is kept;
-	/// a sound without the property gets it straight after its 'id'. Throws <see cref="InvalidDataException"/> unless exactly one sound has the ID.
+	/// Set the property 'property' of sound 'id' in the catalog at 'path' to the scalar 'value'. Only that value changes in the file, so its hand-made
+	/// layout is kept; a sound without the property gets it straight after its 'id'. The property must not be 'id', and an existing value must be a scalar.
+	/// Throws <see cref="InvalidDataException"/> unless exactly one sound has the ID.
 	/// </summary>
-	public static void SetLoop(string path, string id, bool loop)
+	public static void SetValue(string path, string id, string property, JsonValue value)
 	{
+		// The ID locates the sound, so it cannot be changed this way
+		if (property == "id")
+			throw new ArgumentException("A sound's 'id' cannot be set.", nameof(property));
+
 		// Work on the raw bytes so token offsets index the file directly. A byte order mark is kept but not given to the reader.
 		var bytes = File.ReadAllBytes(path);
 		var bom = bytes.AsSpan().StartsWith(Encoding.UTF8.Preamble) ? Encoding.UTF8.Preamble.Length : 0;
-		var (start, end, insert) = FindLoop(bytes.AsSpan(bom), path, id);
-		var value = Encoding.UTF8.GetBytes(insert ? $", \"loop\": {(loop ? "true" : "false")}" : (loop ? "true" : "false"));
+		var (start, end, insert) = FindValue(bytes.AsSpan(bom), path, id, property);
+		var json = value.ToJsonString();
+		var text = Encoding.UTF8.GetBytes(insert ? $", {JsonSerializer.Serialize(property)}: {json}" : json);
 
 		// Splice the new value in place of the old one, or insert it after the ID
-		var result = new byte[bytes.Length - (end - start) + value.Length];
+		var result = new byte[bytes.Length - (end - start) + text.Length];
 		bytes.AsSpan(0, bom + start).CopyTo(result);
-		value.CopyTo(result.AsSpan(bom + start));
-		bytes.AsSpan(bom + end).CopyTo(result.AsSpan(bom + start + value.Length));
+		text.CopyTo(result.AsSpan(bom + start));
+		bytes.AsSpan(bom + end).CopyTo(result.AsSpan(bom + start + text.Length));
 		File.WriteAllBytes(path, result);
 	}
 
 	/// <summary>
-	/// The byte range of the 'loop' value of the one object whose 'id' is 'id'. When the object has no 'loop', the range is empty and placed just after
-	/// the ID's value, and 'insert' is true.
+	/// The byte range of the scalar value of 'property' in the one object whose 'id' is 'id'. When the object has no such property, the range is empty
+	/// and placed just after the ID's value, and 'insert' is true.
 	/// </summary>
-	private static (int start, int end, bool insert) FindLoop(ReadOnlySpan<byte> json, string path, string id)
+	private static (int start, int end, bool insert) FindValue(ReadOnlySpan<byte> json, string path, string id, string property)
 	{
+		// Marks a frame whose wanted property holds an object or array
+		const int StructuredValue = -2;
+
 		// Walk the tokens keeping one frame per open object or array, recording the property each value belongs to
 		var reader = new Utf8JsonReader(json, new JsonReaderOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true });
-		var frames = new Stack<(string? property, bool matches, int id_end, int loop_start, int loop_end)>();
+		var frames = new Stack<(string? property, bool matches, int id_end, int value_start, int value_end)>();
 		var found = new List<(int start, int end, bool insert)>();
 		while (reader.Read())
 		{
 			// The property a value belongs to is consumed by that value
-			var property = frames.Count != 0 ? frames.Peek().property : null;
+			var owner = frames.Count != 0 ? frames.Peek().property : null;
 			if (reader.TokenType != JsonTokenType.PropertyName && frames.Count != 0)
 			{
 				var frame = frames.Pop();
@@ -396,6 +411,12 @@ public static class Catalog
 				case JsonTokenType.StartObject:
 				case JsonTokenType.StartArray:
 				{
+					// A structured value cannot be replaced by a scalar splice, so its owner is marked to reject it if it is the wanted sound
+					if (owner == property)
+					{
+						var parent = frames.Pop();
+						frames.Push(parent with { value_start = StructuredValue });
+					}
 					frames.Push((null, false, -1, -1, -1));
 					break;
 				}
@@ -404,12 +425,14 @@ public static class Catalog
 				{
 					// A finished object with the wanted ID is a match
 					var frame = frames.Pop();
+					if (frame.matches && frame.value_start == StructuredValue)
+						throw new InvalidDataException($"'{path}' gives sound '{id}' a '{property}' that is not a single value.");
 					if (frame.matches)
-						found.Add(frame.loop_start >= 0 ? (frame.loop_start, frame.loop_end, false) : (frame.id_end, frame.id_end, true));
+						found.Add(frame.value_start >= 0 ? (frame.value_start, frame.value_end, false) : (frame.id_end, frame.id_end, true));
 
 					break;
 				}
-				case JsonTokenType.String when property == "id":
+				case JsonTokenType.String when owner == "id":
 				{
 					if (reader.GetString() == id)
 					{
@@ -418,13 +441,16 @@ public static class Catalog
 					}
 					break;
 				}
+				case JsonTokenType.String:
+				case JsonTokenType.Number:
 				case JsonTokenType.True:
 				case JsonTokenType.False:
+				case JsonTokenType.Null:
 				{
-					if (property == "loop")
+					if (owner == property)
 					{
 						var frame = frames.Pop();
-						frames.Push(frame with { loop_start = (int)reader.TokenStartIndex, loop_end = (int)reader.BytesConsumed });
+						frames.Push(frame with { value_start = (int)reader.TokenStartIndex, value_end = (int)reader.BytesConsumed });
 					}
 					break;
 				}

@@ -81,6 +81,9 @@
 	<h2 id="title">Pick a sound ID</h2>
 	<label id="loopgame" hidden title="Saves the sound's 'loop' setting in the project's catalog. Apply to use it in the game.">
 		<input type="checkbox" id="loopsound"> Loops in game</label>
+	<label id="loadgame" hidden title="Saves the sound's 'load' setting in the project's catalog. Apply to use it in the game. Memory keeps the whole sound uncompressed in memory, which suits short sounds that play often. Stream decodes compressed (Ogg) audio as it plays, which suits anything long.">
+		Load <select id="loadsound"><option value="memory">memory (short sounds)</option><option value="stream">stream (long sounds)</option></select></label>
+	<button id="send" hidden>Send to game</button>
 	<table id="list"></table>
 	<p>
 		Add a Freesound sound <span id="addto"></span>: <input type="text" id="addnum" placeholder="number or page address" size="28">
@@ -507,6 +510,11 @@ function render_list()
 	const sound = state.ids.find(x => x.id === sel_id);
 	document.getElementById("loopgame").hidden = !sound;
 	document.getElementById("loopsound").checked = !!sound?.loop;
+	document.getElementById("loadgame").hidden = !sound;
+	document.getElementById("loadsound").value = sound?.load ?? "";
+	const send = document.getElementById("send");
+	send.hidden = !sound || !state.send;
+	send.title = `Save any waiting edit, then make running games play this sound's accepted variants now: ${(state.send ?? "").replaceAll("{id}", sel_id ?? "")}`;
 	if (!sel_id)
 		return;
 
@@ -882,6 +890,34 @@ document.getElementById("apply").onclick = async e =>
 	}
 };
 
+// Send the selected sound to running games after the server has every edit. The game crossfades to it without a full cook; Apply makes it permanent.
+document.getElementById("send").onclick = async e =>
+{
+	const button = e.currentTarget;
+	const id = sel_id;
+	button.disabled = true;
+	try
+	{
+		await flush_recipe();
+		show_message(`Sending ${id}...`, false);
+		const r = await fetch("/api/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
+		if (!r.ok)
+			throw new Error(await r.text());
+
+		const s = await r.json();
+		adopt_state(s);
+		show_message(s.error ?? s.notice ?? "", !!s.error);
+	}
+	catch (ex)
+	{
+		show_message(`Send failed: ${ex.message}`, true);
+	}
+	finally
+	{
+		button.disabled = false;
+	}
+};
+
 // Store the Freesound API credentials; connecting is a separate step through the Freesound login page
 document.getElementById("fssave").onclick = async () =>
 {
@@ -923,6 +959,7 @@ document.getElementById("seam").onclick = seam;
 document.getElementById("match").onchange = () => { if (source) start(position()); };
 document.getElementById("loopplay").onchange = () => { if (source) start(position()); };
 document.getElementById("loopsound").onchange = e => post({ action: "loop", id: sel_id, loop: e.target.checked });
+document.getElementById("loadsound").onchange = e => post({ action: "load", id: sel_id, load: e.target.value });
 document.getElementById("slotA").onclick = () => { if (live !== "A") toggle(); };
 document.getElementById("slotB").onclick = () => { if (live !== "B") toggle(); };
 document.addEventListener("keydown", e =>
