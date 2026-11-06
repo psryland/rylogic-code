@@ -40,6 +40,9 @@ namespace physics_sandbox
 		// Cached status text to avoid flickering from constant WM_SETTEXT
 		std::wstring m_last_status;
 
+		// Caller-supplied prefix retained when simulation statistics refresh the caption.
+		std::string m_title_prefix;
+
 		// FPS measurement
 		int m_frame_count;
 		double m_fps_elapsed;
@@ -56,7 +59,8 @@ namespace physics_sandbox
 		// Set when WM_CLOSE is received to prevent step/render after destruction begins
 		bool m_closing;
 
-		SandboxUI(bool profile_enabled = false);
+		// Create the sandbox with optional profiling and a literal window-caption prefix.
+		SandboxUI(bool profile_enabled, std::string title_prefix);
 		~SandboxUI();
 
 		// Process window messages for this form.

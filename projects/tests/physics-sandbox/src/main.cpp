@@ -7,6 +7,7 @@
 //   -unittests [Class1 Class2 ...] or -unittests=Class1 : Allocate a console, run unit tests, and exit.
 //     Optional class name filters are substring-matched against test class names.
 //   (default) : Launch the interactive physics sandbox window.
+//   -title <label> : Keep a bracketed instance label in the interactive window caption.
 #include "src/forward.h"
 #include "src/scene/demo.h"
 #include "src/ui/sandbox_ui.h"
@@ -292,7 +293,9 @@ int __stdcall WinMain(HINSTANCE, HINSTANCE, LPTSTR lpCmdLine, int)
 		// Create the message loop first so the form can reference it for clean shutdown
 		WinGuiMsgLoop loop;
 
-		SandboxUI sandbox(cmd.count("profile") != 0);
+		// Label this instance without losing its identity when the UI refreshes simulation statistics.
+		auto title_prefix = cmd.count("title") != 0 ? std::format("[{}] ", cmd("title").as<std::string>()) : std::string{};
+		SandboxUI sandbox(cmd.count("profile") != 0, std::move(title_prefix));
 		sandbox.cp().msg_loop(&loop);
 
 		// Load a named catalogue demo or an explicit JSON scene on startup.

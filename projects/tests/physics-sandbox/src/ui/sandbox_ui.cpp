@@ -129,10 +129,11 @@ namespace physics_sandbox
 		}
 	}
 
-	SandboxUI::SandboxUI(bool profile_enabled)
+	// Create the sandbox with optional profiling and a literal window-caption prefix.
+	SandboxUI::SandboxUI(bool profile_enabled, std::string title_prefix)
 		: Form(Params<>()
 			.name("physics-sandbox")
-			.title(L"Rylogic Physics Sandbox")
+			.title(pr::Widen(std::format("{}Rylogic Physics Sandbox", title_prefix)).c_str())
 			.wh(1600, 1000)
 			.xy(10, 10)
 			.start_pos(EStartPosition::Manual)
@@ -164,6 +165,7 @@ namespace physics_sandbox
 		, m_active_name(ScenarioName(EScenario::Sandbox))
 		, m_recent()
 		, m_last_status()
+		, m_title_prefix(std::move(title_prefix))
 		, m_frame_count(0)
 		, m_fps_elapsed(0)
 		, m_fps(0)
@@ -172,6 +174,7 @@ namespace physics_sandbox
 		, m_profile(profile_enabled)
 		, m_closing(false)
 	{
+		// Open the requested profiler output before simulation events are connected.
 		m_profile.Open(AppDataPath() / "profile.csv");
 
 		// Load the recent files list from disk and populate the submenu
@@ -811,7 +814,9 @@ namespace physics_sandbox
 			// Keep the slider's speed label text in sync with the trackbar position
 			m_media.UpdateSpeedLabel();
 
-			SetWindowTextA(*this, std::format("Physics Sandbox [{}] t={:.3f} frame={} col={}  FPS: {:.0f}",
+			// Keep the caller's instance label while refreshing the live simulation statistics.
+			SetWindowTextA(*this, std::format("{}Physics Sandbox [{}] t={:.3f} frame={} col={}  FPS: {:.0f}",
+				m_title_prefix,
 				m_active_name,
 				m_scene.m_clock,
 				m_scene.m_step_count,
