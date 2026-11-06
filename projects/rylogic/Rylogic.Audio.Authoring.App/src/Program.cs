@@ -1,4 +1,7 @@
 using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
@@ -105,6 +108,38 @@ public static partial class Program
 			return Results.Content(reply.ToJsonString(), "application/json");
 		});
 
+		// Run the project's apply command, replying with the new state and the command's result
+		var apply_lock = new SemaphoreSlim(1, 1);
+		app.MapPost("/api/apply", async () =>
+		{
+			// One run at a time. The run is not tied to the request, so closing the page does not stop a half-finished command.
+			var notice = (string?)null;
+			var error = (string?)null;
+			if (workspace.Config.Apply is not { } apply)
+			{
+				error = "This project has no apply command.";
+			}
+			else if (!await apply_lock.WaitAsync(0))
+			{
+				error = "Apply is already running.";
+			}
+			else
+			{
+				try
+				{
+					(notice, error) = await RunApply(apply);
+				}
+				finally
+				{
+					apply_lock.Release();
+				}
+			}
+			var reply = workspace.Snapshot();
+			reply["notice"] = notice;
+			reply["error"] = error;
+			return Results.Content(reply.ToJsonString(), "application/json");
+		});
+
 		// Freesound login: save the API credential, then send the user to Freesound to grant access
 		app.MapPost("/api/freesound", async (HttpRequest request, CancellationToken cancel) =>
 		{
@@ -160,6 +195,61 @@ public static partial class Program
 
 		Console.WriteLine($"Audio authoring for '{workspace.Config.ConfigPath}' at http://127.0.0.1:{port}/");
 		await app.RunAsync();
+	}
+
+	/// <summary>Run the apply command to completion. Returns a notice on success, or an error with the end of the command's output on failure.</summary>
+	private static async Task<(string? notice, string? error)> RunApply(ApplyCommand apply)
+	{
+		// Collect both output streams together, so a failure can show what the command printed last
+		var info = new ProcessStartInfo(apply.Command)
+		{
+			WorkingDirectory = apply.Directory,
+			RedirectStandardOutput = true,
+			RedirectStandardError = true,
+			UseShellExecute = false,
+			CreateNoWindow = true,
+		};
+		foreach (var argument in apply.Arguments)
+			info.ArgumentList.Add(argument);
+
+		var lines = new List<string>();
+		void Collect(object sender, DataReceivedEventArgs e)
+		{
+			// Output arrives on two threads
+			if (string.IsNullOrWhiteSpace(e.Data))
+				return;
+
+			lock (lines)
+				lines.Add(e.Data.Trim());
+		}
+
+		// A command that cannot start is reported like one that fails
+		Console.WriteLine($"Apply: {apply.Display}");
+		using var process = new Process { StartInfo = info };
+		process.OutputDataReceived += Collect;
+		process.ErrorDataReceived += Collect;
+		try
+		{
+			process.Start();
+		}
+		catch (Win32Exception ex)
+		{
+			return (null, $"Apply could not run '{apply.Command}': {ex.Message}");
+		}
+		process.BeginOutputReadLine();
+		process.BeginErrorReadLine();
+		await process.WaitForExitAsync();
+
+		// The last line usually summarises the run; a failure shows a few more lines for context
+		lock (lines)
+		{
+			foreach (var line in lines)
+				Console.WriteLine($"  {line}");
+
+			return process.ExitCode == 0
+				? ($"Applied. {lines.LastOrDefault()}", null)
+				: (null, $"Apply failed (exit code {process.ExitCode}): {string.Join(" | ", lines.TakeLast(6))}");
+		}
 	}
 
 	/// <summary>The sound number from a Freesound number or sound page address.</summary>

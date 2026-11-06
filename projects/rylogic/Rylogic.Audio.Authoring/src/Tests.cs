@@ -460,6 +460,57 @@ public sealed class TestAuthoring
 		Assert.Throws<InvalidOperationException>(() => config.LocalPathOf("local:missing/track.mp3"));
 	}
 
+	/// <summary>The apply command is optional; its arguments are kept as given and its directory is a project path defaulting to the configuration folder.</summary>
+	[Test]
+	public void ApplyCommandConfig()
+	{
+		// One configuration without an apply command, one with a directory, and one without
+		using var temp = new TempFolder();
+		const string Common = "\"schema\":1,\"catalog\":\"sounds.json\",\"originals\":\"originals\",\"prep\":\"prep\",\"origins\":\"origins.json\",\"cache\":\"cache\"";
+		var path = Path.Combine(temp.Path, "authoring.json");
+		File.WriteAllText(path, $"{{{Common}}}");
+		Assert.Null(AuthoringConfig.Load(path).Apply);
+
+		File.WriteAllText(path, $"{{{Common},\"apply\":{{\"command\":\"dotnet\",\"arguments\":[\"msbuild\",\"a b.proj\"],\"directory\":\"..\"}}}}");
+		var apply = AuthoringConfig.Load(path).Apply!;
+		Assert.Equal("dotnet", apply.Command);
+		Assert.Equal(new[] { "msbuild", "a b.proj" }, apply.Arguments);
+		Assert.Equal(Path.GetDirectoryName(temp.Path), apply.Directory);
+		Assert.Equal("dotnet msbuild \"a b.proj\"", apply.Display);
+
+		File.WriteAllText(path, $"{{{Common},\"apply\":{{\"command\":\"cook.cmd\"}}}}");
+		apply = AuthoringConfig.Load(path).Apply!;
+		Assert.Equal(temp.Path, apply.Directory);
+		Assert.Equal(0, apply.Arguments.Count);
+
+		// A command is required once 'apply' is given
+		File.WriteAllText(path, $"{{{Common},\"apply\":{{}}}}");
+		Assert.Throws<InvalidDataException>(() => AuthoringConfig.Load(path));
+	}
+
+	/// <summary>Setting a sound's loop flag changes only that value, adding it after the ID when missing, and needs exactly one sound with the ID.</summary>
+	[Test]
+	public void CatalogSetLoop()
+	{
+		// A hand-laid catalog with comments, one sound with a loop flag and one without
+		using var temp = new TempFolder();
+		var path = Path.Combine(temp.Path, "sounds.json");
+		const string Original = "{\n\t// Comment\n\t\"sections\": [ { \"name\": \"s\", \"sounds\": [\n\t\t{ \"id\": \"x\",   \"loop\": false, \"gain\": 1 },\n\t\t{ \"id\": \"y\", \"gain\": 2 },\n\t] } ],\n}\n";
+		File.WriteAllText(path, Original);
+
+		// Toggle an existing flag, then add a missing one
+		Catalog.SetLoop(path, "x", true);
+		Assert.Equal(Original.Replace("false", "true"), File.ReadAllText(path));
+		Catalog.SetLoop(path, "y", false);
+		Assert.Equal(Original.Replace("false", "true").Replace("\"y\",", "\"y\", \"loop\": false,"), File.ReadAllText(path));
+		Assert.Equal(false, Catalog.Read(path).Single(x => x.Id == "y").Loop);
+
+		// Unknown IDs are rejected without changing the file
+		var before = File.ReadAllText(path);
+		Assert.Throws<InvalidDataException>(() => Catalog.SetLoop(path, "z", true));
+		Assert.Equal(before, File.ReadAllText(path));
+	}
+
 	/// <summary>Local files are assigned to the sound ID their folder names, or else the one their path's words suggest.</summary>
 	[Test]
 	public void GuessSoundIds()

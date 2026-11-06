@@ -61,6 +61,9 @@
 			<button id="seam" title="Play the last 3 s running into the first 3 s, to hear the loop join">Loop seam</button>
 			<label title="Scales playback only, so different recordings can be compared at similar levels. Prepared files are not changed. Turn off to hear the actual prepared gain.">
 				<input type="checkbox" id="match"> Match loudness (playback only)</label>
+			<label title="Repeat playback here. Starts as the selected sound's 'Loops in game' setting.">
+				<input type="checkbox" id="loopplay" checked> Loop playback</label>
+			<button id="apply" hidden>Apply</button>
 			<span class="muted" id="time"></span>
 		</div>
 		<input type="range" id="pos" min="0" max="1000" value="0">
@@ -76,6 +79,8 @@
 	</div>
 	<div id="recipe" hidden></div>
 	<h2 id="title">Pick a sound ID</h2>
+	<label id="loopgame" hidden title="Saves the sound's 'loop' setting in the project's catalog. Apply to use it in the game.">
+		<input type="checkbox" id="loopsound"> Loops in game</label>
 	<table id="list"></table>
 	<p>
 		Add a Freesound sound <span id="addto"></span>: <input type="text" id="addnum" placeholder="number or page address" size="28">
@@ -251,8 +256,8 @@ function stop()
 	document.getElementById("play").textContent = "Play";
 }
 
-// Start the live slot at the shared position, wrapping because beds loop
-async function start(at)
+// Start the live slot at the shared position. Playback repeats when 'Loop playback' is on or 'force_loop' is set; otherwise it stops at the end.
+async function start(at, force_loop)
 {
 	stop();
 	const url = url_of(live_slot());
@@ -268,7 +273,15 @@ async function start(at)
 	gain.gain.value = document.getElementById("match").checked ? Math.min(0.1 / rms, 8) : 1;
 	source = ctx.createBufferSource();
 	source.buffer = buf;
-	source.loop = true;
+	source.loop = !!force_loop || document.getElementById("loopplay").checked;
+	source.onended = () =>
+	{
+		// Playback reached the end without looping, so return to the start ready to play again
+		source = null;
+		offset = 0;
+		document.getElementById("play").textContent = "Play";
+		render_player();
+	};
 	source.connect(gain);
 	source_url = url;
 	offset = (at ?? offset) % buf.duration;
@@ -307,7 +320,7 @@ async function seam()
 		return;
 
 	const { buf } = await buffer_for(url);
-	await start(Math.max(buf.duration - 3, 0));
+	await start(Math.max(buf.duration - 3, 0), true);
 	seam_timer = setTimeout(stop, 6000);
 }
 
@@ -426,6 +439,7 @@ function select_id(id)
 	edit = null;
 	stop();
 	offset = 0;
+	document.getElementById("loopplay").checked = state.ids.find(x => x.id === id)?.loop ?? true;
 	render();
 	render_recipe();
 }
@@ -490,6 +504,9 @@ function render_list()
 	t.innerHTML = "";
 	document.getElementById("title").textContent = sel_id === POOL ? "Unassigned recordings" : (sel_id ?? "Pick a sound ID");
 	document.getElementById("addto").textContent = sel_id && sel_id !== POOL ? `to ${sel_id}` : "to the unassigned pool";
+	const sound = state.ids.find(x => x.id === sel_id);
+	document.getElementById("loopgame").hidden = !sound;
+	document.getElementById("loopsound").checked = !!sound?.loop;
 	if (!sel_id)
 		return;
 
@@ -775,8 +792,8 @@ function recipe_changed(structural)
 	update_recipe_state();
 }
 
-// Send a waiting recipe edit now
-function flush_recipe()
+// Send a waiting recipe edit now, resolving once the server has it
+async function flush_recipe()
 {
 	if (edit_timer === null)
 		return;
@@ -784,7 +801,7 @@ function flush_recipe()
 	clearTimeout(edit_timer);
 	edit_timer = null;
 	if (edit)
-		post({ action: "recipe", id: edit.id, variant: edit.variant, recipe: edit_recipe });
+		await post({ action: "recipe", id: edit.id, variant: edit.variant, recipe: edit_recipe });
 }
 
 // Show whether the recipe output is current, rendering or failed
@@ -834,7 +851,36 @@ function render_status()
 		change.onclick = e => { e.preventDefault(); document.getElementById("fssetup").hidden = false; };
 
 	document.getElementById("pending").textContent = state.pending.length ? `Working: ${state.pending.join(", ")}` : "";
+
+	// The project may supply a command that makes it use the review results
+	const apply = document.getElementById("apply");
+	apply.hidden = !state.apply;
+	apply.title = `Save any waiting edit, then run: ${state.apply ?? ""}`;
 }
+
+// Run the project's apply command after the server has every edit; it can take a while, so the button stays disabled until it ends
+document.getElementById("apply").onclick = async e =>
+{
+	const button = e.currentTarget;
+	button.disabled = true;
+	try
+	{
+		await flush_recipe();
+		show_message("Applying...", false);
+		const r = await fetch("/api/apply", { method: "POST" });
+		const s = await r.json();
+		adopt_state(s);
+		show_message(s.error ?? s.notice ?? "", !!s.error);
+	}
+	catch (ex)
+	{
+		show_message(`Apply failed: ${ex.message}`, true);
+	}
+	finally
+	{
+		button.disabled = false;
+	}
+};
 
 // Store the Freesound API credentials; connecting is a separate step through the Freesound login page
 document.getElementById("fssave").onclick = async () =>
@@ -875,6 +921,8 @@ document.getElementById("play").onclick = () => source ? stop() : start();
 document.getElementById("toggle").onclick = toggle;
 document.getElementById("seam").onclick = seam;
 document.getElementById("match").onchange = () => { if (source) start(position()); };
+document.getElementById("loopplay").onchange = () => { if (source) start(position()); };
+document.getElementById("loopsound").onchange = e => post({ action: "loop", id: sel_id, loop: e.target.checked });
 document.getElementById("slotA").onclick = () => { if (live !== "A") toggle(); };
 document.getElementById("slotB").onclick = () => { if (live !== "B") toggle(); };
 document.addEventListener("keydown", e =>

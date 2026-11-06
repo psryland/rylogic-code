@@ -130,6 +130,7 @@ public sealed partial class Workspace
 				["preps"] = preps,
 				["pending"] = new JsonArray(pending.Values.Order(StringComparer.Ordinal).Select(x => (JsonNode)x).ToArray()),
 				["freesound"] = new JsonObject { ["configured"] = freesound.Configured, ["connected"] = freesound.Connected },
+				["apply"] = Config.Apply?.Display,
 			};
 		}
 	}
@@ -201,6 +202,13 @@ public sealed partial class Workspace
 				case "assign":
 				{
 					return Assign(Text(action, "id"), Text(action, "origin"));
+				}
+				case "loop":
+				{
+					// The catalog belongs to the project, so only its 'loop' value is changed and the catalog is read back
+					Catalog.SetLoop(Config.CatalogPath, Text(action, "id"), action["loop"]?.GetValue<bool>() ?? throw new InvalidOperationException("The 'loop' action needs a 'loop' value."));
+					m_catalog = Catalog.Read(Config.CatalogPath);
+					return null;
 				}
 				case "status":
 				{

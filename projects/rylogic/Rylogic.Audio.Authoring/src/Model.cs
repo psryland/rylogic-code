@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
@@ -343,5 +344,92 @@ public static class Catalog
 			}
 		}
 		return sounds;
+	}
+
+	/// <summary>
+	/// Set the 'loop' property of sound 'id' in the catalog at 'path'. Only that value changes in the file, so its hand-made layout is kept;
+	/// a sound without the property gets it straight after its 'id'. Throws <see cref="InvalidDataException"/> unless exactly one sound has the ID.
+	/// </summary>
+	public static void SetLoop(string path, string id, bool loop)
+	{
+		// Work on the raw bytes so token offsets index the file directly. A byte order mark is kept but not given to the reader.
+		var bytes = File.ReadAllBytes(path);
+		var bom = bytes.AsSpan().StartsWith(Encoding.UTF8.Preamble) ? Encoding.UTF8.Preamble.Length : 0;
+		var (start, end, insert) = FindLoop(bytes.AsSpan(bom), path, id);
+		var value = Encoding.UTF8.GetBytes(insert ? $", \"loop\": {(loop ? "true" : "false")}" : (loop ? "true" : "false"));
+
+		// Splice the new value in place of the old one, or insert it after the ID
+		var result = new byte[bytes.Length - (end - start) + value.Length];
+		bytes.AsSpan(0, bom + start).CopyTo(result);
+		value.CopyTo(result.AsSpan(bom + start));
+		bytes.AsSpan(bom + end).CopyTo(result.AsSpan(bom + start + value.Length));
+		File.WriteAllBytes(path, result);
+	}
+
+	/// <summary>
+	/// The byte range of the 'loop' value of the one object whose 'id' is 'id'. When the object has no 'loop', the range is empty and placed just after
+	/// the ID's value, and 'insert' is true.
+	/// </summary>
+	private static (int start, int end, bool insert) FindLoop(ReadOnlySpan<byte> json, string path, string id)
+	{
+		// Walk the tokens keeping one frame per open object or array, recording the property each value belongs to
+		var reader = new Utf8JsonReader(json, new JsonReaderOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true });
+		var frames = new Stack<(string? property, bool matches, int id_end, int loop_start, int loop_end)>();
+		var found = new List<(int start, int end, bool insert)>();
+		while (reader.Read())
+		{
+			// The property a value belongs to is consumed by that value
+			var property = frames.Count != 0 ? frames.Peek().property : null;
+			if (reader.TokenType != JsonTokenType.PropertyName && frames.Count != 0)
+			{
+				var frame = frames.Pop();
+				frames.Push(frame with { property = null });
+			}
+			switch (reader.TokenType)
+			{
+				case JsonTokenType.PropertyName:
+				{
+					var frame = frames.Pop();
+					frames.Push(frame with { property = reader.GetString() });
+					break;
+				}
+				case JsonTokenType.StartObject:
+				case JsonTokenType.StartArray:
+				{
+					frames.Push((null, false, -1, -1, -1));
+					break;
+				}
+				case JsonTokenType.EndObject:
+				case JsonTokenType.EndArray:
+				{
+					// A finished object with the wanted ID is a match
+					var frame = frames.Pop();
+					if (frame.matches)
+						found.Add(frame.loop_start >= 0 ? (frame.loop_start, frame.loop_end, false) : (frame.id_end, frame.id_end, true));
+
+					break;
+				}
+				case JsonTokenType.String when property == "id":
+				{
+					if (reader.GetString() == id)
+					{
+						var frame = frames.Pop();
+						frames.Push(frame with { matches = true, id_end = (int)reader.BytesConsumed });
+					}
+					break;
+				}
+				case JsonTokenType.True:
+				case JsonTokenType.False:
+				{
+					if (property == "loop")
+					{
+						var frame = frames.Pop();
+						frames.Push(frame with { loop_start = (int)reader.TokenStartIndex, loop_end = (int)reader.BytesConsumed });
+					}
+					break;
+				}
+			}
+		}
+		return found.Count == 1 ? found[0] : throw new InvalidDataException($"'{path}' defines sound '{id}' {found.Count} times, but must define it once.");
 	}
 }

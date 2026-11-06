@@ -25,12 +25,13 @@ A project supplies an `authoring.json` file. Relative paths are resolved against
 		{ "name": "generated", "path": "../../artifacts/generated-sounds", "author": "ElevenLabs", "licence": "generated" },
 		{ "name": "archive", "path": "D:/Recordings/Archive", "author": "Example Archive", "licence": "Public domain", "url": "https://example.org" }
 	],
-	"freesound": { "credentials": "%LOCALAPPDATA%/MyGame/freesound.json" }
+	"freesound": { "credentials": "%LOCALAPPDATA%/MyGame/freesound.json" },
+	"apply": { "command": "dotnet", "arguments": ["msbuild", "build/Build.proj", "-t:CookAssets"], "directory": "../.." }
 }
 ```
 
-- `catalog`: the project's sound definitions. The library reads only each sound's `id`, its section and description; every other property belongs to
-  the project.
+- `catalog`: the project's sound definitions. The library reads each sound's `id`, its section, description and `loop` flag; every other property belongs
+  to the project. The only change the library makes to this file is setting a sound's `loop` flag; that edits just the value, keeping the file's layout.
 - `originals`: one lossless `<source-id>.flac` per recording with a `<source-id>.json` provenance sidecar. Keep this folder in version control.
 - `fetched` (optional): the same, for recordings that can be downloaded again (Freesound). This folder need not be version controlled: a missing
   original is downloaded again when it is needed and must match its recorded source ID. Without it, these originals are kept in `originals`.
@@ -43,6 +44,9 @@ A project supplies an `authoring.json` file. Relative paths are resolved against
   tool adds new files as unheard variants of the sound ID named by their subfolder (`lab-radio/`, `lab_radio/` or `lab.radio/` all name `lab.radio`;
   the deepest such folder wins), or else of the sound ID whose name parts best match the words in the file's path. Accepting one imports it into
   `originals`, because it cannot be downloaded again.
+- `apply` (optional): a command that makes the project use the current review results, usually its asset cook. The authoring tool shows an Apply button
+  that saves any waiting edit and then runs `command` with `arguments` (passed unchanged) in `directory` (default: the configuration folder). The tool
+  shows the command's last output line, or the end of its output if it fails. Only one run happens at a time.
 
 ## Recipes
 

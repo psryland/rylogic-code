@@ -25,6 +25,15 @@ public sealed partial class AuthoringConfig
 		public string? Previews { get; set; }
 		public List<LocalData>? Local { get; set; }
 		public FreesoundData? Freesound { get; set; }
+		public ApplyData? Apply { get; set; }
+	}
+
+	/// <summary>The JSON shape of the apply command.</summary>
+	private sealed class ApplyData
+	{
+		public string Command { get; set; } = string.Empty;
+		public List<string>? Arguments { get; set; }
+		public string? Directory { get; set; }
 	}
 
 	/// <summary>The JSON shape of one local source folder.</summary>
@@ -79,6 +88,9 @@ public sealed partial class AuthoringConfig
 	/// <summary>The per-user Freesound credentials file, or null if Freesound is not used. The file is outside version control.</summary>
 	public string? FreesoundCredentialsPath { get; }
 
+	/// <summary>The command that makes the project use the current review results, such as an asset cook, or null if the project has none.</summary>
+	public ApplyCommand? Apply { get; }
+
 	private AuthoringConfig(string config_path, FileData data)
 	{
 		// Resolve every location once so later code works only with absolute paths
@@ -92,6 +104,15 @@ public sealed partial class AuthoringConfig
 		FetchedFolder = Resolve(data.Fetched, null);
 		PreviewsFolder = Resolve(data.Previews, null);
 		FreesoundCredentialsPath = Resolve(data.Freesound?.Credentials, null);
+
+		// The apply command is run as given; only its working directory is a project path, defaulting to the configuration folder
+		if (data.Apply != null)
+		{
+			if (string.IsNullOrWhiteSpace(data.Apply.Command))
+				throw new InvalidDataException($"'{ConfigPath}' must set 'apply.command'.");
+
+			Apply = new ApplyCommand(data.Apply.Command, data.Apply.Arguments ?? [], Resolve(data.Apply.Directory, null) ?? Root);
+		}
 
 		// A local folder's name is the first part of its origin references, so it must be unique and contain no path separator
 		var folders = new List<LocalFolder>();
@@ -158,3 +179,13 @@ public sealed partial class AuthoringConfig
 /// credited to 'Author' under 'Licence'. A new recording is assigned to the sound ID its subfolder names (see <see cref="Workspace.GuessSoundId"/>).
 /// </summary>
 public sealed record LocalFolder(string Name, string Path, string Author, string Licence, string? Url);
+
+/// <summary>
+/// A project command that the authoring UI runs on request. 'Command' is a program name or path, 'Arguments' are passed to it unchanged,
+/// and 'Directory' is the absolute working directory.
+/// </summary>
+public sealed record ApplyCommand(string Command, IReadOnlyList<string> Arguments, string Directory)
+{
+	/// <summary>The command line as a user would type it, for display.</summary>
+	public string Display => string.Join(' ', Arguments.Prepend(Command).Select(x => x.Contains(' ') ? $"\"{x}\"" : x));
+}
