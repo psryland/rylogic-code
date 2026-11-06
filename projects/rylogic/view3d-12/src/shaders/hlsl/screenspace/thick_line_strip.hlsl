@@ -28,15 +28,21 @@ void GSThickLineStrip(lineadj PSIn In[4], inout TriangleStream<PSIn> OutStream)
 	bool line_beg = !any(p0 - p1);
 	bool line_end = !any(p2 - p3);
 
-	// Clip the line against the near plane
-	if (p1.z < 0.0f)
+	// Clip the drawn segment against the near plane. Under reversed depth the near plane is at z == w, and visible points have w - z >= 0.
+	// Points behind the camera must be clipped before the divide by 'w', or they project to the far side of the screen.
+	float d1 = p1.w - p1.z;
+	float d2 = p2.w - p2.z;
+	if (d1 < 0.0f && d2 < 0.0f)
+		return;
+
+	if (d1 < 0.0f)
 	{
-		float t = -p1.z / (p2.z - p1.z);
+		float t = d1 / (d1 - d2);
 		In[1].ss_vert = p1 = lerp(p1, p2, t);
 	}
-	if (p2.z < 0.0f)
+	if (d2 < 0.0f)
 	{
-		float t = -p2.z / (p1.z - p2.z);
+		float t = d2 / (d2 - d1);
 		In[2].ss_vert = p2 = lerp(p2, p1, t);
 	}
 
