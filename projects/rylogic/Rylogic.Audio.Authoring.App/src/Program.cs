@@ -25,6 +25,9 @@ namespace Rylogic.Audio.Authoring.App;
 /// </summary>
 public static partial class Program
 {
+	/// <summary>How long editing must pause before edited sounds are sent to running games and cooked.</summary>
+	private static readonly TimeSpan PublishDelay = TimeSpan.FromSeconds(2);
+
 	public static async Task<int> Main(string[] args)
 	{
 		// Parse the command line; every option has a value
@@ -78,14 +81,70 @@ public static partial class Program
 		app.UseDefaultFiles(new DefaultFilesOptions { FileProvider = new PhysicalFileProvider(web_root) });
 		app.UseStaticFiles(new StaticFileOptions { FileProvider = new PhysicalFileProvider(web_root) });
 
+		// Apply and Send share the project's build outputs, so only one project command runs at a time
+		var command_lock = new SemaphoreSlim(1, 1);
+		var publish_lock = new object();
+		var publish_notice = (string?)null;
+		var publish_error = (string?)null;
+		async Task Publish(IReadOnlyList<string> ids)
+		{
+			// Wait for a manual Apply to finish rather than skip the edits
+			await command_lock.WaitAsync();
+			try
+			{
+				// Send first, so running games hear the change before the slower cook. Only a sound the catalog defines may be substituted into the command line.
+				var (notice, error) = ((string?)null, (string?)null);
+				var catalog = Catalog.Read(workspace.Config.CatalogPath);
+				foreach (var id in ids.Where(x => workspace.Config.Send != null && catalog.Any(s => s.Id == x)))
+				{
+					(notice, error) = await RunCommand(workspace.Config.Send!.ForSound(id), "Send", $"Sent {id}");
+					if (error != null)
+						break;
+				}
+
+				// The incremental cook makes the edits last beyond the running games
+				if (error == null && workspace.Config.Apply != null)
+					(notice, error) = await RunCommand(workspace.Config.Apply, "Apply", $"Published {string.Join(", ", ids)}");
+
+				lock (publish_lock)
+					(publish_notice, publish_error) = (notice, error);
+			}
+			finally
+			{
+				command_lock.Release();
+			}
+		}
+		using var auto = workspace.Config.Send != null || workspace.Config.Apply != null ? new AutoPublish(PublishDelay, Publish) : null;
+
+		// Every reply carries the review state, the publishing state and a notice or error for the user
+		IResult Reply(string? notice, string? error)
+		{
+			// The last publish result is shown until the next publish replaces it
+			var reply = workspace.Snapshot();
+			lock (publish_lock)
+			{
+				reply["publish"] = new JsonObject
+				{
+					["enabled"] = auto != null,
+					["waiting"] = new JsonArray([.. (auto?.Waiting ?? []).Select(x => (JsonNode)x)]),
+					["running"] = new JsonArray([.. (auto?.Running ?? []).Select(x => (JsonNode)x)]),
+					["notice"] = publish_notice,
+					["error"] = publish_error,
+				};
+			}
+			reply["notice"] = notice;
+			reply["error"] = error;
+			return Results.Content(reply.ToJsonString(), "application/json");
+		}
+
 		// The full review state. Refreshing picks up catalog edits and new local files
 		app.MapGet("/api/state", () =>
 		{
 			workspace.Refresh();
-			return Results.Content(workspace.Snapshot().ToJsonString(), "application/json");
+			return Reply(null, null);
 		});
 
-		// Apply one review action, replying with the new state and a notice or error for the user
+		// Apply one review action, replying with the new state and a notice or error for the user. An action that changes the game publishes its sound later.
 		app.MapPost("/api/state", async (HttpRequest request, CancellationToken cancel) =>
 		{
 			// Errors are shown in the UI rather than failing the request, so the state stays current
@@ -94,30 +153,30 @@ public static partial class Program
 			try
 			{
 				var action = await JsonNode.ParseAsync(request.Body, cancellationToken: cancel) as JsonObject ?? throw new InvalidOperationException("The request must be a JSON object.");
-				notice = (string?)action["action"] == "add_freesound"
+				var name = (string?)action["action"];
+				notice = name == "add_freesound"
 					? await workspace.AddFreesoundAsync((string?)action["id"], FreesoundNumber((string?)action["number"]), cancel)
 					: workspace.Apply(action);
+				if (auto != null && name != null && Workspace.GameActions.Contains(name) && (string?)action["id"] is string id)
+					auto.Touch(id);
 			}
 			catch (Exception ex) when (ex is InvalidOperationException or InvalidDataException or HttpRequestException or System.Text.Json.JsonException or IOException)
 			{
 				error = ex.Message;
 			}
-			var reply = workspace.Snapshot();
-			reply["notice"] = notice;
-			reply["error"] = error;
-			return Results.Content(reply.ToJsonString(), "application/json");
+			return Reply(notice, error);
 		});
 
-		// Run one of the project's commands, replying with the new state and the command's result. Apply and Send share the project's build outputs, so only one
-		// command runs at a time. The run is not tied to the request, so closing the page does not stop a half-finished command.
-		var command_lock = new SemaphoreSlim(1, 1);
-		async Task<IResult> RunProjectCommand(ProjectCommand? command, string verb, string done)
+		// Run the project's apply command now, for changes made outside this tool. The run is not tied to the request, so closing the page does not stop a
+		// half-finished command.
+		app.MapPost("/api/apply", async () =>
 		{
+			// Refuse rather than queue, so the button gives a clear answer
 			var notice = (string?)null;
 			var error = (string?)null;
-			if (command == null)
+			if (workspace.Config.Apply == null)
 			{
-				error = $"This project has no {verb.ToLowerInvariant()} command.";
+				error = "This project has no apply command.";
 			}
 			else if (!await command_lock.WaitAsync(0))
 			{
@@ -127,28 +186,14 @@ public static partial class Program
 			{
 				try
 				{
-					(notice, error) = await RunCommand(command, verb, done);
+					(notice, error) = await RunCommand(workspace.Config.Apply, "Apply", "Applied");
 				}
 				finally
 				{
 					command_lock.Release();
 				}
 			}
-			var reply = workspace.Snapshot();
-			reply["notice"] = notice;
-			reply["error"] = error;
-			return Results.Content(reply.ToJsonString(), "application/json");
-		}
-		app.MapPost("/api/apply", () => RunProjectCommand(workspace.Config.Apply, "Apply", "Applied"));
-		app.MapPost("/api/send", async (HttpRequest request, CancellationToken cancel) =>
-		{
-			// Only a sound the catalog defines may be substituted into the command line
-			var body = await JsonNode.ParseAsync(request.Body, cancellationToken: cancel);
-			var id = (string?)body?["id"];
-			if (id == null || !Catalog.Read(workspace.Config.CatalogPath).Any(x => x.Id == id))
-				return Results.BadRequest($"'{id}' is not a sound in the catalog.");
-
-			return await RunProjectCommand(workspace.Config.Send?.ForSound(id), "Send", $"Sent {id}");
+			return Reply(notice, error);
 		});
 
 		// Freesound login: save the API credential, then send the user to Freesound to grant access

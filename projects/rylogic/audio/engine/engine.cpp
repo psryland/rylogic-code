@@ -110,7 +110,7 @@ namespace pr::audio
 			return 2.0f * std::sin(std::numbers::pi_v<float> * hz / static_cast<float>(sample_rate));
 		}
 
-		// Build the output matrix that narrows a stereo source by 'width' (0 = mono, 1 = unchanged) and balances it by 'pan' (see VoiceDesc) for
+		// Build the output matrix that narrows a stereo source by 'width' (1 = unchanged, 0 = mono, -1 = left and right swapped) and balances it by 'pan' (see VoiceDesc) for
 		// 'output_channels' destination channels. The XAudio2 matrix is indexed [destination * source_channels + source].
 		std::vector<float> StereoMatrix(float width, float pan, std::uint32_t output_channels)
 		{
@@ -1208,7 +1208,7 @@ namespace pr::audio
 			m_impl->GroupFromHandle(desc.group);
 		CheckRange(desc.volume, 0.0f, std::numeric_limits<float>::max(), "Voice volume");
 		CheckPositive(desc.pitch, "Voice pitch");
-		CheckRange(desc.width, 0.0f, 1.0f, "Voice width");
+		CheckRange(desc.width, -1.0f, 1.0f, "Voice width");
 		CheckRange(desc.pan, -1.0f, 1.0f, "Voice pan");
 
 		auto live_count = std::uint32_t{};
@@ -1388,11 +1388,11 @@ namespace pr::audio
 		m_impl->VoiceFromHandle(voice_handle).m_pitch.Set(pitch, ramp_s, Clock::now());
 	}
 
-	// Ramp a voice's stereo width to 'width' in [0,1] over 'ramp_s' seconds. Width affects only non-spatial stereo clips.
+	// Ramp a voice's stereo width to 'width' in [-1,1] over 'ramp_s' seconds. Width affects only non-spatial stereo clips.
 	void Engine::VoiceWidthSet(VoiceHandle voice_handle, float width, float ramp_s)
 	{
 		m_impl->CheckThread();
-		CheckRange(width, 0.0f, 1.0f, "Voice width");
+		CheckRange(width, -1.0f, 1.0f, "Voice width");
 		CheckRange(ramp_s, 0.0f, std::numeric_limits<float>::max(), "Ramp duration");
 		m_impl->VoiceFromHandle(voice_handle).m_width.Set(width, ramp_s, Clock::now());
 	}
@@ -1506,7 +1506,7 @@ namespace pr::audio
 			m_impl->GroupFromHandle(desc.group);
 		CheckRange(desc.volume, 0.0f, std::numeric_limits<float>::max(), "Stream volume");
 		CheckPositive(desc.pitch, "Stream pitch");
-		CheckRange(desc.width, 0.0f, 1.0f, "Stream width");
+		CheckRange(desc.width, -1.0f, 1.0f, "Stream width");
 		CheckRange(desc.pan, -1.0f, 1.0f, "Stream pan");
 		if (ogg_file.empty())
 			throw std::invalid_argument("Ogg Vorbis file data is empty");
@@ -1684,11 +1684,11 @@ namespace pr::audio
 		m_impl->StreamFromHandle(stream_handle).m_pitch.Set(pitch, ramp_s, Clock::now());
 	}
 
-	// Ramp a stream's stereo width to 'width' in [0,1] over 'ramp_s' seconds. Width affects only stereo streams.
+	// Ramp a stream's stereo width to 'width' in [-1,1] over 'ramp_s' seconds. Width affects only stereo streams.
 	void Engine::StreamWidthSet(StreamHandle stream_handle, float width, float ramp_s)
 	{
 		m_impl->CheckThread();
-		CheckRange(width, 0.0f, 1.0f, "Stream width");
+		CheckRange(width, -1.0f, 1.0f, "Stream width");
 		CheckRange(ramp_s, 0.0f, std::numeric_limits<float>::max(), "Ramp duration");
 		auto lock = std::lock_guard<std::mutex>(m_impl->m_streams_mutex);
 		m_impl->StreamFromHandle(stream_handle).m_width.Set(width, ramp_s, Clock::now());

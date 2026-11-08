@@ -84,7 +84,7 @@ namespace pr::audio
 		// Update applies the value to playing voices; zero duration applies the target without interpolation on the next Update.
 		void VoicePitchSet(VoiceHandle voice, float pitch, float ramp_s);
 
-		// Ramp a voice's stereo width to 'width' in [0,1] over 'ramp_s' seconds. Width affects only non-spatial stereo clips.
+		// Ramp a voice's stereo width to 'width' in [-1,1] over 'ramp_s' seconds. Width affects only non-spatial stereo clips.
 		// Update applies the value to playing voices; zero duration applies the target without interpolation on the next Update.
 		void VoiceWidthSet(VoiceHandle voice, float width, float ramp_s);
 
@@ -135,7 +135,7 @@ namespace pr::audio
 		// Update applies the value to the source; zero duration applies the target without interpolation on the next Update.
 		void StreamPitchSet(StreamHandle stream, float pitch, float ramp_s);
 
-		// Ramp a stream's stereo width to 'width' in [0,1] over 'ramp_s' seconds. Width affects only stereo streams.
+		// Ramp a stream's stereo width to 'width' in [-1,1] over 'ramp_s' seconds. Width affects only stereo streams.
 		// Update applies the value to the source; zero duration applies the target without interpolation on the next Update.
 		void StreamWidthSet(StreamHandle stream, float width, float ramp_s);
 

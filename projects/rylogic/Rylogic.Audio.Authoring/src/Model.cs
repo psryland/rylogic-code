@@ -154,9 +154,9 @@ public sealed class Variant
 	/// <summary>Free-text review note.</summary>
 	public string? Note { get; set; }
 
-	/// <summary>True when the variant is flagged as needing repair.</summary>
+	/// <summary>True when the variant has been listened to all the way through and is final.</summary>
 	[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
-	public bool Repair { get; set; }
+	public bool Finalised { get; set; }
 
 	/// <summary>
 	/// A previously prepared file, relative to the configuration folder, that is used instead of rendering the recipe. It keeps an existing hand-made

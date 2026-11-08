@@ -408,7 +408,7 @@ public sealed class VoiceOptions
 	public float Volume { get; set; } = 1.0f;
 	public float Pitch { get; set; } = 1.0f;
 
-	/// <summary>Stereo width in [0,1] for non-spatial stereo clips; 0 is mono and 1 is the full source width.</summary>
+	/// <summary>Signed stereo width in [-1,1] for non-spatial stereo clips; 1 is the full source width, 0 is mono, and -1 swaps left and right.</summary>
 	public float Width { get; set; } = 1.0f;
 
 	/// <summary>
@@ -434,7 +434,7 @@ public sealed class StreamOptions
 	public float Volume { get; set; } = 1.0f;
 	public float Pitch { get; set; } = 1.0f;
 
-	/// <summary>Stereo width in [0,1] for non-spatial stereo streams; 0 is mono and 1 is the full source width.</summary>
+	/// <summary>Signed stereo width in [-1,1] for non-spatial stereo streams; 1 is the full source width, 0 is mono, and -1 swaps left and right.</summary>
 	public float Width { get; set; } = 1.0f;
 
 	/// <summary>Left/right balance in [-1,1] for non-spatial stereo streams. See <see cref="VoiceOptions.Pan"/>.</summary>

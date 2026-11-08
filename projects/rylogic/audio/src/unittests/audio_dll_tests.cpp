@@ -1092,6 +1092,7 @@ namespace pr::unittests
 			PR_EXPECT(fix.m_api.StreamGainSet(fix.m_engine, stream, 0.5f, 0.1f) == EStatus::Success);
 			PR_EXPECT(fix.m_api.StreamPitchSet(fix.m_engine, stream, 0.5f, 0.1f) == EStatus::Success);
 			PR_EXPECT(fix.m_api.StreamWidthSet(fix.m_engine, stream, 0.0f, 0.1f) == EStatus::Success);
+			PR_EXPECT(fix.m_api.StreamWidthSet(fix.m_engine, stream, -1.0f, 0.1f) == EStatus::Success);
 			PR_EXPECT(fix.m_api.VoicePanSet(fix.m_engine, voice, -0.5f, 0.1f) == EStatus::Success);
 			PR_EXPECT(fix.m_api.StreamPanSet(fix.m_engine, stream, 0.5f, 0.1f) == EStatus::Success);
 			PollUntil(fix.m_api, fix.m_engine, [] { return false; }, std::chrono::milliseconds(200));
@@ -1104,7 +1105,7 @@ namespace pr::unittests
 			PR_EXPECT(fix.m_api.VoicePitchSet(fix.m_engine, voice, 0.0f, 0.0f) == EStatus::InvalidArgument);
 			PR_EXPECT(fix.m_api.VoiceWidthSet(fix.m_engine, voice, 1.5f, 0.0f) == EStatus::InvalidArgument);
 			PR_EXPECT(fix.m_api.StreamGainSet(fix.m_engine, stream, nan, 0.0f) == EStatus::InvalidArgument);
-			PR_EXPECT(fix.m_api.StreamWidthSet(fix.m_engine, stream, -0.1f, 0.0f) == EStatus::InvalidArgument);
+			PR_EXPECT(fix.m_api.StreamWidthSet(fix.m_engine, stream, -1.1f, 0.0f) == EStatus::InvalidArgument);
 			PR_EXPECT(fix.m_api.VoicePanSet(fix.m_engine, voice, -1.5f, 0.0f) == EStatus::InvalidArgument);
 			PR_EXPECT(fix.m_api.VoicePanSet(fix.m_engine, voice, nan, 0.0f) == EStatus::InvalidArgument);
 			PR_EXPECT(fix.m_api.StreamPanSet(fix.m_engine, stream, 1.5f, 0.0f) == EStatus::InvalidArgument);
