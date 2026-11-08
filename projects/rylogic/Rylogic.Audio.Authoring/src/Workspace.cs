@@ -71,7 +71,7 @@ public sealed partial class Workspace
 	public LatestJobs Jobs { get; }
 
 	/// <summary>The file types accepted from local folders.</summary>
-	public static IReadOnlyList<string> LocalTypes { get; } = [".wav", ".mp3", ".flac", ".ogg"];
+	public static IReadOnlyList<string> LocalTypes { get; } = [".wav", ".mp3", ".flac", ".ogg", ".opus"];
 
 	/// <summary>The review actions that change what the project's game plays for the action's sound 'id'. Other actions only change the review state.</summary>
 	public static IReadOnlySet<string> GameActions { get; } = new HashSet<string>(["loop", "load", "status", "move", "recipe", "adopt"], StringComparer.Ordinal);

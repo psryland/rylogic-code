@@ -56,7 +56,7 @@ public sealed class SourceStore
 	}
 
 	/// <summary>The file types kept as received. FLAC is already lossless, and converting a lossy type would only enlarge it.</summary>
-	public static IReadOnlyList<string> StoredTypes { get; } = [".flac", ".mp3", ".ogg"];
+	public static IReadOnlyList<string> StoredTypes { get; } = [".flac", ".mp3", ".ogg", ".opus"];
 
 	/// <summary>The stored audio file of 'source_id'. When it is missing, this is where a FLAC would be.</summary>
 	public string OriginalPath(string source_id)
