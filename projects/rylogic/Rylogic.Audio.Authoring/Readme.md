@@ -34,7 +34,7 @@ A project supplies an `authoring.json` file. Relative paths are resolved against
 - `catalog`: the project's sound definitions. The library reads each sound's `id`, its section, description, `loop` flag and `load` (`memory` or
   `stream`); every other property belongs to the project. The only changes the library makes to this file are setting a sound's `loop` flag or `load`;
   each edits just the value, keeping the file's layout.
-- `originals`: one `<source-id>.<type>` per recording with a `<source-id>.json` provenance sidecar. FLAC, MP3 and Ogg downloads are kept byte-for-byte;
+- `originals`: one `<source-id>.<type>` per recording with a `<source-id>.json` provenance sidecar. FLAC, MP3, Ogg and Opus downloads are kept byte-for-byte;
   any other type is converted to lossless FLAC. Keep this folder in version control.
 - `fetched` (optional): the same, for recordings that can be downloaded again (Freesound). This folder need not be version controlled: a missing
   original is downloaded again when it is needed and must match its recorded source ID. Without it, these originals are kept in `originals`.
@@ -42,8 +42,8 @@ A project supplies an `authoring.json` file. Relative paths are resolved against
   this folder in version control.
 - `origins`: the registry of every recording that has been browsed, and the source each has been imported as.
 - `cache`: disposable renders, named by a hash of everything that can change them. Delete it at any time.
-- `local` (optional): folders of recordings on this machine (generated, recorded or collected), each searched recursively for `.wav`, `.mp3`, `.flac`
-  and `.ogg` files. Every file is an origin `local:<name>/<relative path>` credited to the folder's `author`, `licence` and optional `url`. The authoring
+- `local` (optional): folders of recordings on this machine (generated, recorded or collected), each searched recursively for `.wav`, `.mp3`, `.flac`,
+  `.ogg` and `.opus` files. Every file is an origin `local:<name>/<relative path>` credited to the folder's `author`, `licence` and optional `url`. The authoring
   tool adds new files as unheard variants of the sound ID named by their subfolder (`lab-radio/`, `lab_radio/` or `lab.radio/` all name `lab.radio`;
   the deepest such folder wins), or else of the sound ID whose name parts best match the words in the file's path. Accepting one imports it into
   `originals`, because it cannot be downloaded again.

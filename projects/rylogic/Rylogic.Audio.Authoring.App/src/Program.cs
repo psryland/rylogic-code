@@ -341,6 +341,7 @@ public static partial class Program
 			".flac" => "audio/flac",
 			".mp3" => "audio/mpeg",
 			".ogg" => "audio/ogg",
+			".opus" => "audio/ogg; codecs=opus",
 			_ => "application/octet-stream",
 		};
 		return Results.File(path, type, enableRangeProcessing: true);
