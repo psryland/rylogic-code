@@ -330,7 +330,8 @@ public struct ListenerState
 
 /// <summary>
 /// Spatial properties applied to a mono positional voice. All vectors use a right-handed coordinate system with distances
-/// in metres and velocities in metres per second; the cone angles are in radians.
+/// in metres and velocities in metres per second; the cone angles are in radians. Within <see cref="m_inner_radius"/> of the emitter,
+/// the listener hears the sound spread around them rather than from one direction; 0 keeps it a point source at every distance.
 /// </summary>
 [StructLayout(LayoutKind.Sequential)]
 public struct EmitterState
@@ -342,6 +343,7 @@ public struct EmitterState
 	public v3 m_velocity;
 	public float m_min_distance;
 	public float m_max_distance;
+	public float m_inner_radius;
 	public float m_cone_inner_angle;
 	public float m_cone_outer_angle;
 	public float m_cone_outer_gain;
@@ -351,7 +353,7 @@ public struct EmitterState
 	public float m_reverb_send;
 
 	/// <summary>Create an emitter state with every spatial property specified explicitly.</summary>
-	public EmitterState(v3 position, v3 forward, v3 up, v3 velocity, float min_distance, float max_distance, float cone_inner_angle, float cone_outer_angle, float cone_outer_gain, float doppler_scale, float obstruction, float occlusion, float reverb_send)
+	public EmitterState(v3 position, v3 forward, v3 up, v3 velocity, float min_distance, float max_distance, float inner_radius, float cone_inner_angle, float cone_outer_angle, float cone_outer_gain, float doppler_scale, float obstruction, float occlusion, float reverb_send)
 	{
 		m_header = NativeHeader.Create<EmitterState>();
 		m_position = position;
@@ -360,6 +362,7 @@ public struct EmitterState
 		m_velocity = velocity;
 		m_min_distance = min_distance;
 		m_max_distance = max_distance;
+		m_inner_radius = inner_radius;
 		m_cone_inner_angle = cone_inner_angle;
 		m_cone_outer_angle = cone_outer_angle;
 		m_cone_outer_gain = cone_outer_gain;
@@ -369,11 +372,11 @@ public struct EmitterState
 		m_reverb_send = reverb_send;
 	}
 
-	/// <summary>Create a non-directional emitter at a position, with no attenuation cone and no doppler, obstruction, or occlusion.</summary>
+	/// <summary>Create a non-directional point emitter at a position, with no attenuation cone and no doppler, obstruction, or occlusion.</summary>
 	public static EmitterState AtPosition(v3 position, float min_distance = 1.0f, float max_distance = 100.0f)
 	{
 		var full_circle = (float)(2.0 * Math.PI);
-		return new EmitterState(position, new v3(0, 0, 1), new v3(0, 1, 0), v3.Zero, min_distance, max_distance, full_circle, full_circle, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f);
+		return new EmitterState(position, new v3(0, 0, 1), new v3(0, 1, 0), v3.Zero, min_distance, max_distance, 0.0f, full_circle, full_circle, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f);
 	}
 }
 
@@ -405,7 +408,7 @@ public sealed class VoiceOptions
 	public float Volume { get; set; } = 1.0f;
 	public float Pitch { get; set; } = 1.0f;
 
-	/// <summary>Stereo width in [0,1] for non-spatial stereo clips; 0 is mono and 1 is the full source width.</summary>
+	/// <summary>Signed stereo width in [-1,1] for non-spatial stereo clips; 1 is the full source width, 0 is mono, and -1 swaps left and right.</summary>
 	public float Width { get; set; } = 1.0f;
 
 	/// <summary>
@@ -431,7 +434,7 @@ public sealed class StreamOptions
 	public float Volume { get; set; } = 1.0f;
 	public float Pitch { get; set; } = 1.0f;
 
-	/// <summary>Stereo width in [0,1] for non-spatial stereo streams; 0 is mono and 1 is the full source width.</summary>
+	/// <summary>Signed stereo width in [-1,1] for non-spatial stereo streams; 1 is the full source width, 0 is mono, and -1 swaps left and right.</summary>
 	public float Width { get; set; } = 1.0f;
 
 	/// <summary>Left/right balance in [-1,1] for non-spatial stereo streams. See <see cref="VoiceOptions.Pan"/>.</summary>

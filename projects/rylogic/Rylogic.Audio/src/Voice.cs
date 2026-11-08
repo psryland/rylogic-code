@@ -101,7 +101,7 @@ public sealed class Voice :IDisposable
 	}
 
 	/// <summary>
-	/// Move the playing voice's stereo width in [0,1] to 'width' over 'ramp_seconds'. Zero applies without interpolation on the next <see cref="Engine.Update"/>.
+	/// Move the playing voice's signed stereo width in [-1,1] to 'width' (see VoiceOptions.Width) over 'ramp_seconds'. Zero applies without interpolation on the next <see cref="Engine.Update"/>.
 	/// Width affects only non-spatial stereo clips.
 	/// </summary>
 	public void SetWidth(float width, float ramp_seconds = 0.0f)

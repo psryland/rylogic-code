@@ -47,12 +47,15 @@ A project supplies an `authoring.json` file. Relative paths are resolved against
   tool adds new files as unheard variants of the sound ID named by their subfolder (`lab-radio/`, `lab_radio/` or `lab.radio/` all name `lab.radio`;
   the deepest such folder wins), or else of the sound ID whose name parts best match the words in the file's path. Accepting one imports it into
   `originals`, because it cannot be downloaded again.
-- `apply` (optional): a command that makes the project use the current review results, usually its asset cook. The authoring tool shows an Apply button
-  that saves any waiting edit and then runs `command` with `arguments` (passed unchanged) in `directory` (default: the configuration folder). The tool
-  shows the command's last output line, or the end of its output if it fails.
+- `apply` (optional): a command that makes the project use the current review results, usually its asset cook. It runs automatically when edits are
+  published (see below), and an Apply button runs it on demand, for changes made outside the tool. It runs `command` with `arguments` (passed unchanged)
+  in `directory` (default: the configuration folder). The tool shows the command's last output line, or the end of its output if it fails.
 - `send` (optional): a command that makes running instances of the project play the current preparation of one sound, so it can be heard in place
-  without a full cook. The authoring tool shows a "Send to game" button for the selected sound that saves any waiting edit and then runs the command
-  like `apply`, with `{id}` in each argument replaced by the sound ID. Only one project command (`apply` or `send`) runs at a time.
+  without a full cook. It runs like `apply`, with `{id}` in each argument replaced by the sound ID.
+
+When the project has either command, the tool publishes edits automatically. About 2 s after the last review action that changes what the project
+plays (accepting or rejecting a variant, reordering, a recipe edit, adopting a recipe, and the catalog `loop` and `load` values), it runs `send` for each
+edited sound and then `apply` once. Edits made during a publish wait for the next pause. Only one project command runs at a time.
 
 ## Recipes
 

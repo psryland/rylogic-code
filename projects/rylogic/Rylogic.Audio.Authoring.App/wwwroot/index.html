@@ -36,7 +36,7 @@
 	button:hover { background: #4a4e55; }
 	button:disabled { opacity: 0.4; cursor: default; }
 	button.on { background: #3a4d6b; border-color: #59f; }
-	button.on.repair { background: #6b5a2e; border-color: #e5b04a; }
+	button.on.finalised { background: #2e6b3a; border-color: #4ae57a; }
 	input[type=text], input[type=number], select { background: #2b2d31; color: #ddd; border: 1px solid #555; border-radius: 3px; padding: 2px 4px; }
 	input.note { width: 100%; }
 	a { color: #8ab4f8; }
@@ -74,16 +74,16 @@
 				<button id="fssave">Save</button>
 			</span>
 			<span class="muted" id="pending"></span>
+			<span id="publish"></span>
 			<span id="message"></span>
 		</div>
 	</div>
 	<div id="recipe" hidden></div>
 	<h2 id="title">Pick a sound ID</h2>
-	<label id="loopgame" hidden title="Saves the sound's 'loop' setting in the project's catalog. Apply to use it in the game.">
+	<label id="loopgame" hidden title="Saves the sound's 'loop' setting in the project's catalog. The game is updated after a short pause.">
 		<input type="checkbox" id="loopsound"> Loops in game</label>
-	<label id="loadgame" hidden title="Saves the sound's 'load' setting in the project's catalog. Apply to use it in the game. Memory keeps the whole sound uncompressed in memory, which suits short sounds that play often. Stream decodes compressed (Ogg) audio as it plays, which suits anything long.">
+	<label id="loadgame" hidden title="Saves the sound's 'load' setting in the project's catalog. The game is updated after a short pause. Memory keeps the whole sound uncompressed in memory, which suits short sounds that play often. Stream decodes compressed (Ogg) audio as it plays, which suits anything long.">
 		Load <select id="loadsound"><option value="memory">memory (short sounds)</option><option value="stream">stream (long sounds)</option></select></label>
-	<button id="send" hidden>Send to game</button>
 	<table id="list"></table>
 	<p>
 		Add a Freesound sound <span id="addto"></span>: <input type="text" id="addnum" placeholder="number or page address" size="28">
@@ -138,14 +138,14 @@ const STEPS = {
 	loop: { label: "Loop", params: { duration: "s" }, init: { duration: 3 } },
 };
 
-// Apply a new state from the server, then poll while background work is pending
+// Apply a new state from the server, then poll while background work or publishing is pending
 function adopt_state(s)
 {
 	state = s;
 	render();
 	follow_live_url();
 	clearTimeout(poll_timer);
-	if (state.pending.length)
+	if (state.pending.length || state.publish.waiting.length || state.publish.running.length)
 		poll_timer = setTimeout(refresh, 500);
 }
 
@@ -512,9 +512,6 @@ function render_list()
 	document.getElementById("loopsound").checked = !!sound?.loop;
 	document.getElementById("loadgame").hidden = !sound;
 	document.getElementById("loadsound").value = sound?.load ?? "";
-	const send = document.getElementById("send");
-	send.hidden = !sound || !state.send;
-	send.title = `Save any waiting edit, then make running games play this sound's accepted variants now: ${(state.send ?? "").replaceAll("{id}", sel_id ?? "")}`;
 	if (!sel_id)
 		return;
 
@@ -630,10 +627,10 @@ function render_row(v, index, count)
 		td_status.appendChild(b);
 	}
 
-	// Repair is separate from status: a good variant can still need parts removed
-	const rep = button("repair", "Mostly good, but has parts that must be removed (describe them in the note)", () => post({ action: "repair", id: sel_id, variant: v.id, repair: !v.repair }));
-	rep.className = v.repair ? "on repair" : "";
-	td_status.appendChild(rep);
+	// Finalised is separate from status: it marks a variant that has been heard all the way through and needs no more work
+	const fin = button("finalised", "Listened to all the way through, and happy with it", () => post({ action: "finalised", id: sel_id, variant: v.id, finalised: !v.finalised }));
+	fin.className = v.finalised ? "on finalised" : "";
+	td_status.appendChild(fin);
 	tr.appendChild(td_status);
 
 	const td_note = document.createElement("td");
@@ -860,10 +857,23 @@ function render_status()
 
 	document.getElementById("pending").textContent = state.pending.length ? `Working: ${state.pending.join(", ")}` : "";
 
+	// Edits reach the game after a pause; the last result stays until the next publish
+	const p = state.publish;
+	const publish = document.getElementById("publish");
+	publish.title = p.enabled ? `Edits are sent to running games, then cooked, after a short pause. Send: ${state.send ?? "none"}. Apply: ${state.apply ?? "none"}` : "";
+	if (p.running.length)
+		publish.innerHTML = `<span class="muted">Publishing ${esc(p.running.join(", "))}...</span>`;
+	else if (p.waiting.length)
+		publish.innerHTML = `<span class="muted">Will publish ${esc(p.waiting.join(", "))}</span>`;
+	else if (p.error)
+		publish.innerHTML = `<span class="error">${esc(p.error)}</span>`;
+	else
+		publish.innerHTML = p.notice ? `<span class="muted">${esc(p.notice)}</span>` : "";
+
 	// The project may supply a command that makes it use the review results
 	const apply = document.getElementById("apply");
 	apply.hidden = !state.apply;
-	apply.title = `Save any waiting edit, then run: ${state.apply ?? ""}`;
+	apply.title = `Cook now, for changes made outside this tool. Runs: ${state.apply ?? ""}`;
 }
 
 // Run the project's apply command after the server has every edit; it can take a while, so the button stays disabled until it ends
@@ -883,34 +893,6 @@ document.getElementById("apply").onclick = async e =>
 	catch (ex)
 	{
 		show_message(`Apply failed: ${ex.message}`, true);
-	}
-	finally
-	{
-		button.disabled = false;
-	}
-};
-
-// Send the selected sound to running games after the server has every edit. The game crossfades to it without a full cook; Apply makes it permanent.
-document.getElementById("send").onclick = async e =>
-{
-	const button = e.currentTarget;
-	const id = sel_id;
-	button.disabled = true;
-	try
-	{
-		await flush_recipe();
-		show_message(`Sending ${id}...`, false);
-		const r = await fetch("/api/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
-		if (!r.ok)
-			throw new Error(await r.text());
-
-		const s = await r.json();
-		adopt_state(s);
-		show_message(s.error ?? s.notice ?? "", !!s.error);
-	}
-	catch (ex)
-	{
-		show_message(`Send failed: ${ex.message}`, true);
 	}
 	finally
 	{

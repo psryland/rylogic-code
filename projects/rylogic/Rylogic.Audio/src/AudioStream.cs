@@ -90,7 +90,7 @@ public sealed class AudioStream :IDisposable
 	}
 
 	/// <summary>
-	/// Move the stereo width in [0,1] to 'width' over 'ramp_seconds'. Zero applies without interpolation on the next <see cref="Engine.Update"/>.
+	/// Move the signed stereo width in [-1,1] to 'width' (see StreamOptions.Width) over 'ramp_seconds'. Zero applies without interpolation on the next <see cref="Engine.Update"/>.
 	/// Width affects only non-spatial stereo streams.
 	/// </summary>
 	public void SetWidth(float width, float ramp_seconds = 0.0f)

@@ -73,6 +73,9 @@ public sealed partial class Workspace
 	/// <summary>The file types accepted from local folders.</summary>
 	public static IReadOnlyList<string> LocalTypes { get; } = [".wav", ".mp3", ".flac", ".ogg"];
 
+	/// <summary>The review actions that change what the project's game plays for the action's sound 'id'. Other actions only change the review state.</summary>
+	public static IReadOnlySet<string> GameActions { get; } = new HashSet<string>(["loop", "load", "status", "move", "recipe", "adopt"], StringComparer.Ordinal);
+
 	/// <summary>The current state for display. Never waits for background work.</summary>
 	public JsonObject Snapshot()
 	{
@@ -265,10 +268,10 @@ public sealed partial class Workspace
 					prep.Save(Config.PrepFolder);
 					return null;
 				}
-				case "repair":
+				case "finalised":
 				{
 					var (prep, variant) = VariantOf(action);
-					variant.Repair = action["repair"]?.GetValue<bool>() ?? false;
+					variant.Finalised = action["finalised"]?.GetValue<bool>() ?? false;
 					prep.Save(Config.PrepFolder);
 					return null;
 				}

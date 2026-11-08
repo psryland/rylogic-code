@@ -113,6 +113,8 @@ namespace pr::audio
 	};
 
 	// Spatial properties applied to a mono positional voice or stream.
+	// 'inner_radius' is the distance (m) from the emitter within which the listener hears the sound spread around them rather than from one
+	// direction. At the emitter's position the sound is even in every speaker. 0 keeps the sound a point source at every distance.
 	struct EmitterState
 	{
 		StructHeader header;
@@ -122,6 +124,7 @@ namespace pr::audio
 		Vector3 velocity;
 		float min_distance;
 		float max_distance;
+		float inner_radius;
 		float cone_inner_angle;
 		float cone_outer_angle;
 		float cone_outer_gain;
@@ -147,7 +150,9 @@ namespace pr::audio
 
 	// Initial playback and routing properties for one voice.
 	// 'group' is the submix group the voice feeds, or 0 for the master output.
-	// 'width' is the stereo width in [0,1] for non-spatial stereo clips; 0 is mono and 1 is the full source width.
+	// 'width' is the signed stereo width in [-1,1] for non-spatial stereo clips. 1 is the full source width, 0 is mono, and -1 is the full width
+	// with left and right swapped. Values between blend each output side between the two source channels, so a listener-relative rotation of a
+	// stereo recording can be approximated by setting width to the cosine of the angle between the listener and the recording's forward direction.
 	// 'pan' is the left/right balance in [-1,1] for non-spatial stereo clips. 0 leaves both sides at full level; a positive pan lowers the left
 	// side toward silence at 1, and a negative pan lowers the right side. Pan never raises either side, so it cannot make a sound louder.
 	struct VoiceDesc

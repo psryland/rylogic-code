@@ -6,6 +6,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstring>
+#include <numbers>
 #include <thread>
 #include "pr/audio/audio-dll.h"
 #include "pr/common/unittests.h"
@@ -675,6 +676,7 @@ namespace pr::unittests
 				.velocity = {},
 				.min_distance = 1.0f,
 				.max_distance = 20.0f,
+				.inner_radius = 0.0f,
 				.cone_inner_angle = 1.0f,
 				.cone_outer_angle = 2.0f,
 				.cone_outer_gain = 0.25f,
@@ -1090,6 +1092,7 @@ namespace pr::unittests
 			PR_EXPECT(fix.m_api.StreamGainSet(fix.m_engine, stream, 0.5f, 0.1f) == EStatus::Success);
 			PR_EXPECT(fix.m_api.StreamPitchSet(fix.m_engine, stream, 0.5f, 0.1f) == EStatus::Success);
 			PR_EXPECT(fix.m_api.StreamWidthSet(fix.m_engine, stream, 0.0f, 0.1f) == EStatus::Success);
+			PR_EXPECT(fix.m_api.StreamWidthSet(fix.m_engine, stream, -1.0f, 0.1f) == EStatus::Success);
 			PR_EXPECT(fix.m_api.VoicePanSet(fix.m_engine, voice, -0.5f, 0.1f) == EStatus::Success);
 			PR_EXPECT(fix.m_api.StreamPanSet(fix.m_engine, stream, 0.5f, 0.1f) == EStatus::Success);
 			PollUntil(fix.m_api, fix.m_engine, [] { return false; }, std::chrono::milliseconds(200));
@@ -1102,7 +1105,7 @@ namespace pr::unittests
 			PR_EXPECT(fix.m_api.VoicePitchSet(fix.m_engine, voice, 0.0f, 0.0f) == EStatus::InvalidArgument);
 			PR_EXPECT(fix.m_api.VoiceWidthSet(fix.m_engine, voice, 1.5f, 0.0f) == EStatus::InvalidArgument);
 			PR_EXPECT(fix.m_api.StreamGainSet(fix.m_engine, stream, nan, 0.0f) == EStatus::InvalidArgument);
-			PR_EXPECT(fix.m_api.StreamWidthSet(fix.m_engine, stream, -0.1f, 0.0f) == EStatus::InvalidArgument);
+			PR_EXPECT(fix.m_api.StreamWidthSet(fix.m_engine, stream, -1.1f, 0.0f) == EStatus::InvalidArgument);
 			PR_EXPECT(fix.m_api.VoicePanSet(fix.m_engine, voice, -1.5f, 0.0f) == EStatus::InvalidArgument);
 			PR_EXPECT(fix.m_api.VoicePanSet(fix.m_engine, voice, nan, 0.0f) == EStatus::InvalidArgument);
 			PR_EXPECT(fix.m_api.StreamPanSet(fix.m_engine, stream, 1.5f, 0.0f) == EStatus::InvalidArgument);
@@ -1127,6 +1130,7 @@ namespace pr::unittests
 				.velocity = {},
 				.min_distance = 1.0f,
 				.max_distance = 3.0f,
+				.inner_radius = 0.0f,
 				.cone_inner_angle = 0.0f,
 				.cone_outer_angle = 0.0f,
 				.cone_outer_gain = 1.0f,
@@ -1313,6 +1317,86 @@ namespace pr::unittests
 					return std::any_of(diagnostics.meter_peak, diagnostics.meter_peak + diagnostics.meter_channel_count, [](float level) { return level > 0.05f; });
 				});
 			PR_EXPECT(heard);
+
+			PR_EXPECT(fix.m_api.VoiceDestroy(fix.m_engine, voice) == EStatus::Success);
+			PR_EXPECT(fix.m_api.ClipDestroy(fix.m_engine, clip) == EStatus::Success);
+		}
+
+		// An emitter close to the listener's side is heard mostly in one ear as a point source, and in both ears when the listener is inside its inner
+		// radius. A negative or non-finite inner radius is rejected.
+		PRUnitTestMethod(EmitterInnerRadiusSpreadsTheSound, Extended)
+		{
+			// A looping mono tone, positioned 1 m to the side of the default listener
+			auto fix = AudioFixture{};
+			auto wave = MakeWave(4800, 0.5f);
+			auto clip = ClipHandle{};
+			PR_EXPECT(fix.m_api.ClipCreateWave(fix.m_engine, wave.data(), wave.size(), &clip) == EStatus::Success);
+			auto voice_desc = VoiceDesc{
+				.header = {sizeof(VoiceDesc), AUDIO_STRUCT_VERSION},
+				.clip = clip,
+				.group = 0,
+				.spatial = true,
+				.loop_count = AUDIO_INFINITE_LOOP,
+				.priority = 100,
+				.volume = 1.0f,
+				.pitch = 1.0f,
+				.width = 1.0f,
+			};
+			auto voice = VoiceHandle{};
+			PR_EXPECT(fix.m_api.VoiceCreate(fix.m_engine, &voice_desc, &voice) == EStatus::Success);
+			auto emitter = EmitterState{
+				.header = {sizeof(EmitterState), AUDIO_STRUCT_VERSION},
+				.position = {1, 0, 0},
+				.forward = {0, -1, 0},
+				.up = {0, 0, 1},
+				.velocity = {},
+				.min_distance = 2.0f,
+				.max_distance = 20.0f,
+				.inner_radius = 0.0f,
+				.cone_inner_angle = 2.0f * std::numbers::pi_v<float>,
+				.cone_outer_angle = 2.0f * std::numbers::pi_v<float>,
+				.cone_outer_gain = 1.0f,
+				.doppler_scale = 0.0f,
+				.obstruction = 0.0f,
+				.occlusion = 0.0f,
+				.reverb_send = 0.0f,
+			};
+
+			// Invalid radii are rejected
+			auto invalid = emitter;
+			invalid.inner_radius = -1.0f;
+			PR_EXPECT(fix.m_api.VoiceEmitterSet(fix.m_engine, voice, &invalid) == EStatus::InvalidArgument);
+			invalid.inner_radius = std::numeric_limits<float>::infinity();
+			PR_EXPECT(fix.m_api.VoiceEmitterSet(fix.m_engine, voice, &invalid) == EStatus::InvalidArgument);
+
+			// Return the ratio of the quieter front channel's peak to the louder one's while the voice plays with 'inner_radius'
+			auto ear_balance = [&](float inner_radius)
+			{
+				// Let the new placement reach the output, then keep the loudest peak each channel reports
+				emitter.inner_radius = inner_radius;
+				PR_EXPECT(fix.m_api.VoiceEmitterSet(fix.m_engine, voice, &emitter) == EStatus::Success);
+				PollUntil(fix.m_api, fix.m_engine, [] { return false; }, std::chrono::milliseconds(100));
+				auto left = 0.0f;
+				auto right = 0.0f;
+				PollUntil(fix.m_api, fix.m_engine, [&]
+					{
+						auto diagnostics = Diagnostics{};
+						PR_EXPECT(fix.m_api.DiagnosticsGet(fix.m_engine, &diagnostics) == EStatus::Success);
+						PR_EXPECT(diagnostics.meter_channel_count >= 2);
+						left = std::max(left, diagnostics.meter_peak[0]);
+						right = std::max(right, diagnostics.meter_peak[1]);
+						return false;
+					}, std::chrono::milliseconds(100));
+				PR_EXPECT(std::max(left, right) > 0.01f);
+				return std::min(left, right) / std::max(left, right);
+			};
+
+			// A point source is lopsided; inside the inner radius both ears hear it at a similar level
+			PR_EXPECT(fix.m_api.VoicePlay(fix.m_engine, voice) == EStatus::Success);
+			auto point_balance = ear_balance(0.0f);
+			auto spread_balance = ear_balance(4.0f);
+			PR_EXPECT(point_balance < 0.3f);
+			PR_EXPECT(spread_balance > 0.6f);
 
 			PR_EXPECT(fix.m_api.VoiceDestroy(fix.m_engine, voice) == EStatus::Success);
 			PR_EXPECT(fix.m_api.ClipDestroy(fix.m_engine, clip) == EStatus::Success);

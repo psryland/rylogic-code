@@ -572,5 +572,62 @@ public sealed class TestAuthoring
 		Assert.Equal("birds.dawn", Workspace.GuessSoundId("bird.mp3", ids));
 		Assert.Equal(null, Workspace.GuessSoundId("misc/broadcast.wav", ids));
 	}
+
+	/// <summary>A burst of edits makes one publish, and edits during a publish make a second one after it.</summary>
+	[Test]
+	public void AutoPublishCoalesces()
+	{
+		// The first publish is held open, so edits made during it can be checked
+		var published = new List<IReadOnlyList<string>>();
+		var release_first = new TaskCompletionSource();
+		var second_done = new TaskCompletionSource();
+		using var auto = new AutoPublish(TimeSpan.FromMilliseconds(50), async ids =>
+		{
+			// Record each publish; only the first waits
+			var count = 0;
+			lock (published)
+			{
+				published.Add(ids);
+				count = published.Count;
+			}
+			if (count == 1)
+				await release_first.Task;
+			else
+				second_done.SetResult();
+		});
+
+		// Repeated and interleaved edits publish each ID once, in first-edit order
+		auto.Touch("b");
+		auto.Touch("a");
+		auto.Touch("b");
+		var deadline = DateTime.UtcNow.AddSeconds(10);
+		while (published.Count == 0 && DateTime.UtcNow < deadline)
+			Thread.Sleep(10);
+
+		Assert.Equal(1, published.Count);
+		Assert.True(published[0].SequenceEqual(["b", "a"]));
+		Assert.Equal(0, auto.Waiting.Count);
+
+		// An edit during the publish waits for it, then publishes alone
+		auto.Touch("c");
+		Thread.Sleep(200);
+		Assert.Equal(1, published.Count);
+		Assert.True(auto.Waiting.SequenceEqual(["c"]));
+		release_first.SetResult();
+		Assert.True(second_done.Task.Wait(TimeSpan.FromSeconds(10)));
+		Assert.True(published[1].SequenceEqual(["c"]));
+	}
+
+	/// <summary>Only review actions that change what the game plays trigger a publish.</summary>
+	[Test]
+	public void GameActionsChangeTheGame()
+	{
+		// Notes, finalised flags, assignment and rendering only change the review
+		foreach (var action in new[] { "loop", "load", "status", "move", "recipe", "adopt" })
+			Assert.True(Workspace.GameActions.Contains(action));
+
+		foreach (var action in new[] { "note", "finalised", "assign", "useful", "prepare", "add_freesound" })
+			Assert.False(Workspace.GameActions.Contains(action));
+	}
 }
 #endif
