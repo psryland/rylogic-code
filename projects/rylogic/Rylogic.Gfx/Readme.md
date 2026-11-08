@@ -1,4 +1,4 @@
-﻿# Rylogic.Gfx
+# Rylogic.Gfx
 
 This assembly is an interop wrapper for the native View3d dll
 
@@ -203,7 +203,7 @@ Hidden suppresses the whole subtree's drawing/input but retains its allocation. 
 Changing an ancestor's visibility also affects descendant input and semantics. An unavailable subtree loses focus, pressed/captured interaction, and composition;
 call `Update` after submitting the transaction to refresh layout and semantic snapshots.
 
-The current native ABI is version `0x00060000` / struct version `6`; use matching managed and native binaries. Replace the old boolean `Visible` property with `Visibility`:
+The current native ABI is version `0x000A0000` / struct version `10`; use matching managed and native binaries. Replace the old boolean `Visible` property with `Visibility`:
 `true` becomes `EVisibility.Visible`, and `false` becomes `EVisibility.Hidden` to preserve behavior. Select `Collapsed` explicitly to remove space.
 No auto-sizing or clipping behavior is implied.
 
@@ -222,12 +222,12 @@ Put any visible label in a separate Text control. `Name` and `Description` suppl
 
 Semantics expose `Role = EControlType.ProgressBar`, `ProgressValue`, and `IsIndeterminate`, plus percentage `Value` text only in determinate mode.
 UI Automation exposes ProgressBar control type and a read-only RangeValue pattern with minimum 0 and maximum 1 only while determinate.
-Activity animation does not change accessible completion or emit input events. Optional templates require `PART_Track` and `PART_Indicator`.
+Activity animation does not change accessible completion or emit input events. Templates may supply `Background`, `Track`, `Indicator`, and `Ticks` role parts.
 ABI 6 extends ControlDesc, Event, and SemanticNode beyond the earlier progress/style fields; rebuild native UI clients and refresh the managed wrapper and native runtime together.
 
 ### Slider
 
-`UiControlDesc.Type = EControlType.Slider` is a reusable horizontal finite scalar. Set finite `Minimum`, `Maximum`, `Value`, and `Step`; defaults are `0`, `1`,
+`UiControlDesc.Type = EControlType.Slider` is a reusable finite scalar, horizontal by default; set `UiControlDesc.Orientation = EOrientation.Vertical` for a vertical slider (minimum at the bottom). Set finite `Minimum`, `Maximum`, `Value`, and `Step`; defaults are `0`, `1`,
 `0`, and `0.1`. Maximum must be greater than Minimum, Value must lie in the inclusive range, and Step must be positive and no larger than the range.
 Native and JSON descriptor validation reject invalid values atomically and never clamp caller data.
 
@@ -236,7 +236,7 @@ The accepted descriptor remains authoritative. Click-to-position, captured drag,
 on culture. The proposal retains normal accepted-revision and event-sequence ordering and coalesces per slider. Apply the accepted/normalized value in a later
 transaction; until then visuals and semantics continue to report the previous `UiControlDesc.Value`.
 
-The built-in template uses `PART_Track` and `PART_Thumb`. Style `fill` paints the track, `foreground` paints the accepted-range indicator, and `thumb` paints the thumb. Slider uses
+The built-in template draws a track and thumb. Style `fill` paints the track, `foreground` paints the accepted-range indicator, and `thumb` paints the thumb. Slider uses
 the normal layout/DPI, focus traversal, hover/pressed/focused/disabled channels, pointer capture, and visibility model. Disabled sliders emit no proposals.
 `UiSemanticNode` reports `Role = EControlType.Slider`, accepted `RangeValue`, `RangeMinimum`, `RangeMaximum`, `RangeStep`, and SetValue/Focus actions.
 UI Automation exposes Slider with RangeValue; disabled state makes it read-only.
@@ -254,8 +254,25 @@ the offending JSON path (e.g. `$.tree[0].style_id`) before any native call would
 `UiDocument.Serialize()` writes a deterministic canonical form with stable collection/property order and explicit values,
 so equivalent documents converge to byte-identical JSON.
 
-Schema version `2` represents visibility as `"visibility": "Visible"`, `"Hidden"`, or `"Collapsed"` and defaults to Visible when omitted.
-Schema version `1` and the old `"visible"` boolean are rejected, not automatically converted.
-ProgressBar adds optional `"value": 0.25`, `"is_indeterminate": true`, and style visual `"foreground": "#00FF00FF"` properties within schema 2;
+Schema version `3` represents visibility as `"visibility": "Visible"`, `"Hidden"`, or `"Collapsed"` and defaults to Visible when omitted.
+Earlier schema versions and the old `"visible"` boolean are rejected, not automatically converted.
+ProgressBar adds optional `"value": 0.25`, `"is_indeterminate": true`, and style visual `"foreground": "#00FF00FF"` properties within schema 3;
 no existing property changes meaning. Canonical serialization writes these fields explicitly.
-Slider adds optional `"minimum"`, `"maximum"`, and `"step"` alongside `"value"`, and style visual `"thumb"`, within schema 2; canonical serialization writes them explicitly.
+Slider adds optional `"minimum"`, `"maximum"`, and `"step"` alongside `"value"`, and style visual `"thumb"`, within schema 3; canonical serialization writes them explicitly.
+
+### Templates and image skins
+
+`UiTemplateDesc.AddPart(UiTemplatePart part)` adds a role part: `ETemplatePart.Background`, `Track`, `Indicator`, `Thumb`, `Ticks`, or `Text`. Each part has an
+optional `StyleId` (none uses the control's style), margins inset from the control's content box, an optional `Width`/`Height`, and `TickParams` for `Ticks` parts.
+Native validation rejects roles that do not apply to the template's control type and repeated roles (only `Ticks` may repeat).
+
+`UiResourceDesc.Image(id, texture, name)` registers an `EResourceKind.Image` resource from a `View3d.Texture`; the texture's owner must keep it alive while the
+resource is registered. `StyleVisual`'s `image` argument takes an `ImageBrush` that draws a (optionally nine-sliced, tinted) source rectangle of that image over the
+style's box. `ImageBrush.None` draws no image.
+
+Schema version `3` adds these to JSON. A resource of kind `"Image"` names its texture with a caller key, `"texture": "hud_atlas"`, because JSON cannot hold texture
+handles; `UiDocument.TextureKeys` lists the keys and `ToTransactionBuilder(key => texture)` resolves them (an unresolved key throws `UiJsonException`).
+Style visuals accept `"image": { "image_id", "source": { "x", "y", "w", "h" }, "slice_left", "slice_top", "slice_right", "slice_bottom", "slice_scale", "tint" }`
+(tint defaults to white). Template parts are `{ "role", "style_id", "margin_left", "margin_top", "margin_right", "margin_bottom", "width", "height", "ticks": { "interval",
+"major_every", "major_length", "minor_length", "thickness", "align", "label_font_id", "label_decimals", "label_gap" } }`. Controls accept `"orientation": "Horizontal"`
+(default) or `"Vertical"`. Schema version `2` and the old named template parts (`"name"`, `"primitive"`, `"required"`) are rejected.

@@ -5490,3 +5490,13 @@ extern "C" VIEW3D_API view3d::ui::EHostStatus __stdcall View3D_UIHostDetach(void
 		return UIStatus::ProviderFailed;
 	}
 }
+
+// Return the non-owned D3D12 resource behind a View3D texture handle, for View3DUI image resources.
+extern "C" VIEW3D_API ID3D12Resource* __stdcall View3D_UIHostTextureResource(void* texture)
+{
+	// A null handle has no resource; any other handle must be a live texture owned by the caller.
+	if (texture == nullptr)
+		return nullptr;
+
+	return static_cast<Texture2D*>(texture)->m_res.get();
+}

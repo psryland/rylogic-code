@@ -464,8 +464,8 @@ namespace pr::view3d::ui::tests
 		b0.AddStyle(MakeStyle(20));
 
 		auto tmpl = MakeTemplate(30, EControlType::Button);
-		b0.AddTemplatePart(tmpl, "PART_ContentPresenter", EVisualPrimitive::ContentPresenter, true);
-		b0.AddTemplatePart(tmpl, "PART_FocusOutline", EVisualPrimitive::Border, true);
+		b0.AddTemplatePart(tmpl, TemplatePart{ .role = ETemplatePart::Background, .style_id = 20 });
+		b0.AddTemplatePart(tmpl, TemplatePart{ .role = ETemplatePart::Text, .margin_left = 4.0f, .margin_right = 4.0f });
 		b0.AddTemplate(tmpl);
 
 		auto root = MakeControl(1, 0, EControlType::Root, ELayoutMode::Overlay, Lp(0.0f, 0.0f));
@@ -479,25 +479,62 @@ namespace pr::view3d::ui::tests
 		PR_EXPECT(ctx.DiagnosticsGet().control_count == 2);
 	}
 
-	PRUnitTest(TransactionApplyRejectsTemplateMissingRequiredPart, Quick)
+	PRUnitTest(TransactionApplyRejectsTemplatePartRoleNotValidForType, Quick)
 	{
+		// Each case builds one Button template with an invalid role set; each must be rejected before any control references it.
+		struct Case
+		{
+			std::vector<TemplatePart> parts;
+			EStatus expected;
+		};
+		auto const cases = std::vector<Case>{
+			{ .parts = { TemplatePart{ .role = ETemplatePart::Thumb, .width = 8.0f, .height = 8.0f } }, .expected = EStatus::InvalidTree },
+			{ .parts = { TemplatePart{ .role = ETemplatePart::Background }, TemplatePart{ .role = ETemplatePart::Background } }, .expected = EStatus::InvalidTree },
+			{ .parts = { TemplatePart{ .role = ETemplatePart::Count } }, .expected = EStatus::UnknownType },
+			{ .parts = { TemplatePart{ .role = ETemplatePart::Text, .margin_left = -1.0f } }, .expected = EStatus::InvalidArgument },
+			{ .parts = { TemplatePart{ .role = ETemplatePart::Background, .style_id = 99 } }, .expected = EStatus::UnknownResource },
+		};
+		for (auto const& test_case : cases)
+		{
+			// A fresh context per case keeps one rejection from affecting the next.
+			auto runtime = Runtime{};
+			auto device = FakeDevice{};
+			auto ctx = UiContext(runtime, &device);
+
+			auto b0 = TxnBuilder{};
+			auto tmpl = MakeTemplate(30, EControlType::Button);
+			for (auto const& part : test_case.parts)
+				b0.AddTemplatePart(tmpl, part);
+
+			b0.AddTemplate(tmpl);
+			b0.Upsert(MakeControl(1, 0, EControlType::Root, ELayoutMode::Overlay, Lp(0.0f, 0.0f)));
+			try
+			{
+				ctx.TransactionApply(b0.Build(0, 1));
+				PR_EXPECT(false);
+			}
+			catch (Exception const& ex)
+			{
+				PR_EXPECT(ex.Status() == test_case.expected);
+			}
+		}
+	}
+
+	PRUnitTest(TransactionApplyRejectsTemplateForOtherControlType, Quick)
+	{
+		// A Slider template must not be applied to a Button.
 		auto runtime = Runtime{};
 		auto device = FakeDevice{};
 		auto ctx = UiContext(runtime, &device);
 
-		// Button requires PART_ContentPresenter and PART_FocusOutline; this template supplies
-		// only the former, so it must be rejected before any control referencing it is applied.
 		auto b0 = TxnBuilder{};
-		auto tmpl = MakeTemplate(30, EControlType::Button);
-		b0.AddTemplatePart(tmpl, "PART_ContentPresenter", EVisualPrimitive::ContentPresenter, true);
+		auto tmpl = MakeTemplate(30, EControlType::Slider);
+		b0.AddTemplatePart(tmpl, TemplatePart{ .role = ETemplatePart::Track });
 		b0.AddTemplate(tmpl);
-
-		auto root = MakeControl(1, 0, EControlType::Root, ELayoutMode::Overlay, Lp(0.0f, 0.0f));
-		b0.Upsert(root);
+		b0.Upsert(MakeControl(1, 0, EControlType::Root, ELayoutMode::Overlay, Lp(0.0f, 0.0f)));
 		auto button = MakeControl(2, 1, EControlType::Button, ELayoutMode::Overlay, Lp(80.0f, 24.0f));
 		button.template_id = 30;
 		b0.Upsert(button);
-
 		try
 		{
 			ctx.TransactionApply(b0.Build(0, 1));
@@ -509,10 +546,9 @@ namespace pr::view3d::ui::tests
 		}
 	}
 
-	PRUnitTest(TransactionApplyDefaultTemplatesSatisfyRequiredPartsForButtonAndTextBox, Quick)
+	PRUnitTest(TransactionApplyAcceptsControlsWithoutTemplate, Quick)
 	{
-		// template_id == 0 selects the built-in default template, which must already satisfy its
-		// own control type's required parts without the application authoring anything.
+		// template_id == 0 draws the built-in look and needs no authored template.
 		auto runtime = Runtime{};
 		auto device = FakeDevice{};
 		auto ctx = UiContext(runtime, &device);

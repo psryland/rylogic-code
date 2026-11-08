@@ -3,6 +3,7 @@
 //  Copyright (C) Rylogic Ltd 2026
 //*********************************************
 #include "input.h"
+#include "control_geometry.h"
 #include "text_layout.h"
 #include "text_shaper.h"
 #include "text_unicode.h"
@@ -150,11 +151,16 @@ namespace pr::view3d::ui
 		}
 
 		// Convert a pointer position into the slider's inclusive scalar range.
-		void ProposeSliderFromPointer(std::unordered_map<ControlId, Rect> const& layout, EventQueue& events, ControlNode const& node, Vec2 point, std::uint64_t accepted_revision)
+		void ProposeSliderFromPointer(TreeModel const& tree, std::unordered_map<ControlId, Rect> const& layout, TextHitContext const& hit_context, EventQueue& events, ControlNode const& node, Vec2 point, std::uint64_t accepted_revision)
 		{
-			// Map the pointer across the whole control width and let the shared proposal path snap it.
+			// Map the pointer through the same value travel the thumb is drawn on, so the thumb centre follows the pointer.
+			// Built-in drawing insets the travel by the style border; the Normal channel's border is used because input
+			// does not see the per-frame state transitions (borders rarely differ between channels).
 			auto const bounds = layout.at(node.desc.id);
-			auto const fraction = bounds.w > 0.0f ? std::clamp((point.x - bounds.x) / bounds.w, 0.0f, 1.0f) : 0.0f;
+			auto const scale = ControlScale(tree, hit_context.placements, node.desc.id);
+			auto const border = StyleOf(tree, node.desc.style_id).desc.visuals[static_cast<std::size_t>(EStateChannel::Normal)].border_thickness * scale;
+			auto const geom = ValueGeometryOf(tree, node, bounds, border, scale);
+			auto const fraction = FractionAtPoint(geom, point);
 			ProposeSliderValue(events, node, node.desc.minimum + fraction * (node.desc.maximum - node.desc.minimum), accepted_revision);
 		}
 
@@ -390,14 +396,15 @@ namespace pr::view3d::ui
 			}
 
 			// The run origin must match the renderer's: a TextBox is left-aligned and inset from
-			// its own left edge, with both the inset and the font size taking the root's scale,
+			// the left edge of its text rectangle, with both the inset and the font size taking the root's scale,
 			// and shifted left by the scroll that was drawn.
 			auto const scale = ControlScale(tree, hit_context.placements, node.desc.id);
 			auto const font = ResolveControlFont(tree, node.desc.font_resource_id);
 			auto const placement = TextPlacementFor(node.desc.type);
-			auto const origin_x = layout_it->second.x + placement.inset_dip * scale - edit.scroll_dip;
+			auto const text_rect = TextRectOf(tree, node, layout_it->second, scale);
+			auto const origin_x = text_rect.x + placement.inset_dip * scale - edit.scroll_dip;
 			auto const layout_height = hit_context.shaper->LayoutHeight(font.family, font.size * scale, text);
-			auto const origin_y = TextOriginYDip(layout_it->second.y, layout_it->second.h, layout_height);
+			auto const origin_y = TextOriginYDip(text_rect.y, text_rect.h, layout_height);
 
 			// OffsetFromPoint already reports a grapheme boundary chosen by proximity, so it is
 			// used verbatim; rounding it down again here would discard the trailing-hit result.
@@ -714,7 +721,7 @@ namespace pr::view3d::ui
 			auto const placement = TextPlacementFor(node.desc.type);
 			auto const display = DisplayTextOf(node.desc, edit);
 			auto const caret_offset = DisplayRangesOf(node.desc, edit).caret;
-			auto const visible_w = std::max(0.0f, layout_it->second.w - 2.0f * placement.inset_dip * scale);
+			auto const visible_w = std::max(0.0f, TextRectOf(tree, node, layout_it->second, scale).w - 2.0f * placement.inset_dip * scale);
 			auto caret_x = 0.0f;
 			auto text_w = 0.0f;
 			try
@@ -775,7 +782,7 @@ namespace pr::view3d::ui
 					}
 					else if (it != tree.m_controls.end() && it->second.desc.type == EControlType::Slider && it->second.desc.enabled != 0)
 					{
-						ProposeSliderFromPointer(layout, events, it->second, Vec2{ input.pointer_x, input.pointer_y }, accepted_revision);
+						ProposeSliderFromPointer(tree, layout, hit_context, events, it->second, Vec2{ input.pointer_x, input.pointer_y }, accepted_revision);
 						changed = true;
 					}
 				}
@@ -877,7 +884,7 @@ namespace pr::view3d::ui
 				else if (auto slider_target = NearestOfType(tree, hit, EControlType::Slider); slider_target != 0 && tree.m_controls.at(slider_target).desc.enabled != 0)
 				{
 					auto const& node = tree.m_controls.at(slider_target);
-					ProposeSliderFromPointer(layout, events, node, Vec2{ input.pointer_x, input.pointer_y }, accepted_revision);
+					ProposeSliderFromPointer(tree, layout, hit_context, events, node, Vec2{ input.pointer_x, input.pointer_y }, accepted_revision);
 					if (state.m_captured_id != slider_target)
 						PushOrThrow(events, slider_target, EEventKind::PointerCaptureChanged, accepted_revision, 0, {});
 

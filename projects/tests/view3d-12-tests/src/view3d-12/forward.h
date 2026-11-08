@@ -17,6 +17,7 @@
 #include <wrl/client.h>
 #include "pr/view3d-12/view3d-dll.h"
 #include "pr/view3d-12/view3d-ui-bridge.h"
+#include "pr/view3d-ui/view3d-ui.h"
 #include "pr/view3d-12/imgui/imgui.h"
 #include "pr/view3d-12/model/model_generator.h"
 #include "pr/view3d-12/model/pose.h"

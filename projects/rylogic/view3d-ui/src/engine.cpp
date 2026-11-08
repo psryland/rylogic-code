@@ -15,6 +15,7 @@
 #include "events.h"
 #include "semantics.h"
 #include "draw_packet_builder.h"
+#include "control_geometry.h"
 #include "text_shaper.h"
 #include "text_layout.h"
 #include "uia_bridge.h"
@@ -473,9 +474,10 @@ namespace pr::view3d::ui
 		// CaretAt already answers the empty-string case from the resolved font's metrics.
 		auto const measured = shaper->CaretAt(font.family, font.size * scale, display, caret_offset);
 		auto const layout_height = shaper->LayoutHeight(font.family, font.size * scale, display);
+		auto const text_rect = TextRectOf(m_impl->m_tree, node, layout_it->second, scale);
 		out_caret_dip = Rect{
-			layout_it->second.x + placement.inset_dip * scale - scroll_dip + measured.x,
-			TextOriginYDip(layout_it->second.y, layout_it->second.h, layout_height) + measured.y,
+			text_rect.x + placement.inset_dip * scale - scroll_dip + measured.x,
+			TextOriginYDip(text_rect.y, text_rect.h, layout_height) + measured.y,
 			1.0f,
 			measured.height,
 		};

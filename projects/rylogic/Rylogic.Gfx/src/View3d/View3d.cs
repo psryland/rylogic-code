@@ -1125,7 +1125,7 @@ namespace Rylogic.Gfx
 			public EResFlags Usage = usage ?? EResFlags.None;
 			public EResState State = state ?? EResState.Common;
 			public ClearValue ClearValue = clear_value ?? new ClearValue(format ?? EFormat.DXGI_FORMAT_R8G8B8A8_UNORM);
-			public MultiSamp MultiSamp = msaa ?? new MultiSamp();
+			public MultiSamp MultiSamp = msaa ?? new MultiSamp(count: 1);
 			public uint ColourKey = colour_key ?? 0U;
 			public bool HasAlpha = has_alpha ?? false;
 			[MarshalAs(UnmanagedType.LPStr)] public string DbgName = dbg_name ?? string.Empty;

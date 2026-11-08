@@ -15,11 +15,11 @@
 
 namespace pr::view3d::ui
 {
-	inline constexpr std::uint32_t VIEW3D_UI_API_VERSION = 0x00090000U;
-	inline constexpr std::uint32_t VIEW3D_UI_STRUCT_VERSION = 9U;
+	inline constexpr std::uint32_t VIEW3D_UI_API_VERSION = 0x000A0000U;
+	inline constexpr std::uint32_t VIEW3D_UI_STRUCT_VERSION = 10U;
 
-	// Maximum named parts recorded directly within one TemplateDesc. Bounded so the descriptor
-	// stays fixed-layout; the closed template vocabulary (section 6.3) never needs more than this.
+	// Maximum role parts recorded directly within one TemplateDesc. Bounded so the descriptor
+	// stays fixed-layout; the closed role vocabulary (section 6.3) never needs more than this.
 	inline constexpr std::uint32_t VIEW3D_UI_MAX_TEMPLATE_PARTS = 8U;
 
 	// Opaque process-level module initialization token. Mirrors pr::audio::DllHandle; many
@@ -219,7 +219,34 @@ namespace pr::view3d::ui
 		ContentPresenter = 4,
 		Clip = 5,
 		TransformOpacityGroup = 6,
-		Count = 7,
+
+		// A textured quad sampling a borrowed image resource (DrawItem::image_texture) over DrawItem::uv.
+		Image = 7,
+		Count = 8,
+	};
+
+	// Closed role vocabulary for a drawing template part (section 6.3). A role names what a part
+	// draws and where its geometry comes from; see TemplatePart. Which roles apply to which control
+	// types is fixed: Background applies to any control; Track, Indicator and Ticks to Slider and
+	// ProgressBar; Thumb to Slider; Text to Text, TextBox, Button and ComboBox.
+	enum class ETemplatePart : std::int32_t
+	{
+		Background = 0,
+		Track = 1,
+		Indicator = 2,
+		Thumb = 3,
+		Ticks = 4,
+		Text = 5,
+		Count = 6,
+	};
+
+	// Direction along which a Slider or ProgressBar value increases. Horizontal increases to the
+	// right; Vertical increases upward.
+	enum class EOrientation : std::int32_t
+	{
+		Horizontal = 0,
+		Vertical = 1,
+		Count = 2,
 	};
 
 	// Closed style/transition state channel vocabulary (section 6.4). Selected is a durable
@@ -274,12 +301,14 @@ namespace pr::view3d::ui
 
 	// Closed resource kind vocabulary. A Font resource's family name/size (ResourceDesc) is
 	// resolved by the M3 renderer via ControlDesc::font_resource_id; a Colour resource's shape is
-	// validated but it is not yet cross-referenced by id from any other structure.
+	// validated but it is not yet cross-referenced by id from any other structure. An Image
+	// resource borrows a host texture that style image brushes (ImageBrush::image_id) sample.
 	enum class EResourceKind : std::int32_t
 	{
 		Colour = 0,
 		Font = 1,
-		Count = 2,
+		Image = 2,
+		Count = 3,
 	};
 
 	// Closed normalized input kind vocabulary (section 7.2). Raw Win32 messages and deterministic
@@ -637,6 +666,9 @@ namespace pr::view3d::ui
 		std::uint32_t combo_item_count;
 		std::int32_t selected_index;
 		std::uint32_t max_visible_items;
+
+		// Direction in which a Slider or ProgressBar value increases. Ignored by other control types.
+		EOrientation orientation;
 	};
 
 	// One ComboBox item text range. Ranges index Transaction::blob and are copied into the
@@ -688,6 +720,11 @@ namespace pr::view3d::ui
 	// across machines that have the exact same font resource installed. Per-character fallback for
 	// scripts the requested face does not cover is performed by the system font fallback chain and
 	// is *not* claimed to be pixel-identical across machines or OS versions.
+	//
+	// When kind == Image, 'texture' is a borrowed View3D texture handle (pr::rdr12::Texture2D*) and
+	// 'image_width'/'image_height' are its expected pixel size (both > 0). The application keeps the
+	// texture alive while any accepted resource references it. A texture whose real size differs
+	// from the expected size is reported as EStatus::InvalidArgument when drawn and is not drawn.
 	struct ResourceDesc
 	{
 		StructHeader header;
@@ -697,6 +734,33 @@ namespace pr::view3d::ui
 		std::uint32_t name_offset;
 		std::uint32_t name_length;
 		float font_size;
+		std::uint64_t texture;
+		std::uint32_t image_width;
+		std::uint32_t image_height;
+	};
+
+	// An optional image drawn over a style's box (fill and border). The image is split into nine
+	// pieces by the slice insets: the corners keep their size, the edges stretch along one axis,
+	// and the centre stretches along both. All slices zero draws the source stretched over the box.
+	struct ImageBrush
+	{
+		// An EResourceKind::Image resource, or 0 for no image.
+		ResourceId image_id;
+
+		// Source rectangle in image pixels. A width or height <= 0 selects the whole image.
+		Rect source;
+
+		// Nine-slice insets in source pixels, measured inward from each edge of 'source'.
+		float slice_left;
+		float slice_top;
+		float slice_right;
+		float slice_bottom;
+
+		// DIP per source pixel for the drawn slice borders; 0 means 1.
+		float slice_scale;
+
+		// Colour multiplied with every sampled texel. Use opaque white to draw the image unchanged.
+		Colour tint;
 	};
 
 	// Visual appearance applied while a control is in one state channel.
@@ -713,6 +777,9 @@ namespace pr::view3d::ui
 
 		// Slider thumb colour, drawn over the indicator. Ignored by other types.
 		Colour thumb;
+
+		// Image drawn over the box. Transitions blend only 'tint'; the other fields switch to the target state at once.
+		ImageBrush image;
 	};
 
 	// Bounded, host-time-driven visual transition applied when a control's active state channel
@@ -734,17 +801,62 @@ namespace pr::view3d::ui
 		TransitionDesc transitions[static_cast<std::size_t>(EStateChannel::Count)];
 	};
 
-	// One named template part (section 6.3). 'name' is a blob range naming a semantic part such as
-	// "PART_ContentPresenter"; behaviour targets these names, not hard-coded geometry.
-	struct TemplatePart
+	// Tick mark parameters for an ETemplatePart::Ticks part. Ticks are placed along the value axis
+	// at the same positions the slider thumb would take for those values. Lengths are in DIP.
+	struct TickParams
 	{
-		std::uint32_t name_offset;
-		std::uint32_t name_length;
-		EVisualPrimitive primitive;
-		std::int32_t required;
+		// Value units between ticks, starting at the control's minimum; 0 uses the control's step.
+		float interval;
+
+		// Every Nth tick (counting from the minimum) is a major tick; 0 makes every tick major.
+		std::uint32_t major_every;
+
+		// Major and minor tick length across the value axis, and tick thickness along it.
+		float major_length;
+		float minor_length;
+		float thickness;
+
+		// Which side of the tick band (on the cross axis) ticks start from. Min is the left or top
+		// edge, Max is the right or bottom edge, Centre centres each tick on the band.
+		EAnchorPoint align;
+
+		// An EResourceKind::Font resource for value labels drawn at major ticks; 0 draws no labels.
+		ResourceId label_font_id;
+
+		// Number of digits after the decimal point in labels (>= 0).
+		std::int32_t label_decimals;
+
+		// DIP between the end of a major tick and its label.
+		float label_gap;
 	};
 
-	// One closed-vocabulary lookless template (the 'Template' EStructId). Parts are embedded
+	// One role-based drawing template part (section 6.3). Lengths are in DIP and are scaled by the
+	// root's DIP scale like other style lengths. Margins inset the part from the control bounds.
+	//  - Background: drawn over the margin-inset bounds instead of the control's own style box.
+	//  - Track: the slider/progress track; no Track part means the track is the control bounds.
+	//  - Indicator: the track inset by the margins, cut from the minimum to the current value.
+	//  - Thumb: a 'width' x 'height' box centred on the value position and the track's cross-axis centre.
+	//  - Ticks: tick marks in the margin-inset band described by 'ticks'; may repeat.
+	//  - Text: the rectangle the control's text is laid out in (margin-inset bounds). With a non-zero 'style_id' the part also
+	//    draws that style's box behind the text.
+	// Without a Background part the control's own style box is still drawn first. Parts then draw in role order: Track,
+	// Indicator, Ticks, Thumb, Text.
+	struct TemplatePart
+	{
+		ETemplatePart role;
+
+		// Style used to draw the part, resolved for the control's current state channel; 0 uses the control's style.
+		StyleId style_id;
+		float margin_left;
+		float margin_top;
+		float margin_right;
+		float margin_bottom;
+		float width;
+		float height;
+		TickParams ticks;
+	};
+
+	// One closed-vocabulary drawing template (the 'Template' EStructId). Parts are embedded
 	// directly (bounded by VIEW3D_UI_MAX_TEMPLATE_PARTS) so the descriptor stays fixed-layout.
 	struct TemplateDesc
 	{
@@ -986,9 +1098,11 @@ namespace pr::view3d::ui
 	static_assert(std::is_standard_layout_v<ChildOrder>);
 	static_assert(std::is_standard_layout_v<Operation>);
 	static_assert(std::is_standard_layout_v<ResourceDesc>);
+	static_assert(std::is_standard_layout_v<ImageBrush>);
 	static_assert(std::is_standard_layout_v<StyleVisual>);
 	static_assert(std::is_standard_layout_v<TransitionDesc>);
 	static_assert(std::is_standard_layout_v<StyleDesc>);
+	static_assert(std::is_standard_layout_v<TickParams>);
 	static_assert(std::is_standard_layout_v<TemplatePart>);
 	static_assert(std::is_standard_layout_v<TemplateDesc>);
 	static_assert(std::is_standard_layout_v<Transaction>);
@@ -1007,4 +1121,7 @@ namespace pr::view3d::ui
 	static_assert(sizeof(Colour) == 16);
 	static_assert(sizeof(WorldRootParams) == 44);
 	static_assert(sizeof(CameraState) == 60);
+	static_assert(sizeof(ImageBrush) == 64);
+	static_assert(sizeof(TickParams) == 40);
+	static_assert(sizeof(TemplatePart) == 80);
 }

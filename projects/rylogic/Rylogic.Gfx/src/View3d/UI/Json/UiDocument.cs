@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Text.Json;
 using Rylogic.Gfx.UI;
@@ -9,22 +10,30 @@ using Rylogic.Gfx.UI;
 namespace Rylogic.Gfx.UI.Json;
 
 /// <summary>
-/// A parsed and fully-validated View3DUI JSON document (schema version 2): the same closed-vocabulary resource, style,
+/// A parsed and fully-validated View3DUI JSON document (schema version 3): the same closed-vocabulary resource, style,
 /// template, and control-tree descriptors a runtime application would construct directly via Descriptors.cs and
 /// UiTransactionBuilder, produced instead from a versioned JSON authoring format. Parsing performs every validation
 /// this layer is responsible for - malformed JSON, unknown schema versions, unknown closed-vocabulary kinds, and
 /// dangling id references - before any native call is made; the native DLL never sees the original JSON text.
+/// Image resources name their texture with a caller-defined key (JSON cannot hold texture handles); ToTransactionBuilder
+/// resolves each key through a caller-supplied lookup.
 /// </summary>
 public sealed class UiDocument
 {
 	/// <summary>The only schema_version this parser currently accepts.</summary>
-	public const int CurrentSchemaVersion = 2;
+	public const int CurrentSchemaVersion = 3;
 
 	/// <summary>The schema_version declared by the parsed document.</summary>
 	public int SchemaVersion { get; }
 
-	/// <summary>Every resource declared by the document, in declaration order.</summary>
+	/// <summary>
+	/// Every resource declared by the document, in declaration order. Image resources have no texture handle or size here; those are
+	/// filled in by ToTransactionBuilder from the texture named in TextureKeys.
+	/// </summary>
 	public IReadOnlyList<UiResourceDesc> Resources { get; }
+
+	/// <summary>The caller-defined texture key of every Image resource, by resource id.</summary>
+	public IReadOnlyDictionary<ResourceId, string> TextureKeys { get; }
 
 	/// <summary>Every style declared by the document, in declaration order.</summary>
 	public IReadOnlyList<UiStyleDesc> Styles { get; }
@@ -36,10 +45,11 @@ public sealed class UiDocument
 	public IReadOnlyList<UiControlDesc> Controls { get; }
 
 	/// <summary>Adopt an already-validated set of descriptors.</summary>
-	private UiDocument(int schema_version, IReadOnlyList<UiResourceDesc> resources, IReadOnlyList<UiStyleDesc> styles, IReadOnlyList<UiTemplateDesc> templates, IReadOnlyList<UiControlDesc> controls)
+	private UiDocument(int schema_version, IReadOnlyList<UiResourceDesc> resources, IReadOnlyDictionary<ResourceId, string> texture_keys, IReadOnlyList<UiStyleDesc> styles, IReadOnlyList<UiTemplateDesc> templates, IReadOnlyList<UiControlDesc> controls)
 	{
 		SchemaVersion = schema_version;
 		Resources = resources;
+		TextureKeys = texture_keys;
 		Styles = styles;
 		Templates = templates;
 		Controls = controls;
@@ -58,13 +68,50 @@ public sealed class UiDocument
 	/// <summary>
 	/// Build one UiTransactionBuilder containing every resource/style/template/control this document declares, in an
 	/// order safe to Apply directly to a fresh (or compatible) context: resources, styles, and templates first (so
-	/// controls that reference them upsert cleanly), then controls in parent-before-child order.
+	/// controls that reference them upsert cleanly), then controls in parent-before-child order. 'texture_lookup' maps each Image
+	/// resource's texture key to a View3D texture; it is required when the document declares Image resources. The caller keeps
+	/// ownership of the returned textures and must keep them alive while the resources are registered. Throws UiJsonException
+	/// (with the resource's "texture" path) when a key cannot be resolved.
 	/// </summary>
-	public UiTransactionBuilder ToTransactionBuilder()
+	public UiTransactionBuilder ToTransactionBuilder(Func<string, View3d.Texture?>? texture_lookup = null)
 	{
 		var builder = new UiTransactionBuilder();
-		foreach (var resource in Resources)
-			builder.AddResource(resource);
+
+		// Resources go first; Image resources take their handle and size from the caller's texture for that key
+		for (var i = 0; i != Resources.Count; ++i)
+		{
+			var resource = Resources[i];
+			switch (resource.Kind)
+			{
+				case EResourceKind.Image:
+				{
+					var path = $"$.resources[{i}].texture";
+					var key = TextureKeys[resource.Id];
+					if (texture_lookup == null)
+						throw new UiJsonException(path, $"Image resource {resource.Id} names texture \"{key}\", but no texture lookup was supplied.");
+
+					var texture = texture_lookup(key);
+					if (texture == null || texture.Handle == IntPtr.Zero)
+						throw new UiJsonException(path, $"The texture lookup has no texture for key \"{key}\".");
+
+					var image = UiResourceDesc.Image(resource.Id, texture, resource.Name);
+					builder.AddResource(resource with { Texture = image.Texture, ImageWidth = image.ImageWidth, ImageHeight = image.ImageHeight });
+					break;
+				}
+				case EResourceKind.Colour:
+				case EResourceKind.Font:
+				{
+					builder.AddResource(resource);
+					break;
+				}
+				default:
+				{
+					throw new ArgumentOutOfRangeException(nameof(resource.Kind), resource.Kind, "Unknown resource kind.");
+				}
+			}
+		}
+
+		// Then styles, templates, and controls in parent-before-child order
 		foreach (var style in Styles)
 			builder.AddStyle(style);
 		foreach (var template in Templates)
@@ -105,7 +152,7 @@ public sealed class UiDocument
 
 		writer.WriteStartArray("resources");
 		foreach (var resource in Resources)
-			WriteResource(writer, resource);
+			WriteResource(writer, resource, TextureKeys.TryGetValue(resource.Id, out var key) ? key : string.Empty);
 		writer.WriteEndArray();
 
 		writer.WriteStartArray("styles");
@@ -185,6 +232,7 @@ public sealed class UiDocument
 		writer.WriteEndArray();
 		writer.WriteNumber("selected_index", control.SelectedIndex);
 		writer.WriteNumber("max_visible_items", control.MaxVisibleItems);
+		writer.WriteString("orientation", control.Orientation.ToString());
 		WriteWorld(writer, control.World);
 
 		writer.WriteStartArray("children");
@@ -238,8 +286,8 @@ public sealed class UiDocument
 		writer.WriteEndObject();
 	}
 
-	/// <summary>Write one "resources" array entry with every UiResourceDesc field present.</summary>
-	private static void WriteResource(Utf8JsonWriter writer, UiResourceDesc resource)
+	/// <summary>Write one "resources" array entry with every UiResourceDesc field present. 'texture_key' is empty for non-Image resources.</summary>
+	private static void WriteResource(Utf8JsonWriter writer, UiResourceDesc resource, string texture_key)
 	{
 		writer.WriteStartObject();
 		writer.WriteNumber("id", resource.Id.m_value);
@@ -247,6 +295,7 @@ public sealed class UiDocument
 		writer.WriteString("colour", FormatColour(resource.Colour));
 		writer.WriteString("name", resource.Name);
 		writer.WriteNumber("font_size", resource.FontSize);
+		writer.WriteString("texture", texture_key);
 		writer.WriteEndObject();
 	}
 
@@ -270,6 +319,7 @@ public sealed class UiDocument
 			writer.WriteNumber("opacity", visual.m_opacity);
 			writer.WriteString("foreground", FormatColour(visual.m_foreground));
 			writer.WriteString("thumb", FormatColour(visual.m_thumb));
+			WriteImageBrush(writer, visual.m_image);
 			writer.WriteEndObject();
 
 			var transition = style.GetTransition(channel);
@@ -285,7 +335,7 @@ public sealed class UiDocument
 		writer.WriteEndObject();
 	}
 
-	/// <summary>Write one "templates" array entry with its ordered "parts" list.</summary>
+	/// <summary>Write one "templates" array entry with its ordered role "parts" list.</summary>
 	private static void WriteTemplate(Utf8JsonWriter writer, UiTemplateDesc template)
 	{
 		writer.WriteStartObject();
@@ -295,14 +345,59 @@ public sealed class UiDocument
 		writer.WriteStartArray("parts");
 		foreach (var part in template.Parts)
 		{
+			// Write every part field, including unused size and tick fields, so the form stays canonical
 			writer.WriteStartObject();
-			writer.WriteString("name", part.Name);
-			writer.WriteString("primitive", part.Primitive.ToString());
-			writer.WriteBoolean("required", part.Required);
+			writer.WriteString("role", part.Role.ToString());
+			writer.WriteNumber("style_id", part.StyleId.m_value);
+			writer.WriteNumber("margin_left", part.MarginLeft);
+			writer.WriteNumber("margin_top", part.MarginTop);
+			writer.WriteNumber("margin_right", part.MarginRight);
+			writer.WriteNumber("margin_bottom", part.MarginBottom);
+			writer.WriteNumber("width", part.Width);
+			writer.WriteNumber("height", part.Height);
+			WriteTicks(writer, part.Ticks);
 			writer.WriteEndObject();
 		}
 		writer.WriteEndArray();
 
+		writer.WriteEndObject();
+	}
+
+	/// <summary>Write a style visual's nested "image" object with every ImageBrush field present.</summary>
+	private static void WriteImageBrush(Utf8JsonWriter writer, ImageBrush image)
+	{
+		// Fixed field order; the source rectangle is a nested {x, y, w, h} object
+		writer.WriteStartObject("image");
+		writer.WriteNumber("image_id", image.m_image_id.m_value);
+		writer.WriteStartObject("source");
+		writer.WriteNumber("x", image.m_source.m_x);
+		writer.WriteNumber("y", image.m_source.m_y);
+		writer.WriteNumber("w", image.m_source.m_w);
+		writer.WriteNumber("h", image.m_source.m_h);
+		writer.WriteEndObject();
+		writer.WriteNumber("slice_left", image.m_slice_left);
+		writer.WriteNumber("slice_top", image.m_slice_top);
+		writer.WriteNumber("slice_right", image.m_slice_right);
+		writer.WriteNumber("slice_bottom", image.m_slice_bottom);
+		writer.WriteNumber("slice_scale", image.m_slice_scale);
+		writer.WriteString("tint", FormatColour(image.m_tint));
+		writer.WriteEndObject();
+	}
+
+	/// <summary>Write a template part's nested "ticks" object with every TickParams field present.</summary>
+	private static void WriteTicks(Utf8JsonWriter writer, TickParams ticks)
+	{
+		// Fixed field order
+		writer.WriteStartObject("ticks");
+		writer.WriteNumber("interval", ticks.m_interval);
+		writer.WriteNumber("major_every", ticks.m_major_every);
+		writer.WriteNumber("major_length", ticks.m_major_length);
+		writer.WriteNumber("minor_length", ticks.m_minor_length);
+		writer.WriteNumber("thickness", ticks.m_thickness);
+		writer.WriteString("align", ticks.m_align.ToString());
+		writer.WriteNumber("label_font_id", ticks.m_label_font_id.m_value);
+		writer.WriteNumber("label_decimals", ticks.m_label_decimals);
+		writer.WriteNumber("label_gap", ticks.m_label_gap);
 		writer.WriteEndObject();
 	}
 
@@ -353,12 +448,17 @@ public sealed class UiDocument
 			throw new UiJsonException("$.schema_version", $"Unsupported schema_version {schema_version}; this parser only accepts {CurrentSchemaVersion}.");
 
 		// Resources, styles, and templates are parsed first because control nodes may reference their ids by value.
-		var resources = ParseArray(root, "resources", "$", ParseResource);
-		var styles = ParseArray(root, "styles", "$", ParseStyle);
-		var templates = ParseArray(root, "templates", "$", ParseTemplate);
-
+		// Each collection is parsed after the collections it may reference: styles name Image resources, and templates name styles and Font resources.
+		var resource_entries = ParseArray(root, "resources", "$", ParseResource);
+		var resources = resource_entries.Select(x => x.Resource).ToList();
 		var resource_ids = ToIdSet(resources, r => r.Id.m_value, "$.resources", "resource");
+		var resource_kinds = resources.ToDictionary(r => r.Id.m_value, r => r.Kind);
+		var texture_keys = resource_entries.Where(x => x.Resource.Kind == EResourceKind.Image).ToDictionary(x => x.Resource.Id, x => x.TextureKey);
+
+		var styles = ParseArray(root, "styles", "$", (element, path) => ParseStyle(element, path, resource_kinds));
 		var style_ids = ToIdSet(styles, s => s.Id.m_value, "$.styles", "style");
+
+		var templates = ParseArray(root, "templates", "$", (element, path) => ParseTemplate(element, path, style_ids, resource_kinds));
 		var template_ids = ToIdSet(templates, t => t.Id.m_value, "$.templates", "template");
 
 		var controls = new List<UiControlDesc>();
@@ -376,7 +476,7 @@ public sealed class UiDocument
 			}
 		}
 
-		return new UiDocument(schema_version, resources, styles, templates, controls);
+		return new UiDocument(schema_version, resources, texture_keys, styles, templates, controls);
 	}
 
 	/// <summary>Recursively parse one control node and its "children", appending flattened UiControlDesc values in pre-order.</summary>
@@ -437,6 +537,7 @@ public sealed class UiDocument
 			Items = ParseStringArray(node, "items", path),
 			SelectedIndex = TryGetInt32(node, "selected_index", out var selected_index) ? selected_index : -1,
 			MaxVisibleItems = GetUInt32(node, "max_visible_items", path, 0),
+			Orientation = GetEnum<EOrientation>(node, "orientation", path, required: false, EOrientation.Horizontal),
 			World = ParseWorld(node, $"{path}.world"),
 		};
 		// Reject invalid completion at the authoring boundary, before constructing a transaction.
@@ -543,14 +644,18 @@ public sealed class UiDocument
 		return world;
 	}
 
-	/// <summary>Parse one "resources" array entry into a UiResourceDesc.</summary>
-	private static UiResourceDesc ParseResource(JsonElement element, string path)
+	/// <summary>
+	/// Parse one "resources" array entry into a UiResourceDesc and its texture key. Image resources must name a texture key;
+	/// other kinds must not. The texture handle and size are left empty for ToTransactionBuilder to resolve.
+	/// </summary>
+	private static (UiResourceDesc Resource, string TextureKey) ParseResource(JsonElement element, string path)
 	{
+		// Read the shared fields
 		var id = new ResourceId(GetUInt64(element, "id", path));
 		if (id.IsNone)
 			throw new UiJsonException($"{path}.id", "A resource id of 0 (ResourceId.None) is not a valid resource identity.");
 
-		return new UiResourceDesc
+		var resource = new UiResourceDesc
 		{
 			Id = id,
 			Kind = GetEnum<EResourceKind>(element, "kind", path, required: true),
@@ -558,10 +663,39 @@ public sealed class UiDocument
 			Name = GetString(element, "name", path, string.Empty),
 			FontSize = GetFloat(element, "font_size", path, 0),
 		};
+
+		// Only Image resources name a texture, because JSON cannot hold a texture handle
+		var texture_key = GetString(element, "texture", path, string.Empty);
+		switch (resource.Kind)
+		{
+			case EResourceKind.Image:
+			{
+				if (texture_key.Length == 0)
+					throw new UiJsonException($"{path}.texture", "An Image resource must name its texture with a non-empty \"texture\" key.");
+
+				break;
+			}
+			case EResourceKind.Colour:
+			case EResourceKind.Font:
+			{
+				if (texture_key.Length != 0)
+					throw new UiJsonException($"{path}.texture", $"Only Image resources may name a texture; this resource is {resource.Kind}.");
+
+				break;
+			}
+			default:
+			{
+				throw new UiJsonException($"{path}.kind", "Unknown resource kind.");
+			}
+		}
+		return (resource, texture_key);
 	}
 
-	/// <summary>Parse one "styles" array entry into a UiStyleDesc, resolving each declared per-channel state.</summary>
-	private static UiStyleDesc ParseStyle(JsonElement element, string path)
+	/// <summary>
+	/// Parse one "styles" array entry into a UiStyleDesc, resolving each declared per-channel state. 'resource_kinds' maps every declared
+	/// resource id to its kind, so image brushes can be checked against Image resources.
+	/// </summary>
+	private static UiStyleDesc ParseStyle(JsonElement element, string path, IReadOnlyDictionary<ulong, EResourceKind> resource_kinds)
 	{
 		var id = new StyleId(GetUInt64(element, "id", path));
 		if (id.IsNone)
@@ -594,7 +728,8 @@ public sealed class UiDocument
 					corner_radius: GetFloat(visual_element, "corner_radius", visual_path, 0),
 					opacity: GetFloat(visual_element, "opacity", visual_path, 1),
 					foreground: ParseColour(visual_element, "foreground", visual_path, Colour.TransparentBlack),
-					thumb: ParseColour(visual_element, "thumb", visual_path, Colour.TransparentBlack)
+					thumb: ParseColour(visual_element, "thumb", visual_path, Colour.TransparentBlack),
+					image: ParseImageBrush(visual_element, $"{visual_path}.image", resource_kinds)
 				));
 			}
 			if (state.TryGetProperty("transition", out var transition_element))
@@ -611,8 +746,52 @@ public sealed class UiDocument
 		return style;
 	}
 
-	/// <summary>Parse one "templates" array entry into a UiTemplateDesc, enforcing the UiTemplateDesc.MaxParts cap.</summary>
-	private static UiTemplateDesc ParseTemplate(JsonElement element, string path)
+	/// <summary>
+	/// Parse an optional "image" object into an ImageBrush. An absent object means no image. A present object needs an "image_id" that is
+	/// 0 (no image) or names an Image resource; its "tint" defaults to opaque white so the image draws unchanged.
+	/// </summary>
+	private static ImageBrush ParseImageBrush(JsonElement parent, string path, IReadOnlyDictionary<ulong, EResourceKind> resource_kinds)
+	{
+		// An absent image means the style draws no image
+		if (!parent.TryGetProperty("image", out var element))
+			return ImageBrush.None;
+		if (element.ValueKind != JsonValueKind.Object)
+			throw new UiJsonException(path, $"Expected a JSON object, found {element.ValueKind}.");
+
+		// The image id must name an Image resource declared earlier in this document
+		var image_id = new ResourceId(GetUInt64(element, "image_id", path));
+		if (!image_id.IsNone && (!resource_kinds.TryGetValue(image_id.m_value, out var kind) || kind != EResourceKind.Image))
+			throw new UiJsonException($"{path}.image_id", $"References resource id {image_id.m_value}, which is not an Image resource declared in this document's \"resources\" array.");
+
+		// The source rectangle is optional; zero size means the whole image
+		var source = Rect.Zero;
+		if (element.TryGetProperty("source", out var source_element))
+		{
+			var source_path = $"{path}.source";
+			if (source_element.ValueKind != JsonValueKind.Object)
+				throw new UiJsonException(source_path, $"Expected a JSON object, found {source_element.ValueKind}.");
+
+			source = new Rect(GetFloat(source_element, "x", source_path, 0), GetFloat(source_element, "y", source_path, 0), GetFloat(source_element, "w", source_path, 0), GetFloat(source_element, "h", source_path, 0));
+		}
+
+		// Read the nine-slice insets and tint
+		return new ImageBrush(
+			image_id,
+			source,
+			slice_left: GetFloat(element, "slice_left", path, 0),
+			slice_top: GetFloat(element, "slice_top", path, 0),
+			slice_right: GetFloat(element, "slice_right", path, 0),
+			slice_bottom: GetFloat(element, "slice_bottom", path, 0),
+			slice_scale: GetFloat(element, "slice_scale", path, 0),
+			tint: ParseColour(element, "tint", path, Colour.White)
+		);
+	}
+
+	/// <summary>
+	/// Parse one "templates" array entry into a UiTemplateDesc, enforcing the UiTemplateDesc.MaxParts cap. 'style_ids' and 'resource_kinds'
+	/// hold the declared styles and resources, so part styles and tick label fonts can be checked.
+	/// </summary>
+	private static UiTemplateDesc ParseTemplate(JsonElement element, string path, HashSet<ulong> style_ids, IReadOnlyDictionary<ulong, EResourceKind> resource_kinds)
 	{
 		var id = new TemplateId(GetUInt64(element, "id", path));
 		if (id.IsNone)
@@ -638,14 +817,57 @@ public sealed class UiDocument
 				if (template.Parts.Count >= UiTemplateDesc.MaxParts)
 					throw new UiJsonException(part_path, $"Template already has the maximum of {UiTemplateDesc.MaxParts} parts (VIEW3D_UI_MAX_TEMPLATE_PARTS).");
 
-				var name = GetRequiredString(part_element, "name", part_path);
-				var primitive = GetEnum<EVisualPrimitive>(part_element, "primitive", part_path, required: true);
-				var required = GetBool(part_element, "required", part_path, true);
-				template.AddPart(name, primitive, required);
+				// A part's style is optional, but when given it must be declared in this document
+				var style_id = TryGetUInt64(part_element, "style_id", out var style_value) ? new StyleId(style_value) : StyleId.None;
+				if (!style_id.IsNone && !style_ids.Contains(style_id.m_value))
+					throw new UiJsonException($"{part_path}.style_id", $"References style id {style_id.m_value}, which is not declared in this document's \"styles\" array.");
+
+				template.AddPart(new UiTemplatePart(
+					GetEnum<ETemplatePart>(part_element, "role", part_path, required: true),
+					style_id,
+					margin_left: GetFloat(part_element, "margin_left", part_path, 0),
+					margin_top: GetFloat(part_element, "margin_top", part_path, 0),
+					margin_right: GetFloat(part_element, "margin_right", part_path, 0),
+					margin_bottom: GetFloat(part_element, "margin_bottom", part_path, 0),
+					width: GetFloat(part_element, "width", part_path, 0),
+					height: GetFloat(part_element, "height", part_path, 0),
+					ticks: ParseTicks(part_element, $"{part_path}.ticks", resource_kinds)
+				));
 				++index;
 			}
 		}
 		return template;
+	}
+
+	/// <summary>
+	/// Parse an optional "ticks" object into TickParams, defaulting every field when the object is absent. A non-zero "label_font_id"
+	/// must name a Font resource.
+	/// </summary>
+	private static TickParams ParseTicks(JsonElement parent, string path, IReadOnlyDictionary<ulong, EResourceKind> resource_kinds)
+	{
+		// Absent ticks mean the part draws no ticks
+		if (!parent.TryGetProperty("ticks", out var element))
+			return default;
+		if (element.ValueKind != JsonValueKind.Object)
+			throw new UiJsonException(path, $"Expected a JSON object, found {element.ValueKind}.");
+
+		// Tick labels need a Font resource declared in this document
+		var label_font_id = TryGetUInt64(element, "label_font_id", out var font_value) ? new ResourceId(font_value) : ResourceId.None;
+		if (!label_font_id.IsNone && (!resource_kinds.TryGetValue(label_font_id.m_value, out var kind) || kind != EResourceKind.Font))
+			throw new UiJsonException($"{path}.label_font_id", $"References resource id {label_font_id.m_value}, which is not a Font resource declared in this document's \"resources\" array.");
+
+		// Read the tick spacing, sizes, and label settings
+		return new TickParams(
+			interval: GetFloat(element, "interval", path, 0),
+			major_every: GetUInt32(element, "major_every", path, 0),
+			major_length: GetFloat(element, "major_length", path, 0),
+			minor_length: GetFloat(element, "minor_length", path, 0),
+			thickness: GetFloat(element, "thickness", path, 0),
+			align: GetEnum<EAnchorPoint>(element, "align", path, required: false, EAnchorPoint.Min),
+			label_font_id: label_font_id,
+			label_decimals: TryGetInt32(element, "label_decimals", out var label_decimals) ? label_decimals : 0,
+			label_gap: GetFloat(element, "label_gap", path, 0)
+		);
 	}
 
 	/// <summary>Parse a JSON array property into a list, defaulting to empty when the property is absent.</summary>
@@ -772,17 +994,6 @@ public sealed class UiDocument
 	{
 		if (!element.TryGetProperty(property_name, out var value))
 			return default_value;
-		if (value.ValueKind != JsonValueKind.String)
-			throw new UiJsonException($"{path}.{property_name}", $"Expected a string, found {value.ValueKind}.");
-
-		return value.GetString() ?? string.Empty;
-	}
-
-	/// <summary>Parse a required string property.</summary>
-	private static string GetRequiredString(JsonElement element, string property_name, string path)
-	{
-		if (!element.TryGetProperty(property_name, out var value))
-			throw new UiJsonException(path, $"Missing required property \"{property_name}\".");
 		if (value.ValueKind != JsonValueKind.String)
 			throw new UiJsonException($"{path}.{property_name}", $"Expected a string, found {value.ValueKind}.");
 

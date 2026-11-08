@@ -132,10 +132,10 @@ namespace pr::view3d::ui::tests
 
 	PRUnitTest(RendererConstructionNeverTouchesOrQueriesTheDevice, Quick)
 	{
-		static_assert(noexcept(Renderer(std::declval<IUnknown*>(), std::declval<Config const&>())), "Renderer's constructor must be noexcept to participate in ContextCreate's all-or-nothing rollback");
+		static_assert(noexcept(Renderer(std::declval<IUnknown*>(), std::declval<Config const&>(), std::declval<TextureResolverFn>())), "Renderer's constructor must be noexcept to participate in ContextCreate's all-or-nothing rollback");
 
 		auto device = FakeDevice{};
-		auto renderer = Renderer(&device, MakeConfig());
+		auto renderer = Renderer(&device, MakeConfig(), &NoTextures);
 		(void)renderer;
 
 		// FakeDevice::QueryInterface always fails and its AddRef/Release are instrumented; an
@@ -146,7 +146,7 @@ namespace pr::view3d::ui::tests
 	PRUnitTest(RecordDuringPrepareSurfacesInternalErrorForADeviceThatIsNotReallyID3D12Device, Quick)
 	{
 		auto device = FakeDevice{};
-		auto renderer = Renderer(&device, MakeConfig());
+		auto renderer = Renderer(&device, MakeConfig(), &NoTextures);
 
 		auto pass = Pass{};
 		pass.m_header = { sizeof(Pass), HostStructVersion };
@@ -164,7 +164,7 @@ namespace pr::view3d::ui::tests
 		// pre-M8 renderer returned) when Prepare never ran this session, since a context that failed
 		// to attach to a window could still be handed these passes by a misbehaving host.
 		auto device = FakeDevice{};
-		auto renderer = Renderer(&device, MakeConfig());
+		auto renderer = Renderer(&device, MakeConfig(), &NoTextures);
 		auto packet = DrawPacket{};
 
 		for (auto world : { EPass::DepthTested, EPass::OcclusionFaded, EPass::Overlay })
@@ -184,7 +184,7 @@ namespace pr::view3d::ui::tests
 		// since a context that failed to attach to a window would otherwise never call Prepare at
 		// all yet could still, in principle, be handed a FinalOverlay pass by a misbehaving host.
 		auto device = FakeDevice{};
-		auto renderer = Renderer(&device, MakeConfig());
+		auto renderer = Renderer(&device, MakeConfig(), &NoTextures);
 
 		auto pass = Pass{};
 		pass.m_header = { sizeof(Pass), HostStructVersion };
@@ -203,7 +203,7 @@ namespace pr::view3d::ui::tests
 
 		auto engine = UiEngine(MakeConfig());
 		auto packet = BuildTextDrawPacket(engine);
-		auto renderer = Renderer(fixture->device.Get(), MakeConfig());
+		auto renderer = Renderer(fixture->device.Get(), MakeConfig(), &NoTextures);
 
 		auto prepare_pass = MakePreparePass(*fixture);
 		PR_EXPECT(renderer.Record(prepare_pass, packet) == EStatus::Success);
@@ -231,7 +231,7 @@ namespace pr::view3d::ui::tests
 		// depending on any pixel-packing arithmetic.
 		auto renderer_config = MakeConfig();
 		renderer_config.max_glyph_cache_pages = 0;
-		auto renderer = Renderer(fixture->device.Get(), renderer_config);
+		auto renderer = Renderer(fixture->device.Get(), renderer_config, &NoTextures);
 
 		auto prepare_pass = MakePreparePass(*fixture);
 		PR_EXPECT(renderer.Record(prepare_pass, packet) == EStatus::ResourceLimit);
@@ -251,6 +251,19 @@ namespace pr::view3d::ui::tests
 
 		item.text_align = ETextAlign::Center;
 		PR_EXPECT(Renderer::TextRunStartXDip(item, 40.0f) == 40.0f); // bounds.x + (bounds.w - advance) * 0.5; inset is ignored
+	}
+
+	// Right-aligned runs end at the right edge less the inset, ignoring scroll.
+	PRUnitTest(TextRunStartXDipRightAlignsRunsAgainstTheInsetRightEdge, Quick)
+	{
+		// Box [10, 110] with an 8 DIP inset, so a run ends at x = 102.
+		auto item = DrawItem{};
+		item.bounds = Rect{ 10.0f, 0.0f, 100.0f, 20.0f };
+		item.text_align = ETextAlign::Right;
+		item.text_inset_dip = 8.0f;
+		item.text_scroll_dip = 30.0f;
+		PR_EXPECT(Renderer::TextRunStartXDip(item, 40.0f) == 62.0f);
+		PR_EXPECT(Renderer::TextRunStartXDip(item, 120.0f) == -18.0f);
 	}
 
 	PRUnitTest(TextRunStartXDipThrowsForAnUnknownTextAlignValue, Quick)

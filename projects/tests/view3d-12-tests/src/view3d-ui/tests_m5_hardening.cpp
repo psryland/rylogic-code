@@ -307,7 +307,7 @@ namespace pr::view3d::ui::tests
 		b0.AddResource(MakeResource(20, EResourceKind::Colour, Colour{ 1, 1, 1, 1 }));
 		b0.AddStyle(MakeStyle(10));
 		auto panel_tmpl = MakeTemplate(30, EControlType::Panel);
-		b0.AddTemplatePart(panel_tmpl, "PART_ContentPresenter", EVisualPrimitive::ContentPresenter, true);
+		b0.AddTemplatePart(panel_tmpl, TemplatePart{ .role = ETemplatePart::Background });
 		b0.AddTemplate(panel_tmpl);
 		b0.Upsert(MakeControl(1, 0, EControlType::Root, ELayoutMode::Overlay, Lp(0.0f, 0.0f)));
 		ctx.TransactionApply(b0.Build(0, 1));
@@ -359,8 +359,8 @@ namespace pr::view3d::ui::tests
 		b0.AddResource(MakeResource(20, EResourceKind::Font, Colour{ 0, 0, 0, 1 }));
 		b0.AddStyle(MakeStyle(10));
 		auto tmpl = MakeTemplate(30, EControlType::Button);
-		b0.AddTemplatePart(tmpl, "PART_ContentPresenter", EVisualPrimitive::SolidBox, false);
-		b0.AddTemplatePart(tmpl, "PART_FocusOutline", EVisualPrimitive::Border, false);
+		b0.AddTemplatePart(tmpl, TemplatePart{ .role = ETemplatePart::Background });
+		b0.AddTemplatePart(tmpl, TemplatePart{ .role = ETemplatePart::Text, .margin_left = 2.0f, .margin_right = 2.0f });
 		b0.AddTemplate(tmpl);
 		b0.Upsert(MakeControl(1, 0, EControlType::Root, ELayoutMode::Overlay, Lp(0.0f, 0.0f)));
 		auto btn = MakeControl(2, 1, EControlType::Button, ELayoutMode::Overlay, Lp(50.0f, 20.0f), 20);

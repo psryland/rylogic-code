@@ -9,8 +9,8 @@ namespace Rylogic.Gfx.UI;
 internal static unsafe class Native
 {
 	internal const string Dll = "view3d-ui";
-	internal const uint ApiVersion = 	0x00090000U;
-		internal const uint StructVersion = 9U;
+	internal const uint ApiVersion = 0x000A0000U;
+	internal const uint StructVersion = 10U;
 	private static IntPtr m_module;
 
 	/// <summary>Load the configuration-appropriate native runtime before the first P/Invoke.</summary>
@@ -153,6 +153,7 @@ internal static unsafe class Native
 		internal uint m_combo_item_count;
 		internal int m_selected_index;
 		internal uint m_max_visible_items;
+		internal EOrientation m_orientation;
 	}
 
 	[StructLayout(LayoutKind.Sequential)]
@@ -189,6 +190,9 @@ internal static unsafe class Native
 		internal uint m_name_offset;
 		internal uint m_name_length;
 		internal float m_font_size;
+		internal ulong m_texture;
+		internal uint m_image_width;
+		internal uint m_image_height;
 	}
 
 	// StyleDesc.visuals/transitions are fixed 9-element (EStateChannel::Count) arrays in native code. C# structs cannot embed a
@@ -251,10 +255,15 @@ internal static unsafe class Native
 	[StructLayout(LayoutKind.Sequential)]
 	internal struct TemplatePart
 	{
-		internal uint m_name_offset;
-		internal uint m_name_length;
-		internal EVisualPrimitive m_primitive;
-		internal int m_required;
+		internal ETemplatePart m_role;
+		internal StyleId m_style_id;
+		internal float m_margin_left;
+		internal float m_margin_top;
+		internal float m_margin_right;
+		internal float m_margin_bottom;
+		internal float m_width;
+		internal float m_height;
+		internal TickParams m_ticks;
 	}
 
 	// TemplateDesc.parts is a fixed VIEW3D_UI_MAX_TEMPLATE_PARTS(8)-element array in native code; see the StyleDesc comment above

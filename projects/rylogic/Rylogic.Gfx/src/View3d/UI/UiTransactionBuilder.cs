@@ -133,6 +133,9 @@ public sealed unsafe class UiTransactionBuilder
 			m_name_offset = name_offset,
 			m_name_length = name_length,
 			m_font_size = resource.FontSize,
+			m_texture = unchecked((ulong)resource.Texture.ToInt64()),
+			m_image_width = resource.ImageWidth,
+			m_image_height = resource.ImageHeight,
 		});
 		return this;
 	}
@@ -157,7 +160,7 @@ public sealed unsafe class UiTransactionBuilder
 		return this;
 	}
 
-	/// <summary>Append a template descriptor (upsert-by-id semantics), packing each part's name into the shared blob.</summary>
+	/// <summary>Append a template descriptor (upsert-by-id semantics).</summary>
 	public UiTransactionBuilder AddTemplate(UiTemplateDesc template)
 	{
 		if (template == null)
@@ -173,13 +176,17 @@ public sealed unsafe class UiTransactionBuilder
 		for (var i = 0; i != template.Parts.Count; ++i)
 		{
 			var part = template.Parts[i];
-			var (name_offset, name_length) = AddText(part.Name);
 			native.SetPart(i, new Native.TemplatePart
 			{
-				m_name_offset = name_offset,
-				m_name_length = name_length,
-				m_primitive = part.Primitive,
-				m_required = part.Required ? 1 : 0,
+				m_role = part.Role,
+				m_style_id = part.StyleId,
+				m_margin_left = part.MarginLeft,
+				m_margin_top = part.MarginTop,
+				m_margin_right = part.MarginRight,
+				m_margin_bottom = part.MarginBottom,
+				m_width = part.Width,
+				m_height = part.Height,
+				m_ticks = part.Ticks,
 			});
 		}
 		m_templates.Add(native);
@@ -382,6 +389,7 @@ public sealed unsafe class UiTransactionBuilder
 			m_combo_item_count = combo_item_count,
 			m_selected_index = control.SelectedIndex,
 			m_max_visible_items = control.MaxVisibleItems,
+			m_orientation = control.Orientation,
 			m_world = ToNative(control.World),
 		};
 	}

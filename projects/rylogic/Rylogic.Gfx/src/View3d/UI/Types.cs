@@ -171,7 +171,40 @@ public enum EVisualPrimitive
 	ContentPresenter = 4,
 	Clip = 5,
 	TransformOpacityGroup = 6,
-	Count = 7,
+	Image = 7,
+	Count = 8,
+}
+
+/// <summary>Closed template part role vocabulary. Each role places one styled box inside the control; see TemplatePart.</summary>
+public enum ETemplatePart : int
+{
+	/// <summary>Replaces the control's own style box. Valid for every control type.</summary>
+	Background = 0,
+
+	/// <summary>The value track of a Slider or ProgressBar.</summary>
+	Track = 1,
+
+	/// <summary>The value indicator of a Slider or ProgressBar, cut from the minimum end to the value.</summary>
+	Indicator = 2,
+
+	/// <summary>The Slider thumb, centred on the value position.</summary>
+	Thumb = 3,
+
+	/// <summary>A band of generated ticks for a Slider or ProgressBar. Several Ticks parts are allowed.</summary>
+	Ticks = 4,
+
+	/// <summary>Places the text of a Text, Button, TextBox, or ComboBox control.</summary>
+	Text = 5,
+
+	Count = 6,
+}
+
+/// <summary>Orientation of a Slider or ProgressBar value axis. Vertical values increase upward.</summary>
+public enum EOrientation : int
+{
+	Horizontal = 0,
+	Vertical = 1,
+	Count = 2,
 }
 
 /// <summary>
@@ -227,7 +260,8 @@ public enum EResourceKind
 {
 	Colour = 0,
 	Font = 1,
-	Count = 2,
+	Image = 2,
+	Count = 3,
 }
 
 /// <summary>Closed normalized input kind vocabulary. Raw Win32 messages and deterministic test injection both translate into this vocabulary.</summary>
@@ -634,6 +668,9 @@ public readonly struct Colour : IEquatable<Colour>
 	/// <summary>Fully transparent black; also the "use built-in fallback" sentinel for ResourceDesc.Colour on a Font resource.</summary>
 	public static readonly Colour TransparentBlack = new(0, 0, 0, 0);
 
+	/// <summary>Opaque white; as an image tint it draws the image unchanged.</summary>
+	public static readonly Colour White = new(1, 1, 1, 1);
+
 	/// <inheritdoc/>
 	public bool Equals(Colour other) => m_r == other.m_r && m_g == other.m_g && m_b == other.m_b && m_a == other.m_a;
 
@@ -648,6 +685,172 @@ public readonly struct Colour : IEquatable<Colour>
 
 	/// <summary>Compare two colours.</summary>
 	public static bool operator !=(Colour lhs, Colour rhs) => !lhs.Equals(rhs);
+}
+
+/// <summary>
+/// An optional image drawn over a style's box (fill and border), mirroring the native ImageBrush wire type. The slice insets split the
+/// source into nine pieces: corners keep their size, edges stretch along one axis, and the centre stretches both ways. All slices zero
+/// draw the source stretched over the box.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+public readonly struct ImageBrush : IEquatable<ImageBrush>
+{
+	/// <summary>An EResourceKind.Image resource, or ResourceId.None for no image.</summary>
+	public readonly ResourceId m_image_id;
+
+	/// <summary>Source rectangle in image pixels. A width or height &lt;= 0 selects the whole image.</summary>
+	public readonly Rect m_source;
+
+	/// <summary>Nine-slice insets in source pixels, measured inward from each edge of the source rectangle.</summary>
+	public readonly float m_slice_left;
+	public readonly float m_slice_top;
+	public readonly float m_slice_right;
+	public readonly float m_slice_bottom;
+
+	/// <summary>DIP per source pixel for the drawn slice borders; 0 means 1.</summary>
+	public readonly float m_slice_scale;
+
+	/// <summary>Colour multiplied with every sampled texel. Opaque white draws the image unchanged.</summary>
+	public readonly Colour m_tint;
+
+	/// <summary>Create an image brush. 'tint' defaults to opaque white, which draws the image unchanged.</summary>
+	public ImageBrush(ResourceId image_id, Rect source = default, float slice_left = 0, float slice_top = 0, float slice_right = 0, float slice_bottom = 0, float slice_scale = 0, Colour? tint = null)
+	{
+		// Store the fields; a missing tint means "draw the image unchanged"
+		m_image_id = image_id;
+		m_source = source;
+		m_slice_left = slice_left;
+		m_slice_top = slice_top;
+		m_slice_right = slice_right;
+		m_slice_bottom = slice_bottom;
+		m_slice_scale = slice_scale;
+		m_tint = tint ?? Colour.White;
+	}
+
+	/// <summary>No image. All fields are zero.</summary>
+	public static readonly ImageBrush None = default;
+
+	/// <inheritdoc/>
+	public bool Equals(ImageBrush other)
+	{
+		// Compare every wire field
+		return
+			m_image_id == other.m_image_id && m_source == other.m_source &&
+			m_slice_left == other.m_slice_left && m_slice_top == other.m_slice_top && m_slice_right == other.m_slice_right && m_slice_bottom == other.m_slice_bottom &&
+			m_slice_scale == other.m_slice_scale && m_tint == other.m_tint;
+	}
+
+	/// <inheritdoc/>
+	public override bool Equals(object? obj)
+	{
+		// Only another brush can be equal
+		return obj is ImageBrush other && Equals(other);
+	}
+
+	/// <inheritdoc/>
+	public override int GetHashCode()
+	{
+		// Hash every wire field
+		return HashUtil.Combine(m_image_id, m_source, m_slice_left, m_slice_top, m_slice_right, m_slice_bottom, m_slice_scale, m_tint);
+	}
+
+	/// <summary>Compare two image brushes.</summary>
+	public static bool operator ==(ImageBrush lhs, ImageBrush rhs)
+	{
+		// Defer to Equals
+		return lhs.Equals(rhs);
+	}
+
+	/// <summary>Compare two image brushes.</summary>
+	public static bool operator !=(ImageBrush lhs, ImageBrush rhs)
+	{
+		// Defer to Equals
+		return !lhs.Equals(rhs);
+	}
+}
+
+/// <summary>
+/// Tick mark parameters for an ETemplatePart.Ticks template part, mirroring the native TickParams wire type. Ticks sit along the value
+/// axis at the same positions the slider thumb takes for those values. Lengths are in DIP.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+public readonly struct TickParams : IEquatable<TickParams>
+{
+	/// <summary>Value units between ticks, starting at the control's minimum; 0 uses the control's step.</summary>
+	public readonly float m_interval;
+
+	/// <summary>Every Nth tick (counting from the minimum) is a major tick; 0 makes every tick major.</summary>
+	public readonly uint m_major_every;
+
+	/// <summary>Major and minor tick length across the value axis, and tick thickness along it.</summary>
+	public readonly float m_major_length;
+	public readonly float m_minor_length;
+	public readonly float m_thickness;
+
+	/// <summary>Which side of the tick band (on the cross axis) ticks start from. Min is the left or top edge, Max the right or bottom edge.</summary>
+	public readonly EAnchorPoint m_align;
+
+	/// <summary>An EResourceKind.Font resource for value labels at major ticks; ResourceId.None draws no labels.</summary>
+	public readonly ResourceId m_label_font_id;
+
+	/// <summary>Number of digits after the decimal point in labels (&gt;= 0).</summary>
+	public readonly int m_label_decimals;
+
+	/// <summary>DIP between the end of a major tick and its label.</summary>
+	public readonly float m_label_gap;
+
+	/// <summary>Create tick parameters.</summary>
+	public TickParams(float interval = 0, uint major_every = 0, float major_length = 0, float minor_length = 0, float thickness = 0, EAnchorPoint align = EAnchorPoint.Min, ResourceId label_font_id = default, int label_decimals = 0, float label_gap = 0)
+	{
+		// Store the fields
+		m_interval = interval;
+		m_major_every = major_every;
+		m_major_length = major_length;
+		m_minor_length = minor_length;
+		m_thickness = thickness;
+		m_align = align;
+		m_label_font_id = label_font_id;
+		m_label_decimals = label_decimals;
+		m_label_gap = label_gap;
+	}
+
+	/// <inheritdoc/>
+	public bool Equals(TickParams other)
+	{
+		// Compare every wire field
+		return
+			m_interval == other.m_interval && m_major_every == other.m_major_every && m_major_length == other.m_major_length && m_minor_length == other.m_minor_length &&
+			m_thickness == other.m_thickness && m_align == other.m_align && m_label_font_id == other.m_label_font_id && m_label_decimals == other.m_label_decimals &&
+			m_label_gap == other.m_label_gap;
+	}
+
+	/// <inheritdoc/>
+	public override bool Equals(object? obj)
+	{
+		// Only other tick parameters can be equal
+		return obj is TickParams other && Equals(other);
+	}
+
+	/// <inheritdoc/>
+	public override int GetHashCode()
+	{
+		// Hash every wire field
+		return HashUtil.Combine(m_interval, m_major_every, m_major_length, m_minor_length, m_thickness, m_align, m_label_font_id, m_label_decimals, m_label_gap);
+	}
+
+	/// <summary>Compare two tick parameter sets.</summary>
+	public static bool operator ==(TickParams lhs, TickParams rhs)
+	{
+		// Defer to Equals
+		return lhs.Equals(rhs);
+	}
+
+	/// <summary>Compare two tick parameter sets.</summary>
+	public static bool operator !=(TickParams lhs, TickParams rhs)
+	{
+		// Defer to Equals
+		return !lhs.Equals(rhs);
+	}
 }
 
 	/// <summary>The fill/border/opacity appearance applied for one EStateChannel, mirroring the native StyleVisual wire type.</summary>
@@ -666,8 +869,11 @@ public readonly struct Colour : IEquatable<Colour>
 		/// <summary>Slider thumb colour, drawn over the indicator.</summary>
 		public readonly Colour m_thumb;
 
+		/// <summary>Optional image drawn over the box's fill and border; ImageBrush.None draws no image.</summary>
+		public readonly ImageBrush m_image;
+
 		/// <summary>Create a state-channel visual.</summary>
-		public StyleVisual(Colour fill, Colour border_colour = default, float border_thickness = 0, float corner_radius = 0, float opacity = 1, Colour foreground = default, Colour thumb = default)
+		public StyleVisual(Colour fill, Colour border_colour = default, float border_thickness = 0, float corner_radius = 0, float opacity = 1, Colour foreground = default, Colour thumb = default, ImageBrush image = default)
 		{
 			m_fill = fill;
 			m_border_colour = border_colour;
@@ -676,12 +882,13 @@ public readonly struct Colour : IEquatable<Colour>
 			m_opacity = opacity;
 			m_foreground = foreground;
 			m_thumb = thumb;
+			m_image = image;
 		}
 
 		/// <inheritdoc/>
 		public bool Equals(StyleVisual other)
 		{
-			return m_fill == other.m_fill && m_border_colour == other.m_border_colour && m_border_thickness == other.m_border_thickness && m_corner_radius == other.m_corner_radius && m_opacity == other.m_opacity && m_foreground == other.m_foreground && m_thumb == other.m_thumb;
+			return m_fill == other.m_fill && m_border_colour == other.m_border_colour && m_border_thickness == other.m_border_thickness && m_corner_radius == other.m_corner_radius && m_opacity == other.m_opacity && m_foreground == other.m_foreground && m_thumb == other.m_thumb && m_image == other.m_image;
 		}
 
 		/// <inheritdoc/>
@@ -690,7 +897,7 @@ public readonly struct Colour : IEquatable<Colour>
 		/// <inheritdoc/>
 		public override int GetHashCode()
 		{
-			return HashUtil.Combine(m_fill, m_border_colour, m_border_thickness, m_corner_radius, m_opacity, m_foreground, m_thumb);
+			return HashUtil.Combine(m_fill, m_border_colour, m_border_thickness, m_corner_radius, m_opacity, m_foreground, m_thumb, m_image);
 		}
 
 		/// <summary>Compare two state-channel visuals.</summary>

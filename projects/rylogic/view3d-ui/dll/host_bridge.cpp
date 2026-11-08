@@ -2,7 +2,7 @@
 // View3DUI
 //  Copyright (C) Rylogic Ltd 2026
 //*********************************************
-// See host_bridge.h. Resolves and calls the four view3d-12 UI host bridge exports dynamically,
+// See host_bridge.h. Resolves and calls the five view3d-12 UI host bridge exports dynamically,
 // via GetProcAddress against the already-loaded view3d-12.dll module; this module never links an
 // import library for view3d-12 and never calls LoadLibrary for it (an unattached, headless
 // View3DUI context must not force-load a renderer module it does not otherwise need).
@@ -16,7 +16,7 @@ namespace pr::view3d::ui
 {
 	namespace
 	{
-		// The four resolved bridge exports, cached for the process lifetime once resolution
+		// The five resolved bridge exports, cached for the process lifetime once resolution
 		// succeeds; view3d-12.dll, once loaded, is never unloaded before this module is.
 		struct BridgeExports
 		{
@@ -24,6 +24,7 @@ namespace pr::view3d::ui
 			StructSizeFn m_struct_size;
 			AttachFn m_attach;
 			DetachFn m_detach;
+			TextureResourceFn m_texture_resource;
 		};
 
 		std::mutex g_resolve_mutex;
@@ -51,7 +52,8 @@ namespace pr::view3d::ui
 			auto struct_size = reinterpret_cast<StructSizeFn>(::GetProcAddress(module, StructSizeExport));
 			auto attach = reinterpret_cast<AttachFn>(::GetProcAddress(module, AttachExport));
 			auto detach = reinterpret_cast<DetachFn>(::GetProcAddress(module, DetachExport));
-			if (api_version == nullptr || struct_size == nullptr || attach == nullptr || detach == nullptr)
+			auto texture_resource = reinterpret_cast<TextureResourceFn>(::GetProcAddress(module, TextureResourceExport));
+			if (api_version == nullptr || struct_size == nullptr || attach == nullptr || detach == nullptr || texture_resource == nullptr)
 				throw EngineException(EStatus::UnsupportedFeature, "view3d-12.dll does not export the UI host bridge");
 
 			if (api_version() != HostApiVersion)
@@ -68,7 +70,7 @@ namespace pr::view3d::ui
 			if (struct_size(EHostStructId::Pass, &pass_size) != EHostStatus::Success || pass_size != sizeof(Pass))
 				throw EngineException(EStatus::InvalidStruct, "view3d-12.dll UI host bridge Pass struct size does not match");
 
-			g_exports = { api_version, struct_size, attach, detach };
+			g_exports = { api_version, struct_size, attach, detach, texture_resource };
 			g_resolved = true;
 			return g_exports;
 		}
@@ -212,6 +214,13 @@ namespace pr::view3d::ui
 		}
 		catch (...)
 		{}
+	}
+
+	ID3D12Resource* TextureResource(std::uint64_t texture)
+	{
+		// Texture handles are View3D texture pointers carried in 64 bits; this module is x64-only, so they round-trip exactly.
+		auto const& exports = ResolveExports();
+		return exports.m_texture_resource(reinterpret_cast<void*>(static_cast<std::uintptr_t>(texture)));
 	}
 
 	void ForceUnavailable(bool unavailable) noexcept

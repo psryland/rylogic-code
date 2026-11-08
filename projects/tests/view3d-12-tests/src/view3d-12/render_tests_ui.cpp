@@ -135,10 +135,101 @@ namespace render_tests
 		fixture.CheckDebugLayer();
 		std::cout << "PASS ImGui provider\n";
 	}
+
+	// Check that View3DUI colours reach the window's sRGB target unchanged, rather than being sRGB-encoded a second time.
+	void View3DUIColourSpaceTests()
+	{
+		// The window's final overlay target is sRGB, so the UI shader must output linear colour for the hardware to encode.
+		auto fixture = Fixture(1);
+		auto runtime = ui::Runtime();
+		auto device = static_cast<IUnknown*>(View3D_DeviceLeaseAcquire(fixture.m_context));
+		Require(device != nullptr, "View3D device lease failed");
+		auto context = ui::UiContext(runtime, device, fixture.m_window);
+		device->Release();
+
+		// A transparent screen root holding one opaque mid-grey panel at [16,80) with no border or rounding.
+		auto header = [](uint32_t size)
+		{
+			// Every descriptor carries its size and the header's struct version.
+			return ui::StructHeader{size, ui::VIEW3D_UI_STRUCT_VERSION};
+		};
+		auto control = [&](ui::ControlId id, ui::ControlId parent_id, ui::EControlType type, ui::LayoutParams layout, ui::StyleId style_id)
+		{
+			// Fixed-layout, always visible control.
+			auto desc = ui::ControlDesc{};
+			desc.header = header(sizeof(ui::ControlDesc));
+			desc.id = id;
+			desc.parent_id = parent_id;
+			desc.type = type;
+			desc.root_policy = ui::ERootPolicy::Screen;
+			desc.layout_mode = ui::ELayoutMode::Overlay;
+			desc.style_id = style_id;
+			desc.enabled = 1;
+			desc.visibility = ui::EVisibility::Visible;
+			desc.validation_state = ui::EValidationState::NotApplicable;
+			desc.layout = layout;
+			return desc;
+		};
+		auto style = [&](ui::StyleId id, ui::Colour fill)
+		{
+			// The same flat fill in every state channel.
+			auto desc = ui::StyleDesc{};
+			desc.header = header(sizeof(ui::StyleDesc));
+			desc.id = id;
+			for (auto& visual : desc.visuals)
+				visual = ui::StyleVisual{ .fill = fill, .opacity = 1.0f };
+
+			return desc;
+		};
+
+		auto root_layout = ui::LayoutParams{};
+		root_layout.h_align = ui::EHAlign::Stretch;
+		root_layout.v_align = ui::EVAlign::Stretch;
+		auto panel_layout = ui::LayoutParams{};
+		panel_layout.width = 64;
+		panel_layout.height = 64;
+		panel_layout.margin_left = 16;
+		panel_layout.margin_top = 16;
+		auto builder = ui::TransactionBuilder{};
+		builder.AddStyle(style(1, {0.5f, 0.5f, 0.5f, 1.0f}));
+		builder.AddStyle(style(2, {0.0f, 0.0f, 0.0f, 0.0f}));
+		builder.Upsert(control(1, 0, ui::EControlType::Root, root_layout, 2));
+		builder.Upsert(control(2, 1, ui::EControlType::Panel, panel_layout, 1));
+		context.TransactionApply(builder.Build(0, 1));
+		context.Update(ui::ViewportState{
+			.header = header(sizeof(ui::ViewportState)),
+			.client_width_px = ImageSize,
+			.client_height_px = ImageSize,
+			.target_width_px = ImageSize,
+			.target_height_px = ImageSize,
+			.viewport_width_px = ImageSize,
+			.viewport_height_px = ImageSize,
+			.dpi = 96.0f,
+		});
+
+		// A fill of 0.5 must produce the byte 128 (not 188, its sRGB encoding), and the background stays black.
+		auto image = fixture.Image();
+		auto pixel = image.data() + (48 * ImageSize + 48) * 4;
+		for (auto channel = 0; channel != 3; ++channel)
+		{
+			if (std::abs(pixel[channel] - 128) > 2)
+				throw std::runtime_error("View3DUI pixel mismatch channel " + std::to_string(channel) + ": actual " + std::to_string(pixel[channel]) + ", expected 128");
+		}
+		Expect(image, 0,0,0, 100,100);
+
+		// Any GPU validation error fails the fixture.
+		fixture.CheckErrors();
+		fixture.CheckDebugLayer();
+		std::cout << "PASS View3DUI colour space\n";
+	}
 }
 
 namespace pr::unittests::view3d12
 {
+	PRUnitTest(View3d12_View3DUIColourSpace, Extended | Serial)
+	{
+		render_tests::View3DUIColourSpaceTests();
+	}
 	PRUnitTest(View3d12_UIProviderOrder, Extended | Serial)
 	{
 		render_tests::UIProviderOrderTests();

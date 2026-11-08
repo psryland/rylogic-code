@@ -35,6 +35,7 @@
 		<ClInclude Include="$(RylogicRoot)include\pr\view3d-ui\types.h" />
 		<ClInclude Include="$(RylogicRoot)include\pr\view3d-ui\view3d-ui-dll.h" />
 		<ClInclude Include="$(RylogicRoot)include\pr\view3d-ui\view3d-ui.h" />
+		<ClInclude Include="src\control_geometry.h" />
 		<ClInclude Include="src\draw_packet_builder.h" />
 		<ClInclude Include="src\events.h" />
 		<ClInclude Include="src\glyph_cache.h" />
@@ -52,6 +53,7 @@
 		<ClInclude Include="src\win32_input.h" />
 		<ClInclude Include="src\world.h" />
 		<ClCompile Include="src\engine.cpp" />
+		<ClCompile Include="src\control_geometry.cpp" />
 		<ClCompile Include="src\draw_packet_builder.cpp" />
 		<ClCompile Include="src\events.cpp" />
 		<ClCompile Include="src\glyph_cache.cpp" />

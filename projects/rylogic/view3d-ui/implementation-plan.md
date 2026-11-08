@@ -232,6 +232,7 @@ The bridge is a dedicated View3DUI integration contract, not a general plug-in r
 - a View3D-owned prepare command list for pending UI resource uploads;
 - a View3D-owned final-overlay command list and final single-sample RTV;
 - render-target size, format, frame index, DPI, and viewport state;
+- lookup of the D3D12 resource behind a View3D texture handle (`View3D_UIHostTextureResource`), so image skins can sample host-owned textures;
 - future typed world-stage pass records with the exact colour/depth resources permitted at each policy stage.
 
 The provider may set its own pipeline state, root signature, viewport/scissor, vertex/index buffers, and descriptor heaps. It may not:
@@ -342,7 +343,7 @@ Validation occurs against a staging model and checks:
 - no parent cycle;
 - valid child order with no duplicates or missing members;
 - known control, layout, visual, state, transition, and resource types;
-- required template parts for each interactive control;
+- template part roles that apply to the template's control type, with no duplicate roles except `Ticks`;
 - valid references and blob ranges;
 - valid ComboBox item spans, selected indices, and positive visible-row counts;
 - finite dimensions, durations, transforms, and numeric values;
@@ -446,13 +447,17 @@ Current placement and overflow contract:
 - Layout, drawing, and semantic bounds are viewport-relative DIPs. Client-pixel input and accessibility bounds include the viewport offset and client/target ratio.
   Updating viewport dimensions or DPI recomputes placement from authored values, rather than scaling the previous layout.
 
-Current native API version is `0x00090000`, and every wire struct header uses version `9`. `ControlDesc::visibility` is a signed 32-bit `EVisibility`
+Current native API version is `0x000A0000`, and every wire struct header uses version `10`. `ControlDesc::visibility` is a signed 32-bit `EVisibility`
 at the former boolean field's offset; unchanged byte size does not make version-3 callers compatible. `ControlDesc::masked != 0` is an appended
 TextBox-only password flag; zero-initialised older descriptors remain unmasked only when submitted through the current struct version. The private View3D
 host bridge version is unchanged.
 ABI 8 appends ComboBox item encoding: `Transaction::combo_box_items`, `Transaction::combo_box_item_count`, `ControlDesc::combo_item_offset`,
 `combo_item_count`, `selected_index`, and `max_visible_items`, plus the `ComboBoxItem` struct. Native clients and managed mirrors must refresh together.
 ABI 9 appends `StyleVisual::thumb`, the Slider thumb colour, which changes the size of `StyleDesc`.
+ABI 10 adds image skins and role-based templates (section 6.3): `EResourceKind::Image` with `ResourceDesc::texture`, `image_width`, and `image_height`;
+`ImageBrush` appended to `StyleVisual` as `image`; `TemplatePart` replaced by a role record (`ETemplatePart`, `style_id`, margins, `width`/`height`,
+`TickParams`); `ControlDesc::orientation` appended (`EOrientation`); `EVisualPrimitive::Image` and the `DrawItem` image fields. The private View3D host
+bridge moves to version `0x00040000` and adds the `View3D_UIHostTextureResource` export. Native clients and managed mirrors must refresh together.
 Managed callers use `UiControlDesc.Visibility`; replace old `true` with `EVisibility.Visible` and old `false` with `EVisibility.Hidden` to preserve behavior.
 Choose `Collapsed` explicitly when controls should stop reserving space. The native demonstration and existing tests preserve their former Visible/Hidden intent.
 JSON schema version `2` uses `"visibility": "Visible" | "Hidden" | "Collapsed"` (default Visible); schema version `1` and the boolean `visible` property are rejected.
@@ -484,7 +489,8 @@ Labels are separate Text controls; the indicator is hit-test transparent, not a 
 
 SemanticNode carries `progress_value` and `is_indeterminate`. Determinate progress also reports percentage value text; activity has empty value text.
 UI Automation exposes ProgressBar role with read-only RangeValue `[0, 1]` only while determinate, with no small/large change.
-The default template supplies `PART_Track` and `PART_Indicator`; authored progress templates require both.
+Without a template the built-in look draws the track and indicator. Templates use `Background`, `Track`, `Indicator`, and `Ticks` parts (section 6.3).
+`ControlDesc::orientation` selects a horizontal or vertical bar; vertical progress fills upward from the bottom.
 ABI 6 changes ControlDesc, Event, and SemanticNode beyond the earlier progress/style fields; native clients and managed mirrors must refresh together.
 The private renderer host-bridge ABI is unchanged because the control renders using existing box draw items.
 JSON schema 2 adds optional `value`, `is_indeterminate`, and visual `foreground` without changing existing field meanings.
@@ -502,9 +508,11 @@ The event keeps the context-wide accepted revision and monotonic sequence orderi
 The application validates/normalizes the proposal, then reconciles by submitting its chosen value in a later transaction. Until that transaction is accepted,
 drawing and semantics continue to expose the previous accepted value.
 
-The default lookless template supplies `PART_Track` and `PART_Thumb`. The track uses `StyleVisual::fill`; the accepted-range indicator uses
-`StyleVisual::foreground` and the thumb uses `StyleVisual::thumb`, with no custom draw callback. The indicator is inset within the border, rounds its left end
-to the track's inner corner radius, and extends to the thumb centre so no track shows between them. Slider participates in normal hover, pressed, focused, disabled, visibility, DPI, layout, and Tab-order
+Without a template the built-in look draws the track, indicator, and thumb. The track uses `StyleVisual::fill`; the accepted-range indicator uses
+`StyleVisual::foreground` and the thumb uses `StyleVisual::thumb`, with no custom draw callback. The indicator is inset within the border, rounds its minimum end
+to the track's inner corner radius, and extends to the thumb centre so no track shows between them. Templates use `Background`, `Track`, `Indicator`, `Ticks`,
+and `Thumb` parts instead (section 6.3). `ControlDesc::orientation` selects a horizontal or vertical slider. Vertical values increase upward, so the minimum is
+at the bottom; drawing, pointer mapping, and hit testing all use the same value axis. Slider participates in normal hover, pressed, focused, disabled, visibility, DPI, layout, and Tab-order
 behaviour. Disabled sliders are not hit-test targets and advertise no SetValue semantic action. SemanticNode exposes Slider role, accepted range/value/step, and
 SetValue/Focus actions. UI Automation maps it to Slider with a writable RangeValue pattern while enabled and a read-only pattern while disabled.
 
@@ -522,24 +530,49 @@ SemanticNode exposes ComboBox role, selected item text as value, Focus and Expan
 
 ### 6.3 Lookless templates
 
-Applications define templates from a closed visual vocabulary:
+A template is a list of role parts for one control type. Each `TemplatePart` names a closed `ETemplatePart` role and places a styled box inside the
+control bounds with DIP margins (scaled with the root):
 
-- solid/rounded box;
-- border;
-- text presenter;
-- content presenter;
-- clip;
-- transform/opacity group;
-- required named control parts.
+| Role | Applies to | Drawing |
+|---|---|---|
+| `Background` | every type | Replaces the control's own style box. |
+| `Track` | Slider, ProgressBar | The value track. Without it the track fills the control. |
+| `Indicator` | Slider, ProgressBar | Inset within the track, cut from the minimum end to the value (or the moving indeterminate span). |
+| `Thumb` | Slider | A `width` x `height` DIP box centred on the value position. Values travel the track inset by half the thumb length. |
+| `Ticks` | Slider, ProgressBar | Generated ticks in a band (see below). Several `Ticks` parts are allowed. |
+| `Text` | Text, Button, TextBox, ComboBox | Places the text, and a TextBox clips to it. With its own style it also draws a box behind the text. |
 
-The first slice requires built-in contracts for:
+Each part uses its own `style_id`, or the control's style when `style_id` is zero. A part style follows the control's active state channel but has no
+transition of its own; parts without a style use the control's transitioning visual. Template parts use the visual's `fill`, border, and image; `foreground`
+and `thumb` apply only to the built-in looks. Controls without a template use the built-in looks.
 
-- Button content and focus outline parts;
-- TextBox text, selection, caret, validation, and focus outline parts.
+`TickParams` describes a tick band: `interval` (zero uses the Slider step), `major_every`, major/minor lengths and thickness in DIP, `align` across the band
+(`EAnchorPoint` Min/Centre/Max), and optional labels at major ticks (`label_font_id`, `label_decimals`, `label_gap`). Ticks sit at the same axis positions the
+thumb takes for those values. ProgressBar ticks use the `[0, 1]` range. Labels sit beyond the far end of their tick; a vertical label to the left of its tick
+is right-aligned.
 
-Templates are lookless in the sense that control behaviour targets named semantic parts and state channels, not hard-coded colours or geometry. Missing or duplicate required parts reject the transaction.
+Validation rejects the transaction for an unknown role (`UnknownType`), a role that does not apply to the template's control type, a duplicate non-`Ticks`
+role, or a template used by a control of another type (`InvalidTree`), negative or non-finite lengths (`InvalidArgument`), and unknown part styles or label
+fonts (`UnknownResource`). Styles, image resources, and fonts used by a template or style cannot be removed while referenced (`ResourceInUse`).
 
-Applications can compose these primitives but cannot submit code, shader names, arbitrary geometry, or draw callbacks.
+Applications compose these parts but cannot submit code, shader names, arbitrary geometry, or draw callbacks.
+
+#### Image skins
+
+An `EResourceKind::Image` resource names a View3D texture handle (`ResourceDesc::texture`) and its pixel size; the texture stays owned by the host. A
+`StyleVisual::image` `ImageBrush` draws that image over the box's fill and border. `source` selects a pixel rectangle (empty means the whole image), and
+`slice_left/top/right/bottom` are nine-slice insets in source pixels. With slices, the brush emits up to nine `EVisualPrimitive::Image` draw items: corners
+keep their size (times `slice_scale`, where zero means one, and the root scale), edges stretch along one axis, and the centre stretches both ways. Borders that
+do not fit are shrunk in proportion. `tint` multiplies the sampled colour and is the only brush field that style transitions interpolate.
+
+The renderer binds a shader-visible SRV table at `t2` for image items. Heap slot 0 is the glyph atlas, slot 1 the resolved depth, slot 2 a null image
+descriptor, and slots 3 and later hold images. Images are resolved through the host bridge every frame; an image that no packet has used for 8 frames is
+evicted, and its slot is reused only after in-flight frames can no longer read it.
+
+UI colours and UNORM image texels are sRGB-encoded values, like colour-picker hex codes and PNG bytes. The shaders decode them to linear colour, so
+blending happens in linear space when the host's colour target has an sRGB format; the hardware then encodes the result on write. For any other target
+the shaders re-encode the colour before writing it. Either way the bytes on screen equal the authored bytes. sRGB textures are sampled through their
+sRGB view, so the hardware decodes them.
 
 ### 6.4 Styles and transitions
 
@@ -1207,7 +1240,7 @@ Review accepted decisions 1-5 below. Font packaging remains deliberately deferre
 | Outside click could clear focus but lose camera action | Clear focus while returning the same no-hit mouse-down as unconsumed |
 | UI resource failure after transaction validation | Keep last renderable snapshot until the new revision's resources are realizable; report explicit failure and do not present a success-shaped partial revision |
 | Screen-only bridge could block world policies | Versioned provider table reserves scene-adjacent and post-alpha world stages; M8 adds the currently absent resolved-depth resource |
-| Public templates become an arbitrary drawing language | Closed visual primitives/properties, required control parts, bounded counts, no shader/geometry/callback escape hatch |
+| Public templates become an arbitrary drawing language | Closed visual primitives/properties, closed template part roles, bounded counts, no shader/geometry/callback escape hatch |
 | Native and managed layouts drift | API version, struct headers, struct-size discovery, static assertions, managed `Marshal.SizeOf` tests |
 | Managed UI accidentally pulls WPF into `Rylogic.Gfx` | Keep the API in `Rylogic.Gfx.UI`, add no WindowsDesktop/WPF reference, and assert package dependencies during inspection |
 | Box motion obscures dimension change | Keep the box centered at the origin with a simple world-Z rotation; derive the local +X audio emitter from the same transform and verify resize visually |

@@ -20,11 +20,20 @@ namespace pr::view3d::ui
 		// padding is ever needed.
 		constexpr std::uint32_t kAtlasPageDim = 512;
 
+		// SRV heap layout: slot 0 is the glyph atlas, slot 1 the host's resolved scene depth, slot 2 a null image that keeps root
+		// parameter 2 well-defined for draws that sample no image, and every later slot one borrowed image texture.
+		constexpr std::uint32_t kNullImageDescriptor = 2;
+		constexpr std::uint32_t kFixedDescriptorCount = 3;
+
+		// An image unused for this many Prepare calls is evicted, and a slot whose image was replaced is not rewritten for this many
+		// calls. Both bound the time a descriptor may still be read by a frame the GPU has not finished.
+		constexpr std::uint64_t kImageRetireFrames = 8;
+
 		// Every root-constants payload is exactly eight float4 groups (32 DWORDs), deliberately
 		// avoiding any scalar/float2 field: HLSL cbuffer packing pads scalars/float2s to avoid
 		// straddling 16-byte boundaries, and reasoning about that padding by hand is error-prone,
 		// whereas float4-only layouts are always 16-byte aligned/sized on both sides with zero
-		// ambiguity. Box draws populate g0..g3 (+g4.x); glyph draws populate g0/g1.xy/g2/g4/g5;
+		// ambiguity. Box draws populate g0..g3 (+g4.x); glyph and image draws populate g0/g1.xy/g2/g4/g5;
 		// g6/g7 carry the per-group world-root depth and occlusion-fade parameters and are read
 		// only by the occlusion-faded pixel shaders. Which fields apply is determined entirely by
 		// which PSO is bound, not by any field here.
@@ -40,9 +49,9 @@ namespace pr::view3d::ui
 			float g2[4]; // fill_r, fill_g, fill_b, fill_a
 			float g3[4]; // border_r, border_g, border_b, border_a
 			float g4[4]; // opacity, uv0_x, uv0_y, uv1_x
-			float g5[4]; // uv1_y, page, clip_depth, unused
+			float g5[4]; // uv1_y, page (glyph) or srgb flag (image), clip_depth, unused
 			float g6[4]; // ui_view_depth, occlusion_min_opacity, occlusion_fade_depth, occlusion_depth_bias
-			float g7[4]; // near_plane, far_plane, orthographic, unused
+			float g7[4]; // near_plane, far_plane, orthographic, srgb_target
 		};
 		constexpr UINT kRootConstantCount = 32;
 		static_assert(sizeof(RootConstants) == kRootConstantCount * sizeof(float));
@@ -60,16 +69,43 @@ namespace pr::view3d::ui
 		// (types.h) has no selection channel, and inventing one would be a public ABI change.
 		constexpr Colour kSelectionFill{ 0.24f, 0.47f, 0.85f, 0.45f };
 
+		// True for formats the hardware decodes from sRGB when sampled and encodes to sRGB when written.
+		bool IsSrgbFormat(DXGI_FORMAT format)
+		{
+			// Only sRGB variants convert; every other format stores values unchanged.
+			switch (format)
+			{
+				case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:
+				case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB:
+				case DXGI_FORMAT_B8G8R8X8_UNORM_SRGB:
+				case DXGI_FORMAT_BC1_UNORM_SRGB:
+				case DXGI_FORMAT_BC2_UNORM_SRGB:
+				case DXGI_FORMAT_BC3_UNORM_SRGB:
+				case DXGI_FORMAT_BC7_UNORM_SRGB:
+				{
+					return true;
+				}
+				default:
+				{
+					return false;
+				}
+			}
+		}
+
 		// Vertex shader emits a unit quad from SV_VertexID alone (no vertex/index buffer is ever
 		// bound); both pixel shaders consume only the six float4 groups their own draw populated.
 		// PSBox renders solid/rounded/border boxes via two nested rounded-box SDF evaluations (one
 		// for the outer anti-aliased silhouette, one for the fill-vs-border boundary); PSGlyph
-		// samples one page of the glyph atlas and modulates it by the item's fill colour/opacity.
-		// PSBoxFaded/PSGlyphFaded add the occlusion fade: they read the host's resolved single-
+		// samples one page of the glyph atlas and modulates it by the item's fill colour/opacity. PSImage samples a borrowed image
+		// texture, whose texels are straight alpha, and multiplies it by the item's tint (fill) and opacity.
+		// PSBoxFaded/PSGlyphFaded/PSImageFaded add the occlusion fade: they read the host's resolved single-
 		// sample depth at their own pixel, convert it to a linear view depth, and scale opacity
 		// down towards the group's floor as scene geometry moves in front of the root's anchor.
 		// All outputs are premultiplied (colour already multiplied by coverage*alpha*opacity) to
 		// match the renderer's fixed premultiplied source-over blend state.
+		// UI colours and UNORM image texels are sRGB-encoded bytes, like colour-picker and PNG values. Every shader decodes them to
+		// linear before mixing, then writes linear colour to an sRGB target (the hardware encodes it on write) or re-encodes it for any
+		// other target. Either way the bytes on screen equal the authored bytes, and an sRGB target also blends in linear space.
 		constexpr char const* kShaderSource = R"hlsl(
 cbuffer RootConstants : register(b0)
 {
@@ -85,6 +121,7 @@ cbuffer RootConstants : register(b0)
 
 Texture2DArray<float> glyph_atlas : register(t0);
 Texture2D<float> scene_depth : register(t1);
+Texture2D<float4> image_tex : register(t2);
 SamplerState glyph_sampler : register(s0);
 
 struct VSOut
@@ -118,13 +155,43 @@ float RoundedBoxSdf(float2 p, float2 half_extent, float radius)
 	return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - radius;
 }
 
+// Decode sRGB-encoded colour, such as a UI style colour or a UNORM image texel, to linear colour.
+float3 SrgbToLinear(float3 c)
+{
+	float3 lo = c / 12.92;
+	float3 hi = pow((max(c, 0.0) + 0.055) / 1.055, 2.4);
+	return lerp(hi, lo, step(c, 0.04045));
+}
+
+// Encode linear colour as sRGB.
+float3 LinearToSrgb(float3 c)
+{
+	float3 lo = c * 12.92;
+	float3 hi = 1.055 * pow(max(c, 0.0), 1.0 / 2.4) - 0.055;
+	return lerp(hi, lo, step(c, 0.0031308));
+}
+
+// Decode an sRGB-encoded colour with straight alpha to linear colour. Alpha is never encoded.
+float4 DecodeColour(float4 c)
+{
+	return float4(SrgbToLinear(c.rgb), c.a);
+}
+
+// Premultiplied output for a linear straight-alpha colour. An sRGB target encodes linear values itself; any other target stores encoded bytes.
+float4 TargetColour(float3 linear_rgb, float alpha)
+{
+	float srgb_target = g7.w;
+	float3 rgb = srgb_target != 0.0 ? linear_rgb : LinearToSrgb(linear_rgb);
+	return float4(rgb * alpha, alpha);
+}
+
 float BoxCoverage(VSOut i, out float4 straight)
 {
 	float2 rect_size = g1.xy;
 	float border_thickness = g1.z;
 	float corner_radius = g1.w;
-	float4 fill_colour = g2;
-	float4 border_colour = g3;
+	float4 fill_colour = DecodeColour(g2);
+	float4 border_colour = DecodeColour(g3);
 
 	float2 half_extent = rect_size * 0.5;
 	float2 p = i.local * rect_size - half_extent;
@@ -183,14 +250,14 @@ float4 PSBox(VSOut i) : SV_TARGET
 {
 	float4 straight;
 	float coverage = BoxCoverage(i, straight) * g4.x;
-	return float4(straight.rgb * straight.a * coverage, straight.a * coverage);
+	return TargetColour(straight.rgb, straight.a * coverage);
 }
 
 float4 PSBoxFaded(VSOut i) : SV_TARGET
 {
 	float4 straight;
 	float coverage = BoxCoverage(i, straight) * g4.x * OcclusionFade(i.pos.xy);
-	return float4(straight.rgb * straight.a * coverage, straight.a * coverage);
+	return TargetColour(straight.rgb, straight.a * coverage);
 }
 
 float GlyphCoverage(VSOut i)
@@ -205,16 +272,41 @@ float GlyphCoverage(VSOut i)
 
 float4 PSGlyph(VSOut i) : SV_TARGET
 {
-	float4 fill_colour = g2;
+	float4 fill_colour = DecodeColour(g2);
 	float alpha = GlyphCoverage(i) * fill_colour.a * g4.x;
-	return float4(fill_colour.rgb * alpha, alpha);
+	return TargetColour(fill_colour.rgb, alpha);
 }
 
 float4 PSGlyphFaded(VSOut i) : SV_TARGET
 {
-	float4 fill_colour = g2;
+	float4 fill_colour = DecodeColour(g2);
 	float alpha = GlyphCoverage(i) * fill_colour.a * g4.x * OcclusionFade(i.pos.xy);
-	return float4(fill_colour.rgb * alpha, alpha);
+	return TargetColour(fill_colour.rgb, alpha);
+}
+
+// Linear straight-alpha image colour for this pixel: the texel at the item's uv rect times the tint. An sRGB texture's samples
+// arrive linear from the hardware; a UNORM texture's samples are encoded bytes and are decoded here.
+float4 ImageColour(VSOut i)
+{
+	float2 uv0 = g4.yz;
+	float2 uv1 = float2(g4.w, g5.x);
+	float4 texel = image_tex.Sample(glyph_sampler, lerp(uv0, uv1, i.local));
+	if (g5.y == 0.0)
+		texel = DecodeColour(texel);
+
+	return texel * DecodeColour(g2);
+}
+
+float4 PSImage(VSOut i) : SV_TARGET
+{
+	float4 straight = ImageColour(i);
+	return TargetColour(straight.rgb, straight.a * g4.x);
+}
+
+float4 PSImageFaded(VSOut i) : SV_TARGET
+{
+	float4 straight = ImageColour(i);
+	return TargetColour(straight.rgb, straight.a * g4.x * OcclusionFade(i.pos.xy));
 }
 )hlsl";
 
@@ -246,9 +338,10 @@ float4 PSGlyphFaded(VSOut i) : SV_TARGET
 		}
 	}
 
-	Renderer::Renderer(IUnknown* device, Config const& config) noexcept
+	Renderer::Renderer(IUnknown* device, Config const& config, TextureResolverFn texture_resolver) noexcept
 		: m_device(device)
 		, m_config(config)
+		, m_texture_resolver(texture_resolver)
 	{
 	}
 
@@ -299,7 +392,7 @@ float4 PSGlyphFaded(VSOut i) : SV_TARGET
 
 		Microsoft::WRL::ComPtr<ID3D12Resource> glyph_atlas;
 		Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> srv_heap;
-		CreateGlyphAtlasResources(device.Get(), atlas_dim_px, pages_capacity, glyph_atlas, srv_heap);
+		CreateGlyphAtlasResources(device.Get(), atlas_dim_px, pages_capacity, m_config.max_resources, glyph_atlas, srv_heap);
 
 		// Every step above succeeded; commit as one atomic group of moves/copies, and only now
 		// does 'm_d3d_device != nullptr' become true for every later EnsureDeviceResources/Draw
@@ -317,13 +410,18 @@ float4 PSGlyphFaded(VSOut i) : SV_TARGET
 		m_srv_heap = std::move(srv_heap);
 		m_glyph_uploads.resize(pages_capacity);
 		m_glyph_upload_mapped.assign(pages_capacity, nullptr);
+		m_images.clear();
+		m_free_image_slots.clear();
+		for (auto slot = std::uint32_t{}; slot != m_config.max_resources; ++slot)
+			m_free_image_slots.push_back(FreeImageSlot{ .slot = slot, .available_frame = 0 });
+
 		m_d3d_device = std::move(device);
 	}
 
 	Microsoft::WRL::ComPtr<ID3D12RootSignature> Renderer::CreateRootSignature(ID3D12Device* device)
 	{
 		// One descriptor table (the glyph atlas SRV at t0 and the host's resolved scene depth at
-		// t1) plus one inline 32-bit-constants parameter (32 DWORDs, well within the 64-DWORD
+		// t1), a second table holding the current image SRV at t2, plus one inline 32-bit-constants parameter (32 DWORDs, well within the 64-DWORD
 		// root-argument budget) and one static linear-clamp sampler; no descriptor heap management
 		// is needed for the sampler itself.
 		D3D12_DESCRIPTOR_RANGE srv_ranges[2]{};
@@ -339,7 +437,14 @@ float4 PSGlyphFaded(VSOut i) : SV_TARGET
 		srv_ranges[1].RegisterSpace = 0;
 		srv_ranges[1].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
-		D3D12_ROOT_PARAMETER params[2]{};
+		D3D12_DESCRIPTOR_RANGE image_range{};
+		image_range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+		image_range.NumDescriptors = 1;
+		image_range.BaseShaderRegister = 2;
+		image_range.RegisterSpace = 0;
+		image_range.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+		D3D12_ROOT_PARAMETER params[3]{};
 		params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
 		params[0].Constants.ShaderRegister = 0;
 		params[0].Constants.RegisterSpace = 0;
@@ -350,6 +455,12 @@ float4 PSGlyphFaded(VSOut i) : SV_TARGET
 		params[1].DescriptorTable.NumDescriptorRanges = 2;
 		params[1].DescriptorTable.pDescriptorRanges = srv_ranges;
 		params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
+		// The image table is separate so each image item can point it at its own descriptor without touching the atlas/depth table.
+		params[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+		params[2].DescriptorTable.NumDescriptorRanges = 1;
+		params[2].DescriptorTable.pDescriptorRanges = &image_range;
+		params[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
 		D3D12_STATIC_SAMPLER_DESC sampler{};
 		sampler.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
@@ -362,7 +473,7 @@ float4 PSGlyphFaded(VSOut i) : SV_TARGET
 		sampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
 		D3D12_ROOT_SIGNATURE_DESC desc{};
-		desc.NumParameters = 2;
+		desc.NumParameters = 3;
 		desc.pParameters = params;
 		desc.NumStaticSamplers = 1;
 		desc.pStaticSamplers = &sampler;
@@ -397,6 +508,8 @@ float4 PSGlyphFaded(VSOut i) : SV_TARGET
 			.ps_glyph = CompileShader("PSGlyph", "ps_5_0"),
 			.ps_box_faded = CompileShader("PSBoxFaded", "ps_5_0"),
 			.ps_glyph_faded = CompileShader("PSGlyphFaded", "ps_5_0"),
+			.ps_image = CompileShader("PSImage", "ps_5_0"),
+			.ps_image_faded = CompileShader("PSImageFaded", "ps_5_0"),
 		};
 	}
 
@@ -449,6 +562,7 @@ float4 PSGlyphFaded(VSOut i) : SV_TARGET
 
 		auto const* ps_box = faded ? shaders.ps_box_faded.Get() : shaders.ps_box.Get();
 		auto const* ps_glyph = faded ? shaders.ps_glyph_faded.Get() : shaders.ps_glyph.Get();
+		auto const* ps_image = faded ? shaders.ps_image_faded.Get() : shaders.ps_image.Get();
 
 		PipelineVariant variant;
 		desc.PS = { const_cast<ID3DBlob*>(ps_box)->GetBufferPointer(), const_cast<ID3DBlob*>(ps_box)->GetBufferSize() };
@@ -458,6 +572,10 @@ float4 PSGlyphFaded(VSOut i) : SV_TARGET
 		desc.PS = { const_cast<ID3DBlob*>(ps_glyph)->GetBufferPointer(), const_cast<ID3DBlob*>(ps_glyph)->GetBufferSize() };
 		if (FAILED(device->CreateGraphicsPipelineState(&desc, __uuidof(ID3D12PipelineState), Ppv(variant.glyph))))
 			throw EngineException(EStatus::InternalError, "Renderer: CreateGraphicsPipelineState(glyph) failed");
+
+		desc.PS = { const_cast<ID3DBlob*>(ps_image)->GetBufferPointer(), const_cast<ID3DBlob*>(ps_image)->GetBufferSize() };
+		if (FAILED(device->CreateGraphicsPipelineState(&desc, __uuidof(ID3D12PipelineState), Ppv(variant.image))))
+			throw EngineException(EStatus::InternalError, "Renderer: CreateGraphicsPipelineState(image) failed");
 
 		return variant;
 	}
@@ -555,7 +673,7 @@ float4 PSGlyphFaded(VSOut i) : SV_TARGET
 		return rect;
 	}
 
-	void Renderer::CreateGlyphAtlasResources(ID3D12Device* device, std::uint32_t atlas_dim_px, std::uint32_t pages_capacity, Microsoft::WRL::ComPtr<ID3D12Resource>& out_atlas, Microsoft::WRL::ComPtr<ID3D12DescriptorHeap>& out_srv_heap)
+	void Renderer::CreateGlyphAtlasResources(ID3D12Device* device, std::uint32_t atlas_dim_px, std::uint32_t pages_capacity, std::uint32_t image_capacity, Microsoft::WRL::ComPtr<ID3D12Resource>& out_atlas, Microsoft::WRL::ComPtr<ID3D12DescriptorHeap>& out_srv_heap)
 	{
 		// One committed default-heap texture array, one slice per page, sized to this Renderer's
 		// fixed page capacity up front; individual pages are only ever written into (never added
@@ -579,7 +697,7 @@ float4 PSGlyphFaded(VSOut i) : SV_TARGET
 
 		D3D12_DESCRIPTOR_HEAP_DESC heap_desc{};
 		heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-		heap_desc.NumDescriptors = 2; // slot 0: glyph atlas, slot 1: the host's resolved scene depth
+		heap_desc.NumDescriptors = kFixedDescriptorCount + image_capacity; // see kFixedDescriptorCount for the slot layout
 		heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 		if (FAILED(device->CreateDescriptorHeap(&heap_desc, __uuidof(ID3D12DescriptorHeap), Ppv(out_srv_heap))))
 			throw EngineException(EStatus::InternalError, "Renderer: glyph atlas SRV heap creation failed");
@@ -605,6 +723,15 @@ float4 PSGlyphFaded(VSOut i) : SV_TARGET
 		depth_srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
 		depth_srv.Texture2D.MipLevels = 1;
 		device->CreateShaderResourceView(nullptr, &depth_srv, handle);
+
+		// Slot 2 is a null image, which samples as transparent black, bound whenever no image item is being drawn.
+		handle.ptr += increment;
+		D3D12_SHADER_RESOURCE_VIEW_DESC image_srv{};
+		image_srv.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		image_srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+		image_srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+		image_srv.Texture2D.MipLevels = 1;
+		device->CreateShaderResourceView(nullptr, &image_srv, handle);
 	}
 
 	void Renderer::EnsureGlyphUploadBuffer(std::uint32_t page)
@@ -758,12 +885,115 @@ float4 PSGlyphFaded(VSOut i) : SV_TARGET
 		}
 	}
 
+	void Renderer::PrepareImages(DrawPacket const& packet, bool& out_hit_limit, bool& out_invalid)
+	{
+		// Each Prepare is one image frame; entries touched this frame are stamped with it.
+		out_hit_limit = false;
+		out_invalid = false;
+		++m_image_frame;
+
+		auto const increment = m_d3d_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+		auto const heap_start = m_srv_heap->GetCPUDescriptorHandleForHeapStart();
+		for (auto const& item : packet.items)
+		{
+			// Only image items need a texture, and each texture is resolved at most once per frame.
+			if (item.primitive != EVisualPrimitive::Image)
+				continue;
+
+			auto existing = m_images.find(item.image_texture);
+			if (existing != m_images.end() && existing->second.last_frame == m_image_frame)
+				continue;
+
+			// The texture owner may have replaced the resource behind a handle, so the handle is resolved again each frame. A handle with
+			// no resource, or a resource whose size differs from the declared image size, would sample the wrong texels, so it is skipped.
+			auto* resource = m_texture_resolver(item.image_texture);
+			if (resource == nullptr)
+			{
+				out_invalid = true;
+				continue;
+			}
+
+			auto const desc = resource->GetDesc();
+			if (desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D || desc.Width != item.image_width || desc.Height != item.image_height)
+			{
+				out_invalid = true;
+				continue;
+			}
+
+			// An entry whose resource is unchanged only needs its frame stamp refreshed.
+			if (existing != m_images.end() && existing->second.resource.Get() == resource)
+			{
+				existing->second.last_frame = m_image_frame;
+				continue;
+			}
+
+			// A replaced resource gives up its slot, but the slot is not rewritten until any frame that may still read it has finished.
+			if (existing != m_images.end())
+			{
+				m_free_image_slots.push_back(FreeImageSlot{ .slot = existing->second.slot, .available_frame = m_image_frame + kImageRetireFrames });
+				m_images.erase(existing);
+			}
+
+			// Images that no packet has used recently give their slots back before a new slot is chosen.
+			std::erase_if(m_images, [this](auto const& entry)
+			{
+				// An image last used kImageRetireFrames ago can no longer be read by an unfinished frame, so its slot is free at once.
+				if (m_image_frame - entry.second.last_frame < kImageRetireFrames)
+					return false;
+
+				m_free_image_slots.push_back(FreeImageSlot{ .slot = entry.second.slot, .available_frame = m_image_frame });
+				return true;
+			});
+
+			// Take the first slot that is safe to write. When none is, the image is skipped this frame and reported as a resource limit.
+			auto free_slot = std::find_if(m_free_image_slots.begin(), m_free_image_slots.end(), [this](FreeImageSlot const& s) { return s.available_frame <= m_image_frame; });
+			if (free_slot == m_free_image_slots.end())
+			{
+				out_hit_limit = true;
+				continue;
+			}
+			auto const slot = free_slot->slot;
+			m_free_image_slots.erase(free_slot);
+
+			// An sRGB texture cannot be viewed with a non-sRGB format without format-casting support, so the view keeps the sRGB format
+			// and the hardware decodes its samples to linear. A typeless texture is viewed with its plain UNORM format.
+			auto format = desc.Format;
+			switch (desc.Format)
+			{
+				case DXGI_FORMAT_R8G8B8A8_TYPELESS: { format = DXGI_FORMAT_R8G8B8A8_UNORM; break; }
+				case DXGI_FORMAT_B8G8R8A8_TYPELESS: { format = DXGI_FORMAT_B8G8R8A8_UNORM; break; }
+				default: { break; }
+			}
+			auto const srgb = IsSrgbFormat(format);
+
+			// Write the view into the image's slot, after the fixed descriptors.
+			D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
+			srv.Format = format;
+			srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+			srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+			srv.Texture2D.MipLevels = desc.MipLevels;
+			auto handle = heap_start;
+			handle.ptr += static_cast<SIZE_T>(kFixedDescriptorCount + slot) * increment;
+			m_d3d_device->CreateShaderResourceView(resource, &srv, handle);
+
+			m_images[item.image_texture] = ImageEntry{
+				.resource = resource,
+				.slot = slot,
+				.width = item.image_width,
+				.height = item.image_height,
+				.srgb = srgb,
+				.last_frame = m_image_frame,
+			};
+		}
+	}
+
 	float Renderer::TextRunStartXDip(DrawItem const& item, float total_advance_dip)
 	{
 		switch (item.text_align)
 		{
 			case ETextAlign::Left: return item.bounds.x + item.text_inset_dip - item.text_scroll_dip;
 			case ETextAlign::Center: return item.bounds.x + (item.bounds.w - total_advance_dip) * 0.5f;
+			case ETextAlign::Right: return item.bounds.x + item.bounds.w - item.text_inset_dip - total_advance_dip;
 			case ETextAlign::Count:
 			default:
 			{
@@ -785,6 +1015,7 @@ float4 PSGlyphFaded(VSOut i) : SV_TARGET
 			rc.g7[0] = group.near_plane;
 			rc.g7[1] = group.far_plane;
 			rc.g7[2] = group.orthographic;
+			rc.g7[3] = group.srgb_target;
 		}
 	}
 
@@ -809,6 +1040,38 @@ float4 PSGlyphFaded(VSOut i) : SV_TARGET
 		rc.g3[3] = item.border_colour.a;
 		rc.g4[0] = item.opacity;
 		// g4[1..3]/g5[0..1] are read only by the glyph shaders; left zero-initialised for a box draw.
+		ApplyGroupState(rc, group);
+
+		pass.m_command_list->SetGraphicsRoot32BitConstants(0, kRootConstantCount, &rc, 0);
+		pass.m_command_list->DrawInstanced(4, 1, 0, 0);
+	}
+
+	void Renderer::DrawImageItem(Pass const& pass, GroupState const& group, DrawItem const& item, ImageEntry const& image, float dpi_scale, float viewport_w, float viewport_h)
+	{
+		// Point the image table at this item's texture.
+		auto const increment = m_d3d_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+		auto table = m_srv_heap->GetGPUDescriptorHandleForHeapStart();
+		table.ptr += static_cast<UINT64>(kFixedDescriptorCount + image.slot) * increment;
+		pass.m_command_list->SetGraphicsRootDescriptorTable(2, table);
+
+		// The item's uv rect is (x, y, w, h) in normalised texture space and its fill is the tint.
+		RootConstants rc{};
+		rc.g0[0] = viewport_w;
+		rc.g0[1] = viewport_h;
+		rc.g0[2] = item.bounds.x * dpi_scale;
+		rc.g0[3] = item.bounds.y * dpi_scale;
+		rc.g1[0] = item.bounds.w * dpi_scale;
+		rc.g1[1] = item.bounds.h * dpi_scale;
+		rc.g2[0] = item.fill.r;
+		rc.g2[1] = item.fill.g;
+		rc.g2[2] = item.fill.b;
+		rc.g2[3] = item.fill.a;
+		rc.g4[0] = item.opacity;
+		rc.g4[1] = item.uv.x;
+		rc.g4[2] = item.uv.y;
+		rc.g4[3] = item.uv.x + item.uv.w;
+		rc.g5[0] = item.uv.y + item.uv.h;
+		rc.g5[1] = image.srgb ? 1.0f : 0.0f;
 		ApplyGroupState(rc, group);
 
 		pass.m_command_list->SetGraphicsRoot32BitConstants(0, kRootConstantCount, &rc, 0);
@@ -1004,6 +1267,11 @@ float4 PSGlyphFaded(VSOut i) : SV_TARGET
 		pass.m_command_list->SetDescriptorHeaps(1, heaps);
 		pass.m_command_list->SetGraphicsRootDescriptorTable(1, m_srv_heap->GetGPUDescriptorHandleForHeapStart());
 
+		// The image table starts at the null image so every draw sees a valid descriptor; image items rebind it per item.
+		auto null_image = m_srv_heap->GetGPUDescriptorHandleForHeapStart();
+		null_image.ptr += static_cast<UINT64>(kNullImageDescriptor) * m_d3d_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+		pass.m_command_list->SetGraphicsRootDescriptorTable(2, null_image);
+
 		pass.m_command_list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
 		pass.m_command_list->RSSetViewports(1, &pass.m_viewport);
 		pass.m_command_list->RSSetScissorRects(1, &pass.m_scissor);
@@ -1017,6 +1285,9 @@ float4 PSGlyphFaded(VSOut i) : SV_TARGET
 		auto const near_plane = pass.m_camera.m_near_plane;
 		auto const far_plane = pass.m_camera.m_far_plane;
 		auto const orthographic = pass.m_camera.m_orthographic != 0 ? 1.0f : 0.0f;
+
+		// Every shader writes linear colour to an sRGB target and encoded colour to any other target.
+		auto const srgb_target = IsSrgbFormat(pass.m_colour_format) ? 1.0f : 0.0f;
 
 		// DrawPacket::groups is in tree root order and partitions DrawPacket::items, which is
 		// itself a stable pre-order traversal (draw_packet.h), so recording draw calls in this
@@ -1035,6 +1306,7 @@ float4 PSGlyphFaded(VSOut i) : SV_TARGET
 				.near_plane = near_plane,
 				.far_plane = far_plane,
 				.orthographic = orthographic,
+				.srgb_target = srgb_target,
 			};
 
 			auto bound = EVisualPrimitive::Count;
@@ -1060,6 +1332,21 @@ float4 PSGlyphFaded(VSOut i) : SV_TARGET
 						// DrawTextItem binds its own pipelines because one text item can mix box
 						// quads (selection, composition underline, caret) with glyph quads.
 						bound = DrawTextItem(pass, state, item, variant, bound, dpi_scale, viewport_w, viewport_h);
+						break;
+					}
+					case EVisualPrimitive::Image:
+					{
+						// PrepareImages skipped any texture that is unresolved, the wrong size, or over the slot limit; such items draw nothing.
+						auto image = m_images.find(item.image_texture);
+						if (image == m_images.end() || image->second.last_frame != m_image_frame || image->second.width != item.image_width || image->second.height != item.image_height)
+							break;
+
+						if (bound != EVisualPrimitive::Image)
+						{
+							pass.m_command_list->SetPipelineState(variant.image.Get());
+							bound = EVisualPrimitive::Image;
+						}
+						DrawImageItem(pass, state, item, image->second, dpi_scale, viewport_w, viewport_h);
 						break;
 					}
 					case EVisualPrimitive::ContentPresenter:
@@ -1111,12 +1398,21 @@ float4 PSGlyphFaded(VSOut i) : SV_TARGET
 					auto missing_asset = false;
 					PrepareText(pass.m_command_list, packet, hit_limit, missing_asset);
 
+					// Images are resolved after text so a bad image still leaves every glyph uploaded for this frame.
+					auto image_limit = false;
+					auto image_invalid = false;
+					PrepareImages(packet, image_limit, image_invalid);
+
 					// A missing font is the more actionable diagnosis, so it wins over a glyph
 					// budget that was merely exhausted; both leave the rest of the frame drawable.
+					// A mismatched image is a caller error and is reported ahead of an exhausted budget.
 					if (missing_asset)
 						return EStatus::MissingAsset;
 
-					return hit_limit ? EStatus::ResourceLimit : EStatus::Success;
+					if (image_invalid)
+						return EStatus::InvalidArgument;
+
+					return hit_limit || image_limit ? EStatus::ResourceLimit : EStatus::Success;
 				}
 				case EPass::DepthTested:
 				{

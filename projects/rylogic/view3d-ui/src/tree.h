@@ -60,7 +60,6 @@ namespace pr::view3d::ui
 	struct TemplateRecord
 	{
 		TemplateDesc desc;
-		std::string part_names[VIEW3D_UI_MAX_TEMPLATE_PARTS];
 	};
 
 	// Immutable-once-accepted retained tree plus resource/style/template tables. TreeModel values
@@ -85,14 +84,10 @@ namespace pr::view3d::ui
 		// True only when the control exists and it and every ancestor are Visible.
 		bool IsVisible(ControlId id) const;
 
-		// The built-in template used when a control's template_id == 0.
-		static TemplateRecord const& DefaultTemplate(EControlType type);
-
 		// The built-in style (EStateChannel::Normal only) used when a control's style_id == 0.
 		static StyleRecord const& DefaultStyle();
 	};
 
-	// Required template part names for closed control types with a required-parts contract
-	// (section 6.3). Types absent from this table (Root/Panel/Text) require no specific parts.
-	std::span<std::string_view const> RequiredTemplateParts(EControlType type);
+	// Whether a template part role may appear in a template for control type 'type'.
+	bool TemplateRoleAppliesTo(ETemplatePart role, EControlType type);
 }

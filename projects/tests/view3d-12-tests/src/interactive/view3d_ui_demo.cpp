@@ -1,4 +1,4 @@
-﻿//*********************************************
+//*********************************************
 // View3d 12 Test
 //  Copyright (c) Rylogic Ltd 2026
 //*********************************************
@@ -391,19 +391,15 @@ namespace view3d_test
 		textbox_template.header = UIHeader<TemplateDesc>();
 		textbox_template.id = UI_TextBoxTemplate;
 		textbox_template.applies_to = EControlType::TextBox;
-		builder.AddTemplatePart(textbox_template, "PART_Text", EVisualPrimitive::TextPresenter);
-		builder.AddTemplatePart(textbox_template, "PART_Selection", EVisualPrimitive::SolidBox);
-		builder.AddTemplatePart(textbox_template, "PART_Caret", EVisualPrimitive::SolidBox);
-		builder.AddTemplatePart(textbox_template, "PART_ValidationOutline", EVisualPrimitive::Border);
-		builder.AddTemplatePart(textbox_template, "PART_FocusOutline", EVisualPrimitive::Border);
+		builder.AddTemplatePart(textbox_template, TemplatePart{ .role = ETemplatePart::Background });
 		builder.AddTemplate(textbox_template);
 
 		auto button_template = TemplateDesc{};
 		button_template.header = UIHeader<TemplateDesc>();
 		button_template.id = UI_ButtonTemplate;
 		button_template.applies_to = EControlType::Button;
-		builder.AddTemplatePart(button_template, "PART_ContentPresenter", EVisualPrimitive::ContentPresenter);
-		builder.AddTemplatePart(button_template, "PART_FocusOutline", EVisualPrimitive::Border);
+		builder.AddTemplatePart(button_template, TemplatePart{ .role = ETemplatePart::Background });
+		builder.AddTemplatePart(button_template, TemplatePart{ .role = ETemplatePart::Text });
 		builder.AddTemplate(button_template);
 
 		// Screen-space gallery: vertical composition containing examples of every layout mode.

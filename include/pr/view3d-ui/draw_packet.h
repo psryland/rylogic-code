@@ -17,14 +17,16 @@ namespace pr::view3d::ui
 	// shaped run width it alone knows (TextShaper::Shape's returned total advance): Left starts
 	// the run at bounds.x + text_inset_dip - text_scroll_dip (a bare Text label uses inset 0; a TextBox insets its
 	// content from the left edge like a conventional text field); Center places the run in the
-	// middle of bounds.w, ignoring text_inset_dip, used for a Button's label. This is purely a
+	// middle of bounds.w, ignoring text_inset_dip, used for a Button's label; Right ends the run at
+	// bounds.x + bounds.w - text_inset_dip, used for tick labels drawn to the left of their ticks. This is purely a
 	// renderer hint - it never reaches the public C ABI - so it uses ordinary C++ enum semantics
 	// rather than the ABI's fixed-width EFoo convention.
 	enum class ETextAlign
 	{
 		Left = 0,
 		Center = 1,
-		Count = 2,
+		Right = 2,
+		Count = 3,
 	};
 
 	// One resolved visual primitive instance ready for a renderer to draw, in DIP space. Ordering
@@ -46,7 +48,7 @@ namespace pr::view3d::ui
 		std::string font_family; // resolved from ControlDesc::font_resource_id; empty selects the built-in fallback
 		float font_size;         // DIPs; resolved from the referenced Font resource, or a fixed default
 		ETextAlign text_align;   // renderer hint only, see ETextAlign; not part of the public C ABI
-		float text_inset_dip;    // DIPs; only applied when text_align == Left (see ETextAlign)
+		float text_inset_dip;    // DIPs; applied when text_align is Left or Right (see ETextAlign)
 		float text_scroll_dip;   // DIPs the whole text layout, with its decorations, is shifted left; only applied when text_align == Left
 
 		// When 'text_clipped' is non-zero, the glyphs and text-edit decorations are drawn only inside 'text_clip' (screen DIPs), so text longer
@@ -64,6 +66,13 @@ namespace pr::view3d::ui
 		std::uint32_t composition_length; // 0 when no composition is active
 		std::uint32_t caret_offset;
 		std::int32_t caret_visible;
+
+		// Image source, only populated when primitive == Image. 'image_texture' is the borrowed host texture handle, 'image_width'/'image_height'
+		// its expected pixel size, and 'uv' the normalised source rectangle stretched over 'bounds'. 'fill' carries the image tint.
+		std::uint64_t image_texture;
+		std::uint32_t image_width;
+		std::uint32_t image_height;
+		Rect uv;
 	};
 
 	// A contiguous run of DrawPacket::items belonging to one root, carrying the host-stage policy

@@ -191,6 +191,9 @@ public sealed record UiControlDesc
 	/// <summary>Maximum visible drop-down rows for ComboBox; must be greater than zero for ComboBox.</summary>
 	public uint MaxVisibleItems { get; set; }
 
+	/// <summary>Value axis direction for Slider and ProgressBar. Vertical values increase upward. Ignored by other control types.</summary>
+	public EOrientation Orientation { get; set; } = EOrientation.Horizontal;
+
 	/// <summary>
 	/// Create an independent deep copy: mutating the clone's Layout/World (or this instance's) afterward cannot affect the
 	/// other, because Layout and World are themselves replaced with their own independent copies rather than shared by
@@ -287,10 +290,12 @@ public sealed record UiControlDesc
 /// <summary>
 /// One named, closed-vocabulary resource (the 'Resource' EStructId). When Kind is Font, Name is the font family (empty
 /// selects the built-in Segoe UI fallback), FontSize is its DIP size (&lt;= 0 selects a fixed default size), and Colour is
-/// the text colour (fully transparent, i.e. alpha &lt;= 0, selects a fixed opaque-black fallback). A record: two instances
-/// with equal property values compare equal, and 'with' produces an independent copy since every property here is a value
-/// type or an immutable string. Submitting this via UiTransactionBuilder.AddResource copies every field into the queued
-/// transaction immediately, so mutating this instance afterward can never change an already-queued transaction.
+/// the text colour (fully transparent, i.e. alpha &lt;= 0, selects a fixed opaque-black fallback). When Kind is Image,
+/// Texture is a View3D texture handle owned by the host, ImageWidth/ImageHeight are its pixel size (both non-zero), and Name
+/// is an optional diagnostic label. A record: two instances with equal property values compare equal, and 'with' produces an
+/// independent copy since every property here is a value type or an immutable string. Submitting this via
+/// UiTransactionBuilder.AddResource copies every field into the queued transaction immediately, so mutating this instance
+/// afterward can never change an already-queued transaction.
 /// </summary>
 public sealed record UiResourceDesc
 {
@@ -301,6 +306,41 @@ public sealed record UiResourceDesc
 	public Colour Colour { get; set; } = Colour.TransparentBlack;
 	public string Name { get; set; } = string.Empty;
 	public float FontSize { get; set; }
+
+	/// <summary>
+	/// Image resources only: the View3D texture handle (View3d.Texture.Handle). The host owns the texture and must keep it alive while
+	/// the resource is registered.
+	/// </summary>
+	public IntPtr Texture { get; set; }
+
+	/// <summary>Image resources only: the texture width in pixels.</summary>
+	public uint ImageWidth { get; set; }
+
+	/// <summary>Image resources only: the texture height in pixels.</summary>
+	public uint ImageHeight { get; set; }
+
+	/// <summary>
+	/// Create an Image resource for 'texture', taking its handle and pixel size. The caller keeps ownership of 'texture' and must keep it
+	/// alive while the resource is registered.
+	/// </summary>
+	public static UiResourceDesc Image(ResourceId id, View3d.Texture texture, string name = "")
+	{
+		// Copy the handle and size so the descriptor holds no reference to the managed texture object
+		if (texture is null)
+			throw new ArgumentNullException(nameof(texture));
+		if (texture.Handle == IntPtr.Zero)
+			throw new ArgumentException("The texture has been disposed or was never created.", nameof(texture));
+
+		return new UiResourceDesc
+		{
+			Id = id,
+			Kind = EResourceKind.Image,
+			Name = name ?? string.Empty,
+			Texture = texture.Handle,
+			ImageWidth = checked((uint)texture.Info.Width),
+			ImageHeight = texture.Info.Height,
+		};
+	}
 }
 
 /// <summary>
@@ -432,37 +472,69 @@ public sealed class UiStyleDesc : IEquatable<UiStyleDesc>
 	}
 }
 
-/// <summary>One named template part. 'Name' names a semantic part such as "PART_ContentPresenter"; behaviour targets these names, not hard-coded geometry.</summary>
+/// <summary>
+/// One role-based template part. The part places a styled box inside the control bounds, inset by DIP margins (scaled with the root).
+/// Thumb parts use Width x Height as the thumb size; Ticks parts use Ticks to describe the tick band. Lengths must be finite and
+/// non-negative. Which roles apply to which control types is described on ETemplatePart.
+/// </summary>
 public readonly struct UiTemplatePart : IEquatable<UiTemplatePart>
 {
-	public string Name { get; }
-	public EVisualPrimitive Primitive { get; }
-	public bool Required { get; }
+	/// <summary>The closed role this part plays.</summary>
+	public ETemplatePart Role { get; }
 
-	/// <summary>Create a named template part.</summary>
-	public UiTemplatePart(string name, EVisualPrimitive primitive, bool required = true)
+	/// <summary>Style used to draw the part, or StyleId.None to use the control's style.</summary>
+	public StyleId StyleId { get; }
+
+	/// <summary>DIP insets from the control bounds.</summary>
+	public float MarginLeft { get; }
+	public float MarginTop { get; }
+	public float MarginRight { get; }
+	public float MarginBottom { get; }
+
+	/// <summary>DIP size of a Thumb part. Unused by other roles.</summary>
+	public float Width { get; }
+	public float Height { get; }
+
+	/// <summary>Tick band parameters for a Ticks part. Unused by other roles.</summary>
+	public TickParams Ticks { get; }
+
+	/// <summary>Create a template part.</summary>
+	public UiTemplatePart(ETemplatePart role, StyleId style_id = default, float margin_left = 0, float margin_top = 0, float margin_right = 0, float margin_bottom = 0, float width = 0, float height = 0, TickParams ticks = default)
 	{
-		Name = name ?? throw new ArgumentNullException(nameof(name));
-		Primitive = primitive;
-		Required = required;
+		// Store the fields; validation happens natively when the transaction is applied
+		Role = role;
+		StyleId = style_id;
+		MarginLeft = margin_left;
+		MarginTop = margin_top;
+		MarginRight = margin_right;
+		MarginBottom = margin_bottom;
+		Width = width;
+		Height = height;
+		Ticks = ticks;
 	}
 
 	/// <inheritdoc/>
 	public bool Equals(UiTemplatePart other)
 	{
-		return Name == other.Name && Primitive == other.Primitive && Required == other.Required;
+		// Compare every field
+		return
+			Role == other.Role && StyleId == other.StyleId &&
+			MarginLeft == other.MarginLeft && MarginTop == other.MarginTop && MarginRight == other.MarginRight && MarginBottom == other.MarginBottom &&
+			Width == other.Width && Height == other.Height && Ticks == other.Ticks;
 	}
 
 	/// <inheritdoc/>
 	public override bool Equals(object? obj)
 	{
+		// Only another part can be equal
 		return obj is UiTemplatePart other && Equals(other);
 	}
 
 	/// <inheritdoc/>
 	public override int GetHashCode()
 	{
-		return HashUtil.Combine(Name, Primitive, Required);
+		// Hash every field
+		return HashUtil.Combine(Role, StyleId, MarginLeft, MarginTop, MarginRight, MarginBottom, Width, Height, Ticks);
 	}
 
 	/// <summary>Compare two template parts.</summary>
@@ -479,8 +551,8 @@ public readonly struct UiTemplatePart : IEquatable<UiTemplatePart>
 }
 
 /// <summary>
-/// One closed-vocabulary lookless template (the 'Template' EStructId): a bounded, ordered list of named visual parts a
-/// control's applied StyleDesc can target. The native ABI caps this list at VIEW3D_UI_MAX_TEMPLATE_PARTS entries. Not a
+/// One closed-vocabulary drawing template (the 'Template' EStructId): a bounded list of role parts for one control type.
+/// Each role may appear once, except Ticks. The native ABI caps this list at VIEW3D_UI_MAX_TEMPLATE_PARTS entries. Not a
 /// record, because its parts are held in a backing list rather than simple properties; IEquatable/Clone are implemented
 /// explicitly instead, comparing/copying the part sequence by value. Submitting this via UiTransactionBuilder.AddTemplate
 /// copies every part into the queued transaction immediately, so mutating this instance (via AddPart) afterward can never
@@ -508,13 +580,14 @@ public sealed class UiTemplateDesc : IEquatable<UiTemplateDesc>
 		}
 	}
 
-	/// <summary>Append a named part. Throws InvalidOperationException once MaxParts parts have already been added.</summary>
-	public void AddPart(string name, EVisualPrimitive primitive, bool required = true)
+	/// <summary>Append a role part. Throws InvalidOperationException once MaxParts parts have already been added.</summary>
+	public void AddPart(UiTemplatePart part)
 	{
+		// Enforce the fixed native part capacity
 		if (m_parts.Count >= MaxParts)
 			throw new InvalidOperationException($"Template already has the maximum of {MaxParts} parts (VIEW3D_UI_MAX_TEMPLATE_PARTS).");
 
-		m_parts.Add(new UiTemplatePart(name, primitive, required));
+		m_parts.Add(part);
 	}
 
 	/// <summary>Create an independent copy whose Parts list is snapshotted separately from this instance's.</summary>

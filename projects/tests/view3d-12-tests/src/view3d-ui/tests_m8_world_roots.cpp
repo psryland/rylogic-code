@@ -644,7 +644,7 @@ namespace pr::view3d::ui::tests
 
 		// The version pair must move together with the layout; M8 is the second revision.
 		PR_EXPECT(HostStructVersion == 2U);
-		PR_EXPECT(HostApiVersion == 0x00030000U);
+		PR_EXPECT(HostApiVersion == 0x00040000U);
 
 		// EPass is a closed set of five host stages; the renderer switches exhaustively over it.
 		PR_EXPECT(static_cast<int>(EPass::Prepare) == 0);
@@ -670,8 +670,8 @@ namespace pr::view3d::ui::tests
 		static_assert(offsetof(ViewportState, camera) > offsetof(ViewportState, time_ms), "CameraState must follow every pre-M8 ViewportState member");
 		static_assert(offsetof(ViewportState, camera) + sizeof(CameraState) <= sizeof(ViewportState), "CameraState must fit inside ViewportState");
 
-		PR_EXPECT(VIEW3D_UI_STRUCT_VERSION == 9U);
-		PR_EXPECT(VIEW3D_UI_API_VERSION == 0x00090000U);
+		PR_EXPECT(VIEW3D_UI_STRUCT_VERSION == 10U);
+		PR_EXPECT(VIEW3D_UI_API_VERSION == 0x000A0000U);
 
 		// The policy enum is closed and Screen keeps value 0, so a zero-initialised descriptor is
 		// still a screen root exactly as it was before M8.
@@ -937,7 +937,7 @@ namespace pr::view3d::ui::tests
 		auto const& packet = engine.DrawPackets();
 		PR_EXPECT(packet.groups.size() == 4);
 
-		auto renderer = Renderer(fixture->device.Get(), MakeConfig());
+		auto renderer = Renderer(fixture->device.Get(), MakeConfig(), &NoTextures);
 
 		// Prepare must run first; it is what realises the device resources every later stage needs.
 		auto prepare = MakeWorldPass(*fixture, EPass::Prepare, camera);
@@ -968,7 +968,7 @@ namespace pr::view3d::ui::tests
 		ApplyControls(engine, { MakeWorldRoot(1, ERootPolicy::DepthTested, 120.0f, 60.0f, WorldParams(Vec3{ 0, 0, 10 })) });
 		engine.Update(Viewport(256, 128, 96.0f, 0.0, camera));
 
-		auto renderer = Renderer(fixture->device.Get(), MakeConfig());
+		auto renderer = Renderer(fixture->device.Get(), MakeConfig(), &NoTextures);
 		auto prepare = MakeWorldPass(*fixture, EPass::Prepare, camera);
 		PR_EXPECT(renderer.Record(prepare, engine.DrawPackets()) == EStatus::Success);
 
@@ -997,7 +997,7 @@ namespace pr::view3d::ui::tests
 		ApplyControls(engine, { MakeControl(1, 0, EControlType::Root, ELayoutMode::Overlay, Lp(120.0f, 60.0f)) });
 		engine.Update(Viewport(256, 128, 96.0f, 0.0, camera));
 
-		auto renderer = Renderer(fixture->device.Get(), MakeConfig());
+		auto renderer = Renderer(fixture->device.Get(), MakeConfig(), &NoTextures);
 		PR_EXPECT(renderer.Record(MakeWorldPass(*fixture, EPass::Prepare, camera), engine.DrawPackets()) == EStatus::Success);
 
 		// The overlay pipelines are built once for the host's single-sample post-alpha target; a
@@ -1305,7 +1305,7 @@ namespace pr::view3d::ui::tests
 		ApplyControls(engine, { MakeWorldRoot(1, ERootPolicy::OcclusionFaded, 120.0f, 60.0f, WorldParams(Vec3{ 0, 0, 10 })) });
 		engine.Update(Viewport(256, 128, 96.0f, 0.0, camera));
 
-		auto renderer = Renderer(fixture->device.Get(), MakeConfig());
+		auto renderer = Renderer(fixture->device.Get(), MakeConfig(), &NoTextures);
 		PR_EXPECT(renderer.Record(MakeWorldPass(*fixture, EPass::Prepare, camera), engine.DrawPackets()) == EStatus::Success);
 		PR_EXPECT(renderer.ResolvedDepthViewEpoch() == 0);
 
@@ -1362,7 +1362,7 @@ namespace pr::view3d::ui::tests
 		Microsoft::WRL::ComPtr<ID3D12Resource> typeless_depth;
 		PR_EXPECT(SUCCEEDED(fixture->device->CreateCommittedResource(&heap_props, D3D12_HEAP_FLAG_NONE, &tex, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, nullptr, IID_PPV_ARGS(&typeless_depth))));
 
-		auto renderer = Renderer(fixture->device.Get(), MakeConfig());
+		auto renderer = Renderer(fixture->device.Get(), MakeConfig(), &NoTextures);
 		PR_EXPECT(renderer.Record(MakeWorldPass(*fixture, EPass::Prepare, camera), engine.DrawPackets()) == EStatus::Success);
 		auto faded = MakeWorldPass(*fixture, EPass::OcclusionFaded, camera);
 		faded.m_resolved_depth.m_resource = typeless_depth.Get();
@@ -1390,7 +1390,7 @@ namespace pr::view3d::ui::tests
 		ApplyControls(engine, { MakeWorldRoot(1, ERootPolicy::OcclusionFaded, 120.0f, 60.0f, WorldParams(Vec3{ 0, 0, 10 })) });
 		engine.Update(Viewport(256, 128, 96.0f, 0.0, camera));
 
-		auto renderer = Renderer(fixture->device.Get(), MakeConfig());
+		auto renderer = Renderer(fixture->device.Get(), MakeConfig(), &NoTextures);
 		PR_EXPECT(renderer.Record(MakeWorldPass(*fixture, EPass::Prepare, camera), engine.DrawPackets()) == EStatus::Success);
 
 		// The fade shader addresses the copy by SV_POSITION, which is in render-target pixels, so a
@@ -1421,7 +1421,7 @@ namespace pr::view3d::ui::tests
 		auto engine = UiEngine(MakeConfig());
 		ApplyControls(engine, { MakeWorldRoot(1, ERootPolicy::OcclusionFaded, 120.0f, 60.0f, WorldParams(Vec3{ 0, 0, 10 })) });
 
-		auto renderer = Renderer(fixture->device.Get(), MakeConfig());
+		auto renderer = Renderer(fixture->device.Get(), MakeConfig(), &NoTextures);
 		auto expected_epoch = std::uint64_t{ 0 };
 
 		// Alternate between two sizes so every pass is a cache miss, then settle: the epoch must
