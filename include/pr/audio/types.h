@@ -113,6 +113,8 @@ namespace pr::audio
 	};
 
 	// Spatial properties applied to a mono positional voice or stream.
+	// 'inner_radius' is the distance (m) from the emitter within which the listener hears the sound spread around them rather than from one
+	// direction. At the emitter's position the sound is even in every speaker. 0 keeps the sound a point source at every distance.
 	struct EmitterState
 	{
 		StructHeader header;
@@ -122,6 +124,7 @@ namespace pr::audio
 		Vector3 velocity;
 		float min_distance;
 		float max_distance;
+		float inner_radius;
 		float cone_inner_angle;
 		float cone_outer_angle;
 		float cone_outer_gain;

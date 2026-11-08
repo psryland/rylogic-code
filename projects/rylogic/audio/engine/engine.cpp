@@ -81,7 +81,8 @@ namespace pr::audio
 				throw std::invalid_argument(FmtS("%s must be finite and positive", name));
 		}
 
-		// Reject emitter state that positioning cannot use: a bad header, non-finite vectors, a bad basis, an empty distance range or invalid cone angles.
+		// Reject emitter state that positioning cannot use: a bad header, non-finite vectors, a bad basis, an empty distance range, a negative inner
+		// radius or invalid cone angles.
 		void ValidateEmitter(EmitterState const& emitter)
 		{
 			ValidateStruct(emitter, "EmitterState");
@@ -90,6 +91,8 @@ namespace pr::audio
 			ValidateBasis(emitter.forward, emitter.up, "Emitter orientation");
 			if (!std::isfinite(emitter.min_distance) || !std::isfinite(emitter.max_distance) || !(emitter.min_distance > 0.0f) || !(emitter.max_distance > emitter.min_distance))
 				throw std::invalid_argument("Emitter distance range is invalid");
+			if (!std::isfinite(emitter.inner_radius) || !(emitter.inner_radius >= 0.0f))
+				throw std::invalid_argument("Emitter inner radius must be finite and non-negative");
 			if (!std::isfinite(emitter.cone_inner_angle) || !std::isfinite(emitter.cone_outer_angle) || !(emitter.cone_inner_angle >= 0.0f && emitter.cone_inner_angle <= emitter.cone_outer_angle && emitter.cone_outer_angle <= X3DAUDIO_2PI))
 				throw std::invalid_argument("Emitter cone angles are invalid");
 			if (!std::isfinite(emitter.cone_outer_gain) || !std::isfinite(emitter.doppler_scale) || !std::isfinite(emitter.obstruction) || !std::isfinite(emitter.occlusion) || !std::isfinite(emitter.reverb_send))
@@ -314,6 +317,7 @@ namespace pr::audio
 			.velocity = {},
 			.min_distance = 1.0f,
 			.max_distance = 100.0f,
+			.inner_radius = 0.0f,
 			.cone_inner_angle = X3DAUDIO_2PI,
 			.cone_outer_angle = X3DAUDIO_2PI,
 			.cone_outer_gain = 1.0f,
@@ -859,12 +863,16 @@ namespace pr::audio
 				.pPoints = volume_points.data(),
 				.PointCount = static_cast<UINT32>(volume_points.size()),
 			};
+			// Inside the inner radius X3DAudio spreads the source around the listener. The widest supported smoothing angle avoids a sudden change
+			// in panning as the listener crosses the radius.
 			auto emitter = X3DAUDIO_EMITTER{
 				.pCone = state.cone_outer_angle < X3DAUDIO_2PI ? &cone : nullptr,
 				.OrientFront = Direction(state.forward, "Emitter forward"),
 				.OrientTop = Direction(state.up, "Emitter up"),
 				.Position = Position(state.position),
 				.Velocity = Position(state.velocity),
+				.InnerRadius = state.inner_radius,
+				.InnerRadiusAngle = state.inner_radius > 0.0f ? X3DAUDIO_PI / 4.0f : 0.0f,
 				.ChannelCount = 1,
 				.pVolumeCurve = &volume_curve,
 				.CurveDistanceScaler = state.max_distance,

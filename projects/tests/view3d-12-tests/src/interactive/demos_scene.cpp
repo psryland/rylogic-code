@@ -228,6 +228,7 @@ namespace view3d_test
 					.velocity = {emitter_velocity.x, emitter_velocity.y, emitter_velocity.z},
 					.min_distance = 0.5f,
 					.max_distance = 30.0f,
+					.inner_radius = 0.0f,
 					.cone_inner_angle = constants<float>::tau / 8.0f,
 					.cone_outer_angle = constants<float>::tau / 3.0f,
 					.cone_outer_gain = 0.1f,
