@@ -30,6 +30,7 @@ namespace pr::collision
 	struct ShapeLine;
 	struct ShapePolytope;
 	struct ShapeTriangle;
+	struct ShapeCylinder;
 	struct ShapeArray;
 	struct Contact;
 	struct Ray;

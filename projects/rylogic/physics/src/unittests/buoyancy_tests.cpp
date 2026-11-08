@@ -413,6 +413,19 @@ namespace pr::physics::tests
 
 		}
 
+		// A cylinder flattens to one analytic Cylinder primitive carrying its radius and half-length.
+		PRUnitTestMethod(FlattenCylinder, Extended)
+		{
+			auto cylinder = collision::ShapeCylinder(3.0f, 0.5f);
+			auto const hull = buoyancy::FlattenShape(collision::shape_cast(cylinder));
+			PR_EXPECT(hull.m_primitives.size() == 1);
+
+			auto const& p = hull.m_primitives[0];
+			PR_EXPECT(p.m_type == static_cast<int>(buoyancy::EPrimitiveType::Cylinder));
+			PR_EXPECT(FEqlAbsolute(p.m_params.x, 0.5f, 1e-6f));
+			PR_EXPECT(FEqlAbsolute(p.m_params.y, 1.5f, 1e-6f));
+		}
+
 		// The water pass derives an untessellated collision polytope directly from the rigid body. A
 		// fully submerged cube reports its exact total volume because every surface water column is wet.
 		PRUnitTestMethod(GpuCompositeDerivesBodyPolytope, Extended)
@@ -794,6 +807,55 @@ namespace pr::physics::tests
 				h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
 
 				auto const diag = h.Diagnostics(0);
+				PR_EXPECT(diag.m_valid);
+				PR_EXPECT(FEqlAbsolute(diag.m_volume_m3, 0.5f * volume, volume * 0.02f));
+				PR_EXPECT(diag.m_centre_buoyancy_ws.z < 0.0f);
+			}
+		}
+
+		// A tilted flat-ended cylinder through the GPU composite backend displaces its closed-form volume when fully submerged,
+		// and half of it when its centre sits on the water surface, because a cylinder is symmetric through its centre.
+		PRUnitTestMethod(GpuCompositeCylinderMatchesAnalytic, Extended)
+		{
+			auto const radius = 0.5f;
+			auto const length = 2.0f;
+			auto cylinder = collision::ShapeCylinder(length, radius);
+			auto const pi = constants<float>::tau / 2.0f;
+			auto const volume = pi * radius * radius * length;
+			auto const axis = Normalise(v4{1.0f, 1.0f, 0.0f, 0.0f});
+
+			Harness h;
+			h.SetConfig(WaterConfig{
+				.m_surface_spacing = 0.1f,
+				.m_enable_diagnostics = true,
+			});
+			h.m_bodies.emplace_back();
+			h.m_bodies[0].Shape(collision::shape_cast(&cylinder), 500.0f);
+			h.m_bodies[0].NeverSleep(true);
+			h.m_bodies[0].GravityWS(AnalyticGravityWS);
+
+			// Fully submerged: every water column is wet, so volume, lift and centre of buoyancy are exact up to quadrature error.
+			{
+				h.m_bodies[0].O2W(m4x4::Transform(axis, 0.6f, v4{0.0f, 0.0f, -5.0f, 1.0f}));
+				h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
+
+				auto const diag = h.Diagnostics(0);
+				auto const rho_g_v = AnalyticFluidDensity * Length(AnalyticGravityWS) * volume;
+				log_stream() << std::format("Cylinder submerged: volume={} expected={}\n", diag.m_volume_m3, volume);
+				PR_EXPECT(diag.m_valid);
+				PR_EXPECT(FEqlAbsolute(diag.m_volume_m3, volume, volume * 0.01f));
+				PR_EXPECT(FEqlAbsolute(diag.m_force_ws.z, rho_g_v, std::abs(rho_g_v) * 0.01f));
+				PR_EXPECT(FEqlAbsolute(diag.m_centre_buoyancy_ws, v4{0.0f, 0.0f, -5.0f, 1.0f}, 0.03f));
+			}
+
+			// Centred on the surface: the point symmetry of the cylinder puts exactly half its volume below the water.
+			{
+				h.m_bodies[0].O2W(m4x4::Transform(axis, 0.6f, v4::Origin()));
+				h.m_bodies[0].VelocityWS(v4::Zero(), v4::Zero());
+				h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
+
+				auto const diag = h.Diagnostics(0);
+				log_stream() << std::format("Cylinder half submerged: volume={} expected={}\n", diag.m_volume_m3, 0.5f * volume);
 				PR_EXPECT(diag.m_valid);
 				PR_EXPECT(FEqlAbsolute(diag.m_volume_m3, 0.5f * volume, volume * 0.02f));
 				PR_EXPECT(diag.m_centre_buoyancy_ws.z < 0.0f);

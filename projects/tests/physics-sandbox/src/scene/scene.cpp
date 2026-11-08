@@ -129,6 +129,10 @@ namespace physics_sandbox
 
 					return std::memcmp(lhs.polytope_verts.data(), rhs.polytope_verts.data(), lhs.polytope_verts.size() * sizeof(v4)) == 0;
 				}
+				case scene_loader::BodyDesc::EShape::Cylinder:
+				{
+					return lhs.cylinder_length == rhs.cylinder_length && lhs.cylinder_radius == rhs.cylinder_radius;
+				}
 				case scene_loader::BodyDesc::EShape::Compound:
 				{
 					// Compounds match only when every child matches in shape and placement, in the same order.
@@ -178,6 +182,11 @@ namespace physics_sandbox
 				case scene_loader::BodyDesc::EShape::Polytope:
 				{
 					shape_buffer.push_back(collision::BuildPolytopeFromPoints(bd.polytope_verts));
+					break;
+				}
+				case scene_loader::BodyDesc::EShape::Cylinder:
+				{
+					shape_buffer.push_back(collision::ShapeCylinder(bd.cylinder_length, bd.cylinder_radius));
 					break;
 				}
 				case scene_loader::BodyDesc::EShape::Compound:

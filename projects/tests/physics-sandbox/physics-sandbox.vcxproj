@@ -231,6 +231,9 @@
     <None Include="scenes\constraint_suspension_bridge.json" />
     <None Include="scenes\constraint_vehicle_suspension.json" />
     <None Include="scenes\constraints_full_showcase.json" />
+    <None Include="scenes\cylinder_showcase.json" />
+    <None Include="scenes\cylinder_spinning_barrel.json" />
+    <None Include="scenes\cylinder_terrain_water.json" />
     <None Include="scenes\drop_test.json" />
     <None Include="scenes\dzhanibekov_effect.json" />
     <None Include="scenes\floater.json" />

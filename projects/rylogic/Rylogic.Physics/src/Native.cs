@@ -329,6 +329,14 @@ internal static unsafe partial class Native
 	}
 
 	[StructLayout(LayoutKind.Sequential)]
+	internal struct CylinderShape
+	{
+		internal ShapeCommon m_common;
+		internal float m_length;
+		internal float m_radius;
+	}
+
+	[StructLayout(LayoutKind.Sequential)]
 	internal struct BodyDesc
 	{
 		internal NativeHeader m_header;
@@ -460,6 +468,7 @@ internal static unsafe partial class Native
 	[DllImport(Dll)] internal static extern EStatus Physics_ShapeCreateBox(ulong engine, BoxShape* desc, out ulong shape);
 	[DllImport(Dll)] internal static extern EStatus Physics_ShapeCreateLine(ulong engine, LineShape* desc, out ulong shape);
 	[DllImport(Dll)] internal static extern EStatus Physics_ShapeCreateTriangle(ulong engine, TriangleShape* desc, out ulong shape);
+	[DllImport(Dll)] internal static extern EStatus Physics_ShapeCreateCylinder(ulong engine, CylinderShape* desc, out ulong shape);
 	[DllImport(Dll)] internal static extern EStatus Physics_ShapeCreatePolytope(ulong engine, ShapeCommon* common, v4* points, uint point_count, out ulong shape);
 	[DllImport(Dll)] internal static extern EStatus Physics_ShapeCreateCompound(ulong engine, ShapeCommon* common, ShapeHandle* children, uint child_count, out ulong shape);
 	[DllImport(Dll)] internal static extern EStatus Physics_ShapeDestroy(ulong engine, ulong shape);

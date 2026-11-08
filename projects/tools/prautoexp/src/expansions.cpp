@@ -437,6 +437,13 @@ extern "C"
 				_snprintf(pResult, max, "Poly(%d): v=%d f=%d", (int)shape.m_base.m_size, shape.m_vert_count, shape.m_face_count);
 				break;
 			}
+			case EShape::Cylinder:
+			{
+				ShapeCylinder shape;
+				if (FAILED(pHelper->Read(shape))) return E_FAIL;
+				_snprintf(pResult, max, "Cyl(%d): l=%f r=%f", (int)shape.m_base.m_size, shape.m_hlength, shape.m_radius);
+				break;
+			}
 			case EShape::Array:
 			{
 				ShapeArray shape;

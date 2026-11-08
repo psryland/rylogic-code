@@ -12,6 +12,7 @@
 #include "pr/collision/shape_line.h"
 #include "pr/collision/shape_triangle.h"
 #include "pr/collision/shape_polytope.h"
+#include "pr/collision/shape_cylinder.h"
 #include "pr/collision/shape_array.h"
 #include "pr/collision/penetration.h"
 #include "pr/collision/support.h"
@@ -68,6 +69,13 @@ namespace pr::ldraw
 						Cylinder().cylinder(2 * s.m_hlength, s.m_radius).facets(1, 50).end_caps().o2w(s.m_base.m_s2r);
 					else
 						Line().line(v4(0,0,-s.m_hlength,1), v4(0,0,+s.m_hlength,1)).o2w(s.m_base.m_s2r);
+					break;
+				}
+				case EShape::Cylinder:
+				{
+					// Flat-ended, so no hemispherical end caps (unlike the capsule drawn for a thick line).
+					auto& s = shape_cast<ShapeCylinder>(shape);
+					Cylinder().cylinder(2 * s.m_hlength, s.m_radius).facets(1, 50).o2w(s.m_base.m_s2r);
 					break;
 				}
 				case EShape::Polytope:

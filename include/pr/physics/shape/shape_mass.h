@@ -88,6 +88,18 @@ namespace pr::physics
 		return inertia;
 	}
 
+	// Return the solid unit inertia for the cylinder along Z: 'Ixx = Iyy = (1/12)(3r^2 + L^2)', 'Izz = (1/2)r^2'
+	inline m3x3 UnitInertia(ShapeCylinder const& shape)
+	{
+		auto L = 2.0f * shape.m_hlength;
+		auto r = shape.m_radius;
+		auto inertia = m3x3{};
+		inertia.x.x = (1.0f / 12.0f) * (3.0f * Sqr(r) + Sqr(L));
+		inertia.y.y = inertia.x.x;
+		inertia.z.z = 0.5f * Sqr(r);
+		return inertia;
+	}
+
 	// Returns the unit inertia for the polytope, computed about the shape origin.
 	// SetMassProperties applies the parallel axis theorem to translate from origin
 	// to the centre of mass using mp.m_centre_of_mass.
@@ -225,6 +237,27 @@ namespace pr::physics
 		return MassProperties(unit_inertia, v4{}, area * areal_density);
 	}
 
+	// Return the shape-local mass properties of a thin uniform closed shell on the surface of a cylinder (side wall plus both end caps).
+	// 'areal_density' is in kg/m².
+	inline MassProperties ShellMassProperties(ShapeCylinder const& shape, float areal_density)
+	{
+		// Split the unit mass between the side wall (area 2πrL) and the two caps (area 2πr²) in proportion to their areas
+		auto L = 2.0f * shape.m_hlength;
+		auto r = shape.m_radius;
+		auto m_side = L / (L + r);
+		auto m_caps = 1.0f - m_side;
+
+		// An open cylindrical shell has Ixx = r²/2 + L²/12 and Izz = r². A disc has Ixx = r²/4 and Izz = r²/2 about its centre,
+		// and each cap sits L/2 from the cylinder centre, which adds L²/4 to Ixx.
+		auto unit_inertia = m3x3{};
+		unit_inertia.x.x = m_side * (0.5f * Sqr(r) + Sqr(L) / 12.0f) + m_caps * (0.25f * Sqr(r) + 0.25f * Sqr(L));
+		unit_inertia.y.y = unit_inertia.x.x;
+		unit_inertia.z.z = m_side * Sqr(r) + m_caps * 0.5f * Sqr(r);
+
+		auto area = float(constants<double>::tau) * r * (L + r);
+		return MassProperties(unit_inertia, v4{}, area * areal_density);
+	}
+
 	// Return the shape-local mass properties of a thin uniform shell on the hull faces of a polytope. 'areal_density' is in kg/m².
 	// The inertia is measured about the shape origin, like the solid polytope.
 	inline MassProperties ShellMassProperties(ShapePolytope const& shape, float areal_density)
@@ -355,6 +388,28 @@ namespace pr::physics
 		}
 	}
 
+	// Return mass properties for the cylinder. See EMassDistribution for the meaning of 'density'.
+	inline MassProperties CalcMassProperties(ShapeCylinder const& shape, float density, EMassDistribution distribution = EMassDistribution::Solid)
+	{
+		switch (distribution)
+		{
+			case EMassDistribution::Solid:
+			{
+				auto volume = float(constants<double>::tau_by_2) * Sqr(shape.m_radius) * (2.0f * shape.m_hlength);
+				auto mp = MassProperties(UnitInertia(shape), v4{}, volume * density);
+				return TransformMassProperties(mp, shape.m_base.m_s2r);
+			}
+			case EMassDistribution::Shell:
+			{
+				return TransformMassProperties(ShellMassProperties(shape, density), shape.m_base.m_s2r);
+			}
+			default:
+			{
+				throw std::invalid_argument("Unknown mass distribution");
+			}
+		}
+	}
+
 	// Return mass properties for the polytope. See EMassDistribution for the meaning of 'density'.
 	inline MassProperties CalcMassProperties(ShapePolytope const& shape, float density, EMassDistribution distribution = EMassDistribution::Solid)
 	{
@@ -432,6 +487,7 @@ namespace pr::physics
 		case EShape::Line:     return CalcMassProperties(shape_cast<ShapeLine>(shape), density, distribution);
 		case EShape::Triangle: return CalcMassProperties(shape_cast<ShapeTriangle>(shape), density, distribution);
 		case EShape::Polytope: return CalcMassProperties(shape_cast<ShapePolytope>(shape), density, distribution);
+		case EShape::Cylinder: return CalcMassProperties(shape_cast<ShapeCylinder>(shape), density, distribution);
 		case EShape::Array:    return CalcMassProperties(shape_cast<ShapeArray>(shape), density, distribution);
 		}
 	}

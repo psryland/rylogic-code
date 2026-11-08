@@ -32,6 +32,7 @@
 #include "pr/collision/shape_line.h"
 #include "pr/collision/shape_triangle.h"
 #include "pr/collision/shape_polytope.h"
+#include "pr/collision/shape_cylinder.h"
 #include "pr/collision/shape_array.h"
 #include "pr/physics/surface/surface_sampling.h"
 
@@ -75,6 +76,7 @@ namespace pr::physics::buoyancy
 		Polytope = 2,
 		Triangle = 3,
 		Capsule = 4,
+		Cylinder = 5,
 	};
 
 	// GPU-ready descriptor for one convex primitive of a composite hull. The byte layout is the ABI
@@ -109,7 +111,7 @@ namespace pr::physics::buoyancy
 		int m_pad1;
 
 		// Analytic parameters: box stores half-extents in (x,y,z); sphere stores its radius in x;
-		// capsule stores its radius in x and the half-length of its Z-axis segment in y. Unused for polytope/triangle.
+		// capsule and cylinder store the radius in x and the half-length along their Z axis in y. Unused for polytope/triangle.
 		v4 m_params;
 	};
 	static_assert(sizeof(GpuPrimitive) == 112, "GpuPrimitive must be 112 bytes for the GPU ABI");
@@ -175,6 +177,14 @@ namespace pr::physics::buoyancy
 
 					prim.m_type = static_cast<int>(EPrimitiveType::Capsule);
 					prim.m_params = v4{ line.m_radius, line.m_hlength, 0.0f, 0.0f };
+					return prim;
+				}
+				case EShape::Cylinder:
+				{
+					// Flat-ended cylinders are fully analytic.
+					auto const& cyl = shape_cast<ShapeCylinder>(shape);
+					prim.m_type = static_cast<int>(EPrimitiveType::Cylinder);
+					prim.m_params = v4{ cyl.m_radius, cyl.m_hlength, 0.0f, 0.0f };
 					return prim;
 				}
 				case EShape::Triangle:

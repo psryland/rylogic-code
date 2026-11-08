@@ -14,6 +14,7 @@ namespace physics_sandbox
 				case collision::EShape::Triangle:
 				case collision::EShape::Polytope:
 				case collision::EShape::Line:
+				case collision::EShape::Cylinder:
 				{
 					return;
 				}

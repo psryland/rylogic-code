@@ -83,6 +83,25 @@ namespace pr::collision
 		}
 		return best;
 	}
+	inline v4 SupportVertex(ShapeCylinder const& shape, v4 direction, EFeature& feature_type)
+	{
+		// Classify the direction against the cap normal and the side normal
+		auto len = Len(direction.x, direction.y, direction.z);
+		auto xy_len = Len(direction.x, direction.y);
+		auto vert = v4(0, 0, direction.z >= 0 ? +shape.m_hlength : -shape.m_hlength, 1);
+		if (xy_len <= CylinderFeatureTol * len)
+		{
+			// The whole cap ties. Return its centre.
+			feature_type = EFeature::Face;
+			return vert;
+		}
+
+		// Move out to the rim. A direction perpendicular to the axis selects a side line.
+		vert.x = shape.m_radius * direction.x / xy_len;
+		vert.y = shape.m_radius * direction.y / xy_len;
+		feature_type = Abs(direction.z) <= CylinderFeatureTol * len ? EFeature::Edge : EFeature::Vert;
+		return vert;
+	}
 	inline v4 SupportVertex(Shape const& shape, v4 direction, EFeature& feature_type)
 	{
 		switch (shape.m_type)
@@ -92,6 +111,7 @@ namespace pr::collision
 		case EShape::Line:     { return SupportVertex(shape_cast<ShapeLine>(shape), direction, feature_type); }
 		case EShape::Triangle: { return SupportVertex(shape_cast<ShapeTriangle>(shape), direction, feature_type); }
 		case EShape::Polytope: { return SupportVertex(shape_cast<ShapePolytope>(shape), direction, feature_type); }
+		case EShape::Cylinder: { return SupportVertex(shape_cast<ShapeCylinder>(shape), direction, feature_type); }
 		default:               { throw std::runtime_error("Shape type does not support SupportVertex"); }
 		}
 	}
@@ -366,6 +386,44 @@ namespace pr::collision
 		for (int i = 0, iend = int(feature_type); i != iend; ++i)
 			points[i] = support_points[i];
 	}
+	inline void SupportFeature(ShapeCylinder const& shape, v4 axis, EFeature& feature_type, v4 (&points)[FeaturePolygonMaxSides])
+	{
+		// Classify the axis against the cap normal and the side normal.
+		// The tolerance is a sine of the angle so that it does not depend on the length of 'axis'.
+		auto len = Len(axis.x, axis.y, axis.z);
+		auto xy_len = Len(axis.x, axis.y);
+		if (xy_len <= CylinderFeatureTol * len)
+		{
+			// The axis is along the cylinder axis: return the cap as a regular polygon inscribed in the rim.
+			// The polygon is fixed in shape space so that resting contacts do not change between frames.
+			// The cap at -Z is wound in reverse so that the polygon normal always equals 'axis'.
+			auto z = axis.z >= 0 ? +shape.m_hlength : -shape.m_hlength;
+			auto winding = axis.z >= 0 ? +1.0f : -1.0f;
+			feature_type = static_cast<EFeature>(CylinderCapSides);
+			for (int i = 0; i != CylinderCapSides; ++i)
+			{
+				auto angle = constants<float>::tau * i / CylinderCapSides;
+				points[i] = v4(shape.m_radius * Cos(angle), winding * shape.m_radius * Sin(angle), z, 1);
+			}
+			return;
+		}
+
+		// Rim point on the side facing 'axis'
+		auto rx = shape.m_radius * axis.x / xy_len;
+		auto ry = shape.m_radius * axis.y / xy_len;
+		if (Abs(axis.z) <= CylinderFeatureTol * len)
+		{
+			// The axis is perpendicular to the cylinder axis: return the line on the curved side
+			feature_type = EFeature::Edge;
+			points[0] = v4(rx, ry, -shape.m_hlength, 1);
+			points[1] = v4(rx, ry, +shape.m_hlength, 1);
+			return;
+		}
+
+		// Otherwise, a single point on the rim of the cap facing 'axis'
+		feature_type = EFeature::Vert;
+		points[0] = v4(rx, ry, axis.z >= 0 ? +shape.m_hlength : -shape.m_hlength, 1);
+	}
 	inline void SupportFeature(Shape const& shape, v4 axis, EFeature& feature_type, v4 (&points)[FeaturePolygonMaxSides])
 	{
 		switch (shape.m_type)
@@ -375,6 +433,7 @@ namespace pr::collision
 		case EShape::Line:     { return SupportFeature(shape_cast<ShapeLine>(shape), axis, feature_type, points); }
 		case EShape::Triangle: { return SupportFeature(shape_cast<ShapeTriangle>(shape), axis, feature_type, points); }
 		case EShape::Polytope: { return SupportFeature(shape_cast<ShapePolytope>(shape), axis, feature_type, points); }
+		case EShape::Cylinder: { return SupportFeature(shape_cast<ShapeCylinder>(shape), axis, feature_type, points); }
 		default:               { throw std::runtime_error("Shape type does not support SupportFeature"); }
 		}
 	}

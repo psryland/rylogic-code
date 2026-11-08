@@ -46,6 +46,7 @@ namespace pr::unittests
 			decltype(&Physics_ShapeCreateBox) ShapeCreateBox;
 			decltype(&Physics_ShapeCreateLine) ShapeCreateLine;
 			decltype(&Physics_ShapeCreateTriangle) ShapeCreateTriangle;
+			decltype(&Physics_ShapeCreateCylinder) ShapeCreateCylinder;
 			decltype(&Physics_ShapeCreatePolytope) ShapeCreatePolytope;
 			decltype(&Physics_ShapeCreateCompound) ShapeCreateCompound;
 			decltype(&Physics_ShapeDestroy) ShapeDestroy;
@@ -125,6 +126,7 @@ namespace pr::unittests
 				, ShapeCreateBox(m_module.Proc<decltype(ShapeCreateBox)>("Physics_ShapeCreateBox"))
 				, ShapeCreateLine(m_module.Proc<decltype(ShapeCreateLine)>("Physics_ShapeCreateLine"))
 				, ShapeCreateTriangle(m_module.Proc<decltype(ShapeCreateTriangle)>("Physics_ShapeCreateTriangle"))
+				, ShapeCreateCylinder(m_module.Proc<decltype(ShapeCreateCylinder)>("Physics_ShapeCreateCylinder"))
 				, ShapeCreatePolytope(m_module.Proc<decltype(ShapeCreatePolytope)>("Physics_ShapeCreatePolytope"))
 				, ShapeCreateCompound(m_module.Proc<decltype(ShapeCreateCompound)>("Physics_ShapeCreateCompound"))
 				, ShapeDestroy(m_module.Proc<decltype(ShapeDestroy)>("Physics_ShapeDestroy"))
@@ -629,6 +631,7 @@ namespace pr::unittests
 				std::pair{EStructId::BoxShape, static_cast<std::uint32_t>(sizeof(pr::physics::BoxShape))},
 				std::pair{EStructId::LineShape, static_cast<std::uint32_t>(sizeof(pr::physics::LineShape))},
 				std::pair{EStructId::TriangleShape, static_cast<std::uint32_t>(sizeof(pr::physics::TriangleShape))},
+				std::pair{EStructId::CylinderShape, static_cast<std::uint32_t>(sizeof(pr::physics::CylinderShape))},
 				std::pair{EStructId::BodyDesc, static_cast<std::uint32_t>(sizeof(pr::physics::BodyDesc))},
 				std::pair{EStructId::BodyState, static_cast<std::uint32_t>(sizeof(pr::physics::BodyState))},
 				std::pair{EStructId::BodyCommand, static_cast<std::uint32_t>(sizeof(pr::physics::BodyCommand))},
@@ -706,6 +709,21 @@ namespace pr::unittests
 			auto triangle = ShapeHandle{};
 			PR_EXPECT(fix.m_api.ShapeCreateTriangle(fix.m_engine, &triangle_desc, &triangle) == EStatus::Success);
 			shapes.push_back(triangle);
+
+			// Cylinders validate their dimensions at the API boundary.
+			auto cylinder_desc = CylinderShape{
+				.common = MakeCommon(),
+				.length = 1.0f,
+				.radius = 0.25f,
+			};
+			cylinder_desc.common.header.size = sizeof(cylinder_desc);
+			auto cylinder = ShapeHandle{};
+			PR_EXPECT(fix.m_api.ShapeCreateCylinder(fix.m_engine, &cylinder_desc, &cylinder) == EStatus::Success);
+			shapes.push_back(cylinder);
+			auto bad_cylinder_desc = cylinder_desc;
+			bad_cylinder_desc.radius = 0.0f;
+			auto bad_cylinder = ShapeHandle{};
+			PR_EXPECT(fix.m_api.ShapeCreateCylinder(fix.m_engine, &bad_cylinder_desc, &bad_cylinder) == EStatus::InvalidArgument);
 
 			auto points = std::array{
 				Vector4{-1, -1, -1, 1},

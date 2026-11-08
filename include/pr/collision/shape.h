@@ -42,6 +42,7 @@ namespace pr::collision
 		x(Line    , false)\
 		x(Triangle, false)\
 		x(Polytope, false)\
+		x(Cylinder, false)\
 		x(Array   , true )
 		#define PR_ENUM(name, comp) name,
 		PR_COLLISION_SHAPES(PR_ENUM)

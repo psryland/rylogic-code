@@ -86,6 +86,12 @@ namespace pr::physics::shader_code
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(collide_polytope_vs_line_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(collide_polytope_vs_triangle_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(collide_polytope_vs_polytope_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(collide_cylinder_vs_sphere_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(collide_cylinder_vs_box_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(collide_cylinder_vs_line_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(collide_cylinder_vs_triangle_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(collide_cylinder_vs_polytope_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(collide_cylinder_vs_cylinder_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(calc_resolve_dispatch_cs.h)
 	}
 	ByteCode const clear_collision_bins(compiled::clear_collision_bins_cs);
@@ -106,6 +112,12 @@ namespace pr::physics::shader_code
 	ByteCode const collide_polytope_vs_line(compiled::collide_polytope_vs_line_cs);
 	ByteCode const collide_polytope_vs_triangle(compiled::collide_polytope_vs_triangle_cs);
 	ByteCode const collide_polytope_vs_polytope(compiled::collide_polytope_vs_polytope_cs);
+	ByteCode const collide_cylinder_vs_sphere(compiled::collide_cylinder_vs_sphere_cs);
+	ByteCode const collide_cylinder_vs_box(compiled::collide_cylinder_vs_box_cs);
+	ByteCode const collide_cylinder_vs_line(compiled::collide_cylinder_vs_line_cs);
+	ByteCode const collide_cylinder_vs_triangle(compiled::collide_cylinder_vs_triangle_cs);
+	ByteCode const collide_cylinder_vs_polytope(compiled::collide_cylinder_vs_polytope_cs);
+	ByteCode const collide_cylinder_vs_cylinder(compiled::collide_cylinder_vs_cylinder_cs);
 	ByteCode const calc_resolve_dispatch(compiled::calc_resolve_dispatch_cs);
 
 	// Collision resolution

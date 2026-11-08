@@ -290,6 +290,15 @@ namespace physics_sandbox::scene_loader
 			desc.mass_distribution = physics::EMassDistribution::Shell;
 		}
 
+		// Scene files are an input boundary, so reject cylinder dimensions that violate the collision shape contract.
+		void ValidateCylinder(BodyDesc const& desc)
+		{
+			if (!(desc.cylinder_radius > 0.0f) || !std::isfinite(desc.cylinder_radius))
+				throw std::runtime_error("Cylinder shape 'radius' must be finite and positive");
+			if (!(desc.cylinder_length >= 0.0f) || !std::isfinite(desc.cylinder_length))
+				throw std::runtime_error("Cylinder shape 'length' must be finite and non-negative");
+		}
+
 		BodyDesc ReadShape(pr::json::Value const& jshape, bool is_compound_child = false)
 		{
 			BodyDesc desc;
@@ -335,6 +344,13 @@ namespace physics_sandbox::scene_loader
 
 				for (auto const& v : verts)
 					desc.polytope_verts.push_back(ReadVec3(v, 1.0f));
+			}
+			else if (shape_type == "cylinder")
+			{
+				desc.shape_type = BodyDesc::EShape::Cylinder;
+				desc.cylinder_length = jshape_obj["length"].to<float>();
+				desc.cylinder_radius = jshape_obj["radius"].to<float>();
+				ValidateCylinder(desc);
 			}
 			else if (shape_type == "compound")
 			{
@@ -386,6 +402,8 @@ namespace physics_sandbox::scene_loader
 			body.tri_verts[1] = shape.tri_verts[1];
 			body.tri_verts[2] = shape.tri_verts[2];
 			body.polytope_verts = std::move(shape.polytope_verts);
+			body.cylinder_length = shape.cylinder_length;
+			body.cylinder_radius = shape.cylinder_radius;
 			body.compound_children = std::move(shape.compound_children);
 			body.mass_distribution = shape.mass_distribution;
 		}
@@ -502,6 +520,16 @@ namespace physics_sandbox::scene_loader
 				ReadMassDistribution(desc, jshape_obj, false);
 				return desc;
 			}
+			if (shape_type == "cylinder")
+			{
+				auto desc = BodyDesc{};
+				desc.shape_type = BodyDesc::EShape::Cylinder;
+				desc.cylinder_length = ReadFloatRange(jshape_obj["length"], selector, index, count, rng);
+				desc.cylinder_radius = ReadFloatRange(jshape_obj["radius"], selector, index, count, rng);
+				ValidateCylinder(desc);
+				ReadMassDistribution(desc, jshape_obj, false);
+				return desc;
+			}
 			if (shape_type == "polytope")
 			{
 				auto desc = BodyDesc{};
@@ -539,6 +567,8 @@ namespace physics_sandbox::scene_loader
 			shape.sphere_radius *= scale;
 			shape.line_length *= scale;
 			shape.line_thickness *= scale;
+			shape.cylinder_length *= scale;
+			shape.cylinder_radius *= scale;
 			for (auto& vertex : shape.tri_verts)
 				vertex = (vertex * scale).w1();
 			for (auto& vertex : shape.polytope_verts)
@@ -1771,6 +1801,7 @@ namespace physics_sandbox::scene_loader
 				PR_EXPECT(ParseShape(R"json({"type":"box","dimensions":[1,2,3],"hollow":true})json").mass_distribution == physics::EMassDistribution::Shell);
 				PR_EXPECT(ParseShape(R"json({"type":"line","length":1,"thickness":0.2,"hollow":true})json").mass_distribution == physics::EMassDistribution::Shell);
 				PR_EXPECT(ParseShape(R"json({"type":"polytope","vertices":[[0,0,0],[1,0,0],[0,1,0],[0,0,1]],"hollow":true})json").mass_distribution == physics::EMassDistribution::Shell);
+				PR_EXPECT(ParseShape(R"json({"type":"cylinder","length":1,"radius":0.2,"hollow":true})json").mass_distribution == physics::EMassDistribution::Shell);
 				PR_EXPECT(ParseShape(R"json({"type":"compound","hollow":true,"children":[{"type":"sphere","radius":0.5},{"type":"box","dimensions":[1,1,1],"position":[1,0,0]}]})json").mass_distribution == physics::EMassDistribution::Shell);
 
 				// Named shapes carry the flag onto the body
@@ -1786,6 +1817,16 @@ namespace physics_sandbox::scene_loader
 				PR_THROWS(ParseShape(R"json({"type":"line","length":1,"hollow":true})json"), std::exception);
 				PR_THROWS(ParseShape(R"json({"type":"compound","children":[{"type":"sphere","radius":0.5,"hollow":true}]})json"), std::exception);
 				PR_THROWS(ParseShape(R"json({"type":"compound","hollow":true,"children":[{"type":"line","length":1}]})json"), std::exception);
+			}
+
+			// Cylinder dimensions are read from 'length' and 'radius', and invalid dimensions are rejected at load time
+			PRUnitTestMethod(CylinderShapeDimensions, Quick)
+			{
+				auto const cyl = ParseShape(R"json({"type":"cylinder","length":0.8,"radius":0.3})json");
+				PR_EXPECT(cyl.shape_type == BodyDesc::EShape::Cylinder);
+				PR_EXPECT(cyl.cylinder_length == 0.8f && cyl.cylinder_radius == 0.3f);
+				PR_THROWS(ParseShape(R"json({"type":"cylinder","length":1,"radius":0})json"), std::exception);
+				PR_THROWS(ParseShape(R"json({"type":"cylinder","length":-1,"radius":0.5})json"), std::exception);
 			}
 
 			// The beach-ball demo depends on named hollow shapes reaching its bodies

@@ -30,6 +30,7 @@ namespace pr::collision
 		constexpr int MaxEpaFaces = 128;   // EPA face buffer size
 		constexpr float Eps = 1e-8f;       // Near-zero threshold for directions
 		constexpr float EpaEps = 1e-6f;    // EPA convergence tolerance
+		constexpr float EpaRelEps = 4e-7f; // EPA convergence tolerance relative to the polytope's coordinate magnitude (a few float ULPs)
 
 		// A support point in the Minkowski difference, tracking the original shape vertices
 		struct Sup
@@ -74,7 +75,7 @@ namespace pr::collision
 		// ties and this reduces to the standard support point.
 		inline v4 pr_vectorcall SupportFaceCentre(Shape const& shape, v4 direction)
 		{
-			// Use SupportFeature for shapes that have it (Sphere/Box/Line/Triangle): it returns
+			// Use SupportFeature for shapes that have it (Sphere/Box/Line/Triangle/Cylinder): it returns
 			// up to FeaturePolygonMaxSides vertices of the support face — average them.
 			switch (shape.m_type)
 			{
@@ -82,6 +83,7 @@ namespace pr::collision
 				case EShape::Box:
 				case EShape::Line:
 				case EShape::Triangle:
+				case EShape::Cylinder:
 				{
 					EFeature ft = EFeature::Vert;
 					v4 pts[FeaturePolygonMaxSides];
@@ -91,6 +93,7 @@ namespace pr::collision
 						case EShape::Box:      SupportFeature(shape_cast<ShapeBox>(shape),      direction, ft, pts); break;
 						case EShape::Line:     SupportFeature(shape_cast<ShapeLine>(shape),     direction, ft, pts); break;
 						case EShape::Triangle: SupportFeature(shape_cast<ShapeTriangle>(shape), direction, ft, pts); break;
+						case EShape::Cylinder: SupportFeature(shape_cast<ShapeCylinder>(shape), direction, ft, pts); break;
 						default: break;
 					}
 					int n = int(ft);
@@ -363,7 +366,13 @@ namespace pr::collision
 			v4& normal, float& depth)
 		{
 			if (gjk_sx.n < 4) return false;
-			auto fail_on_exhaustion = sa.m_type != EShape::Sphere && sb.m_type != EShape::Sphere;
+			// Curved shapes make the Minkowski boundary curved, so EPA can run out of vertices before it converges.
+			// For those pairs the best face found so far is a good approximation. Only finite polyhedral pairs fail closed.
+			auto is_curved = [](Shape const& s)
+			{
+				return s.m_type == EShape::Sphere || s.m_type == EShape::Cylinder;
+			};
+			auto fail_on_exhaustion = !is_curved(sa) && !is_curved(sb);
 
 			Sup verts[MaxEpaVerts];
 			Face faces[MaxEpaFaces];
@@ -377,6 +386,19 @@ namespace pr::collision
 			if (Dot3(n012, verts[3].w - verts[0].w) > 0)
 				std::swap(verts[0], verts[1]);
 
+			// Orient faces away from a point strictly inside the polytope. The origin cannot be used because it can lie on a face plane
+			// (e.g. symmetric touching shapes), where the sign of the face distance does not identify the outward side.
+			// The polytope only grows, so the centroid of the initial tetrahedron stays inside it.
+			auto interior = 0.25f * (verts[0].w + verts[1].w + verts[2].w + verts[3].w);
+
+			// Support distances cannot be resolved more finely than the float precision of the Minkowski coordinates.
+			// A fixed tolerance never converges for large shapes, and EPA then re-adds existing vertices, which creates sliver faces with wrong distances.
+			auto scale = 0.0f;
+			for (int i = 0; i != 4; ++i)
+				scale = std::max(scale, MaxElement(Abs(verts[i].w.w0())));
+
+			auto tolerance = EpaEps + EpaRelEps * scale;
+
 			// Helper: add a face with validated outward normal
 			auto add_face = [&](int a, int b, int c) -> bool
 			{
@@ -387,15 +409,14 @@ namespace pr::collision
 				auto len = Length(fn);
 				if (len < Eps) return false;
 				fn /= len;
-				auto d = Dot3(fn, verts[a].w);
 
-				// Ensure normal points outward (away from origin)
-				if (d < 0)
+				// Ensure normal points outward (away from the interior point)
+				if (Dot3(fn, verts[a].w - interior) < 0)
 				{
 					fn = -fn;
-					d = -d;
 					std::swap(b, c);
 				}
+				auto d = Dot3(fn, verts[a].w);
 				faces[nf++] = { {a, b, c}, fn, d };
 				return true;
 			};
@@ -424,7 +445,7 @@ namespace pr::collision
 				auto d = Dot3(sup.w, cf_normal);
 
 				// Convergence: new support doesn't extend the polytope significantly
-				if (d - cf_dist < EpaEps)
+				if (d - cf_dist < tolerance)
 				{
 					normal = cf_normal;
 					depth = cf_dist;

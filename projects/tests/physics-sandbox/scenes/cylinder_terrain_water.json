@@ -1,0 +1,40 @@
+{
+	"scene": {
+		"demo": {"command": "cylinder-terrain-water", "name": "Cylinders on Terrain and Water", "group": "Collision and Contacts", "order": 21},
+		"description": "Flat-ended cylinders on sampled terrain and in water. Light logs (500 kg/m^3) and coins drop onto rolling hills and roll or slide into the hollows, where the water (level 0.3) floats the logs about half submerged. Dense cans (2500 kg/m^3) sink and rest on the terrain under the water.",
+		"seed": 1547575334,
+		"camera": {"position": [14, -24, 14], "lookat": [0, 0, 0]},
+		"gravity": [0, 0, -9.81],
+		"physics": {"substeps": 4},
+		"material": {"elasticity": 0.05, "friction": 0.5},
+		"terrain": {
+			"seed": 1547575334, "radius": 30, "intervals": 400, "display": "slope",
+			"recipe": {
+				"sea_level_bias": -29.7775397025, "uplift_height": 0, "mountain_base_height": 0,
+				"regional_base": {"amplitude": 1.6, "wavelength": 4, "octaves": 1},
+				"region_selector": {"amplitude": 0, "octaves": 1},
+				"region_uplift": {"amplitude": 0, "octaves": 1},
+				"plains": {"amplitude": 0, "octaves": 1},
+				"hills": {"amplitude": 0, "octaves": 1},
+				"mountains": {"amplitude": 0, "octaves": 1},
+				"domain_warp": {"amplitude": 0, "octaves": 1}
+			}
+		},
+		"water": {
+			"level": 0.3,
+			"size": [60, 60],
+			"grid": [64, 64],
+			"colour": "0x602080FF"
+		},
+		"shapes": {
+			"log": {"name": "log", "type": "cylinder", "length": 1.2, "radius": 0.2},
+			"can": {"name": "can", "type": "cylinder", "length": 0.5, "radius": 0.2},
+			"coin": {"name": "coin", "type": "cylinder", "length": 0.08, "radius": 0.3}
+		},
+		"body_generators": [
+			{"name":"log-#","selector":"linear","instance_count":12,"shape":"log","density":500,"colour":"0xFFA06030","position":[[-8,-4,4],[8,-4,5]],"rotation":[[0,0,0],[90,60,80]]},
+			{"name":"can-#","selector":"linear","instance_count":12,"shape":"can","density":2500,"colour":"0xFF40A0E0","position":[[-8,0,4],[8,0,5]],"rotation":[[0,0,0],[60,40,80]]},
+			{"name":"coin-#","selector":"linear","instance_count":12,"shape":"coin","density":800,"colour":"0xFFD0B030","position":[[-8,4,4],[8,4,5]],"rotation":[[0,0,0],[80,60,40]]}
+		]
+	}
+}

@@ -10,6 +10,7 @@
 #include "pr/collision/shape_line.h"
 #include "pr/collision/shape_triangle.h"
 #include "pr/collision/shape_polytope.h"
+#include "pr/collision/shape_cylinder.h"
 #include "pr/collision/shape_array.h"
 #include "pr/collision/ray.h"
 #include "pr/collision/ray_cast.h"

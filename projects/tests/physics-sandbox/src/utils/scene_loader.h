@@ -103,6 +103,7 @@ namespace physics_sandbox::scene_loader
 	//             { "name": "l1", "shape": { "type": "line", "length": 2.0, "thickness": 0.1 }, ... },
 	//             { "name": "t1", "shape": { "type": "triangle", "vertices": [[0,0,0],[1,0,0],[0,1,0]] }, ... },
 	//             { "name": "p1", "shape": { "type": "polytope", "vertices": [[x,y,z], ...] }, ... },
+	//             { "name": "y1", "shape": { "type": "cylinder", "length": 1.0, "radius": 0.5 }, ... }, // Flat-ended, axis along body Z
 	//             { "name": "c1", "shape": { "type": "compound", "children": [   // Children are primitive shapes (not compounds)
 	//                 { "type": "box", "dimensions": [2, 1, 1], "position": [0, 0, 0], "rotation": [0, 0, 0] }, // Optional child position/rotation in body space
 	//                 { "type": "sphere", "radius": 0.8, "position": [1, 0, 0] } ] }, ... }
@@ -130,8 +131,8 @@ namespace physics_sandbox::scene_loader
 	// Parsed description of a single rigid body from JSON
 	struct BodyDesc
 	{
-		// Shape: box, sphere, line, triangle, polytope, or a compound of those primitives
-		enum class EShape { Box, Sphere, Line, Triangle, Polytope, Compound };
+		// Shape: box, sphere, line, triangle, polytope, cylinder, or a compound of those primitives
+		enum class EShape { Box, Sphere, Line, Triangle, Polytope, Cylinder, Compound };
 
 		std::string name = "body";
 		std::optional<Colour32> colour = {};
@@ -144,6 +145,8 @@ namespace physics_sandbox::scene_loader
 		float line_thickness = 0.0f;                                  // Capsule radius about the line axis, 0 = infinitely thin (only valid when shape_type == Line)
 		v4 tri_verts[3] = { v4(1,0,0,1), v4(0,1,0,1), v4(-1,0,0,1) }; // Triangle vertices as offsets from origin (only valid when shape_type == Triangle)
 		std::vector<v4> polytope_verts = {};                          // Convex hull vertices (only valid when shape_type == Polytope)
+		float cylinder_length = 1.0f;                                 // Full length between the flat caps (only valid when shape_type == Cylinder)
+		float cylinder_radius = 0.5f;                                 // Radius of the side and caps (only valid when shape_type == Cylinder)
 		std::vector<BodyDesc> compound_children = {};                 // Primitive children placed by their 'position' and 'rotation' in body space (only valid when shape_type == Compound)
 		physics::EMassDistribution mass_distribution = physics::EMassDistribution::Solid; // Shell when the shape is 'hollow'; 'density' is then areal (kg/m²)
 

@@ -43,8 +43,9 @@ namespace pr::collision
 		static_assert(int(EShape::Line    ) == 2);
 		static_assert(int(EShape::Triangle) == 3);
 		static_assert(int(EShape::Polytope) == 4);
-		static_assert(int(EShape::Array   ) == 5);
-		static_assert(int(EShape::NumberOf) == 6);
+		static_assert(int(EShape::Cylinder) == 5);
+		static_assert(int(EShape::Array   ) == 6);
+		static_assert(int(EShape::NumberOf) == 7);
 
 		// Tri-Table of collision functions
 		static Detect s_collision_functions[Size(EType::Inclusive, int(EShape::NumberOf))] = 
@@ -69,12 +70,22 @@ namespace pr::collision
 			PolytopeVsTriangle,      // (4 v 3) - Polytope v Triangle
 			PolytopeVsPolytope,      // (4 v 4) - Polytope v Polytope
 
-			CollisionNotImplemented, // (5 v 0) - Array v Sphere
-			CollisionNotImplemented, // (5 v 1) - Array v Box
-			CollisionNotImplemented, // (5 v 2) - Array v Line
-			CollisionNotImplemented, // (5 v 3) - Array v Triangle
-			CollisionNotImplemented, // (5 v 4) - Array v Polytope
-			CollisionNotImplemented, // (5 v 5) - Array v Array
+			// Cylinder pairs use generic GJK/EPA with SupportFeature clipping for the contact manifold.
+			// Add a specialised function for a pair only when measured depth error, contact jitter, or cost requires it.
+			ConvexVsSphere,          // (5 v 0) - Cylinder v Sphere (closest-point GJK; exact sphere margin)
+			GjkCollide,              // (5 v 1) - Cylinder v Box
+			ConvexVsLine,            // (5 v 2) - Cylinder v Line (closest-point GJK on line core; analytic margin)
+			GjkCollide,              // (5 v 3) - Cylinder v Triangle
+			GjkCollide,              // (5 v 4) - Cylinder v Polytope
+			GjkCollide,              // (5 v 5) - Cylinder v Cylinder
+
+			CollisionNotImplemented, // (6 v 0) - Array v Sphere
+			CollisionNotImplemented, // (6 v 1) - Array v Box
+			CollisionNotImplemented, // (6 v 2) - Array v Line
+			CollisionNotImplemented, // (6 v 3) - Array v Triangle
+			CollisionNotImplemented, // (6 v 4) - Array v Polytope
+			CollisionNotImplemented, // (6 v 5) - Array v Cylinder
+			CollisionNotImplemented, // (6 v 6) - Array v Array
 		};
 
 		// Get the appropriate collision function

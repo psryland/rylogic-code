@@ -38,6 +38,12 @@
 					[0.0, 0.0, 0.7]
 				]
 			},
+			"cylinder": {
+				"name": "drop-cylinder",
+				"type": "cylinder",
+				"length": 1.0,
+				"radius": 0.4
+			},
 			"triangle": {
 				"name": "drop-triangle",
 				"type": "triangle",
@@ -72,6 +78,13 @@
 				"shape": "drop-polytope",
 				"mass": 12.0,
 				"position": [2.0, 0.0, 5.0]
+			},
+			{
+				"name": "cylinder",
+				"shape": "drop-cylinder",
+				"mass": 6.0,
+				"position": [6.0, 0.0, 5.0],
+				"rotation": [20, 10, 0]
 			},
 			{
 				"name": "triangle",

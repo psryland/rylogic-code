@@ -47,6 +47,11 @@ static const int GpuFeatureMaxPoints = 16;
 static const int GpuManifoldMaxCorners = 64;
 static const float GjkEps = 1e-8f;
 static const float EpaEps = 1e-6f;
+static const float EpaRelEps = 4e-7f; // EPA convergence tolerance relative to the polytope's coordinate magnitude (a few float ULPs)
+
+// Cylinder feature classification. These must match 'CylinderCapSides' and 'CylinderFeatureTol' in pr/collision/shape_cylinder.h.
+static const int GpuCylinderCapSides = 8;
+static const float GpuCylinderFeatureTol = 1e-3f;
 
 #ifdef __cplusplus
 #define PR_HLSL_BRANCH
@@ -141,6 +146,21 @@ odr float4 SupportVertex_Polytope(in_(GpuShape) shape, float4 dir, in_(Structure
 	}
 	return best_vert;
 }
+odr float4 SupportVertex_Cylinder(in_(GpuShape) shape, float4 dir)
+{
+	// Mirrors the CPU cylinder support. A direction along the axis returns the cap centre, otherwise the rim point facing 'dir'.
+	float half_len = shape.data.x;
+	float radius = shape.data.y;
+	float len = length(dir.xyz);
+	float xy_len = length(dir.xy);
+	float4 vert = float4(0, 0, dir.z >= 0 ? +half_len : -half_len, 1);
+	if (xy_len > GpuCylinderFeatureTol * len)
+	{
+		vert.x = radius * dir.x / xy_len;
+		vert.y = radius * dir.y / xy_len;
+	}
+	return vert;
+}
 odr float4 SupportVertex(in_(GpuShape) shape, float4 dir, in_(StructuredBuffer<float4>) verts)
 {
 	switch (shape.type)
@@ -150,6 +170,7 @@ odr float4 SupportVertex(in_(GpuShape) shape, float4 dir, in_(StructuredBuffer<f
 		case SHAPE_LINE:     return SupportVertex_Line(shape, dir);
 		case SHAPE_TRIANGLE: return SupportVertex_Triangle(shape, dir, verts);
 		case SHAPE_POLYTOPE: return SupportVertex_Polytope(shape, dir, verts);
+		case SHAPE_CYLINDER: return SupportVertex_Cylinder(shape, dir);
 		default:             return float4(0, 0, 0, 1);
 	}
 }
@@ -389,6 +410,41 @@ odr void SupportFeature_Polytope(in_(GpuShape) shape, float4 axis, in_(Structure
 	}
 	FeatureSortAroundAxis(feature, axis);
 }
+odr void SupportFeature_Cylinder(in_(GpuShape) shape, float4 axis, out_(GpuFeature) feature)
+{
+	// Mirrors the CPU cylinder feature: a cap polygon, a side line, or a single rim point. The tolerance is the sine of the angle from each classification.
+	FeatureClear(feature);
+	float half_len = shape.data.x;
+	float radius = shape.data.y;
+	float len = length(axis.xyz);
+	float xy_len = length(axis.xy);
+	float z = axis.z >= 0 ? +half_len : -half_len;
+	if (xy_len <= GpuCylinderFeatureTol * len)
+	{
+		// Return the cap as a fixed regular polygon inscribed in the rim. The -Z cap is wound in reverse so the polygon normal equals 'axis'.
+		float winding = axis.z >= 0 ? +1.0f : -1.0f;
+		feature.count = GpuCylinderCapSides;
+		for (int i = 0; i != GpuCylinderCapSides; ++i)
+		{
+			float angle = 6.283185307f * i / GpuCylinderCapSides;
+			feature.points[i] = float4(radius * cos(angle), winding * radius * sin(angle), z, 1);
+		}
+		return;
+	}
+
+	// Rim point on the side facing 'axis'. A perpendicular axis selects the whole side line.
+	float rx = radius * axis.x / xy_len;
+	float ry = radius * axis.y / xy_len;
+	if (abs(axis.z) <= GpuCylinderFeatureTol * len)
+	{
+		feature.count = 2;
+		feature.points[0] = float4(rx, ry, -half_len, 1);
+		feature.points[1] = float4(rx, ry, +half_len, 1);
+		return;
+	}
+	feature.count = 1;
+	feature.points[0] = float4(rx, ry, z, 1);
+}
 odr void SupportFeature(in_(GpuShape) shape, float4 axis, in_(StructuredBuffer<float4>) verts, out_(GpuFeature) feature)
 {
 	switch (shape.type)
@@ -398,6 +454,7 @@ odr void SupportFeature(in_(GpuShape) shape, float4 axis, in_(StructuredBuffer<f
 		case SHAPE_LINE:     { SupportFeature_Line(shape, axis, feature); return; }
 		case SHAPE_TRIANGLE: { SupportFeature_Triangle(shape, axis, verts, feature); return; }
 		case SHAPE_POLYTOPE: { SupportFeature_Polytope(shape, axis, verts, feature); return; }
+		case SHAPE_CYLINDER: { SupportFeature_Cylinder(shape, axis, feature); return; }
 		default:             { FeatureClear(feature); return; }
 	}
 }
@@ -961,6 +1018,13 @@ odr float4 SupportFaceCentre(in_(GpuShape) shape, float4 dir, in_(StructuredBuff
 	{
 		case SHAPE_BOX:      return SupportFaceCentre_Box(shape, dir);
 		case SHAPE_POLYTOPE: return SupportFaceCentre_Polytope(shape, dir, verts);
+		case SHAPE_CYLINDER:
+		{
+			// The centre of the cap polygon is the cap centre, and the centre of a side line is its midpoint.
+			GpuFeature feature;
+			SupportFeature_Cylinder(shape, dir, feature);
+			return FeatureCentroid(feature);
+		}
 		default:             return float4(SupportVertex(shape, dir, verts).xyz, 1);
 	}
 }
@@ -1146,6 +1210,32 @@ struct EpaEdge
 {
 	int a, b;
 };
+
+// Write the EPA output for the chosen closest face.
+odr void EpaResult(
+	in_(GpuShape) shape_a, float4x4 a2w, float4x4 w2a,
+	in_(GpuShape) shape_b, float4x4 b2w, float4x4 w2b,
+	float4 cf_normal, float cf_dist, in_(StructuredBuffer<float4>) verts,
+	out_(float4) out_normal, out_(float) out_depth, out_(float4) out_ptA, out_(float4) out_ptB)
+{
+	// For face-on contact (e.g. cube-vs-cube), many EPA triangles tie for the
+	// minimum distance and the EPA polytope only sparsely samples the contact
+	// face. Single-triangle barycentric witness points are biased toward whichever
+	// triangle won the tie. To produce a stable, geometrically meaningful contact
+	// point, query the support face centroid on each shape along the contact
+	// normal — averaging all vertices tied for the maximum dot product gives the
+	// true face centre. For non-degenerate (vertex/edge) contact, only one vertex
+	// ties and this reduces to the standard support point.
+	out_normal = cf_normal;
+	out_depth = cf_dist;
+	float4 dir_a = mul(+cf_normal, w2a);
+	float4 dir_b = mul(-cf_normal, w2b);
+	float4 ca_local = SupportFaceCentre(shape_a, dir_a, verts);
+	float4 cb_local = SupportFaceCentre(shape_b, dir_b, verts);
+	out_ptA = float4(mul(ca_local, a2w).xyz, 1);
+	out_ptB = float4(mul(cb_local, b2w).xyz, 1);
+}
+
 odr bool Epa(
 	in_(GpuShape) shape_a, float4x4 a2w, float4x4 w2a,
 	in_(GpuShape) shape_b, float4x4 b2w, float4x4 w2b,
@@ -1179,6 +1269,21 @@ odr bool Epa(
 		epa_verts[1] = tmp;
 	}
 
+	// Orient faces away from a point strictly inside the polytope. The origin cannot be used because it can lie on a face plane
+	// (e.g. symmetric touching shapes), where the sign of the face distance does not identify the outward side.
+	// The polytope only grows, so the centroid of the initial tetrahedron stays inside it.
+	float4 interior = 0.25f * (epa_verts[0].w + epa_verts[1].w + epa_verts[2].w + epa_verts[3].w);
+
+	// Support distances cannot be resolved more finely than the float precision of the Minkowski coordinates.
+	// A fixed tolerance never converges for large shapes, and EPA then re-adds existing vertices, which creates sliver faces with wrong distances.
+	float scale = 0;
+	for (i = 0; i < 4; ++i)
+	{
+		float3 a = abs(epa_verts[i].w.xyz);
+		scale = max(scale, max(a.x, max(a.y, a.z)));
+	}
+	float tolerance = EpaEps + EpaRelEps * scale;
+
 	// Build initial tetrahedron faces
 	{
 		int fi_a[4] = {0, 0, 0, 1};
@@ -1196,13 +1301,12 @@ odr bool Epa(
 			float flen = length(fn.xyz);
 			if (flen < GjkEps) continue;
 			fn /= flen;
-			float fd = dot(fn.xyz, epa_verts[ia].w.xyz);
-			if (fd < 0)
+			if (dot(fn.xyz, (epa_verts[ia].w - interior).xyz) < 0)
 			{
 				fn = -fn;
-				fd = -fd;
 				int tmp_i = ib; ib = ic; ic = tmp_i;
 			}
+			float fd = dot(fn.xyz, epa_verts[ia].w.xyz);
 
 			epa_faces[nf].i0 = ia;
 			epa_faces[nf].i1 = ib;
@@ -1212,6 +1316,12 @@ odr bool Epa(
 			nf++;
 		}
 	}
+
+	// Curved shapes make the Minkowski boundary curved, so EPA can run out of vertices before it converges.
+	// For those pairs the best face found so far is a good approximation. Only polyhedral pairs fail closed.
+	bool accept_on_exhaustion =
+		shape_a.type == SHAPE_SPHERE || shape_a.type == SHAPE_CYLINDER ||
+		shape_b.type == SHAPE_SPHERE || shape_b.type == SHAPE_CYLINDER;
 
 	// EPA main loop
 	for (int iter = 0; iter < MaxGjkIter; ++iter)
@@ -1231,28 +1341,13 @@ odr bool Epa(
 		MkSup sup = MkSupport(shape_a, a2w, w2a, shape_b, b2w, w2b, cf_normal, verts);
 		float d = dot(sup.w.xyz, cf_normal.xyz);
 
-		if (d - cf_dist < EpaEps)
+		bool exhausted = nv >= MaxEpaVerts;
+		if (d - cf_dist < tolerance || (exhausted && accept_on_exhaustion))
 		{
-			out_normal = cf_normal;
-			out_depth = cf_dist;
-
-			// For face-on contact (e.g. cube-vs-cube), many EPA triangles tie for the
-			// minimum distance and the EPA polytope only sparsely samples the contact
-			// face. Single-triangle barycentric witness points are biased toward whichever
-			// triangle won the tie. To produce a stable, geometrically meaningful contact
-			// point, query the support face centroid on each shape along the contact
-			// normal — averaging all vertices tied for the maximum dot product gives the
-			// true face centre. For non-degenerate (vertex/edge) contact, only one vertex
-			// ties and this reduces to the standard support point.
-			float4 dir_a = mul(+cf_normal, w2a);
-			float4 dir_b = mul(-cf_normal, w2b);
-			float4 ca_local = SupportFaceCentre(shape_a, dir_a, verts);
-			float4 cb_local = SupportFaceCentre(shape_b, dir_b, verts);
-			out_ptA = float4(mul(ca_local, a2w).xyz, 1);
-			out_ptB = float4(mul(cb_local, b2w).xyz, 1);
+			EpaResult(shape_a, a2w, w2a, shape_b, b2w, w2b, cf_normal, cf_dist, verts, out_normal, out_depth, out_ptA, out_ptB);
 			return true;
 		}
-		if (nv >= MaxEpaVerts)
+		if (exhausted)
 			return false;
 
 		epa_verts[nv] = sup;
@@ -1284,7 +1379,14 @@ odr bool Epa(
 				if (!is_shared)
 				{
 					if (ne >= MaxEpaEdges)
-						return false;
+					{
+						// A curved boundary can outgrow the horizon buffer. The best face so far is a good approximation.
+						if (!accept_on_exhaustion)
+							return false;
+
+						EpaResult(shape_a, a2w, w2a, shape_b, b2w, w2b, cf_normal, cf_dist, verts, out_normal, out_depth, out_ptA, out_ptB);
+						return true;
+					}
 
 					edges[ne].a = ea;
 					edges[ne].b = eb;
@@ -1295,8 +1397,17 @@ odr bool Epa(
 			epa_faces[i] = epa_faces[--nf];
 		}
 
-		for (i = 0; i < ne && nf < MaxEpaFaces; ++i)
+		// Create new faces from the horizon edges to the new vertex. A degenerate or overflowing face leaves a hole in the
+		// polytope, so curved pairs stop with the best face so far and polyhedral pairs skip the face.
+		bool incomplete = false;
+		for (i = 0; i < ne; ++i)
 		{
+			if (nf >= MaxEpaFaces)
+			{
+				incomplete = true;
+				break;
+			}
+
 			int ia = edges[i].a;
 			int ib = edges[i].b;
 			int ic = ni;
@@ -1305,15 +1416,22 @@ odr bool Epa(
 			float4 fac = epa_verts[ic].w - epa_verts[ia].w;
 			float4 fn = float4(cross(fab.xyz, fac.xyz), 0);
 			float flen = length(fn.xyz);
-			if (flen < GjkEps) continue;
+			if (flen < GjkEps)
+			{
+				if (accept_on_exhaustion)
+				{
+					incomplete = true;
+					break;
+				}
+				continue;
+			}
 			fn /= flen;
-			float fd = dot(fn.xyz, epa_verts[ia].w.xyz);
-			if (fd < 0)
+			if (dot(fn.xyz, (epa_verts[ia].w - interior).xyz) < 0)
 			{
 				fn = -fn;
-				fd = -fd;
 				int tmp_i = ib; ib = ic; ic = tmp_i;
 			}
+			float fd = dot(fn.xyz, epa_verts[ia].w.xyz);
 
 			epa_faces[nf].i0 = ia;
 			epa_faces[nf].i1 = ib;
@@ -1322,8 +1440,15 @@ odr bool Epa(
 			epa_faces[nf].dist = fd;
 			nf++;
 		}
-		if (i != ne)
-			return false;
+		if (incomplete)
+		{
+			// See above: polyhedral pairs fail closed, curved pairs accept the best face found so far
+			if (!accept_on_exhaustion)
+				return false;
+
+			EpaResult(shape_a, a2w, w2a, shape_b, b2w, w2b, cf_normal, cf_dist, verts, out_normal, out_depth, out_ptA, out_ptB);
+			return true;
+		}
 	}
 
 	return false; // EPA did not converge

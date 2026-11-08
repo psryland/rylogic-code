@@ -34,6 +34,7 @@ static const int BUOY_PRIM_SPHERE = 1;
 static const int BUOY_PRIM_POLYTOPE = 2;
 static const int BUOY_PRIM_TRIANGLE = 3;
 static const int BUOY_PRIM_CAPSULE = 4;
+static const int BUOY_PRIM_CYLINDER = 5;
 
 // Matches pr::math::constants<float>::tiny (1.00000007e-05f). Used as the zero-length guard so this
 // module reproduces the oracle's Normalise(v, fallback) threshold exactly.
@@ -57,7 +58,7 @@ struct BuoyPrimitive
 	int m_pad0;
 	int m_pad1;
 
-	float4 m_params;        // box: half-extents in xyz; sphere: radius in x; capsule: radius in x, half-length in y; else unused
+	float4 m_params;        // box: half-extents in xyz; sphere: radius in x; capsule/cylinder: radius in x, half-length in y; else unused
 };
 
 // Normalise a 3-vector, returning zero when its length is at or below BUOY_TINY. Mirrors the
@@ -69,7 +70,7 @@ odr float3 BuoyNormaliseOrZero(float3 v)
 }
 
 // Conservative support interval of a primitive along the world-space 'up' axis, expressed as the
-// min/max of dot(point, up) over the primitive in world space. Only box, sphere and capsule have a cheap
+// min/max of dot(point, up) over the primitive in world space. Only box, sphere, capsule and cylinder have a cheap
 // closed-form support; polytope/triangle return false so callers fall back to per-sample sampling.
 // 's2w' is the shape-local -> world transform and is assumed rigid (rotation + translation, no
 // scale), matching the rest of this module's InvertOrthonormal usage. Used by the flat-water
@@ -106,6 +107,16 @@ odr bool BuoySupportAlongUp(in_(BuoyPrimitive) prim, float4x4 s2w, float3 up, ou
 			// The segment end points extend along the shape Z axis; the radius adds equally in every direction.
 			float3 az = mul(float4(0.0f, 0.0f, 1.0f, 0.0f), s2w).xyz;
 			float r = abs(dot(az, up)) * prim.m_params.y + prim.m_params.x;
+			lo = c - r;
+			hi = c + r;
+			return true;
+		}
+		case BUOY_PRIM_CYLINDER:
+		{
+			// The caps contribute the half-length along the shape Z axis, and the rim contributes the radius times the sine of the axis tilt.
+			float3 az = mul(float4(0.0f, 0.0f, 1.0f, 0.0f), s2w).xyz;
+			float cos_tilt = dot(az, up);
+			float r = abs(cos_tilt) * prim.m_params.y + sqrt(max(0.0f, 1.0f - cos_tilt * cos_tilt)) * prim.m_params.x;
 			lo = c - r;
 			hi = c + r;
 			return true;

@@ -395,6 +395,59 @@ namespace pr::physics::tests
 			auto gpu_contacts = m_detector.DetectCollisions(m_gpu.m_job, pairs, shape_cache, out_contacts);
 			PR_EXPECT(!gpu_contacts.empty());
 		}
+
+		// A cylinder lying on a ground-sized box must give a sane contact at every roll angle on the real GPU.
+		// Captured from the physics-sandbox cylinder showcase, where a rolling cylinder received a contact with a negative depth and a far-away point.
+		PRUnitTestMethod(CylinderRollingOnGround, Extended)
+		{
+			auto cyl = collision::ShapeCylinder(1.2f, 0.3f);
+			auto ground = collision::ShapeBox{ v4{107, 107, 10, 0} };
+			auto ground_l2w = m4x4::Translation(0, 0, -5);
+			auto shape_cache = ShapeCache{};
+			shape_cache.GetOrAdd(cyl);
+			shape_cache.GetOrAdd(ground);
+
+			// One pair per roll angle, with a small tilt of the cylinder axis like the sandbox poses
+			auto const count = 3600;
+			auto poses = std::vector<m4x4>{};
+			auto pairs = std::vector<GpuCollisionPair>{};
+			for (int i = 0; i != count; ++i)
+			{
+				auto tilt = (i % 3 - 1) * 0.07f;
+				auto rot = m3x3::RotationDeg(i * 0.1f, 0, 0) * m3x3::RotationDeg(0, 90 + tilt, 0);
+				auto o2w = m4x4::Transform(rot, v4(-8.0f, -24.0f + i * 0.01f, 0.3f - 0.006f, 1));
+				poses.push_back(o2w);
+				pairs.push_back(GpuCollisionPair{
+					.body_idx_a = i,
+					.body_idx_b = count,
+					.shape_idx_a = 0,
+					.shape_idx_b = 1,
+					.b2a = InvertOrthonormal(o2w) * ground_l2w,
+				});
+			}
+
+			// Every pose must produce one contact, pushing the cylinder up, at the expected depth, with points on the cylinder
+			auto out_contacts = std::vector<GpuResolveContact>(count);
+			auto gpu_contacts = m_detector.DetectCollisions(m_gpu.m_job, pairs, shape_cache, out_contacts);
+			PR_EXPECT(std::ssize(gpu_contacts) == count);
+			auto bad = 0;
+			for (auto const& c : gpu_contacts)
+			{
+				auto const& o2w = poses[c.body_idx_a];
+				auto axis_w = o2w * c.axis;
+				auto ok = c.depth > 0.004f && c.depth < 0.009f && Dot3(axis_w, -v4::ZAxis()) > 0.999f && c.feature >= 1 && c.feature <= 2;
+				for (int k = 0; ok && k != c.feature; ++k)
+					ok = Length(v4{ c.manifold[k].x, c.manifold[k].y, c.manifold[k].z, 0 }) < 0.7f;
+
+				if (!ok && bad++ < 10)
+				{
+					log_stream() << std::format("pose {}: depth={:.6f} axis_w=({:.4f},{:.4f},{:.4f}) points={} p0=({:.4f},{:.4f},{:.4f})\n",
+						c.body_idx_a, c.depth, axis_w.x, axis_w.y, axis_w.z, c.feature, c.manifold[0].x, c.manifold[0].y, c.manifold[0].z);
+				}
+			}
+			log_stream() << std::format("bad contacts: {} of {}\n", bad, count);
+			PR_EXPECT(bad == 0);
+		}
 	};
 }
 #endif

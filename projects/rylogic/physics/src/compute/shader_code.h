@@ -57,6 +57,12 @@ namespace pr::physics::shader_code
 	extern ByteCode const collide_polytope_vs_line;
 	extern ByteCode const collide_polytope_vs_triangle;
 	extern ByteCode const collide_polytope_vs_polytope;
+	extern ByteCode const collide_cylinder_vs_sphere;
+	extern ByteCode const collide_cylinder_vs_box;
+	extern ByteCode const collide_cylinder_vs_line;
+	extern ByteCode const collide_cylinder_vs_triangle;
+	extern ByteCode const collide_cylinder_vs_polytope;
+	extern ByteCode const collide_cylinder_vs_cylinder;
 	extern ByteCode const calc_resolve_dispatch;
 
 	// Collision resolution
