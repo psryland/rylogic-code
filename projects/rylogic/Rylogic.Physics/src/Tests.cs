@@ -52,6 +52,7 @@ public sealed class TestPhysics
 		AssertNativeSize(25, Marshal.SizeOf<Native.AtmosphereStepDesc>());
 		AssertNativeSize(26, Marshal.SizeOf<Native.AtmosphereStats>());
 		AssertNativeSize(27, Marshal.SizeOf<Native.WindSeaDesc>());
+		AssertNativeSize(28, Marshal.SizeOf<Native.CylinderShape>());
 		Assert.Equal(32, sizeof(AtmosphereHeatSource));
 		Assert.Equal(16, sizeof(AtmosphereOutsideAir));
 		Assert.Equal(32, sizeof(AtmosphereTracerParticle));
@@ -466,6 +467,7 @@ public sealed class TestPhysics
 			new v4(0.0f, 0.0f, +0.5f, 1.0f),
 		};
 		using var polytope = engine.CreatePolytope(points);
+		using var cylinder = engine.CreateCylinder(1.0f, 0.25f);
 		using var compound = engine.CreateCompound(new[] { sphere, box });
 		using var body = engine.CreateBody(compound);
 

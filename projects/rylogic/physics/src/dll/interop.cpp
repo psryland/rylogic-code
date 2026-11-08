@@ -55,6 +55,7 @@ namespace
 	using PhysicsBoxShape = pr::physics::BoxShape;
 	using PhysicsLineShape = pr::physics::LineShape;
 	using PhysicsTriangleShape = pr::physics::TriangleShape;
+	using PhysicsCylinderShape = pr::physics::CylinderShape;
 	using PhysicsBodyDesc = pr::physics::BodyDesc;
 	using PhysicsBodyState = pr::physics::BodyState;
 	using PhysicsBodyCommand = pr::physics::BodyCommand;
@@ -2288,6 +2289,7 @@ namespace pr::physics
 					case collision::EShape::Line: { minimum_size = sizeof(collision::ShapeLine); break; }
 					case collision::EShape::Triangle: { minimum_size = sizeof(collision::ShapeTriangle); break; }
 					case collision::EShape::Polytope: { minimum_size = sizeof(collision::ShapePolytope); break; }
+					case collision::EShape::Cylinder: { minimum_size = sizeof(collision::ShapeCylinder); break; }
 					case collision::EShape::Array: { minimum_size = sizeof(collision::ShapeArray); break; }
 					default: { throw ApiException(PhysicsStatus::InvalidArgument, "Checkpoint contains an unsupported shape type"); }
 				}
@@ -2387,6 +2389,7 @@ extern "C"
 				case PhysicsStructId::BoxShape: *size = sizeof(PhysicsBoxShape); break;
 				case PhysicsStructId::LineShape: *size = sizeof(PhysicsLineShape); break;
 				case PhysicsStructId::TriangleShape: *size = sizeof(PhysicsTriangleShape); break;
+				case PhysicsStructId::CylinderShape: *size = sizeof(PhysicsCylinderShape); break;
 				case PhysicsStructId::BodyDesc: *size = sizeof(PhysicsBodyDesc); break;
 				case PhysicsStructId::BodyState: *size = sizeof(PhysicsBodyState); break;
 				case PhysicsStructId::BodyCommand: *size = sizeof(PhysicsBodyCommand); break;
@@ -3151,6 +3154,29 @@ extern "C"
 				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Line output pointer, length, or radius is invalid");
 
 			auto native = pr::collision::ShapeLine{
+				value.length,
+				value.radius,
+				pr::physics::ToNative(value.common.shape_to_root),
+				value.common.material_id,
+				static_cast<pr::collision::Shape::EFlags>(value.common.flags)};
+			*shape = pr::physics::StoreShape(record, native);
+		});
+	}
+
+	PhysicsStatus __stdcall Physics_ShapeCreateCylinder(PhysicsEngineHandle engine, PhysicsCylinderShape const* desc, PhysicsShapeHandle* shape)
+	{
+		return pr::physics::ApiCall([&]
+		{
+			// Validate the caller's description at the API boundary; the collision shape asserts the same contract.
+			auto scope = pr::physics::EngineScope(engine);
+			auto& record = *scope;
+			pr::physics::RequireOwner(record);
+			pr::physics::RequireIdle(record);
+			auto const& value = pr::physics::RequireShapeDesc(desc);
+			if (shape == nullptr || !(value.length >= 0.0f) || !(value.radius > 0.0f))
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Cylinder output pointer, length, or radius is invalid");
+
+			auto native = pr::collision::ShapeCylinder{
 				value.length,
 				value.radius,
 				pr::physics::ToNative(value.common.shape_to_root),

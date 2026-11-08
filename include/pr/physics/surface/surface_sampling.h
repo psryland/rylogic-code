@@ -252,6 +252,42 @@ namespace pr::physics::surface
 				}
 				break;
 			}
+			case EShape::Cylinder:
+			{
+				auto const& cyl = shape_cast<ShapeCylinder>(shape);
+				if (!std::isfinite(cyl.m_hlength) || !std::isfinite(cyl.m_radius) || cyl.m_hlength < 0 || !(cyl.m_radius > 0))
+					throw std::runtime_error("Surface cylinder dimensions must be finite, with a positive radius and a non-negative half length");
+
+				// Cover each flat end cap with a polar disc patch. The cap at -Z uses a mirrored tangent so both discs keep a right-handed basis about their outward normal.
+				auto const r = cyl.m_radius;
+				for (int side = 0; side != 2; ++side)
+				{
+					auto const sign = side == 0 ? -1.0f : +1.0f;
+					impl::Append(plan, SurfacePatch{
+						.m_origin = v4(0, 0, sign * cyl.m_hlength, 1), .m_u = v4(r, 0, 0, 0), .m_v = v4(0, sign * r, 0, 0), .m_normal = v4(0, 0, sign, 0),
+						.m_nu = impl::Divisions(std::sqrt(2.0) * r, spacing),
+						.m_nv = std::max(3u, impl::Divisions(std::sqrt(2.0) * math::constants<double>::tau * r, spacing)),
+						.m_kind = 6, .m_sample_end = 0, .m_taper = 0,
+						.m_measure = static_cast<float>(0.5 * math::constants<double>::tau * r * r),
+						.m_pad0 = 0, .m_pad1 = 0,
+					});
+				}
+
+				// Fill the side wall like the capsule side. See the 'Line' case for why at least three angular subdivisions are needed.
+				if (cyl.m_hlength != 0)
+				{
+					impl::Append(plan, SurfacePatch{
+						.m_origin = v4(0, 0, -cyl.m_hlength, 1), .m_u = v4(0, 0, 2 * cyl.m_hlength, 0),
+						.m_v = v4(r, 0, 0, 0), .m_normal = {},
+						.m_nu = impl::Divisions(2.0 * std::sqrt(2.0) * cyl.m_hlength, spacing),
+						.m_nv = std::max(3u, impl::Divisions(std::sqrt(2.0) * math::constants<double>::tau * r, spacing)),
+						.m_kind = 4, .m_sample_end = 0, .m_taper = r,
+						.m_measure = static_cast<float>(math::constants<double>::tau * r * 2 * cyl.m_hlength),
+						.m_pad0 = 0, .m_pad1 = 0,
+					});
+				}
+				break;
+			}
 			case EShape::Box:
 			case EShape::Sphere:
 			{
@@ -327,7 +363,7 @@ namespace pr::physics::surface
 			}
 			default:
 			{
-				throw std::runtime_error("Surface sampling requires a box, sphere, line, triangle, or polytope primitive");
+				throw std::runtime_error("Surface sampling requires a box, sphere, line, cylinder, triangle, or polytope primitive");
 			}
 		}
 		return plan;
@@ -371,6 +407,11 @@ namespace pr::physics::surface
 			{
 				// Segments carry position only.
 				return 0.0f;
+			}
+			case 6:
+			{
+				// A ring node owns at most '2/nu' of the disc's radius-squared fraction and '1/nv' of the angle.
+				return patch.m_measure * 2.0f / (static_cast<float>(patch.m_nu) * static_cast<float>(patch.m_nv));
 			}
 			default:
 			{

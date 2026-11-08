@@ -1,0 +1,83 @@
+{
+	"scene": {
+		"demo": {
+			"command": "cylinder-spinning-barrel",
+			"name": "Spinning Barrel Rises",
+			"group": "Collision and Contacts",
+			"order": 22
+		},
+		"description": "Barrels lying on their side are spun quickly about the vertical axis. Sliding friction at the ground contact lifts a long barrel (axial inertia smaller than transverse inertia) onto the rim of one end, where it keeps spinning and precesses. Each spinning barrel starts with a small wobble (0.5 rad/s about x and y) because a perfectly symmetric line contact gives no torque to start the rise. Left to right: long barrel at 15 rad/s, which friction stops before it can rise; long barrels at 25 and 40 rad/s, which rise about 31 degrees onto the rim and precess; long barrel at 25 rad/s with no wobble, which stays on its side while friction stops it; squat barrel at 25 rad/s, which tips onto its rim like a spun coin; long barrel with no spin as a control.",
+		"gravity": [0, 0, -9.81],
+		"material": {
+			"friction": 0.5,
+			"elasticity": 0.0
+		},
+		"camera": {
+			"position": [0, -12, 5],
+			"lookat": [0, 0, 0.5]
+		},
+		"ground_plane": {
+			"height": 0.0,
+			"texture": "#checker"
+		},
+		"shapes": {
+			"barrel": { "name": "barrel", "type": "cylinder", "length": 1.2, "radius": 0.3 },
+			"squat": { "name": "squat", "type": "cylinder", "length": 0.4, "radius": 0.4 }
+		},
+		"bodies": [
+			{
+				"name": "barrel_w15",
+				"shape": "barrel",
+				"mass": 10.0,
+				"colour": "0xFFE04040",
+				"position": [-7.5, 0.0, 0.3],
+				"z_axis": [1, 0, 0],
+				"angular_velocity": [0.5, 0.5, 15]
+			},
+			{
+				"name": "barrel_w25",
+				"shape": "barrel",
+				"mass": 10.0,
+				"colour": "0xFFE0A040",
+				"position": [-4.5, 0.0, 0.3],
+				"z_axis": [1, 0, 0],
+				"angular_velocity": [0.5, 0.5, 25]
+			},
+			{
+				"name": "barrel_w40",
+				"shape": "barrel",
+				"mass": 10.0,
+				"colour": "0xFFE0E040",
+				"position": [-1.5, 0.0, 0.3],
+				"z_axis": [1, 0, 0],
+				"angular_velocity": [0.5, 0.5, 40]
+			},
+			{
+				"name": "barrel_w25_symmetric",
+				"shape": "barrel",
+				"mass": 10.0,
+				"colour": "0xFF40E0A0",
+				"position": [1.5, 0.0, 0.3],
+				"z_axis": [1, 0, 0],
+				"angular_velocity": [0, 0, 25]
+			},
+			{
+				"name": "squat_w25",
+				"shape": "squat",
+				"mass": 10.0,
+				"colour": "0xFF40A0E0",
+				"position": [4.5, 0.0, 0.4],
+				"z_axis": [1, 0, 0],
+				"angular_velocity": [0.5, 0.5, 25]
+			},
+			{
+				"name": "barrel_still",
+				"shape": "barrel",
+				"mass": 10.0,
+				"colour": "0xFF808080",
+				"position": [7.5, 0.0, 0.3],
+				"z_axis": [1, 0, 0]
+			}
+		]
+	}
+}

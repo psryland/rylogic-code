@@ -56,6 +56,7 @@
 #include "pr/collision/shape_line.h"
 #include "pr/collision/shape_triangle.h"
 #include "pr/collision/shape_polytope.h"
+#include "pr/collision/shape_cylinder.h"
 #include "pr/collision/shape_array.h"
 #include "pr/physics/surface/surface_sampling.h"
 #include "pr/physics/buoyancy/buoyancy_primitives.h"
@@ -201,6 +202,13 @@ namespace pr::physics::buoyancy
 				auto const d = v4{ p_local.x, p_local.y, p_local.z - z, 0.0f };
 				auto const r = line.m_radius + eps;
 				return LengthSq(d) <= r * r;
+			}
+			case EShape::Cylinder:
+			{
+				// Inside a flat-ended cylinder means within the cap slab and within 'radius' of the Z axis.
+				auto const& cyl = shape_cast<ShapeCylinder>(shape);
+				auto const r = cyl.m_radius + eps;
+				return std::abs(p_local.z) <= cyl.m_hlength + eps && Sqr(p_local.x) + Sqr(p_local.y) <= r * r;
 			}
 			case EShape::Polytope:
 			{
@@ -471,6 +479,7 @@ namespace pr::physics::buoyancy
 				case EShape::Box:
 				case EShape::Sphere:
 				case EShape::Line:
+				case EShape::Cylinder:
 				case EShape::Polytope:
 				{
 					// These primitives enclose the volume integrated by the surface pressure.

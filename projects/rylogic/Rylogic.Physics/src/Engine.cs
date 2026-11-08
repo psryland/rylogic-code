@@ -277,6 +277,20 @@ public sealed class Engine :IDisposable
 		return AddShape(handle);
 	}
 
+	/// <summary>Create a Z-aligned solid cylinder with flat end caps. 'length' is the full distance between the caps.</summary>
+	public unsafe Shape CreateCylinder(float length, float radius, ShapeOptions? options = null)
+	{
+		EnsureOwner();
+		var desc = new Native.CylinderShape
+		{
+			m_common = Native.ShapeCommon.From<Native.CylinderShape>(options),
+			m_length = length,
+			m_radius = radius,
+		};
+		Native.Check(Native.Physics_ShapeCreateCylinder(Handle, &desc, out var handle));
+		return AddShape(handle);
+	}
+
 	/// <summary>Create a convex polytope from a caller-owned point span.</summary>
 	public unsafe Shape CreatePolytope(ReadOnlySpan<v4> points, ShapeOptions? options = null)
 	{

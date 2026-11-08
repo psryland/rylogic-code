@@ -97,6 +97,7 @@ Scene JSON shapes may use `"type": "compound"` with a `"children"` array. Each c
 with optional `"position"` and `"rotation"` (degrees) giving its placement in body space. Mass and inertia are derived from the children,
 so overlapping children count their shared volume twice. `scenes\floater.json` includes a box/sphere/capsule/polytope compound floater.
 For `"line"` shapes, `"thickness"` is the capsule radius.
+`"cylinder"` shapes are flat-ended solid cylinders along body Z, with full `"length"` between the caps and side `"radius"`.
 
 ## Rigid-body display
 

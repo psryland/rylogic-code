@@ -123,6 +123,7 @@ namespace pr::physics
 		AtmosphereStep = 25,
 		AtmosphereStats = 26,
 		WindSea = 27,
+		CylinderShape = 28,
 	};
 
 	struct StructHeader
@@ -294,6 +295,15 @@ namespace pr::physics
 		Vector4 a;
 		Vector4 b;
 		Vector4 c;
+	};
+
+	// A solid flat-ended cylinder centred on the shape origin with its axis along shape-space Z.
+	// 'length' is the full distance between the caps (>= 0) and 'radius' is the radius of the side and caps (> 0).
+	struct CylinderShape
+	{
+		ShapeCommon common;
+		float length;
+		float radius;
 	};
 
 	#pragma endregion
@@ -1176,6 +1186,7 @@ extern "C"
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_ShapeCreateBox(pr::physics::EngineHandle engine, pr::physics::BoxShape const* desc, pr::physics::ShapeHandle* shape);
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_ShapeCreateLine(pr::physics::EngineHandle engine, pr::physics::LineShape const* desc, pr::physics::ShapeHandle* shape);
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_ShapeCreateTriangle(pr::physics::EngineHandle engine, pr::physics::TriangleShape const* desc, pr::physics::ShapeHandle* shape);
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_ShapeCreateCylinder(pr::physics::EngineHandle engine, pr::physics::CylinderShape const* desc, pr::physics::ShapeHandle* shape);
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_ShapeCreatePolytope(pr::physics::EngineHandle engine, pr::physics::ShapeCommon const* common, pr::physics::Vector4 const* points, std::uint32_t point_count, pr::physics::ShapeHandle* shape);
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_ShapeCreateCompound(pr::physics::EngineHandle engine, pr::physics::ShapeCommon const* common, pr::physics::ShapeHandle const* children, std::uint32_t child_count, pr::physics::ShapeHandle* shape);
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_ShapeDestroy(pr::physics::EngineHandle engine, pr::physics::ShapeHandle shape);

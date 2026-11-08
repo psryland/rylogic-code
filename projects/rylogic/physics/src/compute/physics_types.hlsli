@@ -107,7 +107,8 @@ static const int SHAPE_BOX      = 1;
 static const int SHAPE_LINE     = 2;
 static const int SHAPE_TRIANGLE = 3;
 static const int SHAPE_POLYTOPE = 4;
-static const int SHAPE_ARRAY    = 5;
+static const int SHAPE_CYLINDER = 5;
+static const int SHAPE_ARRAY    = 6;
 
 // The largest number of convex leaf children a single compound shape may flatten to.
 // Child indices are packed into 16 bits within warm-start keys, and the broadphase expands
@@ -130,7 +131,13 @@ static const int COLLISION_BIN_POLYTOPE_VS_BOX      = 11;
 static const int COLLISION_BIN_POLYTOPE_VS_LINE     = 12;
 static const int COLLISION_BIN_POLYTOPE_VS_TRIANGLE = 13;
 static const int COLLISION_BIN_POLYTOPE_VS_POLYTOPE = 14;
-static const int COLLISION_BIN_COUNT                = 15;
+static const int COLLISION_BIN_CYLINDER_VS_SPHERE   = 15;
+static const int COLLISION_BIN_CYLINDER_VS_BOX      = 16;
+static const int COLLISION_BIN_CYLINDER_VS_LINE     = 17;
+static const int COLLISION_BIN_CYLINDER_VS_TRIANGLE = 18;
+static const int COLLISION_BIN_CYLINDER_VS_POLYTOPE = 19;
+static const int COLLISION_BIN_CYLINDER_VS_CYLINDER = 20;
+static const int COLLISION_BIN_COUNT                = 21;
 
 // Collision feature types. The value is the manifold point count.
 static const int FEATURE_NONE = 0;

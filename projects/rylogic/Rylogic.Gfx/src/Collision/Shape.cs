@@ -14,6 +14,7 @@ public enum EShape : int
 	Line,
 	Triangle,
 	Polytope,
+	Cylinder,
 	Array,
 }
 public enum EFlags : int
@@ -82,6 +83,17 @@ public struct ShapeTriangle
 {
 	public Shape m_base;
 	public m4x4 m_v; // <x,y,z> = verts of the triangle, w = normal. Cross(w, y-x) should point toward the interior of the triangle
+}
+
+// A solid flat-ended cylinder centred on the shape origin with its axis along shape-space Z.
+[StructLayout(LayoutKind.Sequential)]
+public struct ShapeCylinder
+{
+	public Shape m_base;
+	public float m_hlength;
+	public float m_radius;
+	private int pad0;
+	private int pad1;
 }
 
 // A polytope is basically a triangle mesh with adjacency data. All polytopes are assumed to be convex.

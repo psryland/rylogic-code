@@ -483,6 +483,80 @@ namespace pr::collision
 		throw std::runtime_error("Not implemented");
 	}
 
+	// Ray vs. Cylinder
+	// Returns the portion of the ray segment (t in [0,1]) inside the cylinder inflated by the ray thickness.
+	template <typename = void>
+	RayCastResult RayCast(Ray const& ray, ShapeCylinder const& shape)
+	{
+		RayCastResult result;
+		auto const& p = ray.m_point;
+		auto const& d = ray.m_direction;
+		auto radius = shape.m_radius + ray.m_thickness;
+		auto hlength = shape.m_hlength + ray.m_thickness;
+		auto t0 = 0.0f;
+		auto t1 = 1.0f;
+		auto normal = v4::Zero();
+
+		// Clip against the slab between the two cap planes
+		if (Abs(d.z) < math::tiny<float>)
+		{
+			if (Abs(p.z) > hlength)
+				return result;
+		}
+		else
+		{
+			auto ta = (-hlength - p.z) / d.z;
+			auto tb = (+hlength - p.z) / d.z;
+			auto cap_normal = v4(0, 0, d.z > 0 ? -1.0f : +1.0f, 0);
+			if (ta > tb)
+				std::swap(ta, tb);
+
+			if (ta > t0)
+			{
+				t0 = ta;
+				normal = cap_normal;
+			}
+			t1 = Min(t1, tb);
+		}
+
+		// Clip against the infinite cylinder around the Z axis. Solve |p.xy + t * d.xy|^2 = radius^2 for t.
+		auto a = Sqr(d.x) + Sqr(d.y);
+		auto b = 2.0f * (p.x * d.x + p.y * d.y);
+		auto c = Sqr(p.x) + Sqr(p.y) - Sqr(radius);
+		if (a < Sqr(math::tiny<float>))
+		{
+			if (c > 0)
+				return result;
+		}
+		else
+		{
+			auto disc = Sqr(b) - 4.0f * a * c;
+			if (disc < 0)
+				return result;
+
+			auto root = Sqrt(disc);
+			auto ta = (-b - root) / (2.0f * a);
+			auto tb = (-b + root) / (2.0f * a);
+			if (ta > t0)
+			{
+				t0 = ta;
+				auto hit = p + d * ta;
+				normal = v4(hit.x, hit.y, 0, 0) / radius;
+			}
+			t1 = Min(t1, tb);
+		}
+
+		// The ray hits when the slab and side intervals overlap
+		if (t0 > t1)
+			return result;
+
+		result.m_t0 = t0;
+		result.m_t1 = t1;
+		result.m_normal = normal;
+		result.m_shape = &shape.m_base;
+		return result;
+	}
+
 	// Ray vs. Array
 	template <typename = void>
 	RayCastResult RayCast(Ray const& ray, ShapeArray const& shape)

@@ -71,6 +71,12 @@ namespace Rylogic.LDraw
 					tri.o2w(poly.Header.m_base.m_s2r);
 					break;
 				}
+				case EShape.Cylinder:
+				{
+					var s = Marshal.PtrToStructure<ShapeCylinder>(base_ptr);
+					Cylinder().cylinder(2 * s.m_hlength, s.m_radius).facets(1, 50).end_caps().o2w(s.m_base.m_s2r);
+					break;
+				}
 				case EShape.Array:
 				{
 					var arr = new ShapeArrayData(data);

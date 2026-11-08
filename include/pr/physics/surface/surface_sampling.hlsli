@@ -18,7 +18,7 @@ namespace pr::physics::surface
 #endif
 
 // Compact shape-local quadrature patch. Plans are validated by BuildPlan before CPU/GPU emission.
-// Kind 0 is a rectangle, 1 a tapered strip, 2 a sphere face, 3 a hemisphere face, 4 a cylinder, and 5 a zero-area segment.
+// Kind 0 is a rectangle, 1 a tapered strip, 2 a sphere face, 3 a hemisphere face, 4 a cylinder, 5 a zero-area segment, and 6 a flat disc.
 struct SurfacePatch
 {
 	float4 m_origin;
@@ -149,6 +149,18 @@ PR_SURFACE_ODR SurfaceSample EmitSurfaceSample(PR_SURFACE_IN(SurfacePatch) patch
 			sample.m_pos_local = patch.m_origin + patch.m_u * ((float)index / (float)patch.m_nu);
 			sample.m_normal_local = float4(0, 0, 0, 0);
 			sample.m_darea = 0;
+			return sample;
+		}
+		case 6:
+		{
+			// Place nodes on a polar grid over the disc spanned by 'm_u' and 'm_v'. 'u' is the radius fraction and 'v' the angle fraction.
+			// Each node owns the ring between the radial mid-points on either side of it, so the weights sum exactly to the disc area.
+			// The angular rule is periodic, so the first and last angular nodes coincide and each carries half weight.
+			float angle = 6.2831853071795864769f * v;
+			sample.m_pos_local = patch.m_origin + u * (cos(angle) * patch.m_u + sin(angle) * patch.m_v);
+			float s_lo = max(0.0f, ((float)i - 0.5f) / (float)patch.m_nu);
+			float s_hi = min(1.0f, ((float)i + 0.5f) / (float)patch.m_nu);
+			sample.m_darea = patch.m_measure * (s_hi * s_hi - s_lo * s_lo) * wv / (float)patch.m_nv;
 			return sample;
 		}
 		default:

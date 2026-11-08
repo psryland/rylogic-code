@@ -127,6 +127,19 @@ int CollisionBinId(int type_a, int type_b)
 			}
 			break;
 		}
+		case SHAPE_CYLINDER:
+		{
+			switch (type_lo)
+			{
+				case SHAPE_SPHERE:   return COLLISION_BIN_CYLINDER_VS_SPHERE;
+				case SHAPE_BOX:      return COLLISION_BIN_CYLINDER_VS_BOX;
+				case SHAPE_LINE:     return COLLISION_BIN_CYLINDER_VS_LINE;
+				case SHAPE_TRIANGLE: return COLLISION_BIN_CYLINDER_VS_TRIANGLE;
+				case SHAPE_POLYTOPE: return COLLISION_BIN_CYLINDER_VS_POLYTOPE;
+				case SHAPE_CYLINDER: return COLLISION_BIN_CYLINDER_VS_CYLINDER;
+			}
+			break;
+		}
 		default:
 		{
 			break;
@@ -466,6 +479,63 @@ void CollidePairPolytopeVsPolytope(uint pair_index)
 	StoreCollisionResult(pair, shape_a, shape_b, hit, col);
 }
 
+// Cylinder pairs use the generic GJK paths. In the mixed bins, shape_hi is the cylinder.
+void CollidePairCylinderVsSphere(uint pair_index)
+{
+	GpuCollisionPair pair;
+	GpuShape shape_a, shape_b, shape_lo, shape_hi;
+	float4x4 a2w, b2w, lo2w, hi2w;
+	LoadPair(pair_index, pair, shape_a, shape_b, a2w, b2w);
+	CanonicalisePair(shape_a, a2w, shape_b, b2w, shape_lo, lo2w, shape_hi, hi2w);
+
+	// Closest-point GJK with an analytic sphere margin avoids EPA on the sphere's curved surface.
+	int gjk_iters = 0;
+	GpuContact col;
+	bool hit = ConvexVsSphere(shape_hi, hi2w, shape_lo, lo2w, g_verts, col, gjk_iters);
+	StoreCanonicalResult(pair, shape_a, shape_b, hit, col);
+}
+void CollidePairCylinderVsLine(uint pair_index)
+{
+	GpuCollisionPair pair;
+	GpuShape shape_a, shape_b, shape_lo, shape_hi;
+	float4x4 a2w, b2w, lo2w, hi2w;
+	LoadPair(pair_index, pair, shape_a, shape_b, a2w, b2w);
+	CanonicalisePair(shape_a, a2w, shape_b, b2w, shape_lo, lo2w, shape_hi, hi2w);
+
+	// Closest-point GJK against the capsule core, then the line radius is added analytically.
+	int gjk_iters = 0;
+	GpuContact col;
+	bool hit = ConvexVsLine(shape_hi, hi2w, shape_lo, lo2w, g_verts, col, gjk_iters);
+	StoreCanonicalResult(pair, shape_a, shape_b, hit, col);
+}
+void CollidePairCylinderVsConvex(uint pair_index)
+{
+	GpuCollisionPair pair;
+	GpuShape shape_a, shape_b, shape_lo, shape_hi;
+	float4x4 a2w, b2w, lo2w, hi2w;
+	LoadPair(pair_index, pair, shape_a, shape_b, a2w, b2w);
+	CanonicalisePair(shape_a, a2w, shape_b, b2w, shape_lo, lo2w, shape_hi, hi2w);
+
+	// Box, triangle and polytope partners use GJK + EPA, then build the manifold from the support features.
+	int gjk_iters = 0, epa_iters = 0;
+	GpuContact col;
+	bool hit = GjkCollide(shape_hi, hi2w, shape_lo, lo2w, g_verts, col, gjk_iters, epa_iters);
+	StoreCanonicalResult(pair, shape_a, shape_b, hit, col);
+}
+void CollidePairCylinderVsCylinder(uint pair_index)
+{
+	GpuCollisionPair pair;
+	GpuShape shape_a, shape_b;
+	float4x4 a2w, b2w;
+	LoadPair(pair_index, pair, shape_a, shape_b, a2w, b2w);
+
+	// Same-type bins keep the broadphase order, so GjkCollide returns the axis from A toward B directly.
+	int gjk_iters = 0, epa_iters = 0;
+	GpuContact col;
+	bool hit = GjkCollide(shape_a, a2w, shape_b, b2w, g_verts, col, gjk_iters, epa_iters);
+	StoreCollisionResult(pair, shape_a, shape_b, hit, col);
+}
+
 // The entry point macro is only the dispatch shell. All real pair-specific work lives in the CollidePair* wrappers above, keeping the bin kernels
 // easy to map back to COLLISION_BIN_* ids while avoiding a second layer of switch/branching inside the hot path.
 #define COLLISION_BIN_ENTRY(kernel_name, bin_id, collide_func) \
@@ -492,6 +562,12 @@ COLLISION_BIN_ENTRY(CSCollidePolytopeVsBox,      COLLISION_BIN_POLYTOPE_VS_BOX, 
 COLLISION_BIN_ENTRY(CSCollidePolytopeVsLine,     COLLISION_BIN_POLYTOPE_VS_LINE,     CollidePairPolytopeVsLine)
 COLLISION_BIN_ENTRY(CSCollidePolytopeVsTriangle, COLLISION_BIN_POLYTOPE_VS_TRIANGLE, CollidePairPolytopeVsTriangle)
 COLLISION_BIN_ENTRY(CSCollidePolytopeVsPolytope, COLLISION_BIN_POLYTOPE_VS_POLYTOPE, CollidePairPolytopeVsPolytope)
+COLLISION_BIN_ENTRY(CSCollideCylinderVsSphere,   COLLISION_BIN_CYLINDER_VS_SPHERE,   CollidePairCylinderVsSphere)
+COLLISION_BIN_ENTRY(CSCollideCylinderVsBox,      COLLISION_BIN_CYLINDER_VS_BOX,      CollidePairCylinderVsConvex)
+COLLISION_BIN_ENTRY(CSCollideCylinderVsLine,     COLLISION_BIN_CYLINDER_VS_LINE,     CollidePairCylinderVsLine)
+COLLISION_BIN_ENTRY(CSCollideCylinderVsTriangle, COLLISION_BIN_CYLINDER_VS_TRIANGLE, CollidePairCylinderVsConvex)
+COLLISION_BIN_ENTRY(CSCollideCylinderVsPolytope, COLLISION_BIN_CYLINDER_VS_POLYTOPE, CollidePairCylinderVsConvex)
+COLLISION_BIN_ENTRY(CSCollideCylinderVsCylinder, COLLISION_BIN_CYLINDER_VS_CYLINDER, CollidePairCylinderVsCylinder)
 #undef COLLISION_BIN_ENTRY
 
 // Calculates the number of thread groups needed for the resolve shader

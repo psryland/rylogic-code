@@ -1365,6 +1365,21 @@ odr bool CollideShapes(
 			}
 			break;
 		}
+		case SHAPE_CYLINDER:
+		{
+			// Cylinder pairs use the generic GJK paths. Sphere and line partners add their radius analytically to avoid EPA on their curved surfaces.
+			int epa_iters = 0;
+			switch (sa.type)
+			{
+				case SHAPE_SPHERE:   hit = ConvexVsSphere(sb, wb, sa, wa, verts, out_contact, gjk_iters); break;
+				case SHAPE_BOX:      hit = GjkCollide(sb, wb, sa, wa, verts, out_contact, gjk_iters, epa_iters); break;
+				case SHAPE_LINE:     hit = ConvexVsLine(sb, wb, sa, wa, verts, out_contact, gjk_iters); break;
+				case SHAPE_TRIANGLE: hit = GjkCollide(sb, wb, sa, wa, verts, out_contact, gjk_iters, epa_iters); break;
+				case SHAPE_POLYTOPE: hit = GjkCollide(sb, wb, sa, wa, verts, out_contact, gjk_iters, epa_iters); break;
+				case SHAPE_CYLINDER: hit = GjkCollide(sa, wa, sb, wb, verts, out_contact, gjk_iters, epa_iters); break;
+			}
+			break;
+		}
 	}
 
 	// HigherVsLower functions return contact in canonical order. Flip back if the caller supplied lower-vs-higher.

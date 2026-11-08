@@ -117,6 +117,12 @@ namespace pr::physics
 					{&m_cs_collide_bins[COLLISION_BIN_POLYTOPE_VS_LINE],     &shader_code::collide_polytope_vs_line,     "Physics:CollidePolytopeVsLineSig",     "Physics:CollidePolytopeVsLinePSO"},
 					{&m_cs_collide_bins[COLLISION_BIN_POLYTOPE_VS_TRIANGLE], &shader_code::collide_polytope_vs_triangle, "Physics:CollidePolytopeVsTriangleSig", "Physics:CollidePolytopeVsTrianglePSO"},
 					{&m_cs_collide_bins[COLLISION_BIN_POLYTOPE_VS_POLYTOPE], &shader_code::collide_polytope_vs_polytope, "Physics:CollidePolytopeVsPolytopeSig", "Physics:CollidePolytopeVsPolytopePSO"},
+					{&m_cs_collide_bins[COLLISION_BIN_CYLINDER_VS_SPHERE],   &shader_code::collide_cylinder_vs_sphere,   "Physics:CollideCylinderVsSphereSig",   "Physics:CollideCylinderVsSpherePSO"},
+					{&m_cs_collide_bins[COLLISION_BIN_CYLINDER_VS_BOX],      &shader_code::collide_cylinder_vs_box,      "Physics:CollideCylinderVsBoxSig",      "Physics:CollideCylinderVsBoxPSO"},
+					{&m_cs_collide_bins[COLLISION_BIN_CYLINDER_VS_LINE],     &shader_code::collide_cylinder_vs_line,     "Physics:CollideCylinderVsLineSig",     "Physics:CollideCylinderVsLinePSO"},
+					{&m_cs_collide_bins[COLLISION_BIN_CYLINDER_VS_TRIANGLE], &shader_code::collide_cylinder_vs_triangle, "Physics:CollideCylinderVsTriangleSig", "Physics:CollideCylinderVsTrianglePSO"},
+					{&m_cs_collide_bins[COLLISION_BIN_CYLINDER_VS_POLYTOPE], &shader_code::collide_cylinder_vs_polytope, "Physics:CollideCylinderVsPolytopeSig", "Physics:CollideCylinderVsPolytopePSO"},
+					{&m_cs_collide_bins[COLLISION_BIN_CYLINDER_VS_CYLINDER], &shader_code::collide_cylinder_vs_cylinder, "Physics:CollideCylinderVsCylinderSig", "Physics:CollideCylinderVsCylinderPSO"},
 				}
 			};
 			auto collide_sig = RootSig(ERootSigFlags::ComputeOnly)

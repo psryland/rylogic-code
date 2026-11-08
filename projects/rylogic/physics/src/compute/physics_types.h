@@ -170,6 +170,27 @@ namespace pr::physics
 			.data = v4(shape.m_hlength, shape.m_radius, 0, 0),
 		};
 	}
+	inline GpuShape PackShape(collision::ShapeCylinder const& shape, m4x4 const& p2rb = m4x4::Identity())
+	{
+		auto s2rb = p2rb * shape.m_base.m_s2r;
+		return GpuShape {
+			.s2rb = s2rb,
+			.rb_bbox = s2rb * shape.m_base.m_bbox,
+			.type = static_cast<int>(collision::EShape::Cylinder),
+			.vert_offset = 0,
+			.vert_count = 0,
+			.material_id = shape.m_base.m_material_id,
+			.face_offset = 0,
+			.face_count = 0,
+			.edge_offset = 0,
+			.edge_count = 0,
+			.child_offset = 0,
+			.child_count = 0,
+			.flags = static_cast<int>(shape.m_base.m_flags),
+			.pad0 = 0,
+			.data = v4(shape.m_hlength, shape.m_radius, 0, 0),
+		};
+	}
 	inline GpuShape PackShape(collision::ShapeTriangle const& shape, int vert_offset, m4x4 const& p2rb = m4x4::Identity())
 	{
 		auto s2rb = p2rb * shape.m_base.m_s2r;
@@ -253,6 +274,10 @@ namespace pr::physics
 			case EShape::Line:
 			{
 				return PackShape(shape_cast<ShapeLine>(shape), p2rb);
+			}
+			case EShape::Cylinder:
+			{
+				return PackShape(shape_cast<ShapeCylinder>(shape), p2rb);
 			}
 			case EShape::Triangle:
 			{

@@ -1,0 +1,228 @@
+{
+	"scene": {
+		"demo": {
+			"command": "cylinder-showcase",
+			"name": "Cylinder Showcase",
+			"group": "Collision and Contacts",
+			"order": 20
+		},
+		"description": "Flat-ended cylinder contacts. Left to right: a cylinder rolls down a 15 degree ramp (expected acceleration (2/3) g sin(15) = 1.69 m/s^2); cylinders rest on a cap and on the side; a tilted cylinder lands on its rim and topples onto its cap; a stack of coins settles; cylinders land on a box, a polytope and a capsule, and a box and a sphere land on cylinders; a tilted cylinder lands on a kinematic triangle and settles on its cap; three logs form a side-by-side pile; a mallet (compound with a cylinder head) falls and rests on its head and handle.",
+		"gravity": [0, 0, -9.81],
+		"material": {
+			"friction": 0.8,
+			"elasticity": 0.1
+		},
+		"camera": {
+			"position": [0, -16, 9],
+			"lookat": [0, 0, 0.5]
+		},
+		"ground_plane": {
+			"height": 0.0,
+			"texture": "#checker"
+		},
+		"shapes": {
+			"ramp": { "name": "ramp", "type": "box", "dimensions": [2.0, 6.0, 0.3] },
+			"roller": { "name": "roller", "type": "cylinder", "length": 1.2, "radius": 0.3 },
+			"can": { "name": "can", "type": "cylinder", "length": 1.0, "radius": 0.4 },
+			"coin": { "name": "coin", "type": "cylinder", "length": 0.1, "radius": 0.4 },
+			"block": { "name": "block", "type": "box", "dimensions": [1.2, 1.2, 0.6] },
+			"small-box": { "name": "small-box", "type": "box", "dimensions": [0.5, 0.5, 0.5] },
+			"ball": { "name": "ball", "type": "sphere", "radius": 0.3 },
+			"capsule": { "name": "capsule", "type": "line", "length": 1.6, "thickness": 0.25 },
+			"shelf": { "name": "shelf", "type": "triangle", "vertices": [[-1.5, -1.2, 0], [1.5, -1.2, 0], [0, 1.5, 0]] },
+			"pyramid": {
+				"name": "pyramid",
+				"type": "polytope",
+				"vertices": [
+					[-0.6, -0.6, -0.3],
+					[0.6, -0.6, -0.3],
+					[-0.6, 0.6, -0.3],
+					[0.6, 0.6, -0.3],
+					[-0.3, -0.3, 0.3],
+					[0.3, -0.3, 0.3],
+					[-0.3, 0.3, 0.3],
+					[0.3, 0.3, 0.3]
+				]
+			},
+			"mallet": {
+				"name": "mallet",
+				"type": "compound",
+				"children": [
+					{ "type": "box", "dimensions": [0.1, 0.1, 1.2], "position": [0, 0, 0] },
+					{ "type": "cylinder", "length": 0.6, "radius": 0.2, "position": [0, 0, 0.7], "rotation": [0, 90, 0] }
+				]
+			}
+		},
+		"bodies": [
+			{
+				"name": "ramp",
+				"shape": "ramp",
+				"mass": 100.0,
+				"colour": "0xFF808080",
+				"position": [-8.0, 0.0, 1.0],
+				"rotation": [15, 0, 0],
+				"kinematic": true
+			},
+			{
+				"name": "incline_roller",
+				"shape": "roller",
+				"mass": 4.0,
+				"colour": "0xFFE04040",
+				"position": [-8.0, 1.813, 1.962],
+				"z_axis": [1, 0, 0]
+			},
+			{
+				"name": "cap_rest",
+				"shape": "can",
+				"mass": 5.0,
+				"colour": "0xFF40A0E0",
+				"position": [-4.0, -1.5, 0.52]
+			},
+			{
+				"name": "side_rest",
+				"shape": "can",
+				"mass": 5.0,
+				"colour": "0xFF40E0A0",
+				"position": [-4.0, 1.5, 0.42],
+				"z_axis": [1, 0, 0]
+			},
+			{
+				"name": "rim_topple",
+				"shape": "can",
+				"mass": 5.0,
+				"colour": "0xFFE0A040",
+				"position": [-1.0, 0.0, 1.2],
+				"rotation": [30, 0, 0]
+			},
+			{ "name": "coin0", "shape": "coin", "mass": 0.5, "colour": "0xFFD0B030", "position": [2.0, 0.0, 0.051] },
+			{ "name": "coin1", "shape": "coin", "mass": 0.5, "colour": "0xFFC0A020", "position": [2.0, 0.0, 0.153] },
+			{ "name": "coin2", "shape": "coin", "mass": 0.5, "colour": "0xFFD0B030", "position": [2.02, 0.0, 0.255] },
+			{ "name": "coin3", "shape": "coin", "mass": 0.5, "colour": "0xFFC0A020", "position": [2.0, 0.02, 0.357] },
+			{ "name": "coin4", "shape": "coin", "mass": 0.5, "colour": "0xFFD0B030", "position": [1.98, 0.0, 0.459] },
+			{ "name": "coin5", "shape": "coin", "mass": 0.5, "colour": "0xFFC0A020", "position": [2.0, -0.02, 0.561] },
+			{
+				"name": "block",
+				"shape": "block",
+				"mass": 20.0,
+				"colour": "0xFF606060",
+				"position": [5.0, -3.0, 0.3]
+			},
+			{
+				"name": "can_on_block",
+				"shape": "can",
+				"mass": 5.0,
+				"colour": "0xFF40A0E0",
+				"position": [5.0, -3.0, 2.0],
+				"rotation": [10, 5, 0]
+			},
+			{
+				"name": "pyramid",
+				"shape": "pyramid",
+				"mass": 20.0,
+				"colour": "0xFF606060",
+				"position": [5.0, -1.0, 0.3]
+			},
+			{
+				"name": "can_on_pyramid",
+				"shape": "can",
+				"mass": 5.0,
+				"colour": "0xFF40A0E0",
+				"position": [5.0, -1.0, 2.0]
+			},
+			{
+				"name": "capsule",
+				"shape": "capsule",
+				"mass": 5.0,
+				"colour": "0xFF606060",
+				"position": [5.0, 1.0, 0.26],
+				"z_axis": [1, 0, 0]
+			},
+			{
+				"name": "roller_on_capsule",
+				"shape": "roller",
+				"mass": 3.0,
+				"colour": "0xFFE04040",
+				"position": [5.0, 1.0, 1.5],
+				"z_axis": [0, 1, 0]
+			},
+			{
+				"name": "upright_can",
+				"shape": "can",
+				"mass": 5.0,
+				"colour": "0xFF40E0A0",
+				"position": [5.0, 3.0, 0.5]
+			},
+			{
+				"name": "box_on_can",
+				"shape": "small-box",
+				"mass": 1.0,
+				"colour": "0xFFE0E040",
+				"position": [5.0, 3.0, 2.0],
+				"rotation": [0, 0, 30]
+			},
+			{
+				"name": "lying_can",
+				"shape": "can",
+				"mass": 5.0,
+				"colour": "0xFF40E0A0",
+				"position": [5.0, 5.0, 0.4],
+				"z_axis": [1, 0, 0]
+			},
+			{
+				"name": "ball_on_can",
+				"shape": "ball",
+				"mass": 1.0,
+				"colour": "0xFFE0E040",
+				"position": [5.05, 5.0, 2.0]
+			},
+			{
+				"name": "log_left",
+				"shape": "roller",
+				"mass": 4.0,
+				"colour": "0xFFA06030",
+				"position": [2.0, 2.69, 0.3],
+				"z_axis": [1, 0, 0]
+			},
+			{
+				"name": "log_right",
+				"shape": "roller",
+				"mass": 4.0,
+				"colour": "0xFFA06030",
+				"position": [2.0, 3.31, 0.3],
+				"z_axis": [1, 0, 0]
+			},
+			{
+				"name": "log_top",
+				"shape": "roller",
+				"mass": 4.0,
+				"colour": "0xFFC08040",
+				"position": [2.0, 3.0, 0.85],
+				"z_axis": [1, 0, 0]
+			},
+			{
+				"name": "shelf",
+				"shape": "shelf",
+				"mass": 10.0,
+				"colour": "0xFF8080A0",
+				"position": [2.0, -3.0, 0.5],
+				"kinematic": true
+			},
+			{
+				"name": "can_on_shelf",
+				"shape": "can",
+				"mass": 5.0,
+				"colour": "0xFF40A0E0",
+				"position": [2.0, -3.0, 1.8],
+				"rotation": [20, 0, 0]
+			},
+			{
+				"name": "mallet",
+				"shape": "mallet",
+				"mass": 3.0,
+				"colour": "0xFFB06030",
+				"position": [8.5, 0.0, 1.5],
+				"rotation": [70, 0, 0]
+			}
+		]
+	}
+}
