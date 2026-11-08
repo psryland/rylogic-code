@@ -23,14 +23,100 @@ namespace pr::view3d::ui
 			return std::string(reinterpret_cast<char const*>(blob) + offset, length);
 		}
 
-		// Required template part names per closed control type (section 6.3). Button needs a
-		// content presenter and a focus outline; TextBox additionally needs its text/selection/
-		// caret/validation visuals. Root/Panel/Text have no required parts.
-		std::array<std::string_view, 2> const g_button_parts = { "PART_ContentPresenter", "PART_FocusOutline" };
-		std::array<std::string_view, 5> const g_textbox_parts = { "PART_Text", "PART_Selection", "PART_Caret", "PART_ValidationOutline", "PART_FocusOutline" };
-		std::array<std::string_view, 2> const g_progress_parts = { "PART_Track", "PART_Indicator" };
-		std::array<std::string_view, 2> const g_slider_parts = { "PART_Track", "PART_Thumb" };
-		std::array<std::string_view, 2> const g_combo_parts = { "PART_SelectionBox", "PART_DropDownIndicator" };
+		// Reject a float that is not finite or is negative, naming 'what' in the error.
+		void ValidateNonNegative(float value, std::string_view owner, char const* what)
+		{
+			// NaN and infinity fail the finite test, so a single check covers every bad value.
+			if (!std::isfinite(value) || value < 0.0f)
+				throw EngineException(EStatus::InvalidArgument, std::format("{}: {} {} must be finite and non-negative", owner, what, value));
+		}
+
+		// Validate one style channel's image brush against the merged resource table.
+		void ValidateImageBrush(ImageBrush const& image, std::unordered_map<ResourceId, ResourceRecord> const& resources, std::string_view owner)
+		{
+			// A non-zero image id must name an Image resource so the draw builder never re-checks the kind.
+			if (image.image_id != 0)
+			{
+				auto it = resources.find(image.image_id);
+				if (it == resources.end())
+					throw EngineException(EStatus::UnknownResource, std::format("{}: unknown image_id {}", owner, image.image_id));
+				if (it->second.desc.kind != EResourceKind::Image)
+					throw EngineException(EStatus::UnknownResource, std::format("{}: image_id {} does not reference an Image resource", owner, image.image_id));
+			}
+
+			// The source position may be negative, but every size must be finite and non-negative.
+			if (!std::isfinite(image.source.x) || !std::isfinite(image.source.y))
+				throw EngineException(EStatus::InvalidArgument, std::format("{}: image source position ({}, {}) must be finite", owner, image.source.x, image.source.y));
+
+			ValidateNonNegative(image.source.w, owner, "image source width");
+			ValidateNonNegative(image.source.h, owner, "image source height");
+			ValidateNonNegative(image.slice_left, owner, "image slice_left");
+			ValidateNonNegative(image.slice_top, owner, "image slice_top");
+			ValidateNonNegative(image.slice_right, owner, "image slice_right");
+			ValidateNonNegative(image.slice_bottom, owner, "image slice_bottom");
+			ValidateNonNegative(image.slice_scale, owner, "image slice_scale");
+			for (auto value : { image.tint.r, image.tint.g, image.tint.b, image.tint.a })
+			{
+				if (!std::isfinite(value))
+					throw EngineException(EStatus::InvalidArgument, std::format("{}: image tint component {} must be finite", owner, value));
+			}
+		}
+
+		// Validate one template's role parts against the merged style and resource tables.
+		void ValidateTemplateParts(TemplateDesc const& t, std::unordered_map<StyleId, StyleRecord> const& styles, std::unordered_map<ResourceId, ResourceRecord> const& resources)
+		{
+			// Every role except Ticks may appear at most once, so the draw builder can treat parts as named slots.
+			auto seen = std::array<bool, static_cast<std::size_t>(ETemplatePart::Count)>{};
+			for (auto p = std::uint32_t{}; p != t.part_count; ++p)
+			{
+				// The role must be known and must apply to the template's control type.
+				auto const& part = t.parts[p];
+				auto const owner = std::format("template {} part {}", t.id, p);
+				if (static_cast<std::uint32_t>(part.role) >= static_cast<std::uint32_t>(ETemplatePart::Count))
+					throw EngineException(EStatus::UnknownType, std::format("{}: unknown ETemplatePart {}", owner, static_cast<int>(part.role)));
+				if (!TemplateRoleAppliesTo(part.role, t.applies_to))
+					throw EngineException(EStatus::InvalidTree, std::format("{}: role {} does not apply to control type {}", owner, static_cast<int>(part.role), static_cast<int>(t.applies_to)));
+				if (part.role != ETemplatePart::Ticks && std::exchange(seen[static_cast<std::size_t>(part.role)], true))
+					throw EngineException(EStatus::InvalidTree, std::format("{}: role {} appears more than once", owner, static_cast<int>(part.role)));
+
+				// A part style is optional, but a non-zero id must already be registered.
+				if (part.style_id != 0 && styles.find(part.style_id) == styles.end())
+					throw EngineException(EStatus::UnknownResource, std::format("{}: unknown style_id {}", owner, part.style_id));
+
+				// Every length is a DIP distance.
+				ValidateNonNegative(part.margin_left, owner, "margin_left");
+				ValidateNonNegative(part.margin_top, owner, "margin_top");
+				ValidateNonNegative(part.margin_right, owner, "margin_right");
+				ValidateNonNegative(part.margin_bottom, owner, "margin_bottom");
+				ValidateNonNegative(part.width, owner, "width");
+				ValidateNonNegative(part.height, owner, "height");
+
+				// Tick parameters only matter for Ticks parts, so other roles may leave them zero or unset.
+				if (part.role != ETemplatePart::Ticks)
+					continue;
+
+				auto const& ticks = part.ticks;
+				ValidateNonNegative(ticks.interval, owner, "tick interval");
+				ValidateNonNegative(ticks.major_length, owner, "tick major_length");
+				ValidateNonNegative(ticks.minor_length, owner, "tick minor_length");
+				ValidateNonNegative(ticks.thickness, owner, "tick thickness");
+				ValidateNonNegative(ticks.label_gap, owner, "tick label_gap");
+				if (static_cast<std::uint32_t>(ticks.align) >= static_cast<std::uint32_t>(EAnchorPoint::Count))
+					throw EngineException(EStatus::UnknownType, std::format("{}: unknown tick EAnchorPoint {}", owner, static_cast<int>(ticks.align)));
+				if (ticks.label_decimals < 0)
+					throw EngineException(EStatus::InvalidArgument, std::format("{}: tick label_decimals {} must be non-negative", owner, ticks.label_decimals));
+
+				// Labels need a Font resource, exactly like a control's own font reference.
+				if (ticks.label_font_id != 0)
+				{
+					auto it = resources.find(ticks.label_font_id);
+					if (it == resources.end())
+						throw EngineException(EStatus::UnknownResource, std::format("{}: unknown label_font_id {}", owner, ticks.label_font_id));
+					if (it->second.desc.kind != EResourceKind::Font)
+						throw EngineException(EStatus::UnknownResource, std::format("{}: label_font_id {} does not reference a Font resource", owner, ticks.label_font_id));
+				}
+			}
+		}
 
 		// Recursively remove 'id' and its whole subtree from 'tree', unlinking it from its parent's
 		// children and, if it is a root, from the root list. No-op if 'id' is not present.
@@ -117,6 +203,10 @@ namespace pr::view3d::ui
 			if (static_cast<std::uint32_t>(desc.validation_state) >= static_cast<std::uint32_t>(EValidationState::Count))
 				throw EngineException(EStatus::UnknownType, std::format("control {}: unknown EValidationState {}", desc.id, static_cast<int>(desc.validation_state)));
 
+			// Orientation is validated for every type so a later type change cannot expose a bad value.
+			if (static_cast<std::uint32_t>(desc.orientation) >= static_cast<std::uint32_t>(EOrientation::Count))
+				throw EngineException(EStatus::UnknownType, std::format("control {}: unknown EOrientation {}", desc.id, static_cast<int>(desc.orientation)));
+
 			// Completion is application-owned, never clamped or inferred from activity animation.
 			switch (desc.type)
 			{
@@ -196,76 +286,35 @@ namespace pr::view3d::ui
 		return false;
 	}
 
-	std::span<std::string_view const> RequiredTemplateParts(EControlType type)
+	bool TemplateRoleAppliesTo(ETemplatePart role, EControlType type)
 	{
-		switch (type)
+		// Roles name the geometry a control type actually has; Background fits every control.
+		switch (role)
 		{
-			case EControlType::Button: return std::span<std::string_view const>(g_button_parts);
-			case EControlType::TextBox: return std::span<std::string_view const>(g_textbox_parts);
-			case EControlType::ProgressBar: { return std::span<std::string_view const>(g_progress_parts); }
-			case EControlType::Slider: { return std::span<std::string_view const>(g_slider_parts); }
-			case EControlType::ComboBox: { return std::span<std::string_view const>(g_combo_parts); }
-			case EControlType::Root:
-			case EControlType::Panel:
-			case EControlType::Text:
+			case ETemplatePart::Background:
 			{
-				return {};
+				return true;
 			}
-			case EControlType::Count:
+			case ETemplatePart::Track:
+			case ETemplatePart::Indicator:
+			case ETemplatePart::Ticks:
+			{
+				return type == EControlType::Slider || type == EControlType::ProgressBar;
+			}
+			case ETemplatePart::Thumb:
+			{
+				return type == EControlType::Slider;
+			}
+			case ETemplatePart::Text:
+			{
+				return type == EControlType::Text || type == EControlType::TextBox || type == EControlType::Button || type == EControlType::ComboBox;
+			}
 			default:
 			{
-				throw EngineException(EStatus::UnknownType, std::format("RequiredTemplateParts: unknown EControlType {}", static_cast<int>(type)));
+				throw EngineException(EStatus::UnknownType, std::format("TemplateRoleAppliesTo: unknown ETemplatePart {}", static_cast<int>(role)));
 			}
 		}
 	}
-
-	TemplateRecord const& TreeModel::DefaultTemplate(EControlType type)
-	{
-		// One process-wide default template per control type, synthesized in code (never via a
-		// transaction) so every control has a usable visual tree even before the application
-		// authors an explicit TemplateDesc (section 6.3).
-		static std::unordered_map<EControlType, TemplateRecord> const s_defaults = []
-		{
-			std::unordered_map<EControlType, TemplateRecord> map;
-			auto make = [](EControlType applies_to, std::initializer_list<std::pair<std::string_view, EVisualPrimitive>> parts)
-			{
-				TemplateRecord rec{};
-				rec.desc.header = { sizeof(TemplateDesc), VIEW3D_UI_STRUCT_VERSION };
-				rec.desc.id = 0;
-				rec.desc.applies_to = applies_to;
-				rec.desc.part_count = static_cast<std::uint32_t>(parts.size());
-				auto i = std::uint32_t{};
-				for (auto const& [name, primitive] : parts)
-				{
-					rec.part_names[i] = name;
-					rec.desc.parts[i] = { 0, static_cast<std::uint32_t>(name.size()), primitive, 1 };
-					++i;
-				}
-				return rec;
-			};
-			map.emplace(EControlType::Root, make(EControlType::Root, { { "PART_ContentPresenter", EVisualPrimitive::ContentPresenter } }));
-			map.emplace(EControlType::Panel, make(EControlType::Panel, { { "PART_ContentPresenter", EVisualPrimitive::ContentPresenter } }));
-			map.emplace(EControlType::Text, make(EControlType::Text, { { "PART_Text", EVisualPrimitive::TextPresenter } }));
-			map.emplace(EControlType::ProgressBar, make(EControlType::ProgressBar, { { "PART_Track", EVisualPrimitive::SolidBox }, { "PART_Indicator", EVisualPrimitive::SolidBox } }));
-			map.emplace(EControlType::Slider, make(EControlType::Slider, { { "PART_Track", EVisualPrimitive::SolidBox }, { "PART_Thumb", EVisualPrimitive::SolidBox } }));
-			map.emplace(EControlType::Button, make(EControlType::Button, { { "PART_ContentPresenter", EVisualPrimitive::ContentPresenter }, { "PART_FocusOutline", EVisualPrimitive::Border } }));
-			map.emplace(EControlType::ComboBox, make(EControlType::ComboBox, { { "PART_SelectionBox", EVisualPrimitive::ContentPresenter }, { "PART_DropDownIndicator", EVisualPrimitive::TextPresenter } }));
-			map.emplace(EControlType::TextBox, make(EControlType::TextBox, {
-				{ "PART_Text", EVisualPrimitive::TextPresenter },
-				{ "PART_Selection", EVisualPrimitive::SolidBox },
-				{ "PART_Caret", EVisualPrimitive::SolidBox },
-				{ "PART_ValidationOutline", EVisualPrimitive::Border },
-				{ "PART_FocusOutline", EVisualPrimitive::Border },
-			}));
-			return map;
-		}();
-		auto it = s_defaults.find(type);
-		if (it == s_defaults.end())
-			throw EngineException(EStatus::UnknownType, std::format("DefaultTemplate: unknown EControlType {}", static_cast<int>(type)));
-
-		return it->second;
-	}
-
 	StyleRecord const& TreeModel::DefaultStyle()
 	{
 		// One process-wide default style: opaque light fill, no border, fully-opaque, identical
@@ -278,7 +327,16 @@ namespace pr::view3d::ui
 			rec.desc.id = 0;
 			for (auto i = std::size_t{}; i != static_cast<std::size_t>(EStateChannel::Count); ++i)
 			{
-				rec.desc.visuals[i] = StyleVisual{ Colour{0.82f, 0.82f, 0.82f, 1.0f}, Colour{0.4f, 0.4f, 0.4f, 1.0f}, 1.0f, 0.0f, 1.0f, Colour{0.2f, 0.45f, 0.8f, 1.0f}, Colour{0.95f, 0.95f, 0.95f, 1.0f} };
+				rec.desc.visuals[i] = StyleVisual{
+					.fill = Colour{0.82f, 0.82f, 0.82f, 1.0f},
+					.border_colour = Colour{0.4f, 0.4f, 0.4f, 1.0f},
+					.border_thickness = 1.0f,
+					.corner_radius = 0.0f,
+					.opacity = 1.0f,
+					.foreground = Colour{0.2f, 0.45f, 0.8f, 1.0f},
+					.thumb = Colour{0.95f, 0.95f, 0.95f, 1.0f},
+					.image = ImageBrush{},
+				};
 				rec.desc.transitions[i] = TransitionDesc{ 0.0f, EEasing::Linear };
 			}
 			return rec;
@@ -327,6 +385,10 @@ namespace pr::view3d::ui
 			if (static_cast<std::uint32_t>(r.kind) >= static_cast<std::uint32_t>(EResourceKind::Count))
 				throw EngineException(EStatus::UnknownType, std::format("resource {}: unknown EResourceKind {}", r.id, static_cast<int>(r.kind)));
 
+			// An image resource borrows a host texture whose expected size the renderer checks before drawing.
+			if (r.kind == EResourceKind::Image && (r.texture == 0 || r.image_width == 0 || r.image_height == 0))
+				throw EngineException(EStatus::InvalidArgument, std::format("resource {}: an Image resource needs a texture and a non-zero size, got texture {:#x} size {}x{}", r.id, r.texture, r.image_width, r.image_height));
+
 			ResourceRecord rec{};
 			rec.desc = r;
 			rec.name = CopyBlobRange(txn.blob, txn.blob_length, r.name_offset, r.name_length, "resource name");
@@ -350,6 +412,8 @@ namespace pr::view3d::ui
 					throw EngineException(EStatus::ResourceLimit, std::format("style {}: transition duration {} exceeds max_transition_duration_ms {}", s.id, t.duration_ms, config.max_transition_duration_ms));
 				if (static_cast<std::uint32_t>(t.easing) >= static_cast<std::uint32_t>(EEasing::Count))
 					throw EngineException(EStatus::UnknownType, std::format("style {}: unknown EEasing {}", s.id, static_cast<int>(t.easing)));
+
+				ValidateImageBrush(s.visuals[c].image, next.m_resources, std::format("style {} channel {}", s.id, c));
 			}
 			next.m_styles[s.id] = StyleRecord{ s };
 		}
@@ -367,30 +431,9 @@ namespace pr::view3d::ui
 			if (t.part_count > VIEW3D_UI_MAX_TEMPLATE_PARTS)
 				throw EngineException(EStatus::ResourceLimit, std::format("template {}: {} parts exceeds VIEW3D_UI_MAX_TEMPLATE_PARTS {}", t.id, t.part_count, VIEW3D_UI_MAX_TEMPLATE_PARTS));
 
-			TemplateRecord rec{};
-			rec.desc = t;
-			std::unordered_set<std::string> seen_names;
-			for (auto p = std::uint32_t{}; p != t.part_count; ++p)
-			{
-				auto const& part = t.parts[p];
-				if (static_cast<std::uint32_t>(part.primitive) >= static_cast<std::uint32_t>(EVisualPrimitive::Count))
-					throw EngineException(EStatus::UnknownType, std::format("template {}: unknown EVisualPrimitive {}", t.id, static_cast<int>(part.primitive)));
-
-				rec.part_names[p] = CopyBlobRange(txn.blob, txn.blob_length, part.name_offset, part.name_length, "template part name");
-				if (rec.part_names[p].empty())
-					throw EngineException(EStatus::InvalidArgument, std::format("template {}: part {} has an empty name", t.id, p));
-				if (!seen_names.insert(rec.part_names[p]).second)
-					throw EngineException(EStatus::InvalidTree, std::format("template {}: duplicate part name '{}'", t.id, rec.part_names[p]));
-			}
-
-			// A template must supply every required part for the control type it applies to.
-			for (auto required_name : RequiredTemplateParts(t.applies_to))
-			{
-				auto found = std::find(rec.part_names, rec.part_names + t.part_count, required_name) != rec.part_names + t.part_count;
-				if (!found)
-					throw EngineException(EStatus::InvalidTree, std::format("template {}: missing required part '{}' for control type {}", t.id, required_name, static_cast<int>(t.applies_to)));
-			}
-			next.m_templates[t.id] = std::move(rec);
+			// Styles merge first, so part styles introduced by this same transaction already resolve.
+			ValidateTemplateParts(t, next.m_styles, next.m_resources);
+			next.m_templates[t.id] = TemplateRecord{ t };
 		}
 		if (next.m_templates.size() > config.max_templates)
 			throw EngineException(EStatus::ResourceLimit, std::format("{} templates exceeds max_templates {}", next.m_templates.size(), config.max_templates));
@@ -561,7 +604,7 @@ namespace pr::view3d::ui
 
 		// Remove resources/styles/templates after operations so a transaction may both stop
 		// referencing an id (via Upsert) and remove it in the same call, but before the whole-tree
-		// consistency pass so that pass's template-part checks run against the post-removal state.
+		// consistency pass so that pass's template checks run against the post-removal state.
 		// Three explicit, near-identical loops rather than one generic helper, matching the merge
 		// step above which likewise duplicates per-table rather than sharing a template.
 		for (auto i = std::uint32_t{}; i != txn.resource_removal_count; ++i)
@@ -574,6 +617,24 @@ namespace pr::view3d::ui
 			{
 				if (node.desc.font_resource_id == id)
 					throw EngineException(EStatus::ResourceInUse, std::format("resource removal: resource {} is still referenced by control {}", id, control_id));
+			}
+
+			// Style image brushes and tick label fonts hold resource references too.
+			for (auto const& [style_id, style] : next.m_styles)
+			{
+				for (auto const& visual : style.desc.visuals)
+				{
+					if (visual.image.image_id == id)
+						throw EngineException(EStatus::ResourceInUse, std::format("resource removal: resource {} is still referenced by style {}", id, style_id));
+				}
+			}
+			for (auto const& [template_id, tmpl] : next.m_templates)
+			{
+				for (auto p = std::uint32_t{}; p != tmpl.desc.part_count; ++p)
+				{
+					if (tmpl.desc.parts[p].role == ETemplatePart::Ticks && tmpl.desc.parts[p].ticks.label_font_id == id)
+						throw EngineException(EStatus::ResourceInUse, std::format("resource removal: resource {} is still referenced by template {}", id, template_id));
+				}
 			}
 			next.m_resources.erase(id);
 		}
@@ -588,6 +649,16 @@ namespace pr::view3d::ui
 			{
 				if (node.desc.style_id == id)
 					throw EngineException(EStatus::ResourceInUse, std::format("style removal: style {} is still referenced by control {}", id, control_id));
+			}
+
+			// Template parts may draw with their own style.
+			for (auto const& [template_id, tmpl] : next.m_templates)
+			{
+				for (auto p = std::uint32_t{}; p != tmpl.desc.part_count; ++p)
+				{
+					if (tmpl.desc.parts[p].style_id == id)
+						throw EngineException(EStatus::ResourceInUse, std::format("style removal: style {} is still referenced by template {}", id, template_id));
+				}
 			}
 			next.m_styles.erase(id);
 		}
@@ -643,15 +714,12 @@ namespace pr::view3d::ui
 					throw EngineException(EStatus::InvalidTree, std::format("control {}: ancestor chain exceeds max_tree_depth {} (cycle or overly deep tree)", id, config.max_tree_depth));
 			}
 
-			// A control's resolved template must supply every required part for its type.
-			auto const& tmpl = node.desc.template_id == 0 ? DefaultTemplate(node.desc.type) : next.m_templates.at(node.desc.template_id);
-			for (auto required_name : RequiredTemplateParts(node.desc.type))
+			// A template's roles were validated for its own control type, so it may only draw that type.
+			if (node.desc.template_id != 0)
 			{
-				auto found = false;
-				for (auto p = std::uint32_t{}; p != tmpl.desc.part_count; ++p)
-					found |= tmpl.part_names[p] == required_name;
-				if (!found)
-					throw EngineException(EStatus::InvalidTree, std::format("control {}: resolved template {} is missing required part '{}'", id, tmpl.desc.id, required_name));
+				auto const& tmpl = next.m_templates.at(node.desc.template_id);
+				if (tmpl.desc.applies_to != node.desc.type)
+					throw EngineException(EStatus::InvalidTree, std::format("control {}: template {} applies to control type {}, not {}", id, tmpl.desc.id, static_cast<int>(tmpl.desc.applies_to), static_cast<int>(node.desc.type)));
 			}
 		}
 

@@ -14,8 +14,17 @@
 #include <utility>
 #include <vector>
 
+struct ID3D12Resource;
+
 namespace pr::view3d::ui::tests
 {
+	// A renderer texture resolver under which every image handle resolves to nothing. Renderer tests whose packets have no
+	// image items use it, as do tests of how an unresolvable image is reported.
+	inline ID3D12Resource* NoTextures(std::uint64_t)
+	{
+		return nullptr;
+	}
+
 	// Minimal IUnknown implementation standing in for an external ID3D12Device. View3DUI_ContextCreate
 	// only requires a non-null IUnknown* that it can AddRef/Release; no D3D12 interface is queried by
 	// the M0-M2 milestones under test here.
@@ -203,7 +212,7 @@ namespace pr::view3d::ui::tests
 		return ResourceDesc{ .header = Header<ResourceDesc>(), .id = id, .kind = kind, .colour = colour, .name_offset = 0, .name_length = 0, .font_size = font_size };
 	}
 
-	// A TemplateDesc with zero parts; callers append parts via TxnBuilder::AddTemplatePart before
+	// A TemplateDesc with zero parts; callers append role parts via TxnBuilder::AddTemplatePart before
 	// handing the completed value to TxnBuilder::AddTemplate.
 	inline TemplateDesc MakeTemplate(TemplateId id, EControlType applies_to)
 	{

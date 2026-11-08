@@ -377,7 +377,7 @@ VIEW3D_UI_API EStatus __stdcall View3DUI_ContextCreate(RuntimeHandle runtime, Co
 			// refcount yet, so both simply propagate with nothing to unwind.
 			auto instance = std::make_unique<UiEngine>(effective_config);
 			auto renderer = view3d_window != nullptr
-				? std::make_unique<Renderer>(device, effective_config)
+				? std::make_unique<Renderer>(device, effective_config, &TextureResource)
 				: std::unique_ptr<Renderer>{};
 
 			// Reserve room for the new slot before taking the one remaining reversible action

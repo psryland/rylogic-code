@@ -7,7 +7,7 @@
 // module linking against the other's static/import library. A window holds any number of
 // providers, each identified by its context token. Every pass is recorded for each provider
 // in attach order, so later providers draw on top of earlier ones. Resolved dynamically via
-// GetProcAddress against the four named exports below (see the Export name constants); this
+// GetProcAddress against the five named exports below (see the Export name constants); this
 // header is not part of view3d-12's public API and is never included from view3d-dll.h.
 #pragma once
 #include <windows.h>
@@ -19,7 +19,7 @@ namespace pr::view3d::ui
 {
 	// Bridge ABI version, independent of view3d-12's own public View3D_ApiVersion. Bumped whenever
 	// any exported function signature, struct layout, or attach semantic in this header changes.
-	constexpr std::uint32_t HostApiVersion = 0x00030000U;
+	constexpr std::uint32_t HostApiVersion = 0x00040000U;
 
 	// Struct schema version stamped into every HostStructHeader below.
 	constexpr std::uint32_t HostStructVersion = 2U;
@@ -171,11 +171,17 @@ namespace pr::view3d::ui
 	using AttachFn = EHostStatus(__stdcall*)(void* window, Provider const* provider);
 	using DetachFn = EHostStatus(__stdcall*)(void* window, void* provider_context);
 
+	// Return the non-owned D3D12 resource behind a View3D texture handle (a pr::rdr12::Texture2D*, erased to void*), or null for a
+	// null or invalid handle. The texture's owner keeps it alive; the resource rests in D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE, so a
+	// provider may create a shader resource view of it and sample it, but must not transition or write to it.
+	using TextureResourceFn = ID3D12Resource*(__stdcall*)(void* texture);
+
 	// --- Export names, resolved via GetProcAddress against the already-loaded view3d-12.dll ------
 	inline constexpr char const* ApiVersionExport = "View3D_UIHostApiVersion";
 	inline constexpr char const* StructSizeExport = "View3D_UIHostStructSize";
 	inline constexpr char const* AttachExport = "View3D_UIHostAttach";
 	inline constexpr char const* DetachExport = "View3D_UIHostDetach";
+	inline constexpr char const* TextureResourceExport = "View3D_UIHostTextureResource";
 
 	static_assert(std::is_standard_layout_v<HostStructHeader>);
 	static_assert(std::is_standard_layout_v<Camera>);

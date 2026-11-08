@@ -123,28 +123,32 @@ namespace pr::view3d::ui::tests
 		for (auto& visual : style.visuals)
 		{
 			visual.border_thickness = 2;
-			visual.foreground = Colour{ 0, 1, 0, 1 };
+			visual.fill = Colour{ 0, 1, 0, 1 };
 		}
 		auto const disabled = static_cast<std::size_t>(EStateChannel::Disabled);
-		style.visuals[disabled].foreground = Colour{ 1, 0, 0, 1 };
+		style.visuals[disabled].fill = Colour{ 1, 0, 0, 1 };
 		style.transitions[disabled].duration_ms = 100;
-		auto txn = TxnBuilder{};
-		auto parts = MakeTemplate(20, EControlType::ProgressBar);
-		txn.AddTemplatePart(parts, "PART_Track", EVisualPrimitive::SolidBox);
-		auto incomplete = TxnBuilder{};
-		auto missing_indicator = MakeTemplate(20, EControlType::ProgressBar);
-		incomplete.AddTemplatePart(missing_indicator, "PART_Track", EVisualPrimitive::SolidBox);
-		incomplete.AddTemplate(missing_indicator);
+
+		// A Thumb role does not apply to a progress bar, so that template is rejected.
+		auto invalid = TxnBuilder{};
+		auto thumb_template = MakeTemplate(20, EControlType::ProgressBar);
+		invalid.AddTemplatePart(thumb_template, TemplatePart{ .role = ETemplatePart::Thumb, .width = 4, .height = 4 });
+		invalid.AddTemplate(thumb_template);
 		try
 		{
-			engine.TransactionApply(incomplete.Build(0, 1));
+			engine.TransactionApply(invalid.Build(0, 1));
 			PR_EXPECT(false);
 		}
 		catch (EngineException const& ex)
 		{
 			PR_EXPECT(ex.Status() == EStatus::InvalidTree);
 		}
-		txn.AddTemplatePart(parts, "PART_Indicator", EVisualPrimitive::SolidBox);
+
+		// The indicator part is inset by 2 DIP inside the track, which fills the control.
+		auto txn = TxnBuilder{};
+		auto parts = MakeTemplate(20, EControlType::ProgressBar);
+		txn.AddTemplatePart(parts, TemplatePart{ .role = ETemplatePart::Track });
+		txn.AddTemplatePart(parts, TemplatePart{ .role = ETemplatePart::Indicator, .margin_left = 2, .margin_top = 2, .margin_right = 2, .margin_bottom = 2 });
 		txn.AddTemplate(parts);
 		txn.AddStyle(style);
 		txn.Upsert(MakeWorldRoot(1, ERootPolicy::Overlay, 200, 100, world));
@@ -156,7 +160,7 @@ namespace pr::view3d::ui::tests
 		PR_EXPECT(std::abs(first.bounds.w - 96) < 0.01f);
 		PR_EXPECT(std::abs(first.bounds.h - 32) < 0.01f);
 
-		// State changes interpolate foreground with the same transition timing as the track.
+		// State changes interpolate the indicator's fill, which comes from the control's transitioning style.
 		progress.enabled = 0;
 		auto disable = TxnBuilder{};
 		disable.Upsert(progress);

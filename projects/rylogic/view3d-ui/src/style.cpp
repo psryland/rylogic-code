@@ -127,15 +127,27 @@ namespace pr::view3d::ui
 
 		auto const& from = style.desc.visuals[static_cast<std::size_t>(runtime.previous_channel)];
 		auto eased_t = ApplyEasing(transition.easing, t);
+
+		// Only the image tint blends; the image itself, its source and slices switch at once because a blend between two sources has no meaning.
+		auto image = target.image;
+		image.tint = Lerp(from.image.tint, target.image.tint, eased_t);
 		return StyleVisual{
-			Lerp(from.fill, target.fill, eased_t),
-			Lerp(from.border_colour, target.border_colour, eased_t),
-			Lerp(from.border_thickness, target.border_thickness, eased_t),
-			Lerp(from.corner_radius, target.corner_radius, eased_t),
-			Lerp(from.opacity, target.opacity, eased_t),
-			Lerp(from.foreground, target.foreground, eased_t),
-			Lerp(from.thumb, target.thumb, eased_t),
+			.fill = Lerp(from.fill, target.fill, eased_t),
+			.border_colour = Lerp(from.border_colour, target.border_colour, eased_t),
+			.border_thickness = Lerp(from.border_thickness, target.border_thickness, eased_t),
+			.corner_radius = Lerp(from.corner_radius, target.corner_radius, eased_t),
+			.opacity = Lerp(from.opacity, target.opacity, eased_t),
+			.foreground = Lerp(from.foreground, target.foreground, eased_t),
+			.thumb = Lerp(from.thumb, target.thumb, eased_t),
+			.image = image,
 		};
+	}
+
+	EStateChannel StyleResolver::ActiveChannel(ControlId id) const
+	{
+		// A control not yet resolved has no transition history and shows its Normal visual.
+		auto it = m_runtime.find(id);
+		return it != m_runtime.end() ? it->second.active_channel : EStateChannel::Normal;
 	}
 
 	void StyleResolver::MarkInvisible(ControlId id)

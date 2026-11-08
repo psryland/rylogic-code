@@ -49,6 +49,10 @@ namespace pr::view3d::ui
 		// return the current blended visual sampled from 'style'.
 		StyleVisual Resolve(ControlNode const& node, StyleRecord const& style, ControlId hover_id, ControlId pressed_id, ControlId focus_id, double time_ms);
 
+		// The combined active channel chosen by the most recent Resolve call for 'id' (Normal if never resolved).
+		// Template part styles use it to show the same state as their control.
+		EStateChannel ActiveChannel(ControlId id) const;
+
 		// Record that 'id' is currently Hidden or Collapsed, so the next Resolve
 		// call for 'id' after it becomes visible again fires exactly one Visibility transition.
 		// Must only be called for a control's own visibility, never for a hidden ancestor's

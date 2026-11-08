@@ -48,7 +48,7 @@ public sealed class TestUiProgressBar
 	{
 		const string json = """
 			{
-			  "schema_version": 2,
+			  "schema_version": 3,
 			  "styles": [{"id": 10, "states": {"Normal": {"visual": {"fill": "#202020FF", "foreground": "#00FF00FF", "thumb": "#0000FFFF"}}}}],
 			  "tree": [{"id": 1, "type": "Root", "children": [
 			    {"id": 2, "type": "ProgressBar", "style_id": 10, "value": 0.25, "is_indeterminate": true, "layout": {"width": 100, "height": 20}}
@@ -69,7 +69,7 @@ public sealed class TestUiProgressBar
 		{
 			Assert.Throws<UiJsonException>(() => UiDocument.Parse(json.Replace("\"value\": 0.25", "\"value\": " + value)));
 		}
-		var defaults = UiDocument.Parse("""{"schema_version":2,"tree":[{"id":1,"type":"Root","children":[{"id":2,"type":"ProgressBar"}]}]}""");
+		var defaults = UiDocument.Parse("""{"schema_version":3,"tree":[{"id":1,"type":"Root","children":[{"id":2,"type":"ProgressBar"}]}]}""");
 		Assert.Equal(0f, defaults.Controls[1].Value);
 		Assert.Equal(false, defaults.Controls[1].IsIndeterminate);
 	}
@@ -79,7 +79,7 @@ public sealed class TestUiProgressBar
 	public void AbiAndSemantics()
 	{
 		Native.EnsureLoaded();
-		Assert.Equal(0x00090000U, Native.View3DUI_ApiVersion());
+		Assert.Equal(0x000A0000U, Native.View3DUI_ApiVersion());
 		Native.Check(Native.View3DUI_StructSize(EStructId.Control, out var control_size));
 		Native.Check(Native.View3DUI_StructSize(EStructId.Style, out var style_size));
 		Native.Check(Native.View3DUI_StructSize(EStructId.SemanticNode, out var semantic_size));
@@ -102,7 +102,7 @@ public sealed class TestUiProgressBar
 		Assert.Equal(1, builder.DebugControls[0].m_masked);
 		Assert.Equal(true, builder.DebugDecodeBlobText(builder.DebugControls[0].m_text_offset, builder.DebugControls[0].m_text_length).Length == 0);
 
-		var document = UiDocument.Parse("""{"schema_version":2,"tree":[{"id":1,"type":"Root","children":[{"id":2,"type":"TextBox","masked":true}]}]}""");
+		var document = UiDocument.Parse("""{"schema_version":3,"tree":[{"id":1,"type":"Root","children":[{"id":2,"type":"TextBox","masked":true}]}]}""");
 		var canonical = document.Serialize();
 		Assert.True(canonical.Contains("\"masked\": true"));
 		var parsed = UiDocument.Parse(canonical);
@@ -142,7 +142,7 @@ public sealed class TestUiSlider
 	{
 		// Round-trip one valid non-normalized range before exercising invalid relationships.
 		const string json = """
-			{"schema_version":2,"tree":[{"id":1,"type":"Root","children":[
+			{"schema_version":3,"tree":[{"id":1,"type":"Root","children":[
 			  {"id":2,"type":"Slider","value":2,"minimum":-2,"maximum":6,"step":0.5,"focusable":true,"layout":{"width":100,"height":20}}
 			]}]}
 			""";
@@ -253,7 +253,7 @@ public sealed class TestUiComboBox
 	{
 		// Round-trip a list longer than the visible row count before exercising invalid relationships.
 		const string json = """
-			{"schema_version":2,"tree":[{"id":1,"type":"Root","children":[
+			{"schema_version":3,"tree":[{"id":1,"type":"Root","children":[
 			  {"id":2,"type":"ComboBox","items":["Alpha","Beta","Gamma","Delta"],"selected_index":1,"max_visible_items":3,"focusable":true,"layout":{"width":160,"height":28}}
 			]}]}
 			""";
@@ -408,6 +408,15 @@ public sealed class TestUiAbi
 		AssertNativeSize(EStructId.InputTextPayload, Marshal.SizeOf<Native.InputTextPayload>());
 		AssertNativeSize(EStructId.ComboBoxItem, Marshal.SizeOf<Native.ComboBoxItem>());
 
+		// Nested wire types have no StructSize id, so check them against the native static_assert sizes in types.h
+		Assert.Equal(64, Marshal.SizeOf<ImageBrush>());
+		Assert.Equal(40, Marshal.SizeOf<TickParams>());
+		Assert.Equal(80, Marshal.SizeOf<Native.TemplatePart>());
+		Assert.Equal(8, Marshal.OffsetOf<Native.TemplatePart>(nameof(Native.TemplatePart.m_style_id)).ToInt32());
+		Assert.Equal(40, Marshal.OffsetOf<Native.TemplatePart>(nameof(Native.TemplatePart.m_ticks)).ToInt32());
+		Assert.Equal(80, Marshal.OffsetOf<StyleVisual>(nameof(StyleVisual.m_image)).ToInt32());
+		Assert.Equal(Marshal.OffsetOf<Native.ControlDesc>(nameof(Native.ControlDesc.m_max_visible_items)).ToInt32() + 4, Marshal.OffsetOf<Native.ControlDesc>(nameof(Native.ControlDesc.m_orientation)).ToInt32());
+
 		// Constructing a runtime independently re-verifies the same complete EStructId set through its own VerifyStructLayout pass.
 		using var runtime = new UiRuntime();
 	}
@@ -510,10 +519,10 @@ public sealed class TestUiValueSemantics
 	{
 		var template = new UiTemplateDesc { Id = new TemplateId(1), AppliesTo = EControlType.Button };
 		for (var i = 0; i != UiTemplateDesc.MaxParts; ++i)
-			template.AddPart($"Part{i}", EVisualPrimitive.SolidBox);
+			template.AddPart(new UiTemplatePart(ETemplatePart.Ticks));
 
 		Assert.Equal(UiTemplateDesc.MaxParts, template.Parts.Count);
-		Assert.Throws<InvalidOperationException>(() => template.AddPart("Overflow", EVisualPrimitive.SolidBox));
+		Assert.Throws<InvalidOperationException>(() => template.AddPart(new UiTemplatePart(ETemplatePart.Ticks)));
 	}
 }
 
@@ -614,15 +623,57 @@ public sealed class TestUiDescriptorSnapshotSemantics
 	public void TemplateMutationAfterAddDoesNotAffectQueuedTransaction()
 	{
 		var template = new UiTemplateDesc { Id = new TemplateId(1), AppliesTo = EControlType.Button };
-		template.AddPart("PART_Background", EVisualPrimitive.SolidBox);
+		template.AddPart(new UiTemplatePart(ETemplatePart.Background));
 
 		var builder = new UiTransactionBuilder();
 		builder.AddTemplate(template);
 
-		template.AddPart("PART_Extra", EVisualPrimitive.SolidBox);
+		template.AddPart(new UiTemplatePart(ETemplatePart.Text));
 
 		var snapshot = builder.DebugTemplates[0];
 		Assert.Equal(1u, snapshot.m_part_count);
+	}
+
+	/// <summary>Image resources, image brushes, role template parts with ticks, and orientation pack every field into the native wire structures.</summary>
+	[Test]
+	public void ImageSkinFieldsPack()
+	{
+		// An image resource carries the texture handle and pixel size unchanged
+		var resource = new UiResourceDesc { Id = new ResourceId(5), Kind = EResourceKind.Image, Texture = new IntPtr(0x1234), ImageWidth = 64, ImageHeight = 32 };
+
+		// A style whose normal state draws a nine-sliced, tinted sub-rectangle of that image
+		var brush = new ImageBrush(new ResourceId(5), new Rect(0, 0, 32, 16), 4, 5, 6, 7, 2, new Colour(1, 0.5f, 0.25f, 1));
+		var style = new UiStyleDesc { Id = new StyleId(1) };
+		style.SetVisual(EStateChannel.Normal, new StyleVisual(Colour.TransparentBlack, image: brush));
+
+		// A vertical slider template with track, thumb, and labelled ticks
+		var ticks = new TickParams(0.25f, 2, 8, 4, 1, EAnchorPoint.Max, new ResourceId(6), 1, 3);
+		var template = new UiTemplateDesc { Id = new TemplateId(1), AppliesTo = EControlType.Slider };
+		template.AddPart(new UiTemplatePart(ETemplatePart.Track, new StyleId(1), margin_left: 2, margin_right: 2, width: 6));
+		template.AddPart(new UiTemplatePart(ETemplatePart.Thumb, new StyleId(1), width: 20, height: 12));
+		template.AddPart(new UiTemplatePart(ETemplatePart.Ticks, ticks: ticks));
+		var control = new UiControlDesc { Id = new ControlId(2), Type = EControlType.Slider, Orientation = EOrientation.Vertical };
+
+		var builder = new UiTransactionBuilder().AddResource(resource).AddStyle(style).AddTemplate(template).Upsert(control);
+
+		// Check the packed resource
+		var packed_resource = builder.DebugResources[0];
+		Assert.Equal(0x1234UL, packed_resource.m_texture);
+		Assert.Equal(64U, packed_resource.m_image_width);
+		Assert.Equal(32U, packed_resource.m_image_height);
+
+		// Check the packed style, template parts, and control
+		Assert.Equal(brush, builder.DebugStyles[0].GetVisual((int)EStateChannel.Normal).m_image);
+		var packed_template = builder.DebugTemplates[0];
+		Assert.Equal(3U, packed_template.m_part_count);
+		Assert.Equal(ETemplatePart.Track, packed_template.GetPart(0).m_role);
+		Assert.Equal(new StyleId(1), packed_template.GetPart(0).m_style_id);
+		Assert.Equal(6f, packed_template.GetPart(0).m_width);
+		Assert.Equal(ETemplatePart.Thumb, packed_template.GetPart(1).m_role);
+		Assert.Equal(12f, packed_template.GetPart(1).m_height);
+		Assert.Equal(ETemplatePart.Ticks, packed_template.GetPart(2).m_role);
+		Assert.Equal(ticks, packed_template.GetPart(2).m_ticks);
+		Assert.Equal(EOrientation.Vertical, builder.DebugControls[0].m_orientation);
 	}
 }
 
@@ -811,6 +862,48 @@ public sealed class TestUiContext
 		Assert.Throws<ObjectDisposedException>(() => context.GetDiagnostics());
 	}
 
+	/// <summary>A JSON image skin applies to a live context once its texture key resolves to a real View3D texture.</summary>
+	[Test]
+	public void ImageSkinAppliesWithTexture()
+	{
+		var lease = UiTestDevice.Lease;
+		if (lease == null)
+			return; // No live D3D12 device is available in this environment; skip.
+
+		// Resolve the document's texture key to a small texture owned by this test
+		const string json = @"{
+			""schema_version"": 3,
+			""resources"": [ { ""id"": 1, ""kind"": ""Image"", ""texture"": ""skin"" } ],
+			""styles"": [ { ""id"": 1, ""states"": { ""normal"": { ""visual"": { ""image"": { ""image_id"": 1, ""slice_left"": 2, ""slice_top"": 2, ""slice_right"": 2, ""slice_bottom"": 2 } } } } } ],
+			""templates"": [ { ""id"": 1, ""applies_to"": ""Slider"", ""parts"": [
+				{ ""role"": ""Track"", ""style_id"": 1, ""width"": 6 },
+				{ ""role"": ""Thumb"", ""style_id"": 1, ""width"": 20, ""height"": 12 },
+				{ ""role"": ""Ticks"", ""ticks"": { ""interval"": 0.25, ""major_length"": 8, ""thickness"": 1 } }
+			] } ],
+			""tree"": [ { ""id"": 1, ""type"": ""Root"", ""children"": [
+				{ ""id"": 2, ""type"": ""Slider"", ""style_id"": 1, ""template_id"": 1, ""orientation"": ""Vertical"", ""layout"": { ""width"": 40, ""height"": 200 } }
+			] } ]
+		}";
+		using var texture = new View3d.Texture(8, 8, new View3d.TextureOptions(mips: 1, has_alpha: true, dbg_name: "UiImageSkin"));
+
+		var builder = UiDocument.Parse(json).ToTransactionBuilder(key => key == "skin" ? texture : null);
+		Assert.Equal(unchecked((ulong)texture.Handle.ToInt64()), builder.DebugResources[0].m_texture);
+		Assert.Equal(8U, builder.DebugResources[0].m_image_width);
+
+		// The native context accepts the image resource and template
+		using var runtime = new UiRuntime();
+		var context = runtime.CreateContext(device: lease);
+		try
+		{
+			builder.Apply(context, base_revision: 0, revision: 1);
+			Assert.Equal(1UL, context.GetDiagnostics().m_accepted_revision);
+		}
+		finally
+		{
+			context.Dispose();
+		}
+	}
+
 	/// <summary>A transaction built from a parsed UiDocument must be accepted identically to an equivalent hand-built transaction.</summary>
 	[Test]
 	public void JsonTransactionAppliesIdentically()
@@ -820,7 +913,7 @@ public sealed class TestUiContext
 			return; // No live D3D12 device is available in this environment; skip.
 
 		const string json = @"{
-			""schema_version"": 2,
+			""schema_version"": 3,
 			""tree"": [
 				{ ""id"": 1, ""type"": ""Root"", ""children"": [
 					{ ""id"": 2, ""type"": ""Button"", ""text"": ""OK"", ""name"": ""OkButton"", ""focusable"": true,
@@ -1022,21 +1115,21 @@ public sealed class TestUiJson
 	{
 		foreach (var visibility in new[] { EVisibility.Visible, EVisibility.Hidden, EVisibility.Collapsed })
 		{
-			var json = $@"{{ ""schema_version"": 2, ""tree"": [ {{ ""id"": 1, ""type"": ""Root"", ""visibility"": ""{visibility}"" }} ] }}";
+			var json = $@"{{ ""schema_version"": 3, ""tree"": [ {{ ""id"": 1, ""type"": ""Root"", ""visibility"": ""{visibility}"" }} ] }}";
 			var parsed = UiDocument.Parse(json);
 			Assert.Equal(visibility, parsed.Controls[0].Visibility);
 			Assert.Equal(visibility, UiDocument.Parse(parsed.Serialize()).Controls[0].Visibility);
 		}
 
 		// Omission preserves the default; unknown values and old properties cannot silently show a hidden control.
-		Assert.Equal(EVisibility.Visible, UiDocument.Parse(@"{ ""schema_version"": 2, ""tree"": [ { ""id"": 1, ""type"": ""Root"" } ] }").Controls[0].Visibility);
-		ExpectJsonError("$.tree[0].visibility", () => UiDocument.Parse(@"{ ""schema_version"": 2, ""tree"": [ { ""id"": 1, ""type"": ""Root"", ""visibility"": ""Bogus"" } ] }"));
-		ExpectJsonError("$.tree[0].visibility", () => UiDocument.Parse(@"{ ""schema_version"": 2, ""tree"": [ { ""id"": 1, ""type"": ""Root"", ""visibility"": 2 } ] }"));
-		ExpectJsonError("$.tree[0].visible", () => UiDocument.Parse(@"{ ""schema_version"": 2, ""tree"": [ { ""id"": 1, ""type"": ""Root"", ""visible"": false } ] }"));
+		Assert.Equal(EVisibility.Visible, UiDocument.Parse(@"{ ""schema_version"": 3, ""tree"": [ { ""id"": 1, ""type"": ""Root"" } ] }").Controls[0].Visibility);
+		ExpectJsonError("$.tree[0].visibility", () => UiDocument.Parse(@"{ ""schema_version"": 3, ""tree"": [ { ""id"": 1, ""type"": ""Root"", ""visibility"": ""Bogus"" } ] }"));
+		ExpectJsonError("$.tree[0].visibility", () => UiDocument.Parse(@"{ ""schema_version"": 3, ""tree"": [ { ""id"": 1, ""type"": ""Root"", ""visibility"": 2 } ] }"));
+		ExpectJsonError("$.tree[0].visible", () => UiDocument.Parse(@"{ ""schema_version"": 3, ""tree"": [ { ""id"": 1, ""type"": ""Root"", ""visible"": false } ] }"));
 	}
 
 	private const string ValidDocument = @"{
-		""schema_version"": 2,
+		""schema_version"": 3,
 		""resources"": [ { ""id"": 1, ""kind"": ""Font"", ""name"": ""Segoe UI"", ""font_size"": 14 } ],
 		""styles"": [ {
 			""id"": 1,
@@ -1049,8 +1142,8 @@ public sealed class TestUiJson
 			""id"": 1,
 			""applies_to"": ""Button"",
 			""parts"": [
-				{ ""name"": ""PART_Background"", ""primitive"": ""SolidBox"" },
-				{ ""name"": ""PART_ContentPresenter"", ""primitive"": ""ContentPresenter"", ""required"": false }
+				{ ""role"": ""Background"", ""style_id"": 1 },
+				{ ""role"": ""Text"", ""margin_left"": 4, ""margin_right"": 4 }
 			]
 		} ],
 		""tree"": [ {
@@ -1092,8 +1185,8 @@ public sealed class TestUiJson
 		AssertStylesEqual(expected_style, document.Styles[0]);
 
 		var expected_template = new UiTemplateDesc { Id = new TemplateId(1), AppliesTo = EControlType.Button };
-		expected_template.AddPart("PART_Background", EVisualPrimitive.SolidBox);
-		expected_template.AddPart("PART_ContentPresenter", EVisualPrimitive.ContentPresenter, required: false);
+		expected_template.AddPart(new UiTemplatePart(ETemplatePart.Background, new StyleId(1)));
+		expected_template.AddPart(new UiTemplatePart(ETemplatePart.Text, margin_left: 4, margin_right: 4));
 		AssertTemplatesEqual(expected_template, document.Templates[0]);
 
 		var expected_root = new UiControlDesc { Id = new ControlId(1), Type = EControlType.Root };
@@ -1147,7 +1240,7 @@ public sealed class TestUiJson
 	public void SerializeCanonicalizesEquivalentInputs()
 	{
 		const string variant_a = @"{
-			""schema_version"": 2,
+			""schema_version"": 3,
 			""resources"": [ { ""id"": 1, ""kind"": ""Colour"", ""colour"": ""#3060C0"" } ],
 			""styles"": [],
 			""templates"": [],
@@ -1158,7 +1251,7 @@ public sealed class TestUiJson
 			""templates"": [],
 			""styles"": [],
 			""resources"": [ { ""colour"": ""#3060c0ff"", ""kind"": ""Colour"", ""id"": 1 } ],
-			""schema_version"": 2
+			""schema_version"": 3
 		}";
 
 		var canonical_a = UiDocument.Parse(variant_a).Serialize();
@@ -1185,14 +1278,15 @@ public sealed class TestUiJson
 	public void UnsupportedSchemaVersionIsRejected()
 	{
 		ExpectJsonError("$.schema_version", () => UiDocument.Parse(@"{ ""schema_version"": 1 }"));
-		ExpectJsonError("$.schema_version", () => UiDocument.Parse(@"{ ""schema_version"": 3 }"));
+		ExpectJsonError("$.schema_version", () => UiDocument.Parse(@"{ ""schema_version"": 2 }"));
+		ExpectJsonError("$.schema_version", () => UiDocument.Parse(@"{ ""schema_version"": 4 }"));
 	}
 
 	/// <summary>An unrecognised closed-vocabulary enum string is rejected with the offending property's path.</summary>
 	[Test]
 	public void UnknownControlTypeIsRejected()
 	{
-		var json = @"{ ""schema_version"": 2, ""tree"": [ { ""id"": 1, ""type"": ""Bogus"" } ] }";
+		var json = @"{ ""schema_version"": 3, ""tree"": [ { ""id"": 1, ""type"": ""Bogus"" } ] }";
 		ExpectJsonError("$.tree[0].type", () => UiDocument.Parse(json));
 	}
 
@@ -1200,7 +1294,7 @@ public sealed class TestUiJson
 	[Test]
 	public void DanglingStyleReferenceIsRejected()
 	{
-		var json = @"{ ""schema_version"": 2, ""tree"": [ { ""id"": 1, ""type"": ""Root"", ""style_id"": 99 } ] }";
+		var json = @"{ ""schema_version"": 3, ""tree"": [ { ""id"": 1, ""type"": ""Root"", ""style_id"": 99 } ] }";
 		ExpectJsonError("$.tree[0].style_id", () => UiDocument.Parse(json));
 	}
 
@@ -1208,7 +1302,7 @@ public sealed class TestUiJson
 	[Test]
 	public void DanglingTemplateReferenceIsRejected()
 	{
-		var json = @"{ ""schema_version"": 2, ""tree"": [ { ""id"": 1, ""type"": ""Root"", ""template_id"": 42 } ] }";
+		var json = @"{ ""schema_version"": 3, ""tree"": [ { ""id"": 1, ""type"": ""Root"", ""template_id"": 42 } ] }";
 		ExpectJsonError("$.tree[0].template_id", () => UiDocument.Parse(json));
 	}
 
@@ -1216,7 +1310,7 @@ public sealed class TestUiJson
 	[Test]
 	public void DanglingFontResourceReferenceIsRejected()
 	{
-		var json = @"{ ""schema_version"": 2, ""tree"": [ { ""id"": 1, ""type"": ""Root"", ""font_resource_id"": 7 } ] }";
+		var json = @"{ ""schema_version"": 3, ""tree"": [ { ""id"": 1, ""type"": ""Root"", ""font_resource_id"": 7 } ] }";
 		ExpectJsonError("$.tree[0].font_resource_id", () => UiDocument.Parse(json));
 	}
 
@@ -1224,7 +1318,7 @@ public sealed class TestUiJson
 	[Test]
 	public void ZeroControlIdIsRejected()
 	{
-		var json = @"{ ""schema_version"": 2, ""tree"": [ { ""id"": 0, ""type"": ""Root"" } ] }";
+		var json = @"{ ""schema_version"": 3, ""tree"": [ { ""id"": 0, ""type"": ""Root"" } ] }";
 		ExpectJsonError("$.tree[0].id", () => UiDocument.Parse(json));
 	}
 
@@ -1232,7 +1326,7 @@ public sealed class TestUiJson
 	[Test]
 	public void DuplicateControlIdIsRejected()
 	{
-		var json = @"{ ""schema_version"": 2, ""tree"": [
+		var json = @"{ ""schema_version"": 3, ""tree"": [
 			{ ""id"": 1, ""type"": ""Root"", ""children"": [ { ""id"": 2, ""type"": ""Panel"" } ] },
 			{ ""id"": 2, ""type"": ""Root"" }
 		] }";
@@ -1243,7 +1337,7 @@ public sealed class TestUiJson
 	[Test]
 	public void DuplicateResourceIdIsRejected()
 	{
-		var json = @"{ ""schema_version"": 2, ""resources"": [
+		var json = @"{ ""schema_version"": 3, ""resources"": [
 			{ ""id"": 1, ""kind"": ""Font"" },
 			{ ""id"": 1, ""kind"": ""Colour"" }
 		] }";
@@ -1259,9 +1353,9 @@ public sealed class TestUiJson
 		{
 			if (i != 0)
 				parts.Append(',');
-			parts.Append($@"{{ ""name"": ""Part{i}"", ""primitive"": ""SolidBox"" }}");
+			parts.Append(@"{ ""role"": ""Ticks"" }");
 		}
-		var json = $@"{{ ""schema_version"": 2, ""templates"": [ {{ ""id"": 1, ""applies_to"": ""Button"", ""parts"": [ {parts} ] }} ] }}";
+		var json = $@"{{ ""schema_version"": 3, ""templates"": [ {{ ""id"": 1, ""applies_to"": ""Button"", ""parts"": [ {parts} ] }} ] }}";
 		ExpectJsonError($"$.templates[0].parts[{UiTemplateDesc.MaxParts}]", () => UiDocument.Parse(json));
 	}
 
@@ -1269,8 +1363,100 @@ public sealed class TestUiJson
 	[Test]
 	public void MalformedColourHexIsRejected()
 	{
-		var json = @"{ ""schema_version"": 2, ""resources"": [ { ""id"": 1, ""kind"": ""Colour"", ""colour"": ""#12345"" } ] }";
+		var json = @"{ ""schema_version"": 3, ""resources"": [ { ""id"": 1, ""kind"": ""Colour"", ""colour"": ""#12345"" } ] }";
 		ExpectJsonError("$.resources[0].colour", () => UiDocument.Parse(json));
+	}
+
+	private const string ImageSkinDocument = @"{
+		""schema_version"": 3,
+		""resources"": [
+			{ ""id"": 1, ""kind"": ""Image"", ""texture"": ""hud_atlas"" },
+			{ ""id"": 2, ""kind"": ""Font"", ""name"": ""Segoe UI"", ""font_size"": 11 }
+		],
+		""styles"": [ {
+			""id"": 1,
+			""states"": { ""normal"": { ""visual"": { ""image"": {
+				""image_id"": 1, ""source"": { ""x"": 0, ""y"": 0, ""w"": 32, ""h"": 32 },
+				""slice_left"": 8, ""slice_top"": 8, ""slice_right"": 8, ""slice_bottom"": 8, ""slice_scale"": 0.5
+			} } } }
+		} ],
+		""templates"": [ {
+			""id"": 1,
+			""applies_to"": ""Slider"",
+			""parts"": [
+				{ ""role"": ""Track"", ""style_id"": 1, ""width"": 6 },
+				{ ""role"": ""Thumb"", ""style_id"": 1, ""width"": 20, ""height"": 12 },
+				{ ""role"": ""Ticks"", ""ticks"": { ""interval"": 0.25, ""major_every"": 2, ""major_length"": 8, ""minor_length"": 4, ""thickness"": 1, ""align"": ""Max"", ""label_font_id"": 2, ""label_decimals"": 1, ""label_gap"": 3 } }
+			]
+		} ],
+		""tree"": [ { ""id"": 1, ""type"": ""Root"", ""children"": [
+			{ ""id"": 2, ""type"": ""Slider"", ""style_id"": 1, ""template_id"": 1, ""orientation"": ""Vertical"", ""value"": 0.5, ""layout"": { ""width"": 40, ""height"": 200 } }
+		] } ]
+	}";
+
+	/// <summary>A v3 document with an image resource, image-brush style, and vertical slider template parses to the expected descriptors and round-trips canonically.</summary>
+	[Test]
+	public void ImageSkinDocumentParsesAndRoundTrips()
+	{
+		// The image resource keeps its texture key; its handle is resolved later
+		var document = UiDocument.Parse(ImageSkinDocument);
+		Assert.Equal(EResourceKind.Image, document.Resources[0].Kind);
+		Assert.Equal(IntPtr.Zero, document.Resources[0].Texture);
+		Assert.Equal("hud_atlas", document.TextureKeys[new ResourceId(1)]);
+		Assert.Equal(1, document.TextureKeys.Count);
+
+		// The style image brush defaults its tint to white
+		var expected_brush = new ImageBrush(new ResourceId(1), new Rect(0, 0, 32, 32), 8, 8, 8, 8, 0.5f);
+		Assert.Equal(expected_brush, document.Styles[0].GetVisual(EStateChannel.Normal).m_image);
+		Assert.Equal(ImageBrush.None, document.Styles[0].GetVisual(EStateChannel.Hover).m_image);
+
+		// The template keeps its ordered role parts and tick settings
+		var expected_template = new UiTemplateDesc { Id = new TemplateId(1), AppliesTo = EControlType.Slider };
+		expected_template.AddPart(new UiTemplatePart(ETemplatePart.Track, new StyleId(1), width: 6));
+		expected_template.AddPart(new UiTemplatePart(ETemplatePart.Thumb, new StyleId(1), width: 20, height: 12));
+		expected_template.AddPart(new UiTemplatePart(ETemplatePart.Ticks, ticks: new TickParams(0.25f, 2, 8, 4, 1, EAnchorPoint.Max, new ResourceId(2), 1, 3)));
+		AssertTemplatesEqual(expected_template, document.Templates[0]);
+		Assert.Equal(EOrientation.Vertical, document.Controls[1].Orientation);
+		Assert.Equal(EOrientation.Horizontal, document.Controls[0].Orientation);
+
+		// Canonical text is stable under a parse round trip
+		var canonical = document.Serialize();
+		Assert.Equal(canonical, UiDocument.Parse(canonical).Serialize());
+	}
+
+	/// <summary>Building a transaction from a document with Image resources needs a lookup that resolves every texture key.</summary>
+	[Test]
+	public void ImageResourceNeedsTextureLookup()
+	{
+		var document = UiDocument.Parse(ImageSkinDocument);
+		ExpectJsonError("$.resources[0].texture", () => document.ToTransactionBuilder());
+		ExpectJsonError("$.resources[0].texture", () => document.ToTransactionBuilder(key => null));
+	}
+
+	/// <summary>Image resources must name a texture key, other kinds must not, and image and tick references must name resources of the right kind.</summary>
+	[Test]
+	public void ImageSkinReferencesAreValidated()
+	{
+		// Texture keys belong only to Image resources
+		ExpectJsonError("$.resources[0].texture", () => UiDocument.Parse(@"{ ""schema_version"": 3, ""resources"": [ { ""id"": 1, ""kind"": ""Image"" } ] }"));
+		ExpectJsonError("$.resources[0].texture", () => UiDocument.Parse(@"{ ""schema_version"": 3, ""resources"": [ { ""id"": 1, ""kind"": ""Font"", ""texture"": ""x"" } ] }"));
+
+		// An image brush must name an Image resource
+		ExpectJsonError("$.styles[0].states.normal.visual.image.image_id", () => UiDocument.Parse(@"{ ""schema_version"": 3,
+			""resources"": [ { ""id"": 1, ""kind"": ""Font"" } ],
+			""styles"": [ { ""id"": 1, ""states"": { ""normal"": { ""visual"": { ""image"": { ""image_id"": 1 } } } } } ] }"));
+
+		// Part styles must exist and tick labels must use a Font resource
+		ExpectJsonError("$.templates[0].parts[0].style_id", () => UiDocument.Parse(@"{ ""schema_version"": 3,
+			""templates"": [ { ""id"": 1, ""applies_to"": ""Slider"", ""parts"": [ { ""role"": ""Track"", ""style_id"": 9 } ] } ] }"));
+		ExpectJsonError("$.templates[0].parts[0].ticks.label_font_id", () => UiDocument.Parse(@"{ ""schema_version"": 3,
+			""resources"": [ { ""id"": 1, ""kind"": ""Colour"" } ],
+			""templates"": [ { ""id"": 1, ""applies_to"": ""Slider"", ""parts"": [ { ""role"": ""Ticks"", ""ticks"": { ""label_font_id"": 1 } } ] } ] }"));
+
+		// Unknown roles and orientations are rejected
+		ExpectJsonError("$.templates[0].parts[0].role", () => UiDocument.Parse(@"{ ""schema_version"": 3,
+			""templates"": [ { ""id"": 1, ""applies_to"": ""Slider"", ""parts"": [ { ""role"": ""PART_Track"" } ] } ] }"));
+		ExpectJsonError("$.tree[0].orientation", () => UiDocument.Parse(@"{ ""schema_version"": 3, ""tree"": [ { ""id"": 1, ""type"": ""Root"", ""orientation"": ""Diagonal"" } ] }"));
 	}
 
 	/// <summary>Compare two resource descriptors field-by-field for a more precise failure message than the record's own value equality gives.</summary>
@@ -1281,6 +1467,9 @@ public sealed class TestUiJson
 		Assert.Equal(expected.Colour, actual.Colour);
 		Assert.Equal(expected.Name, actual.Name);
 		Assert.Equal(expected.FontSize, actual.FontSize);
+		Assert.Equal(expected.Texture, actual.Texture);
+		Assert.Equal(expected.ImageWidth, actual.ImageWidth);
+		Assert.Equal(expected.ImageHeight, actual.ImageHeight);
 	}
 
 	/// <summary>Compare two style descriptors field-by-field, across every EStateChannel.</summary>
@@ -1334,6 +1523,7 @@ public sealed class TestUiJson
 		Assert.Equal(expected.Items, actual.Items);
 		Assert.Equal(expected.SelectedIndex, actual.SelectedIndex);
 		Assert.Equal(expected.MaxVisibleItems, actual.MaxVisibleItems);
+		Assert.Equal(expected.Orientation, actual.Orientation);
 		Assert.Equal(expected.Layout.Width, actual.Layout.Width);
 		Assert.Equal(expected.Layout.Height, actual.Layout.Height);
 		Assert.Equal(expected.Layout.HAlign, actual.Layout.HAlign);

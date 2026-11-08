@@ -150,19 +150,14 @@ namespace pr::view3d::ui
 			m_template_removals.push_back(id);
 		}
 
-		// Append one named part to a template being built locally (before it is handed to
-		// AddTemplate), sourcing the part's name bytes from this builder's shared blob.
-		void AddTemplatePart(TemplateDesc& tmpl, std::string_view name, EVisualPrimitive primitive, bool required = true)
+		// Append one role part to a template being built locally (before it is handed to AddTemplate).
+		void AddTemplatePart(TemplateDesc& tmpl, TemplatePart const& part)
 		{
+			// The descriptor embeds a fixed number of parts.
 			if (tmpl.part_count >= VIEW3D_UI_MAX_TEMPLATE_PARTS)
 				throw std::length_error("View3DUI template exceeds VIEW3D_UI_MAX_TEMPLATE_PARTS");
 
-			auto [offset, length] = AddText(name);
-			auto& part = tmpl.parts[tmpl.part_count++];
-			part.name_offset = offset;
-			part.name_length = length;
-			part.primitive = primitive;
-			part.required = required ? 1 : 0;
+			tmpl.parts[tmpl.part_count++] = part;
 		}
 
 		// Materialise the accumulated arrays as one Transaction, ready for immediate use with

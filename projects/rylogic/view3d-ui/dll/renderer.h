@@ -29,14 +29,39 @@ namespace pr::view3d::ui
 		Microsoft::WRL::ComPtr<ID3DBlob> ps_glyph;
 		Microsoft::WRL::ComPtr<ID3DBlob> ps_box_faded;
 		Microsoft::WRL::ComPtr<ID3DBlob> ps_glyph_faded;
+		Microsoft::WRL::ComPtr<ID3DBlob> ps_image;
+		Microsoft::WRL::ComPtr<ID3DBlob> ps_image_faded;
 	};
 
-	// One box/glyph pipeline pair sharing a render-target, depth and multi-sample configuration.
+	// One box/glyph/image pipeline set sharing a render-target, depth and multi-sample configuration.
 	// A pass selects exactly one variant; nothing else about a draw depends on the host stage.
 	struct PipelineVariant
 	{
 		Microsoft::WRL::ComPtr<ID3D12PipelineState> box;
 		Microsoft::WRL::ComPtr<ID3D12PipelineState> glyph;
+		Microsoft::WRL::ComPtr<ID3D12PipelineState> image;
+	};
+
+	// One borrowed View3D texture that image draw items sample. 'resource' holds a reference so the GPU can finish any in-flight frame
+	// that reads it even after its owner releases the texture. 'slot' is the image's index after the fixed descriptors in the SRV heap.
+	// 'srgb' is true when the texture's format is an sRGB format, whose samples the hardware decodes to linear colour; samples of any
+	// other format are sRGB-encoded bytes that the shader decodes. 'last_frame' is the last Prepare that referenced the image, for eviction.
+	struct ImageEntry
+	{
+		Microsoft::WRL::ComPtr<ID3D12Resource> resource;
+		std::uint32_t slot;
+		std::uint32_t width;
+		std::uint32_t height;
+		bool srgb;
+		std::uint64_t last_frame;
+	};
+
+	// An image descriptor slot that is not in use. 'available_frame' is the first Prepare frame in which the slot may be written again,
+	// so a descriptor that an in-flight frame may still read is never overwritten.
+	struct FreeImageSlot
+	{
+		std::uint32_t slot;
+		std::uint64_t available_frame;
 	};
 
 	// The values every draw within one root's subtree shares. Screen roots leave all of these at
@@ -51,7 +76,11 @@ namespace pr::view3d::ui
 		float near_plane;
 		float far_plane;
 		float orthographic;
+		float srgb_target; // 1 when the pass's colour target is an sRGB format, else 0
 	};
+
+	// Resolves a View3D texture handle to the D3D12 resource that currently backs it, or null when it has none.
+	using TextureResolverFn = ID3D12Resource* (*)(std::uint64_t texture);
 
 	// Screen-space retained renderer that turns one context's immutable DrawPacket into D3D12
 	// draw calls recorded into the host's own command list, entirely within the host-bridge pass
@@ -69,6 +98,9 @@ namespace pr::view3d::ui
 		// that reference (context.h), so this class never needs its own AddRef/Release pair.
 		IUnknown* m_device;
 		Config m_config;
+
+		// Finds the resource behind each image item's texture handle, every Prepare.
+		TextureResolverFn m_texture_resolver;
 
 		// Realised lazily by EnsureDeviceResources() on the first Prepare call; every field below
 		// stays default/empty for a Renderer that is constructed but never actually driven by the
@@ -124,11 +156,18 @@ namespace pr::view3d::ui
 		// up naturally; bounded by the number of distinct font requests in one packet.
 		std::unordered_set<std::uint64_t> m_missing_fonts;
 
+		// Image textures resolved by PrepareImages, keyed by View3D texture handle, and the image descriptor slots not in use. The heap
+		// holds Config::max_resources image slots after the fixed glyph atlas, resolved depth and null image descriptors. 'm_image_frame'
+		// counts Prepare calls and drives eviction of images that no packet has used for a while.
+		std::unordered_map<std::uint64_t, ImageEntry> m_images;
+		std::vector<FreeImageSlot> m_free_image_slots;
+		std::uint64_t m_image_frame = 0;
+
 	public:
-		// Stores the borrowed device pointer and a copy of 'config''s bounded capacities only;
-		// never queries an interface, creates a device object, or touches DirectWrite, so this
+		// Stores the borrowed device pointer, a copy of 'config''s bounded capacities, and the function that resolves image texture
+		// handles; never queries an interface, creates a device object, or touches DirectWrite, so this
 		// constructor can never throw or fail (see the class comment above).
-		Renderer(IUnknown* device, Config const& config) noexcept;
+		Renderer(IUnknown* device, Config const& config, TextureResolverFn texture_resolver) noexcept;
 		~Renderer();
 
 		Renderer(Renderer const&) = delete;
@@ -151,7 +190,8 @@ namespace pr::view3d::ui
 		// Resolves the DIP x-coordinate a TextPresenter glyph run must start at within 'item's own
 		// bounds, given the run's already-shaped 'total_advance_dip' (TextShaper::Shape's return
 		// value): ETextAlign::Left starts at bounds.x + text_inset_dip - text_scroll_dip; ETextAlign::Center centers
-		// the run within bounds.w and ignores text_inset_dip and text_scroll_dip. Pure/static so it is directly testable
+		// the run within bounds.w and ignores text_inset_dip and text_scroll_dip; ETextAlign::Right ends the run at
+		// bounds.x + bounds.w - text_inset_dip and ignores text_scroll_dip. Pure/static so it is directly testable
 		// without a live TextShaper or D3D12 device.
 		static float TextRunStartXDip(DrawItem const& item, float total_advance_dip);
 
@@ -192,7 +232,7 @@ namespace pr::view3d::ui
 		static Microsoft::WRL::ComPtr<ID3D12RootSignature> CreateRootSignature(ID3D12Device* device);
 		static ShaderBlobs CompileShaders();
 		static PipelineVariant CreatePipelineVariant(ID3D12Device* device, ID3D12RootSignature* root_signature, ShaderBlobs const& shaders, DXGI_FORMAT colour_format, DXGI_FORMAT depth_format, std::uint32_t sample_count, std::uint32_t sample_quality, bool faded);
-		static void CreateGlyphAtlasResources(ID3D12Device* device, std::uint32_t atlas_dim_px, std::uint32_t pages_capacity, Microsoft::WRL::ComPtr<ID3D12Resource>& out_atlas, Microsoft::WRL::ComPtr<ID3D12DescriptorHeap>& out_srv_heap);
+		static void CreateGlyphAtlasResources(ID3D12Device* device, std::uint32_t atlas_dim_px, std::uint32_t pages_capacity, std::uint32_t image_capacity, Microsoft::WRL::ComPtr<ID3D12Resource>& out_atlas, Microsoft::WRL::ComPtr<ID3D12DescriptorHeap>& out_srv_heap);
 
 		// Creates (or recreates after a target reconfiguration) the depth-tested pipeline variant
 		// matching 'pass's scene target, and returns it.
@@ -215,6 +255,12 @@ namespace pr::view3d::ui
 		// than being drawn in a substitute face. Only called from Prepare.
 		void PrepareText(ID3D12GraphicsCommandList* command_list, DrawPacket const& packet, bool& out_hit_limit, bool& out_missing_asset);
 
+		// Ensures every Image DrawItem's texture has a shader resource view in the SRV heap, so Draw only binds descriptors. Evicts
+		// images that no packet has used for several frames. Sets 'out_hit_limit' when an image could not get a descriptor slot, and
+		// 'out_invalid' when a texture handle has no resource or its size does not match the item's declared image size. Both kinds of
+		// item are skipped by Draw while the rest of the frame still draws. Only called from Prepare.
+		void PrepareImages(DrawPacket const& packet, bool& out_hit_limit, bool& out_invalid);
+
 		// Records the deterministic pre-order draw call sequence for every group in 'packet' whose
 		// root policy is 'policy', using 'variant's pipelines and the glyph placements PrepareText
 		// already resolved for this same frame. 'bind_depth' binds the host's depth-stencil view so
@@ -236,6 +282,9 @@ namespace pr::view3d::ui
 		// Records one solid/rounded/border box quad (item.primitive is one of those three closed
 		// values) via the box PSO and root constants only; never allocates a vertex/index buffer.
 		void DrawBoxItem(Pass const& pass, GroupState const& group, DrawItem const& item, float dpi_scale, float viewport_w, float viewport_h);
+
+		// Records one textured image quad via the image PSO, after binding 'image''s descriptor to root parameter 2.
+		void DrawImageItem(Pass const& pass, GroupState const& group, DrawItem const& item, ImageEntry const& image, float dpi_scale, float viewport_w, float viewport_h);
 
 		// Re-shapes 'item.text' (cheap: cached font face, no rasterization) purely to recover each
 		// glyph's pen position for this frame, then records the item's selection highlight and

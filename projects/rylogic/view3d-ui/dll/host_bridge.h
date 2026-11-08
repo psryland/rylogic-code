@@ -10,6 +10,7 @@
 #pragma once
 #include "pr/view3d-ui/forward.h"
 #include "pr/view3d-ui/types.h"
+#include "pr/view3d-12/view3d-ui-bridge.h"
 #include "context.h"
 
 namespace pr::view3d::ui
@@ -35,6 +36,11 @@ namespace pr::view3d::ui
 	// already being destroyed or abandoned; the bridge's own DetachedThunk handles host-initiated
 	// detachment (e.g. the host window is destroyed first).
 	void Detach(ContextHandle context_handle, void* window) noexcept;
+
+	// Return the non-owned D3D12 resource behind 'texture' (a View3D texture handle, as stored in an image ResourceDesc), or null for a
+	// zero handle. Only valid once Attach has succeeded in this process. Throws pr::view3d::ui::EngineException when the bridge cannot be
+	// resolved, exactly as Attach does.
+	ID3D12Resource* TextureResource(std::uint64_t texture);
 
 	// Force every later Attach to fail with EStatus::UnsupportedFeature, exactly as if view3d-12.dll
 	// were not loaded, while 'unavailable' is true. Detach is unaffected so existing attachments

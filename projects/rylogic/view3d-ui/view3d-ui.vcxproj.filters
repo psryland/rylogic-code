@@ -27,6 +27,9 @@
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-ui\view3d-ui.h">
       <Filter>src</Filter>
     </ClInclude>
+    <ClInclude Include="src\control_geometry.h">
+      <Filter>src</Filter>
+    </ClInclude>
     <ClInclude Include="src\draw_packet_builder.h">
       <Filter>src</Filter>
     </ClInclude>
@@ -76,6 +79,9 @@
       <Filter>src</Filter>
     </ClInclude>
     <ClCompile Include="src\engine.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\control_geometry.cpp">
       <Filter>src</Filter>
     </ClCompile>
     <ClCompile Include="src\draw_packet_builder.cpp">
