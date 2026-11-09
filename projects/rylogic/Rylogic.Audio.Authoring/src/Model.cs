@@ -1,11 +1,14 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 
 namespace Rylogic.Audio.Authoring;
 
@@ -312,150 +315,442 @@ public sealed class OriginsFile
 	}
 }
 
-/// <summary>One sound ID in the project's catalog. The project owns the meaning of the properties; the authoring tool only displays them.</summary>
-public sealed record CatalogSound(string Id, string Section, string? Description, IReadOnlyDictionary<string, JsonNode?> Properties)
+/// <summary>Whether a sound surrounds the listener or comes from a point in the world.</summary>
+public enum ESoundPlacement
 {
-	/// <summary>The values a sound's 'load' may have: held decoded in memory, or decoded as it plays.</summary>
-	public static readonly IReadOnlyList<string> Loads = ["memory", "stream"];
+	/// <summary>Surrounds the listener. A bed has no position, so it has no range.</summary>
+	Bed,
 
-	/// <summary>True when the project says the sound loops, which enables loop-seam listening.</summary>
-	public bool Loop => Properties.TryGetValue("loop", out var loop) && loop is JsonValue value && value.TryGetValue<bool>(out var flag) && flag;
-
-	/// <summary>How the project loads the sound, one of <see cref="Loads"/>, or null when the catalog does not say.</summary>
-	public string? Load => Properties.TryGetValue("load", out var load) && load is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;
+	/// <summary>Comes from a point in the world and fades out by its range. A positioned sound is mono, because its direction comes from its position.</summary>
+	Positioned,
 }
 
-/// <summary>Reads the project's sound catalog: an object with 'sections', each with a 'name' and 'sounds', each sound having an 'id'.</summary>
-public static class Catalog
+/// <summary>The channel layout of a sound's audio.</summary>
+public enum ESoundChannels
 {
-	/// <summary>Read the catalog at 'path', in file order.</summary>
+	Mono,
+	Stereo,
+}
+
+/// <summary>How the game loads a sound's audio.</summary>
+public enum ESoundLoad
+{
+	/// <summary>Held decoded in memory, which suits short sounds that play often.</summary>
+	Memory,
+
+	/// <summary>Decoded as it plays, which suits anything long.</summary>
+	Stream,
+}
+
+/// <summary>The shortest and longest length, in seconds, wanted for a sound's prepared audio.</summary>
+public readonly record struct LengthRange(double Min, double Max);
+
+/// <summary>One sound ID in the catalog. <see cref="Catalog"/> describes each value and the rules a sound must meet.</summary>
+public sealed record CatalogSound
+{
+	/// <summary>The sound ID, a lower-case dotted name such as 'wind.plains.still'.</summary>
+	public required string Id { get; init; }
+
+	/// <summary>The name of the section that groups the sound for people.</summary>
+	public required string Section { get; init; }
+
+	/// <summary>Whether the sound surrounds the listener or comes from a point.</summary>
+	public required ESoundPlacement Placement { get; init; }
+
+	/// <summary>True when the sound repeats until stopped.</summary>
+	public required bool Loop { get; init; }
+
+	/// <summary>The channel layout of the sound's audio.</summary>
+	public required ESoundChannels Channels { get; init; }
+
+	/// <summary>The wanted length of the prepared audio, or null for no preference.</summary>
+	public LengthRange? LengthS { get; init; }
+
+	/// <summary>How the game loads the sound's audio.</summary>
+	public required ESoundLoad Load { get; init; }
+
+	/// <summary>The distance in metres at which a positioned sound becomes silent. Null for a bed.</summary>
+	public double? RangeM { get; init; }
+
+	/// <summary>The mixer group that the sound plays through, a lower-case dotted name.</summary>
+	public required string Group { get; init; }
+
+	/// <summary>The linear gain applied to the sound's audio.</summary>
+	public required double Gain { get; init; }
+
+	/// <summary>When the sound is active, as the JSON object written in the catalog. The authoring tool keeps it but does not interpret it.</summary>
+	public JsonElement? Active { get; init; }
+
+	/// <summary>A description of the sound for people.</summary>
+	public string? Description { get; init; }
+}
+
+/// <summary>
+/// The project's sound catalog: a JSON object with a 'schema' of 1 and 'sections', each of which has a 'name' and the 'sounds' it groups. The authoring
+/// tool owns the file and writes it in one standard layout: tab indents, CRLF line ends, and each sound on one line with its properties in the order
+/// below. Tools may rely on that layout, for example to change one value on a sound's line. A sound has these properties:
+/// - 'id': a lower-case dotted name of letters, digits and underscores, starting with a letter, at most 128 characters, and unique in the catalog.
+/// - 'placement': 'bed' or 'positioned'. 'channels': 'mono' or 'stereo'. A positioned sound must be mono.
+/// - 'loop': true when the sound repeats. 'load': 'memory' or 'stream'.
+/// - 'length_s': optional, '[min, max]' seconds wanted for the prepared audio.
+/// - 'range_m': required for a positioned sound and positive; not allowed for a bed.
+/// - 'group': a dotted name like an ID, at most 64 characters. 'gain': a finite number of at least 0.
+/// - 'active': optional; a JSON object kept as it is. 'description': optional text for people.
+/// Comments and trailing commas are accepted when reading but are not kept. Sections are written in the order of their first sound, so a section
+/// with no sounds is not kept.
+/// </summary>
+public static partial class Catalog
+{
+	/// <summary>The properties a sound may have, in the order they are written.</summary>
+	public static IReadOnlyList<string> Properties { get; } = ["id", "placement", "loop", "channels", "length_s", "load", "range_m", "group", "gain", "active", "description"];
+
+	/// <summary>Read the catalog at 'path', in file order. Throws <see cref="InvalidDataException"/> when the catalog breaks the rules.</summary>
 	public static IReadOnlyList<CatalogSound> Read(string path)
 	{
-		// Only the structure is interpreted here; every other property is passed through for display
-		var root = JsonNode.Parse(File.ReadAllText(path), documentOptions: new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true }) as JsonObject
-			?? throw new InvalidDataException($"'{path}' must be a JSON object.");
+		// Hand edits may include comments and trailing commas
+		using var document = JsonDocument.Parse(File.ReadAllText(path), new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true });
+		var root = document.RootElement;
+		if (root.ValueKind != JsonValueKind.Object)
+			throw new InvalidDataException($"'{path}' must be a JSON object.");
 
+		// Only known properties are allowed, because the file is rewritten from what is read and anything else would be lost
+		CheckProperties(root, ["schema", "sections"], $"'{path}'");
+		if (!root.TryGetProperty("schema", out var schema) || schema.ValueKind != JsonValueKind.Number || !schema.TryGetInt32(out var version) || version != 1)
+			throw new InvalidDataException($"'{path}' must have a 'schema' of 1.");
+
+		// Each section groups its sounds under a unique name
 		var sounds = new List<CatalogSound>();
-		foreach (var section in root["sections"] as JsonArray ?? throw new InvalidDataException($"'{path}' has no 'sections' array."))
+		var names = new HashSet<string>(StringComparer.Ordinal);
+		foreach (var section in ArrayOf(root, "sections", $"'{path}'"))
 		{
-			// Each section groups sounds for people
-			var section_name = section?["name"]?.GetValue<string>() ?? string.Empty;
-			foreach (var sound in section?["sounds"] as JsonArray ?? throw new InvalidDataException($"'{path}' has a section without a 'sounds' array."))
-			{
-				var obj = sound as JsonObject ?? throw new InvalidDataException($"'{path}' has a sound that is not an object.");
-				var id = obj["id"]?.GetValue<string>() ?? throw new InvalidDataException($"'{path}' has a sound without an 'id'.");
-				var description = obj["description"]?.GetValue<string>();
-				var properties = obj.Where(x => x.Key is not "id" and not "description").ToDictionary(x => x.Key, x => x.Value?.DeepClone());
-				sounds.Add(new CatalogSound(id, section_name, description, properties));
-			}
+			if (section.ValueKind != JsonValueKind.Object)
+				throw new InvalidDataException($"'{path}' has a section that is not an object.");
+
+			CheckProperties(section, ["name", "sounds"], $"A section in '{path}'");
+			var name = StringOf(section, "name", $"A section in '{path}'");
+			if (!names.Add(name))
+				throw new InvalidDataException($"'{path}' has more than one section named '{name}'.");
+
+			foreach (var sound in ArrayOf(section, "sounds", $"Section '{name}' in '{path}'"))
+				sounds.Add(ParseSound(sound, name, $"'{path}'"));
+		}
+
+		// The rules that involve more than one value are checked once everything is read
+		try
+		{
+			Check(sounds);
+		}
+		catch (InvalidDataException ex)
+		{
+			throw new InvalidDataException($"'{path}': {ex.Message}", ex);
 		}
 		return sounds;
 	}
 
 	/// <summary>
-	/// Set the property 'property' of sound 'id' in the catalog at 'path' to the scalar 'value'. Only that value changes in the file, so its hand-made
-	/// layout is kept; a sound without the property gets it straight after its 'id'. The property must not be 'id', and an existing value must be a scalar.
-	/// Throws <see cref="InvalidDataException"/> unless exactly one sound has the ID.
+	/// Read one sound from 'sound', a JSON object of catalog properties, placing it in section 'section'. 'where' names the source for error messages.
+	/// Only the type of each value is checked; see <see cref="Check"/> for the rules. Throws <see cref="InvalidDataException"/> for a missing, unknown
+	/// or mistyped property.
 	/// </summary>
-	public static void SetValue(string path, string id, string property, JsonValue value)
+	public static CatalogSound ParseSound(JsonElement sound, string section, string where)
 	{
-		// The ID locates the sound, so it cannot be changed this way
-		if (property == "id")
-			throw new ArgumentException("A sound's 'id' cannot be set.", nameof(property));
+		// The ID comes first so that later errors can name the sound
+		if (sound.ValueKind != JsonValueKind.Object)
+			throw new InvalidDataException($"{where} has a sound that is not an object.");
 
-		// Work on the raw bytes so token offsets index the file directly. A byte order mark is kept but not given to the reader.
-		var bytes = File.ReadAllBytes(path);
-		var bom = bytes.AsSpan().StartsWith(Encoding.UTF8.Preamble) ? Encoding.UTF8.Preamble.Length : 0;
-		var (start, end, insert) = FindValue(bytes.AsSpan(bom), path, id, property);
-		var json = value.ToJsonString();
-		var text = Encoding.UTF8.GetBytes(insert ? $", {JsonSerializer.Serialize(property)}: {json}" : json);
+		var id = StringOf(sound, "id", $"A sound in {where}");
+		var owner = $"Sound '{id}' in {where}";
+		CheckProperties(sound, Properties, owner);
 
-		// Splice the new value in place of the old one, or insert it after the ID
-		var result = new byte[bytes.Length - (end - start) + text.Length];
-		bytes.AsSpan(0, bom + start).CopyTo(result);
-		text.CopyTo(result.AsSpan(bom + start));
-		bytes.AsSpan(bom + end).CopyTo(result.AsSpan(bom + start + text.Length));
-		File.WriteAllBytes(path, result);
+		// Optional values are null when absent
+		return new CatalogSound
+		{
+			Id = id,
+			Section = section,
+			Placement = EnumOf<ESoundPlacement>(sound, "placement", owner),
+			Loop = sound.TryGetProperty("loop", out var loop) && loop.ValueKind is JsonValueKind.True or JsonValueKind.False ? loop.GetBoolean() : throw new InvalidDataException($"{owner} must have a boolean 'loop'."),
+			Channels = EnumOf<ESoundChannels>(sound, "channels", owner),
+			LengthS = sound.TryGetProperty("length_s", out var length) ? LengthOf(length, owner) : null,
+			Load = EnumOf<ESoundLoad>(sound, "load", owner),
+			RangeM = sound.TryGetProperty("range_m", out _) ? NumberOf(sound, "range_m", owner) : null,
+			Group = StringOf(sound, "group", owner),
+			Gain = NumberOf(sound, "gain", owner),
+			Active = sound.TryGetProperty("active", out var active) ? active.ValueKind == JsonValueKind.Object ? active.Clone() : throw new InvalidDataException($"{owner} has an 'active' that is not an object.") : null,
+			Description = sound.TryGetProperty("description", out _) ? StringOf(sound, "description", owner) : null,
+		};
 	}
 
 	/// <summary>
-	/// The byte range of the scalar value of 'property' in the one object whose 'id' is 'id'. When the object has no such property, the range is empty
-	/// and placed just after the ID's value, and 'insert' is true.
+	/// Check that every sound in 'sounds' meets the catalog's rules and that no two share an ID. Throws <see cref="InvalidDataException"/> naming the
+	/// first sound that does not.
 	/// </summary>
-	private static (int start, int end, bool insert) FindValue(ReadOnlySpan<byte> json, string path, string id, string property)
+	public static void Check(IEnumerable<CatalogSound> sounds)
 	{
-		// Marks a frame whose wanted property holds an object or array
-		const int StructuredValue = -2;
-
-		// Walk the tokens keeping one frame per open object or array, recording the property each value belongs to
-		var reader = new Utf8JsonReader(json, new JsonReaderOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true });
-		var frames = new Stack<(string? property, bool matches, int id_end, int value_start, int value_end)>();
-		var found = new List<(int start, int end, bool insert)>();
-		while (reader.Read())
+		// Checked in order, so the first problem in the file is the one reported
+		var ids = new HashSet<string>(StringComparer.Ordinal);
+		foreach (var sound in sounds)
 		{
-			// The property a value belongs to is consumed by that value
-			var owner = frames.Count != 0 ? frames.Peek().property : null;
-			if (reader.TokenType != JsonTokenType.PropertyName && frames.Count != 0)
+			// The ID names the sound in later messages, so it is checked first
+			var owner = $"Sound '{sound.Id}'";
+			if (sound.Id.Length > 128 || !NamePattern().IsMatch(sound.Id))
+				throw new InvalidDataException($"{owner} has an invalid ID; IDs are lower-case dotted names of letters, digits and underscores that start with a letter.");
+			if (!ids.Add(sound.Id))
+				throw new InvalidDataException($"{owner} is defined more than once.");
+			if (string.IsNullOrWhiteSpace(sound.Section))
+				throw new InvalidDataException($"{owner} needs a section name.");
+
+			// A positioned sound's direction comes from its position, so it is mono and fades out by its range; a bed has no range
+			switch (sound.Placement)
 			{
-				var frame = frames.Pop();
-				frames.Push(frame with { property = null });
-			}
-			switch (reader.TokenType)
-			{
-				case JsonTokenType.PropertyName:
+				case ESoundPlacement.Bed:
 				{
-					var frame = frames.Pop();
-					frames.Push(frame with { property = reader.GetString() });
-					break;
-				}
-				case JsonTokenType.StartObject:
-				case JsonTokenType.StartArray:
-				{
-					// A structured value cannot be replaced by a scalar splice, so its owner is marked to reject it if it is the wanted sound
-					if (owner == property)
-					{
-						var parent = frames.Pop();
-						frames.Push(parent with { value_start = StructuredValue });
-					}
-					frames.Push((null, false, -1, -1, -1));
-					break;
-				}
-				case JsonTokenType.EndObject:
-				case JsonTokenType.EndArray:
-				{
-					// A finished object with the wanted ID is a match
-					var frame = frames.Pop();
-					if (frame.matches && frame.value_start == StructuredValue)
-						throw new InvalidDataException($"'{path}' gives sound '{id}' a '{property}' that is not a single value.");
-					if (frame.matches)
-						found.Add(frame.value_start >= 0 ? (frame.value_start, frame.value_end, false) : (frame.id_end, frame.id_end, true));
+					if (sound.RangeM != null)
+						throw new InvalidDataException($"{owner} is a bed and must not have a range.");
 
 					break;
 				}
-				case JsonTokenType.String when owner == "id":
+				case ESoundPlacement.Positioned:
 				{
-					if (reader.GetString() == id)
-					{
-						var frame = frames.Pop();
-						frames.Push(frame with { matches = true, id_end = (int)reader.BytesConsumed });
-					}
+					if (sound.Channels != ESoundChannels.Mono)
+						throw new InvalidDataException($"{owner} is positioned and must be mono.");
+					if (sound.RangeM is not { } range || !double.IsFinite(range) || range <= 0)
+						throw new InvalidDataException($"{owner} is positioned and needs a finite, positive range.");
+
 					break;
 				}
-				case JsonTokenType.String:
-				case JsonTokenType.Number:
-				case JsonTokenType.True:
-				case JsonTokenType.False:
-				case JsonTokenType.Null:
+				default:
 				{
-					if (owner == property)
-					{
-						var frame = frames.Pop();
-						frames.Push(frame with { value_start = (int)reader.TokenStartIndex, value_end = (int)reader.BytesConsumed });
-					}
-					break;
+					throw new ArgumentOutOfRangeException(nameof(sounds), sound.Placement, "Unknown placement.");
 				}
+			}
+
+			// The remaining values are independent of each other
+			if (sound.Group.Length > 64 || !NamePattern().IsMatch(sound.Group))
+				throw new InvalidDataException($"{owner} has an invalid group '{sound.Group}'; groups are dotted names like IDs.");
+			if (!double.IsFinite(sound.Gain) || sound.Gain < 0)
+				throw new InvalidDataException($"{owner} needs a finite gain of at least 0.");
+			if (sound.LengthS is { } length && !(double.IsFinite(length.Min) && double.IsFinite(length.Max) && 0 <= length.Min && length.Min <= length.Max))
+				throw new InvalidDataException($"{owner} has a length range that is not 0 <= min <= max.");
+		}
+	}
+
+	/// <summary>
+	/// Return 'sounds' with 'sound' added as the last sound of its section, or as the only sound of a new last section. Throws
+	/// <see cref="InvalidDataException"/> when the result breaks the catalog's rules, for example when the ID is already used.
+	/// </summary>
+	public static IReadOnlyList<CatalogSound> Add(IReadOnlyList<CatalogSound> sounds, CatalogSound sound)
+	{
+		// Sections stay contiguous, so a new sound goes straight after its section's last sound
+		var result = sounds.ToList();
+		var last = result.FindLastIndex(x => x.Section == sound.Section);
+		result.Insert(last >= 0 ? last + 1 : result.Count, sound);
+		Check(result);
+		return result;
+	}
+
+	/// <summary>
+	/// Return 'sounds' with the sound 'id' replaced by 'sound', which may have a new ID or section. A sound that stays in its section keeps its place;
+	/// one that moves becomes the last sound of its new section. Throws <see cref="InvalidDataException"/> when 'id' is not in the catalog or the
+	/// result breaks the catalog's rules.
+	/// </summary>
+	public static IReadOnlyList<CatalogSound> Replace(IReadOnlyList<CatalogSound> sounds, string id, CatalogSound sound)
+	{
+		// Replacing in place keeps the order people chose within a section
+		var index = IndexOf(sounds, id);
+		var result = sounds.ToList();
+		if (sounds[index].Section == sound.Section)
+		{
+			result[index] = sound;
+			Check(result);
+			return result;
+		}
+
+		// A sound moving section is added to its new one like a new sound
+		result.RemoveAt(index);
+		return Add(result, sound);
+	}
+
+	/// <summary>Return 'sounds' without the sound 'id'. Throws <see cref="InvalidDataException"/> when 'id' is not in the catalog.</summary>
+	public static IReadOnlyList<CatalogSound> Remove(IReadOnlyList<CatalogSound> sounds, string id)
+	{
+		// An emptied section disappears, because sections exist only through their sounds
+		var result = sounds.ToList();
+		result.RemoveAt(IndexOf(sounds, id));
+		return result;
+	}
+
+	/// <summary>Check 'sounds' and write them to 'path' in the standard layout. The file is replaced atomically.</summary>
+	public static void Write(string path, IReadOnlyList<CatalogSound> sounds)
+	{
+		// A catalog that breaks the rules is never written, because the next read would fail
+		Check(sounds);
+		AuthoringJson.WriteAtomic(path, Encoding.UTF8.GetBytes(Format(sounds)));
+	}
+
+	/// <summary>The text of a catalog holding 'sounds', in the standard layout.</summary>
+	public static string Format(IReadOnlyList<CatalogSound> sounds)
+	{
+		// Sections are written in the order of their first sound
+		var text = new StringBuilder();
+		text.Append("{\r\n\t\"schema\": 1,\r\n\t\"sections\": [\r\n");
+		var sections = sounds.GroupBy(x => x.Section).ToList();
+		for (int i = 0; i != sections.Count; ++i)
+		{
+			// One line per sound, separated by commas
+			text.Append($"\t\t{{\r\n\t\t\t\"name\": {StringJson(sections[i].Key)},\r\n\t\t\t\"sounds\": [\r\n");
+			var members = sections[i].ToList();
+			for (int j = 0; j != members.Count; ++j)
+				text.Append($"\t\t\t\t{FormatSound(members[j])}{(j != members.Count - 1 ? "," : "")}\r\n");
+
+			text.Append($"\t\t\t]\r\n\t\t}}{(i != sections.Count - 1 ? "," : "")}\r\n");
+		}
+		text.Append("\t]\r\n}\r\n");
+		return text.ToString();
+	}
+
+	/// <summary>
+	/// The one-line JSON object of 'sound', with its properties in the standard order. Numbers use the fewest digits that keep them readable, and a gain
+	/// always shows a decimal point, so '1.0' stays '1.0'.
+	/// </summary>
+	public static string FormatSound(CatalogSound sound)
+	{
+		// Optional properties are left out when they have no value
+		var parts = new List<string>
+		{
+			Property("id", StringJson(sound.Id)),
+			Property("placement", StringJson(NameOf(sound.Placement))),
+			Property("loop", sound.Loop ? "true" : "false"),
+			Property("channels", StringJson(NameOf(sound.Channels))),
+		};
+		if (sound.LengthS is { } length)
+			parts.Add(Property("length_s", $"[{NumberJson(length.Min, "0.###")}, {NumberJson(length.Max, "0.###")}]"));
+
+		parts.Add(Property("load", StringJson(NameOf(sound.Load))));
+		if (sound.RangeM is { } range)
+			parts.Add(Property("range_m", NumberJson(range, "0.##")));
+
+		parts.Add(Property("group", StringJson(sound.Group)));
+		parts.Add(Property("gain", NumberJson(sound.Gain, "0.0##")));
+		if (sound.Active is { } active)
+			parts.Add(Property("active", ElementJson(active)));
+		if (sound.Description is { } description)
+			parts.Add(Property("description", StringJson(description)));
+
+		return $"{{{string.Join(", ", parts)}}}";
+
+		static string Property(string name, string value)
+		{
+			return $"{StringJson(name)}: {value}";
+		}
+	}
+
+	/// <summary>The lower-case catalog name of an enum value, such as 'bed' for <see cref="ESoundPlacement.Bed"/>.</summary>
+	public static string NameOf<T>(T value) where T : struct, Enum
+	{
+		return value.ToString().ToLowerInvariant();
+	}
+
+	/// <summary>The index of the sound 'id' in 'sounds'.</summary>
+	private static int IndexOf(IReadOnlyList<CatalogSound> sounds, string id)
+	{
+		var index = sounds.ToList().FindIndex(x => x.Id == id);
+		return index >= 0 ? index : throw new InvalidDataException($"'{id}' is not a sound ID in the catalog.");
+	}
+
+	/// <summary>Throw unless every property of 'element' is one of 'allowed'. Unknown properties are rejected so that a misspelt one is not lost.</summary>
+	private static void CheckProperties(JsonElement element, IReadOnlyList<string> allowed, string owner)
+	{
+		foreach (var property in element.EnumerateObject())
+		{
+			if (!allowed.Contains(property.Name))
+				throw new InvalidDataException($"{owner} has unknown property '{property.Name}'.");
+		}
+	}
+
+	/// <summary>The required array property 'name' of 'element'.</summary>
+	private static JsonElement.ArrayEnumerator ArrayOf(JsonElement element, string name, string owner)
+	{
+		return element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Array ? value.EnumerateArray() : throw new InvalidDataException($"{owner} must have a '{name}' array.");
+	}
+
+	/// <summary>The required, non-empty string property 'name' of 'element'.</summary>
+	private static string StringOf(JsonElement element, string name, string owner)
+	{
+		return element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String && value.GetString() is { Length: > 0 } text ? text : throw new InvalidDataException($"{owner} must have a non-empty string '{name}'.");
+	}
+
+	/// <summary>The required number property 'name' of 'element'.</summary>
+	private static double NumberOf(JsonElement element, string name, string owner)
+	{
+		return element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number ? value.GetDouble() : throw new InvalidDataException($"{owner} must have a number '{name}'.");
+	}
+
+	/// <summary>The required enum property 'name' of 'element', written as its lower-case name.</summary>
+	private static T EnumOf<T>(JsonElement element, string name, string owner) where T : struct, Enum
+	{
+		var text = StringOf(element, name, owner);
+		var names = Enum.GetValues<T>().Select(NameOf).ToList();
+		var index = names.IndexOf(text);
+		return index >= 0 ? Enum.GetValues<T>()[index] : throw new InvalidDataException($"{owner} has '{name}' '{text}', but it must be one of: {string.Join(", ", names)}.");
+	}
+
+	/// <summary>A '[min, max]' length range.</summary>
+	private static LengthRange LengthOf(JsonElement value, string owner)
+	{
+		if (value.ValueKind != JsonValueKind.Array || value.GetArrayLength() != 2 || value.EnumerateArray().Any(x => x.ValueKind != JsonValueKind.Number))
+			throw new InvalidDataException($"{owner} must have a 'length_s' of two numbers, '[min, max]'.");
+
+		return new LengthRange(value[0].GetDouble(), value[1].GetDouble());
+	}
+
+	/// <summary>'value' as JSON text on one line, with ', ' and ': ' separators.</summary>
+	private static string ElementJson(JsonElement value)
+	{
+		// Containers are laid out here so that a value written over several lines still fits on its sound's line
+		switch (value.ValueKind)
+		{
+			case JsonValueKind.Object:
+			{
+				return $"{{{string.Join(", ", value.EnumerateObject().Select(x => $"{StringJson(x.Name)}: {ElementJson(x.Value)}"))}}}";
+			}
+			case JsonValueKind.Array:
+			{
+				return $"[{string.Join(", ", value.EnumerateArray().Select(ElementJson))}]";
+			}
+			case JsonValueKind.String:
+			{
+				return StringJson(value.GetString()!);
+			}
+			case JsonValueKind.Number:
+			case JsonValueKind.True:
+			case JsonValueKind.False:
+			case JsonValueKind.Null:
+			{
+				return value.GetRawText();
+			}
+			default:
+			{
+				throw new ArgumentOutOfRangeException(nameof(value), value.ValueKind, "Unexpected JSON value.");
 			}
 		}
-		return found.Count == 1 ? found[0] : throw new InvalidDataException($"'{path}' defines sound '{id}' {found.Count} times, but must define it once.");
 	}
+
+	/// <summary>'text' as a JSON string, escaping only what JSON requires so that punctuation stays readable.</summary>
+	private static string StringJson(string text)
+	{
+		return JsonSerializer.Serialize(text, m_string_options);
+	}
+
+	/// <summary>'value' as a JSON number using the .NET number 'format'.</summary>
+	private static string NumberJson(double value, string format)
+	{
+		return value.ToString(format, CultureInfo.InvariantCulture);
+	}
+
+	/// <summary>Options that escape only the characters JSON requires.</summary>
+	private static readonly JsonSerializerOptions m_string_options = new() { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
+
+	/// <summary>A lower-case dotted name, as used by sound IDs and groups.</summary>
+	[GeneratedRegex(@"^[a-z][a-z0-9_]*(?:\.[a-z0-9_]+)*$", RegexOptions.CultureInvariant)]
+	private static partial Regex NamePattern();
 }

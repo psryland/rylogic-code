@@ -418,7 +418,7 @@ public sealed class TestAuthoring
 	{
 		// A project with one looping sound, one known Freesound origin and a connected login
 		using var temp = new TempFolder();
-		File.WriteAllText(Path.Combine(temp.Path, "sounds.json"), "{\"sections\":[{\"name\":\"Wind\",\"sounds\":[{\"id\":\"wind.test\",\"loop\":true}]}]}");
+		File.WriteAllText(Path.Combine(temp.Path, "sounds.json"), $"{{\"schema\":1,\"sections\":[{{\"name\":\"Wind\",\"sounds\":[{BedSound("wind.test")}]}}]}}");
 		File.WriteAllText(Path.Combine(temp.Path, "authoring.json"), "{\"schema\":1,\"catalog\":\"sounds.json\",\"originals\":\"originals\",\"prep\":\"prep\",\"origins\":\"origins.json\",\"cache\":\"cache\",\"fetched\":\"fetched\",\"freesound\":{\"credentials\":\"freesound.json\"}}");
 		File.WriteAllText(Path.Combine(temp.Path, "origins.json"), "{\"schema\":1,\"origins\":{\"freesound:1\":{\"title\":\"Test wind\",\"user\":\"someone\",\"licence\":\"CC0\"}}}");
 		File.WriteAllText(Path.Combine(temp.Path, "freesound.json"), $"{{\"client_id\":\"id\",\"client_secret\":\"secret\",\"access_token\":\"token\",\"refresh_token\":\"refresh\",\"expires_at\":{DateTimeOffset.UtcNow.ToUnixTimeSeconds() + 3600}}}");
@@ -462,7 +462,7 @@ public sealed class TestAuthoring
 	{
 		// Two local folders: one names its sound ID with a subfolder, the other relies on words in its paths
 		using var temp = new TempFolder();
-		File.WriteAllText(Path.Combine(temp.Path, "sounds.json"), "{\"sections\":[{\"name\":\"Lab\",\"sounds\":[{\"id\":\"lab.radio\"},{\"id\":\"mind.speech\"}]}]}");
+		File.WriteAllText(Path.Combine(temp.Path, "sounds.json"), $"{{\"schema\":1,\"sections\":[{{\"name\":\"Lab\",\"sounds\":[{BedSound("lab.radio")},{BedSound("mind.speech")}]}}]}}");
 		File.WriteAllText(Path.Combine(temp.Path, "authoring.json"), "{\"schema\":1,\"catalog\":\"sounds.json\",\"originals\":\"originals\",\"prep\":\"prep\",\"origins\":\"origins.json\",\"cache\":\"cache\",\"local\":[{\"name\":\"jazz\",\"path\":\"jazz\",\"author\":\"Archive\",\"licence\":\"Public domain\",\"url\":\"https://example.org\"},{\"name\":\"gen\",\"path\":\"gen\",\"author\":\"Generator\",\"licence\":\"CC0\"}]}");
 		Directory.CreateDirectory(Path.Combine(temp.Path, "jazz", "lab-radio", "disc 1"));
 		Directory.CreateDirectory(Path.Combine(temp.Path, "gen", "speech"));
@@ -527,36 +527,168 @@ public sealed class TestAuthoring
 		Assert.Null(AuthoringConfig.Load(path).Apply);
 	}
 
-	/// <summary>
-	/// Setting a sound's value changes only that value, adding it after the ID when missing, and needs exactly one sound with the ID and a scalar value.
-	/// </summary>
+	/// <summary>A catalog is written in one standard layout that reads back to the same sounds and the same text, with optional values only when set.</summary>
 	[Test]
-	public void CatalogSetValue()
+	public void CatalogFormatRoundTrips()
 	{
-		// A hand-laid catalog with comments, one sound with a loop flag and load, and one with neither
+		// Every kind of value, including a whole-number gain, an 'active' object, and text that needs escaping
+		const string Text =
+			"{\r\n\t\"schema\": 1,\r\n\t\"sections\": [\r\n" +
+			"\t\t{\r\n\t\t\t\"name\": \"Wind\",\r\n\t\t\t\"sounds\": [\r\n" +
+			"\t\t\t\t{\"id\": \"wind.calm\", \"placement\": \"bed\", \"loop\": true, \"channels\": \"stereo\", \"length_s\": [30, 60], \"load\": \"stream\", \"group\": \"wind\", \"gain\": 1.0, \"active\": {\"times\": [\"dawn\", \"day\"], \"peak\": \"day\"}, \"description\": \"Calm \\\"still\\\" air\"},\r\n" +
+			"\t\t\t\t{\"id\": \"wind.gust\", \"placement\": \"positioned\", \"loop\": false, \"channels\": \"mono\", \"load\": \"memory\", \"range_m\": 26.5, \"group\": \"wind\", \"gain\": 0.08}\r\n" +
+			"\t\t\t]\r\n\t\t},\r\n" +
+			"\t\t{\r\n\t\t\t\"name\": \"Lab\",\r\n\t\t\t\"sounds\": [\r\n" +
+			"\t\t\t\t{\"id\": \"lab.radio\", \"placement\": \"bed\", \"loop\": true, \"channels\": \"mono\", \"length_s\": [0.1, 0.25], \"load\": \"stream\", \"group\": \"lab\", \"gain\": 0.58}\r\n" +
+			"\t\t\t]\r\n\t\t}\r\n\t]\r\n}\r\n";
 		using var temp = new TempFolder();
 		var path = Path.Combine(temp.Path, "sounds.json");
-		const string Original = "{\n\t// Comment\n\t\"sections\": [ { \"name\": \"s\", \"sounds\": [\n\t\t{ \"id\": \"x\",   \"loop\": false, \"load\": \"memory\", \"len\": [1, 2] },\n\t\t{ \"id\": \"y\", \"gain\": 2 },\n\t] } ],\n}\n";
-		File.WriteAllText(path, Original);
+		File.WriteAllText(path, Text);
 
-		// Change existing values, then add missing ones
-		Catalog.SetValue(path, "x", "loop", JsonValue.Create(true));
-		Catalog.SetValue(path, "x", "load", JsonValue.Create("stream"));
-		var changed = Original.Replace("false", "true").Replace("\"memory\"", "\"stream\"");
-		Assert.Equal(changed, File.ReadAllText(path));
-		Catalog.SetValue(path, "y", "loop", JsonValue.Create(false));
-		Catalog.SetValue(path, "y", "load", JsonValue.Create("memory"));
-		Assert.Equal(changed.Replace("\"y\",", "\"y\", \"load\": \"memory\", \"loop\": false,"), File.ReadAllText(path));
-		var y = Catalog.Read(path).Single(x => x.Id == "y");
-		Assert.Equal(false, y.Loop);
-		Assert.Equal("memory", y.Load);
+		// Reading then writing changes nothing
+		var sounds = Catalog.Read(path);
+		Assert.Equal(Text, Catalog.Format(sounds));
+		Assert.Equal("Calm \"still\" air", sounds[0].Description);
+		Assert.Equal(new LengthRange(0.1, 0.25), sounds[2].LengthS!.Value);
+		Assert.Equal(26.5, sounds[1].RangeM!.Value);
+		Catalog.Write(path, sounds);
+		Assert.Equal(Text, File.ReadAllText(path));
+	}
 
-		// Unknown IDs, structured values and the ID itself are rejected without changing the file
+	/// <summary>Reading a catalog rejects anything the game would not accept, and a failed write leaves the file unchanged.</summary>
+	[Test]
+	public void CatalogRejectsInvalidSounds()
+	{
+		// Each catalog differs from a valid one in a single way
+		using var temp = new TempFolder();
+		var path = Path.Combine(temp.Path, "sounds.json");
+		string Catalog1(string sounds) => $"{{\"schema\":1,\"sections\":[{{\"name\":\"s\",\"sounds\":[{sounds}]}}]}}";
+		foreach (var bad in new[]
+		{
+			Catalog1(BedSound("x").Replace("}", ",\"len\":1}")),
+			Catalog1(BedSound("x").Replace("\"bed\"", "\"positioned\"").Replace("}", ",\"range_m\":5}")),
+			Catalog1(BedSound("x").Replace("}", ",\"range_m\":5}")),
+			Catalog1($"{BedSound("x")},{BedSound("x")}"),
+			Catalog1(BedSound("X")),
+			Catalog1(BedSound("x")).Replace("\"schema\":1,", ""),
+		})
+		{
+			File.WriteAllText(path, bad);
+			Assert.Throws<InvalidDataException>(() => Catalog.Read(path));
+		}
+
+		// Writing an invalid list throws before the file is touched
+		File.WriteAllText(path, Catalog1(BedSound("x")));
+		var sounds = Catalog.Read(path);
 		var before = File.ReadAllText(path);
-		Assert.Throws<InvalidDataException>(() => Catalog.SetValue(path, "z", "loop", JsonValue.Create(true)));
-		Assert.Throws<InvalidDataException>(() => Catalog.SetValue(path, "x", "len", JsonValue.Create(1)));
-		Assert.Throws<ArgumentException>(() => Catalog.SetValue(path, "x", "id", JsonValue.Create("w")));
+		Assert.Throws<InvalidDataException>(() => Catalog.Write(path, [.. sounds, sounds[0]]));
 		Assert.Equal(before, File.ReadAllText(path));
+	}
+
+	/// <summary>Sounds are added at the end of their section, edited in place, moved to the end of a new section, and removed with empty sections.</summary>
+	[Test]
+	public void CatalogAddReplaceRemove()
+	{
+		// Two sections of two sounds
+		var a = Sound("a", "one");
+		var b = Sound("b", "one");
+		var c = Sound("c", "two");
+		var d = Sound("d", "two");
+		IReadOnlyList<CatalogSound> sounds = [a, b, c, d];
+
+		// An added sound goes last in its section, and a new section goes last
+		Assert.True(Catalog.Add(sounds, Sound("e", "one")).Select(x => x.Id).SequenceEqual(["a", "b", "e", "c", "d"]));
+		Assert.True(Catalog.Add(sounds, Sound("e", "three")).Select(x => x.Id).SequenceEqual(["a", "b", "c", "d", "e"]));
+		Assert.Throws<InvalidDataException>(() => Catalog.Add(sounds, Sound("a", "two")));
+
+		// An edit within a section keeps its place, even when renamed; a new section moves it to that section's end
+		Assert.True(Catalog.Replace(sounds, "a", a with { Id = "z", Gain = 0.5 }).Select(x => x.Id).SequenceEqual(["z", "b", "c", "d"]));
+		Assert.True(Catalog.Replace(sounds, "a", a with { Section = "two" }).Select(x => x.Id).SequenceEqual(["b", "c", "d", "a"]));
+		Assert.Throws<InvalidDataException>(() => Catalog.Replace(sounds, "q", a));
+		Assert.Throws<InvalidDataException>(() => Catalog.Replace(sounds, "a", a with { Id = "b" }));
+
+		// Removing the last sound of a section removes the section
+		var removed = Catalog.Remove(Catalog.Remove(sounds, "c"), "d");
+		Assert.True(removed.Select(x => x.Id).SequenceEqual(["a", "b"]));
+		Assert.False(Catalog.Format(removed).Contains("\"two\""));
+		Assert.Throws<InvalidDataException>(() => Catalog.Remove(sounds, "q"));
+	}
+
+	/// <summary>
+	/// Sounds can be added, edited, renamed and deleted through the workspace. A rename takes the sound's preparation file and own reference masters with it,
+	/// and a delete removes them, but a master that another sound uses is left alone.
+	/// </summary>
+	[Test]
+	public void WorkspaceEditsSounds()
+	{
+		// A project whose sound 'a' has a variant with its own master and one shared with sound 'b'
+		using var temp = new TempFolder();
+		File.WriteAllText(Path.Combine(temp.Path, "sounds.json"), $"{{\"schema\":1,\"sections\":[{{\"name\":\"s\",\"sounds\":[{BedSound("a")},{BedSound("b")}]}}]}}");
+		File.WriteAllText(Path.Combine(temp.Path, "authoring.json"), "{\"schema\":1,\"catalog\":\"sounds.json\",\"originals\":\"originals\",\"prep\":\"prep\",\"origins\":\"origins.json\",\"cache\":\"cache\"}");
+		var config = AuthoringConfig.Load(Path.Combine(temp.Path, "authoring.json"));
+		Directory.CreateDirectory(config.PrepFolder);
+		Directory.CreateDirectory(Path.Combine(temp.Path, "masters"));
+		File.WriteAllText(Path.Combine(temp.Path, "masters", "a.1.flac"), "own");
+		File.WriteAllText(Path.Combine(temp.Path, "masters", "shared.flac"), "shared");
+		var prep_a = new PrepFile { Id = "a" };
+		prep_a.AddVariant("hand_made:a.1", null, EVariantStatus.Accepted).ReferenceMaster = "masters/a.1.flac";
+		prep_a.AddVariant("hand_made:shared", null, EVariantStatus.Accepted).ReferenceMaster = "masters/shared.flac";
+		prep_a.Save(config.PrepFolder);
+		var prep_b = new PrepFile { Id = "b" };
+		prep_b.AddVariant("hand_made:shared", null, EVariantStatus.Accepted).ReferenceMaster = "masters/shared.flac";
+		prep_b.Save(config.PrepFolder);
+		using var http = new System.Net.Http.HttpClient();
+		var workspace = new Workspace(config, new Ffmpeg(), http);
+		JsonObject Action(string action, string? id, string section, string? sound) => new()
+		{
+			["action"] = action,
+			["id"] = id,
+			["section"] = section,
+			["sound"] = sound != null ? JsonNode.Parse(sound) : null,
+		};
+
+		// Adding needs a valid, unused ID; the new sound is last in its new section
+		Assert.Throws<InvalidDataException>(() => workspace.Apply(Action("add_sound", null, "t", BedSound("a"))));
+		Assert.Equal("Added c.", workspace.Apply(Action("add_sound", null, "t", BedSound("c"))));
+		Assert.True(Catalog.Read(config.CatalogPath).Select(x => (x.Id, x.Section)).SequenceEqual([("a", "s"), ("b", "s"), ("c", "t")]));
+
+		// An edit that keeps the ID changes only the catalog
+		workspace.Apply(Action("edit_sound", "c", "t", BedSound("c").Replace("1.0", "0.25")));
+		Assert.Equal(0.25, Catalog.Read(config.CatalogPath).Single(x => x.Id == "c").Gain);
+
+		// A rename moves the preparation file and the sound's own master, but not the shared one
+		Assert.Equal("Renamed a to z.", workspace.Apply(Action("edit_sound", "a", "s", BedSound("z"))));
+		Assert.False(File.Exists(PrepFile.PathFor(config.PrepFolder, "a")));
+		var prep_z = PrepFile.Load(config.PrepFolder, "z");
+		Assert.True(prep_z.Variants.Select(x => x.ReferenceMaster).SequenceEqual(["masters/z.1.flac", "masters/shared.flac"]));
+		Assert.Equal("own", File.ReadAllText(Path.Combine(temp.Path, "masters", "z.1.flac")));
+		Assert.False(File.Exists(Path.Combine(temp.Path, "masters", "a.1.flac")));
+		Assert.True(Catalog.Read(config.CatalogPath).Select(x => x.Id).SequenceEqual(["z", "b", "c"]));
+
+		// A rename onto existing files changes nothing
+		File.WriteAllText(Path.Combine(temp.Path, "masters", "y.1.flac"), "in the way");
+		Assert.Throws<InvalidOperationException>(() => workspace.Apply(Action("edit_sound", "z", "s", BedSound("y"))));
+		Assert.True(File.Exists(PrepFile.PathFor(config.PrepFolder, "z")));
+		Assert.True(Catalog.Read(config.CatalogPath).Select(x => x.Id).SequenceEqual(["z", "b", "c"]));
+
+		// A delete removes the sound, its preparation file and its own master, keeping the master that 'b' still uses
+		Assert.Equal("Deleted z.", workspace.Apply(new JsonObject { ["action"] = "delete_sound", ["id"] = "z" }));
+		Assert.False(File.Exists(PrepFile.PathFor(config.PrepFolder, "z")));
+		Assert.False(File.Exists(Path.Combine(temp.Path, "masters", "z.1.flac")));
+		Assert.True(File.Exists(Path.Combine(temp.Path, "masters", "shared.flac")));
+		Assert.True(Catalog.Read(config.CatalogPath).Select(x => x.Id).SequenceEqual(["b", "c"]));
+	}
+
+	/// <summary>A minimal valid looping bed in catalog form.</summary>
+	private static string BedSound(string id)
+	{
+		return $"{{\"id\":\"{id}\",\"placement\":\"bed\",\"loop\":true,\"channels\":\"stereo\",\"load\":\"stream\",\"group\":\"g\",\"gain\":1.0}}";
+	}
+
+	/// <summary>A minimal valid looping bed in 'section'.</summary>
+	private static CatalogSound Sound(string id, string section)
+	{
+		return new CatalogSound { Id = id, Section = section, Placement = ESoundPlacement.Bed, Loop = true, Channels = ESoundChannels.Stereo, Load = ESoundLoad.Stream, Group = "g", Gain = 1.0 };
 	}
 
 	/// <summary>Local files are assigned to the sound ID their folder names, or else the one their path's words suggest.</summary>
@@ -622,8 +754,8 @@ public sealed class TestAuthoring
 	[Test]
 	public void GameActionsChangeTheGame()
 	{
-		// Notes, finalised flags, assignment and rendering only change the review
-		foreach (var action in new[] { "loop", "load", "status", "move", "recipe", "adopt" })
+		// Catalog edits change what the game plays; notes, finalised flags, assignment and rendering only change the review
+		foreach (var action in new[] { "add_sound", "edit_sound", "delete_sound", "status", "move", "recipe", "adopt" })
 			Assert.True(Workspace.GameActions.Contains(action));
 
 		foreach (var action in new[] { "note", "finalised", "assign", "useful", "prepare", "add_freesound" })

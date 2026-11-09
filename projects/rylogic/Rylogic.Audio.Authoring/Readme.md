@@ -31,9 +31,12 @@ A project supplies an `authoring.json` file. Relative paths are resolved against
 }
 ```
 
-- `catalog`: the project's sound definitions. The library reads each sound's `id`, its section, description, `loop` flag and `load` (`memory` or
-  `stream`); every other property belongs to the project. The only changes the library makes to this file are setting a sound's `loop` flag or `load`;
-  each edits just the value, keeping the file's layout.
+- `catalog`: the sound definitions, owned by the library. The file has `"schema": 1` and a list of named `sections`, each with its `sounds` in order.
+  Each sound has `id`, `placement` (`bed` surrounds the listener; `positioned` comes from a point, must be `mono` and needs `range_m`), `loop`,
+  `channels` (`mono` or `stereo`), `load` (`memory` or `stream`), `group` and `gain`, and optionally `length_s` (`[min, max]`), `active` (an object
+  passed through unchanged) and `description`. Unknown properties are rejected. The authoring tool adds, edits, renames and deletes sounds, writing the
+  whole file in one standard layout with one line per sound. Renaming a sound renames its preparation file and the reference masters named
+  `<id>.*` that only it uses; deleting a sound deletes them. Game code that names a renamed or deleted ID must be changed by hand.
 - `originals`: one `<source-id>.<type>` per recording with a `<source-id>.json` provenance sidecar. FLAC, MP3, Ogg and Opus downloads are kept byte-for-byte;
   any other type is converted to lossless FLAC. Keep this folder in version control.
 - `fetched` (optional): the same, for recordings that can be downloaded again (Freesound). This folder need not be version controlled: a missing
@@ -54,7 +57,7 @@ A project supplies an `authoring.json` file. Relative paths are resolved against
   without a full cook. It runs like `apply`, with `{id}` in each argument replaced by the sound ID.
 
 When the project has either command, the tool publishes edits automatically. About 2 s after the last review action that changes what the project
-plays (accepting or rejecting a variant, reordering, a recipe edit, adopting a recipe, and the catalog `loop` and `load` values), it runs `send` for each
+plays (accepting or rejecting a variant, reordering, a recipe edit, adopting a recipe, and adding, editing or deleting a sound), it runs `send` for each
 edited sound and then `apply` once. Edits made during a publish wait for the next pause. Only one project command runs at a time.
 
 ## Recipes

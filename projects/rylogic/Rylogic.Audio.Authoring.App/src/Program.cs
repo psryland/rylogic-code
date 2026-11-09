@@ -157,7 +157,7 @@ public static partial class Program
 				notice = name == "add_freesound"
 					? await workspace.AddFreesoundAsync((string?)action["id"], FreesoundNumber((string?)action["number"]), cancel)
 					: workspace.Apply(action);
-				if (auto != null && name != null && Workspace.GameActions.Contains(name) && (string?)action["id"] is string id)
+				if (auto != null && name != null && Workspace.GameActions.Contains(name) && Workspace.SoundIdOf(action) is string id)
 					auto.Touch(id);
 			}
 			catch (Exception ex) when (ex is InvalidOperationException or InvalidDataException or HttpRequestException or System.Text.Json.JsonException or IOException)

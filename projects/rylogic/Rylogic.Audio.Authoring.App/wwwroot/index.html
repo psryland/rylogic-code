@@ -45,6 +45,12 @@
 	.error { color: #f28b82; }
 	kbd { background: #333; border: 1px solid #555; border-radius: 3px; padding: 0 4px; font-size: 12px; }
 	#status { margin-top: 6px; font-size: 13px; }
+	#soundform { background: #24262a; border: 1px solid #3a3d43; border-radius: 6px; padding: 6px 10px; margin-bottom: 12px; }
+	#soundform .row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 3px 0; }
+	#soundform label { color: #aaa; font-size: 13px; }
+	#soundform label.wide { flex: 1; display: flex; gap: 6px; align-items: center; }
+	#soundform input[type=number] { width: 64px; }
+	#ids button.addsound { width: 100%; margin-bottom: 6px; }
 </style>
 </head>
 <body>
@@ -80,10 +86,31 @@
 	</div>
 	<div id="recipe" hidden></div>
 	<h2 id="title">Pick a sound ID</h2>
-	<label id="loopgame" hidden title="Saves the sound's 'loop' setting in the project's catalog. The game is updated after a short pause.">
-		<input type="checkbox" id="loopsound"> Loops in game</label>
-	<label id="loadgame" hidden title="Saves the sound's 'load' setting in the project's catalog. The game is updated after a short pause. Memory keeps the whole sound uncompressed in memory, which suits short sounds that play often. Stream decodes compressed (Ogg) audio as it plays, which suits anything long.">
-		Load <select id="loadsound"><option value="memory">memory (short sounds)</option><option value="stream">stream (long sounds)</option></select></label>
+	<div id="soundform" hidden title="The sound's entry in the project's catalog. Saved changes reach the game after a short pause.">
+		<div class="row">
+			<label title="Lower-case dotted name, e.g. 'shore.lapping'. Renaming also renames the sound's preparation file and reference masters, but game code that names the ID must be changed by hand.">ID <input type="text" id="sf_id" size="28"></label>
+			<label title="Pick a section or type a new name; a new section is added at the end of the catalog">Section <input type="text" id="sf_section" list="sf_sections" size="16"></label>
+			<label title="The mix group whose volume controls this sound">Group <input type="text" id="sf_group" list="sf_groups" size="14"></label>
+			<label title="Linear gain applied in the game">Gain <input type="number" id="sf_gain" min="0" step="0.01"></label>
+		</div>
+		<div class="row">
+			<label title="A bed surrounds the listener. A positioned sound comes from a point in the world, so it must be mono and needs a range.">Placement <select id="sf_placement"><option value="bed">bed (surrounds)</option><option value="positioned">positioned (from a point)</option></select></label>
+			<label>Channels <select id="sf_channels"><option value="mono">mono</option><option value="stereo">stereo</option></select></label>
+			<label title="Distance in metres at which a positioned sound becomes silent">Range (m) <input type="number" id="sf_range" min="0" step="0.5"></label>
+			<label title="Whether the game repeats the sound"><input type="checkbox" id="sf_loop"> Loops</label>
+			<label title="Memory keeps the whole sound uncompressed in memory, which suits short sounds that play often. Stream decodes compressed (Ogg) audio as it plays, which suits anything long.">Load <select id="sf_load"><option value="memory">memory (short sounds)</option><option value="stream">stream (long sounds)</option></select></label>
+			<label title="Optional expected length range in seconds; leave both blank for none">Length (s) <input type="number" id="sf_len_min" min="0" step="0.1"> to <input type="number" id="sf_len_max" min="0" step="0.1"></label>
+		</div>
+		<div class="row"><label class="wide">Description <input type="text" id="sf_desc" class="note"></label></div>
+		<div class="row">
+			<button id="sf_save">Save</button>
+			<button id="sf_cancel" hidden>Cancel</button>
+			<button id="sf_delete" title="Remove the sound from the catalog and delete its preparation file and reference masters">Delete sound</button>
+			<span class="muted" id="sf_active"></span>
+		</div>
+	</div>
+	<datalist id="sf_sections"></datalist>
+	<datalist id="sf_groups"></datalist>
 	<table id="list"></table>
 	<p>
 		Add a Freesound sound <span id="addto"></span>: <input type="text" id="addnum" placeholder="number or page address" size="28">
@@ -121,6 +148,10 @@ let offset = 0;
 let seam_timer = null;
 let poll_timer = null;
 
+// The sound form adds a new sound when 'adding' is true, otherwise it edits the selected sound. It is filled only when the selection or mode changes,
+// because the state is redrawn while polling and must not overwrite unsaved typing.
+let adding = false;
+
 // The pseudo ID that selects the pool of unassigned recordings
 const POOL = "(unassigned)";
 
@@ -156,13 +187,14 @@ async function refresh()
 	adopt_state(await r.json());
 }
 
-// Send one action to the server; the reply carries the new state and a notice or error
+// Send one action to the server; the reply carries the new state and a notice or error, and is returned so callers can follow up on success
 async function post(body)
 {
 	const r = await fetch("/api/state", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 	const s = await r.json();
 	adopt_state(s);
 	show_message(s.error ?? s.notice ?? "", !!s.error);
+	return s;
 }
 
 function show_message(text, is_error)
@@ -399,6 +431,11 @@ function render_ids()
 	const el = document.getElementById("ids");
 	el.innerHTML = "";
 
+	// New sounds start in the selected sound's section
+	const add = button("+ Add sound", "Add a new sound ID to the project's catalog", () => start_add());
+	add.className = "addsound";
+	el.appendChild(add);
+
 	// The unassigned pool comes first, as it is where new finds wait to be given a use
 	const pool = pool_origins();
 	const p = document.createElement("div");
@@ -440,11 +477,127 @@ function select_id(id)
 	slot_b = null;
 	live = "B";
 	edit = null;
+	adding = false;
 	stop();
 	offset = 0;
 	document.getElementById("loopplay").checked = state.ids.find(x => x.id === id)?.loop ?? true;
 	render();
 	render_recipe();
+	fill_form(state.ids.find(x => x.id === id) ?? null);
+}
+
+// Open the form for a new sound, with defaults suited to a looping ambient bed in the selected sound's section
+function start_add()
+{
+	const section = state.ids.find(x => x.id === sel_id)?.section ?? state.ids.at(-1)?.section ?? "";
+	adding = true;
+	fill_form({ id: "", section, placement: "bed", channels: "stereo", loop: true, load: "stream", group: "", gain: 1.0 });
+	render_list();
+	document.getElementById("sf_id").focus();
+}
+
+// Put a catalog entry into the sound form. The 'active' value has no editor, so it is kept from the entry and sent back unchanged.
+let form_active = undefined;
+function fill_form(info)
+{
+	// Fields default to blank when there is no entry
+	const f = id => document.getElementById(id);
+	f("sf_id").value = info?.id ?? "";
+	f("sf_section").value = info?.section ?? "";
+	f("sf_group").value = info?.group ?? "";
+	f("sf_gain").value = info?.gain ?? 1;
+	f("sf_placement").value = info?.placement ?? "bed";
+	f("sf_channels").value = info?.channels ?? "stereo";
+	f("sf_range").value = info?.range_m ?? "";
+	f("sf_loop").checked = !!info?.loop;
+	f("sf_load").value = info?.load ?? "stream";
+	f("sf_len_min").value = info?.length_s?.[0] ?? "";
+	f("sf_len_max").value = info?.length_s?.[1] ?? "";
+	f("sf_desc").value = info?.description ?? "";
+	form_active = info?.active;
+	f("sf_active").textContent = form_active ? `active: ${JSON.stringify(form_active)}` : "";
+	update_form();
+}
+
+// Keep the form consistent with the placement: a positioned sound is mono and has a range, while a bed has no range
+function update_form()
+{
+	const positioned = document.getElementById("sf_placement").value === "positioned";
+	const channels = document.getElementById("sf_channels");
+	if (positioned)
+		channels.value = "mono";
+
+	channels.disabled = positioned;
+	document.getElementById("sf_range").disabled = !positioned;
+	document.getElementById("sf_save").textContent = adding ? "Add" : "Save";
+	document.getElementById("sf_cancel").hidden = !adding;
+	document.getElementById("sf_delete").hidden = adding;
+}
+
+// The catalog entry described by the form. Optional values are left out when blank, and the server checks the rest.
+function form_sound()
+{
+	// Required values
+	const f = id => document.getElementById(id);
+	const positioned = f("sf_placement").value === "positioned";
+	const sound = {
+		id: f("sf_id").value.trim(),
+		placement: f("sf_placement").value,
+		loop: f("sf_loop").checked,
+		channels: positioned ? "mono" : f("sf_channels").value,
+		load: f("sf_load").value,
+		group: f("sf_group").value.trim(),
+		gain: Number(f("sf_gain").value),
+	};
+
+	// Optional values; a length with only one end given is taken as a fixed length
+	const min = f("sf_len_min").value, max = f("sf_len_max").value;
+	if (min !== "" || max !== "")
+		sound.length_s = [Number(min !== "" ? min : max), Number(max !== "" ? max : min)];
+	if (positioned)
+		sound.range_m = Number(f("sf_range").value);
+	if (form_active)
+		sound.active = form_active;
+	if (f("sf_desc").value.trim())
+		sound.description = f("sf_desc").value.trim();
+
+	return { section: f("sf_section").value.trim(), sound };
+}
+
+// Add or save the sound in the form, confirming a rename because game code that names the old ID will no longer find it
+async function save_form()
+{
+	// A new sound is added; an existing one is replaced, possibly under a new ID
+	const { section, sound } = form_sound();
+	let s;
+	if (adding)
+	{
+		s = await post({ action: "add_sound", section, sound });
+	}
+	else
+	{
+		if (sound.id !== sel_id && !confirm(`Rename '${sel_id}' to '${sound.id}'?\n\nIts preparation file and reference masters are renamed too. Game code that names '${sel_id}' must be changed by hand.`))
+			return;
+
+		s = await post({ action: "edit_sound", id: sel_id, section, sound });
+	}
+
+	// On success, show the saved sound so the form holds what the catalog now says
+	if (!s.error)
+		select_id(sound.id);
+}
+
+// Delete the selected sound after confirming what is lost
+async function delete_form()
+{
+	// Version control is the only way back, so the confirmation lists everything removed
+	const id = sel_id;
+	if (!confirm(`Delete '${id}'?\n\nThis removes it from the catalog and deletes its preparation file and the reference masters that no other sound uses. Game code that names '${id}' will break.`))
+		return;
+
+	const s = await post({ action: "delete_sound", id });
+	if (!s.error)
+		select_id(null);
 }
 
 // Draw the unassigned pool: recordings to listen to and either assign to an ID or mark not useful
@@ -505,14 +658,15 @@ function render_list()
 {
 	const t = document.getElementById("list");
 	t.innerHTML = "";
-	document.getElementById("title").textContent = sel_id === POOL ? "Unassigned recordings" : (sel_id ?? "Pick a sound ID");
+	document.getElementById("title").textContent = adding ? "New sound" : sel_id === POOL ? "Unassigned recordings" : (sel_id ?? "Pick a sound ID");
 	document.getElementById("addto").textContent = sel_id && sel_id !== POOL ? `to ${sel_id}` : "to the unassigned pool";
+
+	// The form shows while adding or when a sound is selected; its choice lists follow the catalog
 	const sound = state.ids.find(x => x.id === sel_id);
-	document.getElementById("loopgame").hidden = !sound;
-	document.getElementById("loopsound").checked = !!sound?.loop;
-	document.getElementById("loadgame").hidden = !sound;
-	document.getElementById("loadsound").value = sound?.load ?? "";
-	if (!sel_id)
+	document.getElementById("soundform").hidden = !adding && !sound;
+	document.getElementById("sf_sections").innerHTML = [...new Set(state.ids.map(x => x.section))].map(x => `<option value="${esc(x)}">`).join("");
+	document.getElementById("sf_groups").innerHTML = [...new Set(state.ids.map(x => x.group))].sort().map(x => `<option value="${esc(x)}">`).join("");
+	if (!sel_id || adding)
 		return;
 
 	if (sel_id === POOL)
@@ -520,12 +674,6 @@ function render_list()
 		render_pool(t);
 		return;
 	}
-
-	// The ID's description and properties come from the project's catalog
-	const info = state.ids.find(x => x.id === sel_id);
-	const desc = document.createElement("tr");
-	desc.innerHTML = `<td colspan="5" class="muted">${esc(info?.description ?? "")} ${esc(Object.entries(info?.properties ?? {}).map(([k, v]) => `${k}: ${JSON.stringify(v)}`).join(", "))}</td>`;
-	t.appendChild(desc);
 
 	const variants = variants_of(sel_id);
 	const accepted = variants.filter(v => v.status === "accepted");
@@ -940,8 +1088,10 @@ document.getElementById("toggle").onclick = toggle;
 document.getElementById("seam").onclick = seam;
 document.getElementById("match").onchange = () => { if (source) start(position()); };
 document.getElementById("loopplay").onchange = () => { if (source) start(position()); };
-document.getElementById("loopsound").onchange = e => post({ action: "loop", id: sel_id, loop: e.target.checked });
-document.getElementById("loadsound").onchange = e => post({ action: "load", id: sel_id, load: e.target.value });
+document.getElementById("sf_placement").onchange = update_form;
+document.getElementById("sf_save").onclick = save_form;
+document.getElementById("sf_delete").onclick = delete_form;
+document.getElementById("sf_cancel").onclick = () => select_id(sel_id);
 document.getElementById("slotA").onclick = () => { if (live !== "A") toggle(); };
 document.getElementById("slotB").onclick = () => { if (live !== "B") toggle(); };
 document.addEventListener("keydown", e =>

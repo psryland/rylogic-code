@@ -74,7 +74,13 @@ public sealed partial class Workspace
 	public static IReadOnlyList<string> LocalTypes { get; } = [".wav", ".mp3", ".flac", ".ogg", ".opus"];
 
 	/// <summary>The review actions that change what the project's game plays for the action's sound 'id'. Other actions only change the review state.</summary>
-	public static IReadOnlySet<string> GameActions { get; } = new HashSet<string>(["loop", "load", "status", "move", "recipe", "adopt"], StringComparer.Ordinal);
+	public static IReadOnlySet<string> GameActions { get; } = new HashSet<string>(["add_sound", "edit_sound", "delete_sound", "status", "move", "recipe", "adopt"], StringComparer.Ordinal);
+
+	/// <summary>The sound ID an action changes: the new ID of an added or edited sound, otherwise the action's 'id', or null when it names none.</summary>
+	public static string? SoundIdOf(JsonObject action)
+	{
+		return (string?)action["sound"]?["id"] ?? (string?)action["id"];
+	}
 
 	/// <summary>The current state for display. Never waits for background work.</summary>
 	public JsonObject Snapshot()
@@ -84,15 +90,13 @@ public sealed partial class Workspace
 		var freesound = Freesound.Status;
 		lock (m_lock)
 		{
-			// The sound IDs in catalog order, with the properties the project wants shown
+			// The sound IDs in catalog order, each as its catalog properties plus its section, which is the form the edit actions take
 			var ids = new JsonArray();
 			foreach (var sound in m_catalog)
 			{
-				var properties = new JsonObject();
-				foreach (var (name, value) in sound.Properties)
-					properties[name] = value?.DeepClone();
-
-				ids.Add(new JsonObject { ["id"] = sound.Id, ["section"] = sound.Section, ["description"] = sound.Description, ["loop"] = sound.Loop, ["load"] = sound.Load, ["properties"] = properties });
+				var node = JsonNode.Parse(Catalog.FormatSound(sound))!.AsObject();
+				node["section"] = sound.Section;
+				ids.Add(node);
 			}
 
 			// Every known origin, with the address that plays it best: the original once imported, else the local file or the browse preview
@@ -207,24 +211,37 @@ public sealed partial class Workspace
 				{
 					return Assign(Text(action, "id"), Text(action, "origin"));
 				}
-				case "loop":
+				case "add_sound":
 				{
-					// The catalog belongs to the project, so only its 'loop' value is changed and the catalog is read back
-					var loop = action["loop"]?.GetValue<bool>() ?? throw new InvalidOperationException("The 'loop' action needs a 'loop' value.");
-					Catalog.SetValue(Config.CatalogPath, Text(action, "id"), "loop", JsonValue.Create(loop));
-					m_catalog = Catalog.Read(Config.CatalogPath);
-					return null;
-				}
-				case "load":
-				{
-					// Only the catalog's 'load' value changes, and only to a value the project understands
-					var load = Text(action, "load");
-					if (!CatalogSound.Loads.Contains(load))
-						throw new InvalidOperationException($"The 'load' action needs one of: {string.Join(", ", CatalogSound.Loads)}.");
+					// A new sound has no variants yet; any leftover files for its ID would silently attach to it, so they are refused
+					var sound = SoundOf(action);
+					var catalog = Catalog.Add(m_catalog, sound);
+					if (File.Exists(PrepFile.PathFor(Config.PrepFolder, sound.Id)))
+						throw new InvalidOperationException($"A preparation file for '{sound.Id}' already exists. Remove it, or add the sound under another ID.");
 
-					Catalog.SetValue(Config.CatalogPath, Text(action, "id"), "load", JsonValue.Create(load));
-					m_catalog = Catalog.Read(Config.CatalogPath);
-					return null;
+					SaveCatalog(catalog);
+					return $"Added {sound.Id}.";
+				}
+				case "edit_sound":
+				{
+					// Every catalog value may change. A new ID renames the sound's own files before the catalog is saved, so they always match it.
+					var id = Text(action, "id");
+					var sound = SoundOf(action);
+					var catalog = Catalog.Replace(m_catalog, id, sound);
+					if (sound.Id != id)
+						RenameFiles(id, sound.Id);
+
+					SaveCatalog(catalog);
+					return sound.Id != id ? $"Renamed {id} to {sound.Id}." : null;
+				}
+				case "delete_sound":
+				{
+					// The sound's files go with it; version control is the way back
+					var id = Text(action, "id");
+					var catalog = Catalog.Remove(m_catalog, id);
+					DeleteFiles(id);
+					SaveCatalog(catalog);
+					return $"Deleted {id}.";
 				}
 				case "status":
 				{
@@ -521,6 +538,109 @@ public sealed partial class Workspace
 		var prep = PrepOf(Text(action, "id"));
 		var variant = prep.Find(Text(action, "variant")) ?? throw new InvalidOperationException($"'{prep.Id}' has no variant '{Text(action, "variant")}'.");
 		return (prep, variant);
+	}
+
+	/// <summary>The sound in an action's 'sound' object, in the section named by its 'section'.</summary>
+	private static CatalogSound SoundOf(JsonObject action)
+	{
+		// The object has the catalog's form, so the catalog's reader parses it
+		var sound = action["sound"] as JsonObject ?? throw new InvalidOperationException("The action needs a 'sound' object.");
+		using var document = JsonDocument.Parse(sound.ToJsonString());
+		return Catalog.ParseSound(document.RootElement, Text(action, "section").Trim(), "the request");
+	}
+
+	/// <summary>Write 'catalog' and read it back, so the state holds exactly what was saved. Caller holds the lock.</summary>
+	private void SaveCatalog(IReadOnlyList<CatalogSound> catalog)
+	{
+		Catalog.Write(Config.CatalogPath, catalog);
+		m_catalog = Catalog.Read(Config.CatalogPath);
+	}
+
+	/// <summary>
+	/// Give the files of sound 'old_id' the ID 'new_id': its preparation file, and each reference master named '&lt;old_id&gt;.*' that no other sound
+	/// uses. Every target is checked before anything moves, so a name clash changes nothing. Caller holds the lock.
+	/// </summary>
+	private void RenameFiles(string old_id, string new_id)
+	{
+		// Plan every move first. A master with another name, or one that another sound uses, keeps its name.
+		var prep = PrepOf(old_id);
+		var old_path = PrepFile.PathFor(Config.PrepFolder, old_id);
+		if (File.Exists(PrepFile.PathFor(Config.PrepFolder, new_id)))
+			throw new InvalidOperationException($"A preparation file for '{new_id}' already exists.");
+
+		var shared = MastersOfOthers(old_id);
+		var masters = new Dictionary<string, string>(StringComparer.Ordinal);
+		foreach (var reference in prep.Variants.Select(x => x.ReferenceMaster).OfType<string>().Distinct().Where(x => !shared.Contains(x)))
+		{
+			// The ID part of the file name is replaced, keeping the folder and the rest of the name
+			var name = reference[(reference.LastIndexOf('/') + 1)..];
+			if (!name.StartsWith($"{old_id}.", StringComparison.Ordinal))
+				continue;
+
+			var renamed = $"{reference[..^name.Length]}{new_id}{name[old_id.Length..]}";
+			if (File.Exists(MasterPath(renamed)))
+				throw new InvalidOperationException($"Cannot rename reference master '{reference}', because '{renamed}' already exists.");
+
+			masters[reference] = renamed;
+		}
+
+		// Move the masters and point the variants at their new names
+		foreach (var (from, to) in masters.Where(x => File.Exists(MasterPath(x.Key))))
+			File.Move(MasterPath(from), MasterPath(to));
+		foreach (var variant in prep.Variants.Where(x => x.ReferenceMaster != null && masters.ContainsKey(x.ReferenceMaster)))
+			variant.ReferenceMaster = masters[variant.ReferenceMaster!];
+
+		// A sound that never had a preparation file still has none
+		prep.Id = new_id;
+		if (File.Exists(old_path))
+		{
+			prep.Save(Config.PrepFolder);
+			File.Delete(old_path);
+		}
+
+		// Cached state follows the new ID
+		m_preps.Remove(old_id);
+		m_preps[new_id] = prep;
+		foreach (var slot in RenderSlotsOf(old_id))
+		{
+			m_renders[$"{RenderSlot(new_id, string.Empty)}{slot[RenderSlot(old_id, string.Empty).Length..]}"] = m_renders[slot];
+			m_renders.Remove(slot);
+		}
+	}
+
+	/// <summary>Delete the preparation file of 'sound_id' and the reference masters that no other sound uses. Caller holds the lock.</summary>
+	private void DeleteFiles(string sound_id)
+	{
+		// A master that another sound uses is kept for it
+		var prep = PrepOf(sound_id);
+		var shared = MastersOfOthers(sound_id);
+		foreach (var reference in prep.Variants.Select(x => x.ReferenceMaster).OfType<string>().Distinct().Where(x => !shared.Contains(x)))
+			File.Delete(MasterPath(reference));
+
+		File.Delete(PrepFile.PathFor(Config.PrepFolder, sound_id));
+
+		// Nothing cached may refer to the deleted sound
+		m_preps.Remove(sound_id);
+		foreach (var slot in RenderSlotsOf(sound_id))
+			m_renders.Remove(slot);
+	}
+
+	/// <summary>The reference masters used by catalog sounds other than 'sound_id'. Caller holds the lock.</summary>
+	private HashSet<string> MastersOfOthers(string sound_id)
+	{
+		return m_catalog.Where(x => x.Id != sound_id).SelectMany(x => PrepOf(x.Id).Variants).Select(x => x.ReferenceMaster).OfType<string>().ToHashSet(StringComparer.Ordinal);
+	}
+
+	/// <summary>The full path of a reference master given relative to the configuration folder.</summary>
+	private string MasterPath(string reference)
+	{
+		return Path.GetFullPath(Path.Combine(Config.Root, reference));
+	}
+
+	/// <summary>The render slots of 'sound_id' that have a render state. Caller holds the lock.</summary>
+	private List<string> RenderSlotsOf(string sound_id)
+	{
+		return m_renders.Keys.Where(x => x.StartsWith(RenderSlot(sound_id, string.Empty), StringComparison.Ordinal)).ToList();
 	}
 
 	/// <summary>The registry record of 'origin'. Caller holds the lock.</summary>
