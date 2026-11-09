@@ -51,7 +51,7 @@ public static class PreparedSounds
 			var files = new List<string>();
 			foreach (var variant in prep.Accepted)
 			{
-				// A reference master stands in for the recipe until the recipe is adopted
+				// A reference master stands in for the recipe until the recipe is first edited
 				if (variant.ReferenceMaster != null)
 				{
 					var reference = Path.GetFullPath(Path.Combine(config.Root, variant.ReferenceMaster));

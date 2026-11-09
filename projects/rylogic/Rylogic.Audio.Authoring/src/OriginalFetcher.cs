@@ -29,7 +29,7 @@ public sealed class OriginalFetcher
 	/// <summary>The provenance to record for an original of 'origin' described by 'record'.</summary>
 	public static SourceSidecar ProvenanceOf(string origin, OriginRecord record)
 	{
-		return new SourceSidecar { Kind = OriginsFile.KindOf(origin), Origin = origin, Title = record.Title, Author = record.User, Licence = record.Licence, Url = record.Url };
+		return new SourceSidecar { Kind = OriginsFile.KindOf(origin), Origin = origin, Title = record.Title, Author = record.User, Licence = record.Licence, Url = record.Url, EditOf = record.EditOf };
 	}
 
 	/// <summary>Fetch the original of 'origin' and import it, returning its sidecar. Importing an original that is already stored returns the stored one.</summary>
@@ -107,6 +107,10 @@ public sealed class OriginalFetcher
 			case EOriginKind.HandMade:
 			{
 				throw new InvalidOperationException($"'{origin}' is hand-made and exists nowhere else; import its file into '{Sources.Folder}' instead.");
+			}
+			case EOriginKind.Edited:
+			{
+				throw new InvalidOperationException($"'{origin}' is an edit that exists nowhere else, and its original is missing from '{Sources.Folder}'.");
 			}
 			default:
 			{

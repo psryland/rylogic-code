@@ -10,12 +10,13 @@
 	#ids div.id { padding: 3px 6px; cursor: pointer; border-radius: 3px; display: flex; justify-content: space-between; }
 	#ids div.id:hover { background: #2b2d31; }
 	#ids div.id.sel { background: #3a4d6b; }
+	#ids div.id.final { color: #4ae57a; }
 	#ids span.count { color: #888; font-size: 12px; }
 	#ids span.count.done { color: #6c6; }
 	#main { flex: 1; overflow-y: auto; padding: 12px 16px; }
 	#player { position: sticky; top: 0; z-index: 1; background: #26282c; padding: 10px; border-radius: 6px; margin-bottom: 12px; }
 	#player .ab { display: flex; gap: 8px; margin-bottom: 8px; }
-	#player .slot { flex: 1; padding: 6px 8px; border: 2px solid #444; border-radius: 4px; cursor: pointer; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+	#player .slot { flex: 1; padding: 6px 8px; border: 2px solid #444; border-radius: 4px; overflow: hidden; hidden; white-space: nowrap; text-overflow: ellipsis; }
 	#player .slot.live { border-color: #5a9; background: #2e3b35; }
 	#pos { width: 100%; }
 	#recipe { background: #24262a; border: 1px solid #3a3d43; border-radius: 6px; padding: 8px 10px; margin-bottom: 12px; }
@@ -30,8 +31,8 @@
 	tr.accepted td { background: #2e3b35; }
 	tr.section th { padding-top: 14px; color: #9c9; font-size: 1.05em; }
 	tr.rejected td { opacity: 0.45; }
-	tr.inb td:first-child { box-shadow: inset 3px 0 #59f; }
-	tr.editing td { outline: 1px solid #59f; }
+	tr.current td { outline: 1px solid #59f; }
+	tr.current td:first-child { box-shadow: inset 3px 0 #59f; }
 	button { background: #3a3d43; color: #ddd; border: 1px solid #555; border-radius: 3px; padding: 2px 8px; cursor: pointer; }
 	button:hover { background: #4a4e55; }
 	button:disabled { opacity: 0.4; cursor: default; }
@@ -45,6 +46,12 @@
 	.error { color: #f28b82; }
 	kbd { background: #333; border: 1px solid #555; border-radius: 3px; padding: 0 4px; font-size: 12px; }
 	#status { margin-top: 6px; font-size: 13px; }
+	#soundform { background: #24262a; border: 1px solid #3a3d43; border-radius: 6px; padding: 6px 10px; margin-bottom: 12px; }
+	#soundform .row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 3px 0; }
+	#soundform label { color: #aaa; font-size: 13px; }
+	#soundform label.wide { flex: 1; display: flex; gap: 6px; align-items: center; }
+	#soundform input[type=number] { width: 64px; }
+	#ids button.addsound { width: 100%; margin-bottom: 6px; }
 </style>
 </head>
 <body>
@@ -52,12 +59,10 @@
 <div id="main">
 	<div id="player">
 		<div class="ab">
-			<div class="slot" id="slotA" title="Reference sound, usually an accepted variant">A: (none)</div>
-			<div class="slot" id="slotB" title="Sound under comparison">B: (pick a sound)</div>
+			<div class="slot live" id="current" title="The current sound. Its recipe is shown below.">(pick a sound)</div>
 		</div>
 		<div>
-			<button id="play">Play</button>
-			<button id="toggle" title="Switch between A and B at the same position">A/B <kbd>Space</kbd></button>
+			<button id="play" title="Play or stop the current sound">Play <kbd>Space</kbd></button>
 			<button id="seam" title="Play the last 3 s running into the first 3 s, to hear the loop join">Loop seam</button>
 			<label title="Scales playback only, so different recordings can be compared at similar levels. Prepared files are not changed. Turn off to hear the actual prepared gain.">
 				<input type="checkbox" id="match"> Match loudness (playback only)</label>
@@ -80,14 +85,39 @@
 	</div>
 	<div id="recipe" hidden></div>
 	<h2 id="title">Pick a sound ID</h2>
-	<label id="loopgame" hidden title="Saves the sound's 'loop' setting in the project's catalog. The game is updated after a short pause.">
-		<input type="checkbox" id="loopsound"> Loops in game</label>
-	<label id="loadgame" hidden title="Saves the sound's 'load' setting in the project's catalog. The game is updated after a short pause. Memory keeps the whole sound uncompressed in memory, which suits short sounds that play often. Stream decodes compressed (Ogg) audio as it plays, which suits anything long.">
-		Load <select id="loadsound"><option value="memory">memory (short sounds)</option><option value="stream">stream (long sounds)</option></select></label>
+	<div id="soundform" hidden title="The sound's entry in the project's catalog. Saved changes reach the game after a short pause.">
+		<div class="row">
+			<label title="Lower-case dotted name, e.g. 'shore.lapping'. Renaming also renames the sound's preparation file and reference masters, but game code that names the ID must be changed by hand.">ID <input type="text" id="sf_id" size="28"></label>
+			<label title="Pick a section or type a new name; a new section is added at the end of the catalog">Section <input type="text" id="sf_section" list="sf_sections" size="16"></label>
+			<label title="The mix group whose volume controls this sound">Group <input type="text" id="sf_group" list="sf_groups" size="14"></label>
+			<label title="Linear gain applied in the game">Gain <input type="number" id="sf_gain" min="0" step="0.01"></label>
+		</div>
+		<div class="row">
+			<label title="A bed surrounds the listener. A positioned sound comes from a point in the world, so it must be mono and needs a range.">Placement <select id="sf_placement"><option value="bed">bed (surrounds)</option><option value="positioned">positioned (from a point)</option></select></label>
+			<label>Channels <select id="sf_channels"><option value="mono">mono</option><option value="stereo">stereo</option></select></label>
+			<label title="Distance in metres at which a positioned sound becomes silent">Range (m) <input type="number" id="sf_range" min="0" step="0.5"></label>
+			<label title="Whether the game repeats the sound"><input type="checkbox" id="sf_loop"> Loops</label>
+			<label title="Memory keeps the whole sound uncompressed in memory, which suits short sounds that play often. Stream decodes compressed (Ogg) audio as it plays, which suits anything long.">Load <select id="sf_load"><option value="memory">memory (short sounds)</option><option value="stream">stream (long sounds)</option></select></label>
+			<label title="Optional expected length range in seconds; leave both blank for none">Length (s) <input type="number" id="sf_len_min" min="0" step="0.1"> to <input type="number" id="sf_len_max" min="0" step="0.1"></label>
+		</div>
+		<div class="row"><label class="wide">Description <input type="text" id="sf_desc" class="note"></label></div>
+		<div class="row">
+			<button id="sf_save">Save</button>
+			<button id="sf_cancel" hidden>Cancel</button>
+			<button id="sf_delete" title="Remove the sound from the catalog and delete its preparation file and reference masters">Delete sound</button>
+			<span class="muted" id="sf_active"></span>
+		</div>
+	</div>
+	<datalist id="sf_sections"></datalist>
+	<datalist id="sf_groups"></datalist>
 	<table id="list"></table>
 	<p>
 		Add a Freesound sound <span id="addto"></span>: <input type="text" id="addnum" placeholder="number or page address" size="28">
 		<button id="add">Add</button>
+	</p>
+	<p id="findrow" hidden>
+		<button id="find">Find more candidates</button>
+		<span id="findinfo"></span>
 	</p>
 </div>
 <script>
@@ -97,13 +127,11 @@
 let state = null;
 let sel_id = null;
 
-// The two compared sounds. A slot names what to play rather than a file, so it follows new renders: { origin } for an unassigned recording, or
+// The current sound. A slot names what to play rather than a file, so it follows new renders: { origin } for an unassigned recording, or
 // { id, variant, view } where 'view' is 'game' (what the game plays), 'render' (the recipe's output), 'reference' (the reference master) or 'original'.
-let slot_a = null;
-let slot_b = null;
-let live = "B";
+let current = null;
 
-// The variant whose recipe is open, and the recipe being edited. Edits are sent after a short pause.
+// The variant of the current sound, whose recipe is open, and the recipe being edited. Edits are sent after a short pause.
 let edit = null;
 let edit_recipe = null;
 let edit_timer = null;
@@ -116,10 +144,17 @@ gain.connect(ctx.destination);
 const buffers = new Map();
 let source = null;
 let source_url = null;
+let waiting = false;
 let started_at = 0;
 let offset = 0;
 let seam_timer = null;
 let poll_timer = null;
+let state_json = null;
+let render_deferred = false;
+
+// The sound form adds a new sound when 'adding' is true, otherwise it edits the selected sound. It is filled only when the selection or mode changes,
+// because the state is redrawn while polling and must not overwrite unsaved typing.
+let adding = false;
 
 // The pseudo ID that selects the pool of unassigned recordings
 const POOL = "(unassigned)";
@@ -138,31 +173,56 @@ const STEPS = {
 	loop: { label: "Loop", params: { duration: "s" }, init: { duration: 3 } },
 };
 
-// Apply a new state from the server, then poll while background work or publishing is pending
-function adopt_state(s)
+// Apply a new state from the server, then poll while background work or publishing is pending, or while an external editor may export an edit.
+// A polled state redraws only when it changed, and waits while a dropdown has focus, because a redraw replaces the dropdown and closes its open list.
+function adopt_state(s, polled = false)
 {
+	// Redraw now, or leave it for the focusout handler below
+	const json = JSON.stringify(s);
+	const changed = json !== state_json;
 	state = s;
-	render();
+	state_json = json;
+	if (!polled)
+		render();
+	else if (changed && document.activeElement?.tagName === "SELECT")
+		render_deferred = true;
+	else if (changed)
+		render();
+
 	follow_live_url();
 	clearTimeout(poll_timer);
 	if (state.pending.length || state.publish.waiting.length || state.publish.running.length)
-		poll_timer = setTimeout(refresh, 500);
+		poll_timer = setTimeout(() => refresh(true), 500);
+	else if (Object.values(state.preps).flat().some(v => v.edit))
+		poll_timer = setTimeout(() => refresh(true), 1000);
 }
 
-// Fetch the current state
-async function refresh()
+// Apply a redraw that a polled state deferred while a dropdown was open
+document.addEventListener("focusout", e =>
+{
+	// Redraw after the focus change completes, so the redraw doesn't fight the element taking focus
+	if (!render_deferred || e.target.tagName !== "SELECT")
+		return;
+
+	render_deferred = false;
+	setTimeout(render);
+});
+
+// Fetch the current state. 'polled' marks a background poll rather than a fetch after a user action.
+async function refresh(polled = false)
 {
 	const r = await fetch("/api/state");
-	adopt_state(await r.json());
+	adopt_state(await r.json(), polled);
 }
 
-// Send one action to the server; the reply carries the new state and a notice or error
+// Send one action to the server; the reply carries the new state and a notice or error, and is returned so callers can follow up on success
 async function post(body)
 {
 	const r = await fetch("/api/state", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 	const s = await r.json();
 	adopt_state(s);
 	show_message(s.error ?? s.notice ?? "", !!s.error);
+	return s;
 }
 
 function show_message(text, is_error)
@@ -196,30 +256,16 @@ function url_of(slot)
 	if (!v)
 		return null;
 
+	// The game plays the reference master or else the recipe's render. Only a variant that is not imported yet falls back to its preview.
 	const original = state.origins[v.origin]?.play ?? null;
 	switch (slot.view)
 	{
-		case "game": return v.reference_url ?? v.render_url ?? original;
+		case "game": return v.reference_url ?? v.render_url ?? (v.source ? null : original);
 		case "render": return v.render_url;
 		case "reference": return v.reference_url;
 		case "original": return original;
 		default: throw new Error("Unknown view " + slot.view);
 	}
-}
-
-// Slot A defaults to the first accepted variant of the selected ID
-function slot_a_now()
-{
-	if (slot_a)
-		return slot_a;
-
-	const first = sel_id && sel_id !== POOL ? variants_of(sel_id).find(v => v.status === "accepted") : null;
-	return first ? { id: sel_id, variant: first.id, view: "game" } : null;
-}
-
-function live_slot()
-{
-	return live === "A" ? slot_a_now() : slot_b;
 }
 
 // Decode a file once and remember its RMS level for playback-only loudness matching
@@ -249,6 +295,7 @@ function position()
 function stop()
 {
 	clearTimeout(seam_timer);
+	waiting = false;
 	if (source)
 	{
 		offset = position();
@@ -259,13 +306,16 @@ function stop()
 	document.getElementById("play").textContent = "Play";
 }
 
-// Start the live slot at the shared position. Playback repeats when 'Loop playback' is on or 'force_loop' is set; otherwise it stops at the end.
+// Start the current sound at the shared position. Playback repeats when 'Loop playback' is on or 'force_loop' is set; otherwise it stops at the end.
+// A sound whose audio is still rendering waits, and starts when the render arrives.
 async function start(at, force_loop)
 {
 	stop();
-	const url = url_of(live_slot());
+	const url = url_of(current);
+	waiting = !url && is_rendering(current);
 	if (!url)
 	{
+		document.getElementById("play").textContent = waiting ? "Stop" : "Play";
 		render_player();
 		return;
 	}
@@ -294,31 +344,17 @@ async function start(at, force_loop)
 	render_player();
 }
 
-// When a new render replaces what is playing, switch to it at the same position, so recipe edits are heard straight away
+// When a new render replaces what is playing, or arrives for a sound waiting to play, switch to it at the same position, so recipe edits are heard straight away
 function follow_live_url()
 {
-	if (source && url_of(live_slot()) !== source_url)
+	if ((source || waiting) && url_of(current) !== source_url)
 		start(position());
 }
 
-// Switch between A and B, keeping the playback position
-function toggle()
-{
-	const playing = !!source;
-	const at = position();
-	live = live === "A" ? "B" : "A";
-	if (playing)
-		start(at);
-	else
-		offset = at;
-
-	render_player();
-}
-
-// Play the end of the live sound running into its start to hear the loop join
+// Play the end of the current sound running into its start to hear the loop join
 async function seam()
 {
-	const url = url_of(live_slot());
+	const url = url_of(current);
 	if (!url)
 		return;
 
@@ -327,16 +363,26 @@ async function seam()
 	seam_timer = setTimeout(stop, 6000);
 }
 
-// Load a slot into B (or A) and play it
-function play_in(which, slot)
+// Make 'slot' the current sound, and play it from the shared position when 'play' is set. The recipe editor follows the current sound's variant.
+function set_current(slot, play)
 {
-	if (which === "A")
-		slot_a = slot;
-	else
-		slot_b = slot;
+	// A different variant opens its own recipe, after sending any waiting edit of the previous one
+	const variant = slot && !slot.origin ? { id: slot.id, variant: slot.variant } : null;
+	if (variant?.id !== edit?.id || variant?.variant !== edit?.variant)
+	{
+		flush_recipe();
+		edit = variant;
+		edit_recipe = structuredClone((edit && variant_of(edit.id, edit.variant)?.recipe) ?? []);
+	}
+	current = slot;
 
-	live = which;
-	start(position());
+	// Switching keeps the playback position, so views of one variant can be compared at the same point
+	if (play)
+		start(position());
+	else
+		stop();
+
+	render_recipe();
 	render();
 }
 
@@ -359,13 +405,13 @@ function slot_label(slot)
 	return v ? `${slot.id} ${v.id}: ${origin_label(v.origin)}${VIEW_NAMES[slot.view]}` : `${slot.id} ${slot.variant}`;
 }
 
-// The name cell of an origin: Freesound recordings link to their page
+// The name cell of an origin: Freesound recordings link to their page. An edit is named like the recording it was made from.
 function name_html(origin)
 {
 	const o = state.origins[origin] ?? {};
 	const credit = `<span class="muted">${esc(o.user ?? "")} &middot; ${esc(o.licence ?? "")}</span>`;
-	const title = esc(o.title ?? origin);
-	const link = o.url ? `<a href="${esc(o.url)}" target="_blank">${esc(origin.split(":")[1])}</a> ` : "";
+	const title = esc(o.title ?? origin) + (o.edit_of ? ` <span class="muted">(edited)</span>` : "");
+	const link = o.url ? `<a href="${esc(o.url)}" target="_blank">${esc((o.edit_of ?? origin).split(":")[1])}</a> ` : "";
 	const import_state = o.import_pending ? ` <span class="muted">importing...</span>` : o.import_error ? ` <span class="error" title="${esc(o.import_error)}">import failed</span>` : "";
 	return `${link}${title} ${credit}${import_state}`;
 }
@@ -377,18 +423,32 @@ function esc(text)
 
 function render_player()
 {
-	const A = document.getElementById("slotA"), B = document.getElementById("slotB");
-	const a = slot_a_now();
-	A.textContent = "A: " + (slot_label(a) ?? "none") + (a && !url_of(a) ? " (not available)" : "");
-	B.textContent = "B: " + (slot_label(slot_b) ?? "pick a sound") + (slot_b && !url_of(slot_b) ? " (not available)" : "");
-	A.classList.toggle("live", live === "A");
-	B.classList.toggle("live", live === "B");
+	const el = document.getElementById("current");
+	el.textContent = (slot_label(current) ?? "pick a sound") + availability(current);
 }
 
-// The origins with no live variant anywhere, split by whether they are marked not useful
+// True when the slot's audio is a render still in progress
+function is_rendering(slot)
+{
+	// Only recipe output renders; reference masters and originals are files already
+	const v = slot && !slot.origin ? variant_of(slot.id, slot.variant) : null;
+	return !!v && (slot.view === "game" || slot.view === "render") && v.render_pending && !url_of(slot);
+}
+
+// A note for a slot that cannot play now
+function availability(slot)
+{
+	if (!slot || url_of(slot))
+		return "";
+
+	return is_rendering(slot) ? " (rendering...)" : " (not available)";
+}
+
+// The origins with no live variant anywhere, split by whether they are marked not useful. A recording that a live edit was made from counts as used.
 function pool_origins()
 {
-	const used = new Set(Object.values(state.preps).flat().filter(v => v.status !== "rejected").map(v => v.origin));
+	const live = Object.values(state.preps).flat().filter(v => v.status !== "rejected").map(v => v.origin);
+	const used = new Set([...live, ...live.map(o => state.origins[o]?.edit_of).filter(o => o)]);
 	const origins = Object.keys(state.origins).filter(o => !used.has(o));
 	return { open: origins.filter(o => !state.origins[o].not_useful), not_useful: origins.filter(o => state.origins[o].not_useful) };
 }
@@ -398,6 +458,11 @@ function render_ids()
 {
 	const el = document.getElementById("ids");
 	el.innerHTML = "";
+
+	// New sounds start in the selected sound's section
+	const add = button("+ Add sound", "Add a new sound ID to the project's catalog", () => start_add());
+	add.className = "addsound";
+	el.appendChild(add);
 
 	// The unassigned pool comes first, as it is where new finds wait to be given a use
 	const pool = pool_origins();
@@ -423,8 +488,11 @@ function render_ids()
 		const mine = variants_of(id).filter(v => v.status !== "rejected");
 		const unheard = mine.filter(v => v.status === "unheard").length;
 		const accepted = mine.filter(v => v.status === "accepted").length;
+
+		// A sound is final when it has accepted variants, all of them finalised, and no candidates still to decide
+		const final = mine.length !== 0 && mine.every(v => v.status === "accepted" && v.finalised);
 		const d = document.createElement("div");
-		d.className = "id" + (id === sel_id ? " sel" : "");
+		d.className = "id" + (id === sel_id ? " sel" : "") + (final ? " final" : "");
 		d.innerHTML = `<span>${esc(id)}</span><span class="count${accepted ? " done" : ""}">${accepted ? "&#10003;" + accepted + " " : ""}${unheard ? unheard + " new / " : ""}${mine.length}</span>`;
 		d.onclick = () => select_id(id);
 		el.appendChild(d);
@@ -436,15 +504,129 @@ function select_id(id)
 {
 	flush_recipe();
 	sel_id = id;
-	slot_a = null;
-	slot_b = null;
-	live = "B";
+	current = null;
 	edit = null;
+	adding = false;
 	stop();
 	offset = 0;
 	document.getElementById("loopplay").checked = state.ids.find(x => x.id === id)?.loop ?? true;
 	render();
 	render_recipe();
+	fill_form(state.ids.find(x => x.id === id) ?? null);
+}
+
+// Open the form for a new sound, with defaults suited to a looping ambient bed in the selected sound's section
+function start_add()
+{
+	const section = state.ids.find(x => x.id === sel_id)?.section ?? state.ids.at(-1)?.section ?? "";
+	adding = true;
+	fill_form({ id: "", section, placement: "bed", channels: "stereo", loop: true, load: "stream", group: "", gain: 1.0 });
+	render_list();
+	document.getElementById("sf_id").focus();
+}
+
+// Put a catalog entry into the sound form. The 'active' value has no editor, so it is kept from the entry and sent back unchanged.
+let form_active = undefined;
+function fill_form(info)
+{
+	// Fields default to blank when there is no entry
+	const f = id => document.getElementById(id);
+	f("sf_id").value = info?.id ?? "";
+	f("sf_section").value = info?.section ?? "";
+	f("sf_group").value = info?.group ?? "";
+	f("sf_gain").value = info?.gain ?? 1;
+	f("sf_placement").value = info?.placement ?? "bed";
+	f("sf_channels").value = info?.channels ?? "stereo";
+	f("sf_range").value = info?.range_m ?? "";
+	f("sf_loop").checked = !!info?.loop;
+	f("sf_load").value = info?.load ?? "stream";
+	f("sf_len_min").value = info?.length_s?.[0] ?? "";
+	f("sf_len_max").value = info?.length_s?.[1] ?? "";
+	f("sf_desc").value = info?.description ?? "";
+	form_active = info?.active;
+	f("sf_active").textContent = form_active ? `active: ${JSON.stringify(form_active)}` : "";
+	update_form();
+}
+
+// Keep the form consistent with the placement: a positioned sound is mono and has a range, while a bed has no range
+function update_form()
+{
+	const positioned = document.getElementById("sf_placement").value === "positioned";
+	const channels = document.getElementById("sf_channels");
+	if (positioned)
+		channels.value = "mono";
+
+	channels.disabled = positioned;
+	document.getElementById("sf_range").disabled = !positioned;
+	document.getElementById("sf_save").textContent = adding ? "Add" : "Save";
+	document.getElementById("sf_cancel").hidden = !adding;
+	document.getElementById("sf_delete").hidden = adding;
+}
+
+// The catalog entry described by the form. Optional values are left out when blank, and the server checks the rest.
+function form_sound()
+{
+	// Required values
+	const f = id => document.getElementById(id);
+	const positioned = f("sf_placement").value === "positioned";
+	const sound = {
+		id: f("sf_id").value.trim(),
+		placement: f("sf_placement").value,
+		loop: f("sf_loop").checked,
+		channels: positioned ? "mono" : f("sf_channels").value,
+		load: f("sf_load").value,
+		group: f("sf_group").value.trim(),
+		gain: Number(f("sf_gain").value),
+	};
+
+	// Optional values; a length with only one end given is taken as a fixed length
+	const min = f("sf_len_min").value, max = f("sf_len_max").value;
+	if (min !== "" || max !== "")
+		sound.length_s = [Number(min !== "" ? min : max), Number(max !== "" ? max : min)];
+	if (positioned)
+		sound.range_m = Number(f("sf_range").value);
+	if (form_active)
+		sound.active = form_active;
+	if (f("sf_desc").value.trim())
+		sound.description = f("sf_desc").value.trim();
+
+	return { section: f("sf_section").value.trim(), sound };
+}
+
+// Add or save the sound in the form, confirming a rename because game code that names the old ID will no longer find it
+async function save_form()
+{
+	// A new sound is added; an existing one is replaced, possibly under a new ID
+	const { section, sound } = form_sound();
+	let s;
+	if (adding)
+	{
+		s = await post({ action: "add_sound", section, sound });
+	}
+	else
+	{
+		if (sound.id !== sel_id && !confirm(`Rename '${sel_id}' to '${sound.id}'?\n\nIts preparation file and reference masters are renamed too. Game code that names '${sel_id}' must be changed by hand.`))
+			return;
+
+		s = await post({ action: "edit_sound", id: sel_id, section, sound });
+	}
+
+	// On success, show the saved sound so the form holds what the catalog now says
+	if (!s.error)
+		select_id(sound.id);
+}
+
+// Delete the selected sound after confirming what is lost
+async function delete_form()
+{
+	// Version control is the only way back, so the confirmation lists everything removed
+	const id = sel_id;
+	if (!confirm(`Delete '${id}'?\n\nThis removes it from the catalog and deletes its preparation file and the reference masters that no other sound uses. Game code that names '${id}' will break.`))
+		return;
+
+	const s = await post({ action: "delete_sound", id });
+	if (!s.error)
+		select_id(null);
 }
 
 // Draw the unassigned pool: recordings to listen to and either assign to an ID or mark not useful
@@ -469,14 +651,14 @@ function render_pool(t)
 // Build the row for one unassigned recording
 function render_pool_row(origin)
 {
-	// Not-useful rows are dimmed; the row in slot B is marked
+	// Not-useful rows are dimmed; the current sound's row is marked
 	const o = state.origins[origin];
 	const tr = document.createElement("tr");
-	tr.className = (o.not_useful ? "rejected" : "") + (slot_b?.origin === origin ? " inb" : "");
+	tr.className = (o.not_useful ? "rejected" : "") + (current?.origin === origin ? " current" : "");
 
-	// Play in slot B, and toggle whether it is useful
+	// Play it, and toggle whether it is useful
 	const td_play = document.createElement("td");
-	td_play.appendChild(button("B \u25B6", "Load into B and play", () => play_in("B", { origin })));
+	td_play.appendChild(button("\u25B6", "Play", () => set_current({ origin }, true)));
 	const nu = button("not useful", "Hide from the list of recordings to sort", () => post({ action: "useful", origin, useful: !!o.not_useful }));
 	nu.className = o.not_useful ? "on" : "";
 	td_play.appendChild(nu);
@@ -505,14 +687,15 @@ function render_list()
 {
 	const t = document.getElementById("list");
 	t.innerHTML = "";
-	document.getElementById("title").textContent = sel_id === POOL ? "Unassigned recordings" : (sel_id ?? "Pick a sound ID");
+	document.getElementById("title").textContent = adding ? "New sound" : sel_id === POOL ? "Unassigned recordings" : (sel_id ?? "Pick a sound ID");
 	document.getElementById("addto").textContent = sel_id && sel_id !== POOL ? `to ${sel_id}` : "to the unassigned pool";
+
+	// The form shows while adding or when a sound is selected; its choice lists follow the catalog
 	const sound = state.ids.find(x => x.id === sel_id);
-	document.getElementById("loopgame").hidden = !sound;
-	document.getElementById("loopsound").checked = !!sound?.loop;
-	document.getElementById("loadgame").hidden = !sound;
-	document.getElementById("loadsound").value = sound?.load ?? "";
-	if (!sel_id)
+	document.getElementById("soundform").hidden = !adding && !sound;
+	document.getElementById("sf_sections").innerHTML = [...new Set(state.ids.map(x => x.section))].map(x => `<option value="${esc(x)}">`).join("");
+	document.getElementById("sf_groups").innerHTML = [...new Set(state.ids.map(x => x.group))].sort().map(x => `<option value="${esc(x)}">`).join("");
+	if (!sel_id || adding)
 		return;
 
 	if (sel_id === POOL)
@@ -520,12 +703,6 @@ function render_list()
 		render_pool(t);
 		return;
 	}
-
-	// The ID's description and properties come from the project's catalog
-	const info = state.ids.find(x => x.id === sel_id);
-	const desc = document.createElement("tr");
-	desc.innerHTML = `<td colspan="5" class="muted">${esc(info?.description ?? "")} ${esc(Object.entries(info?.properties ?? {}).map(([k, v]) => `${k}: ${JSON.stringify(v)}`).join(", "))}</td>`;
-	t.appendChild(desc);
 
 	const variants = variants_of(sel_id);
 	const accepted = variants.filter(v => v.status === "accepted");
@@ -572,10 +749,10 @@ function id_select(exclude, pick)
 // Build the row for one variant. 'index' and 'count' place accepted variants in runtime order; candidates have index -1.
 function render_row(v, index, count)
 {
-	// Rows are styled by status; the row in slot B and the one being edited are marked
+	// Rows are styled by status; the current sound's row is marked
 	const tr = document.createElement("tr");
-	const in_b = slot_b && slot_b.id === sel_id && slot_b.variant === v.id;
-	tr.className = v.status + (in_b ? " inb" : "") + (edit && edit.id === sel_id && edit.variant === v.id ? " editing" : "");
+	const is_current = !!edit && edit.id === sel_id && edit.variant === v.id;
+	tr.className = v.status + (is_current ? " current" : "");
 
 	// Accepted variants move within the runtime order
 	const td_play = document.createElement("td");
@@ -589,24 +766,17 @@ function render_row(v, index, count)
 		}
 	}
 
-	// Play what the game would play in B; listening to an unheard variant makes it a candidate
-	td_play.appendChild(button("B \u25B6", "Load into B and play", () =>
+	// Play what the game would play; listening to an unheard variant makes it a candidate
+	td_play.appendChild(button("\u25B6", "Play what the game plays, and show its recipe", () =>
 	{
 		if (v.status === "unheard")
 			post({ action: "status", id: sel_id, variant: v.id, status: "candidate" });
 
-		play_in("B", { id: sel_id, variant: v.id, view: "game" });
+		set_current({ id: sel_id, variant: v.id, view: "game" }, true);
 	}));
-	if (v.status === "accepted")
-	{
-		const a = slot_a_now();
-		const a_play = button("A \u25B6", "Load into A and play", () => play_in("A", { id: sel_id, variant: v.id, view: "game" }));
-		a_play.className = a && a.id === sel_id && a.variant === v.id ? "on" : "";
-		td_play.appendChild(a_play);
-	}
 
-	// Open the recipe editor for this variant
-	const e = button("\u270E recipe", "Edit how this variant is prepared", () => open_recipe(sel_id, v.id));
+	// Show this variant's recipe without playing it
+	const e = button("\u270E recipe", "Show how this variant is prepared, without playing it", () => { if (!is_current) set_current({ id: sel_id, variant: v.id, view: "game" }, false); });
 	e.className = v.recipe?.length ? "on" : "";
 	td_play.appendChild(e);
 	tr.appendChild(td_play);
@@ -614,7 +784,7 @@ function render_row(v, index, count)
 	// The recording, with the state of its preparation
 	const td_name = document.createElement("td");
 	const prep_state = v.render_pending ? ` <span class="muted">rendering...</span>` : v.render_error ? ` <span class="error" title="${esc(v.render_error)}">render failed</span>` : "";
-	const reference = v.reference_master ? ` <span class="warn" title="The game plays ${esc(v.reference_master)} until the recipe is adopted">reference master</span>` : "";
+	const reference = v.reference_master ? ` <span class="warn" title="The game plays ${esc(v.reference_master)} until the recipe is edited">reference master</span>` : "";
 	td_name.innerHTML = `<span class="muted">${v.id}</span> ${name_html(v.origin)}${reference}${prep_state}`;
 	tr.appendChild(td_name);
 
@@ -622,7 +792,14 @@ function render_row(v, index, count)
 	const td_status = document.createElement("td");
 	for (const st of ["accepted", "candidate", "rejected"])
 	{
-		const b = button(st, "", () => post({ action: "status", id: sel_id, variant: v.id, status: st }));
+		const b = button(st, "", () =>
+		{
+			// A rejected recording is no longer worth hearing, so stop it if it is the one playing
+			if (st === "rejected" && current && !current.origin && current.id === sel_id && current.variant === v.id)
+				stop();
+
+			post({ action: "status", id: sel_id, variant: v.id, status: st });
+		});
 		b.className = v.status === st ? "on" : "";
 		td_status.appendChild(b);
 	}
@@ -650,16 +827,6 @@ function render_row(v, index, count)
 	return tr;
 }
 
-// Open the recipe editor for a variant
-function open_recipe(id, variant_id)
-{
-	flush_recipe();
-	edit = { id, variant: variant_id };
-	edit_recipe = structuredClone(variant_of(id, variant_id)?.recipe ?? []);
-	render_recipe();
-	render_list();
-}
-
 // Draw the recipe editor. It is redrawn only for structural changes, so typing in a parameter keeps focus.
 function render_recipe()
 {
@@ -675,22 +842,31 @@ function render_recipe()
 	h.textContent = `Recipe: ${edit.id} ${v.id} - ${origin_label(v.origin)}`;
 	el.appendChild(h);
 	const bar = document.createElement("div");
-	const slot = view => ({ id: edit.id, variant: v.id, view });
-	bar.appendChild(button("Original \u25B6", "Play the unprocessed original in B", () => play_in("B", slot("original"))));
-	bar.appendChild(button("Recipe \u25B6", "Play the recipe's output in B. It updates automatically after each edit", () => play_in("B", slot("render"))));
-	if (v.reference_master)
+	const view_button = (text, view, title) =>
 	{
-		bar.appendChild(button("Reference \u25B6", "Play the reference master the game currently uses, in A", () => play_in("A", slot("reference"))));
-		bar.appendChild(button("Compare", "A: reference master, B: recipe output", () => { slot_a = slot("reference"); play_in("B", slot("render")); }));
-		const adopt = button("Adopt recipe", "Make the game use the recipe's output instead of the reference master. The reference file is not changed.", () =>
-		{
-			if (confirm(`Use the recipe for ${edit.id} ${v.id} instead of ${v.reference_master}?`))
-				post({ action: "adopt", id: edit.id, variant: v.id });
-		});
-		adopt.disabled = !v.source;
-		bar.appendChild(adopt);
-	}
-	bar.appendChild(button("Close", "", () => { flush_recipe(); edit = null; render_recipe(); render_list(); }));
+		// Each view of this variant plays in place of the current one; the view playing now is marked
+		const b = button(text, title, () => set_current({ id: edit.id, variant: v.id, view }, true));
+		b.className = current?.view === view ? "on" : "";
+		return b;
+	};
+	bar.appendChild(view_button("Game \u25B6", "game", "Play what the game plays"));
+	bar.appendChild(view_button("Original \u25B6", "original", "Play the unprocessed original"));
+	bar.appendChild(view_button("Recipe \u25B6", "render", "Play the recipe's output. It updates automatically after each edit"));
+	if (v.reference_master)
+		bar.appendChild(view_button("Reference \u25B6", "reference", "Play the reference master the game currently uses. The first recipe edit replaces it."));
+
+	// Fix the recording itself in an external editor; the recipe still applies to the edited recording
+	const editor = state.editor;
+	const open = button(`\u270E Edit in ${editor.name}`, "", () => post({ action: "open_editor", id: edit.id, variant: v.id }));
+	open.disabled = !editor.available || !v.source;
+	open.title = !editor.available ? editor.hint
+		: !v.source ? "Import the original first."
+		: `Open a copy of the unprocessed original in ${editor.name}. Use File > Export Audio over the same file to replace this variant's original; the status, note and recipe are kept.`;
+	bar.appendChild(open);
+	const edit_info = document.createElement("span");
+	edit_info.id = "editstate";
+	bar.appendChild(edit_info);
+
 	const info = document.createElement("span");
 	info.id = "recipestate";
 	bar.appendChild(info);
@@ -827,6 +1003,22 @@ function update_recipe_state()
 		el.innerHTML = ` <span class="muted">up to date</span>`;
 	else
 		el.innerHTML = "";
+
+	// The external editor's state: opening, the last imported edit, or why it failed
+	const edit_el = document.getElementById("editstate");
+	if (!edit_el)
+		return;
+
+	const e = v.edit;
+	const how = `In ${state.editor.name}, use File > Export Audio over the same file (Ctrl+S saves a project instead)`;
+	if (!e)
+		edit_el.innerHTML = "";
+	else if (e.pending)
+		edit_el.innerHTML = ` <span class="muted">working...</span>`;
+	else if (e.error)
+		edit_el.innerHTML = ` <span class="error">${esc(e.error)}</span>`;
+	else
+		edit_el.innerHTML = ` <span class="muted" title="${esc(e.path ?? "")}">${esc(e.notice ?? "Open.")} ${esc(how)}.</span>`;
 }
 
 function render()
@@ -835,7 +1027,35 @@ function render()
 	render_list();
 	render_player();
 	render_status();
+	render_find();
 	update_recipe_state();
+}
+
+// Offer an AI search for new candidates for the selected sound. It needs the assistant and Freesound credentials, and shows how to enable whichever is missing.
+function render_find()
+{
+	const row = document.getElementById("findrow");
+	const button = document.getElementById("find");
+	const info = document.getElementById("findinfo");
+	row.hidden = adding || !sel_id || sel_id === POOL;
+	if (row.hidden)
+		return;
+
+	// The latest search result of this sound stays visible until the next search
+	const find = state.finds[sel_id];
+	const ai = state.assistant;
+	button.disabled = !ai.available || !state.freesound.configured || !!find?.pending;
+	button.title = `Ask an AI model (${ai.description}) to search Freesound and add up to 5 new CC0 or CC-BY recordings that suit ${sel_id} as unheard variants. Accepted and rejected variants and their notes guide the choice.`;
+	if (!ai.available)
+		info.innerHTML = `<span class="warn">${esc(ai.description)}</span>`;
+	else if (!state.freesound.configured)
+		info.innerHTML = `<span class="warn">Enter the Freesound API credentials first.</span>`;
+	else if (find?.pending)
+		info.innerHTML = `<span class="muted">Searching... this takes a minute or two.</span>`;
+	else if (find?.error)
+		info.innerHTML = `<span class="error">${esc(find.error)}</span>`;
+	else
+		info.innerHTML = find?.notice ? `<span class="muted">${esc(find.notice)}</span>` : "";
 }
 
 // Show the Freesound login state and the background work in progress
@@ -935,21 +1155,24 @@ document.getElementById("pos").oninput = e =>
 	else
 		offset = at;
 };
-document.getElementById("play").onclick = () => source ? stop() : start();
-document.getElementById("toggle").onclick = toggle;
+document.getElementById("play").onclick = () => source || waiting ? stop() : start();
 document.getElementById("seam").onclick = seam;
 document.getElementById("match").onchange = () => { if (source) start(position()); };
 document.getElementById("loopplay").onchange = () => { if (source) start(position()); };
-document.getElementById("loopsound").onchange = e => post({ action: "loop", id: sel_id, loop: e.target.checked });
-document.getElementById("loadsound").onchange = e => post({ action: "load", id: sel_id, load: e.target.value });
-document.getElementById("slotA").onclick = () => { if (live !== "A") toggle(); };
-document.getElementById("slotB").onclick = () => { if (live !== "B") toggle(); };
+document.getElementById("sf_placement").onchange = update_form;
+document.getElementById("sf_save").onclick = save_form;
+document.getElementById("sf_delete").onclick = delete_form;
+document.getElementById("sf_cancel").onclick = () => select_id(sel_id);
 document.addEventListener("keydown", e =>
 {
+	// Space plays or stops, except while typing
 	if (e.code === "Space" && e.target.tagName !== "INPUT" && e.target.tagName !== "SELECT")
 	{
 		e.preventDefault();
-		toggle();
+		if (source || waiting)
+			stop();
+		else
+			start();
 	}
 });
 
@@ -959,6 +1182,12 @@ document.getElementById("add").onclick = async () =>
 	const number = document.getElementById("addnum").value.trim();
 	show_message("Fetching...", false);
 	await post({ action: "add_freesound", id: sel_id && sel_id !== POOL ? sel_id : null, number });
+};
+
+// Search for new candidates for the selected sound in the background; the state is polled until it finishes
+document.getElementById("find").onclick = async () =>
+{
+	await post({ action: "find_candidates", id: sel_id });
 };
 
 refresh();
