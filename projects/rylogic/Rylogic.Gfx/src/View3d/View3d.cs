@@ -2196,6 +2196,10 @@ namespace Rylogic.Gfx
 		// Get/Set the radius of the sphere that reflections assume the environment lies on
 		[DllImport(Dll)] private static extern BBox View3D_WindowEnvMapParallaxBoundsGet(HWindow window);
 		[DllImport(Dll)] private static extern void View3D_WindowEnvMapParallaxBoundsSet(HWindow window, BBox bounds);
+		[DllImport(Dll)] private static extern v4 View3D_WindowReflectionPlaneGet(HWindow window);
+		[DllImport(Dll)] private static extern void View3D_WindowReflectionPlaneSet(HWindow window, v4 plane);
+		[DllImport(Dll)] private static extern float View3D_WindowReflectionMinPopulationRadiusGet(HWindow window);
+		[DllImport(Dll)] private static extern void View3D_WindowReflectionMinPopulationRadiusSet(HWindow window, float radius);
 
 		// Enable/Disable the depth buffer
 		[DllImport(Dll)] private static extern bool View3D_DepthBufferEnabledGet(HWindow window);
@@ -2345,6 +2349,8 @@ namespace Rylogic.Gfx
 		[DllImport(Dll)] private static extern void View3D_ShadowSettingsSet(HWindow window, ref ShadowSettings settings);
 		[DllImport(Dll)] private static extern ShadowSettings View3D_EnvMapCaptureShadowsGet(HWindow window);
 		[DllImport(Dll)] private static extern void View3D_EnvMapCaptureShadowsSet(HWindow window, ref ShadowSettings settings);
+		[DllImport(Dll)] private static extern bool View3D_EnvMapCaptureSkyOnlyGet(HWindow window);
+		[DllImport(Dll)] private static extern void View3D_EnvMapCaptureSkyOnlySet(HWindow window, bool sky_only);
 
 		// Objects ********************************
 

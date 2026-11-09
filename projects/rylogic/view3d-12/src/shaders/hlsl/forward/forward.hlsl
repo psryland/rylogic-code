@@ -37,6 +37,10 @@ TextureCube<float4> g_envmap_prev_texture :register(t13);
 // Distances from the current environment map's capture centre, stored as 'd / (d + S)' (see 'g_frame.env_map.centre')
 TextureCube<float> g_envmap_distance :register(t21);
 
+// The reflection of the opaque scene in the reflection plane: (linear colour, distance). See reflection_plane.hlsl and 'g_frame.reflection_plane'.
+Texture2D<float4> g_reflection_plane_tex :register(t27);
+Texture2D<float> g_reflection_plane_coverage :register(t28);
+
 // Shadow atlas. The regions of the atlas are described by the shadow views in 'g_shadow_views'.
 Texture2D<float> g_shadow_atlas         :register(t2);
 SamplerComparisonState g_shadow_sampler :register(s2);
@@ -279,7 +283,7 @@ PSIn VSForward(VSIn In)
 	
 	Out.ws_vert = mul(os_vert, g_nugget.o2w);
 	Out.ws_norm = mul(In.norm, g_nugget.n2w);
-	Out.ss_vert = mul(os_vert, g_nugget.o2s);
+	Out.ss_vert = mul(mul(os_vert, g_nugget.o2s), g_frame.clip_remap);
 
 	// Tinting
 	Out.diff = g_nugget.tint;

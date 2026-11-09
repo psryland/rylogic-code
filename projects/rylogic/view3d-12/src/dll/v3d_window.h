@@ -116,6 +116,9 @@ namespace pr::rdr12
 		// Shadow settings for rendering environment map faces (see 'EnvMapCaptureShadows')
 		ShadowSettings m_envmap_capture_shadows;
 
+		// True if environment map faces render only the sky (see 'EnvMapCaptureSkyOnly')
+		bool m_envmap_capture_sky_only = false;
+
 		V3dWindow(Renderer& rdr, HWND hwnd, view3d::WindowOptions const& opts);
 		V3dWindow(V3dWindow&&) = default;
 		V3dWindow(V3dWindow const&) = delete;
@@ -375,6 +378,11 @@ namespace pr::rdr12
 		ShadowSettings const& EnvMapCaptureShadows() const;
 		void EnvMapCaptureShadows(ShadowSettings const& settings);
 
+		// Get/Set whether environment map faces ('EnvMapCapture' and the probe) render only objects in the 'Skybox' sort group. A sky-only map has no
+		// scene geometry, so it never shows stale or low-resolution copies of nearby objects, and its faces are cheap to render.
+		bool EnvMapCaptureSkyOnly() const;
+		void EnvMapCaptureSkyOnly(bool sky_only);
+
 		// Get/Set the global environment map for this window. Setting an environment map disables the environment map probe but keeps its resources.
 		TextureCube const* EnvMap() const;
 		void EnvMap(TextureCube* env_map);
@@ -402,6 +410,16 @@ namespace pr::rdr12
 		// Changing the bounds affects cubes captured afterwards, because a cube stores its distances relative to the bounds' size.
 		BBox EnvMapParallaxBounds() const;
 		void EnvMapParallaxBounds(BBox const& bounds);
+
+		// Get/Set the world-space plane whose surfaces reflect the rendered scene, as (unit normal, distance along the normal). Shaders that opt in
+		// reflect the opaque scene visible on screen and fall back to the environment map where it has no data. Zero (the default) disables it.
+		v4 ReflectionPlane() const;
+		void ReflectionPlane(v4 const& plane);
+
+		// Get/Set the bounding radius below which populations are left out of the reflection's off-screen sources. Reflections of the scene just
+		// beyond the view edges are drawn at low resolution, where small objects add cost but little detail. Zero (the default) draws them all.
+		float ReflectionMinPopulationRadius() const;
+		void ReflectionMinPopulationRadius(float radius);
 
 		// The scale of the distances stored in newly captured environment map cubes, derived from the parallax bounds. 0 means no distances.
 		float EnvMapDistanceScale() const;

@@ -194,5 +194,10 @@ namespace pr::rdr12
 
 		// Environment map face distances
 		extern ByteCode const env_map_distance_cs;
+
+		// Planar reflections projected from the rendered scene
+		extern ByteCode const reflection_plane_project_cs;
+		extern ByteCode const reflection_plane_write_cs;
+		extern ByteCode const reflection_plane_fill_cs;
 	}
 }

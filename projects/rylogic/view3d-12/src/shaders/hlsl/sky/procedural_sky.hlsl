@@ -771,16 +771,12 @@ void QuadRange(float4 value, out float4 lo, out float4 hi)
 // Blend this frame's quad-averaged low cloud 'low_cloud' with the low cloud of previous frames, which averages away the grain of the ray march
 // (see CloudSlab). Returns the blended low cloud, and stores it for the next frame. 'lo' and 'hi' are the range of this frame's samples over the
 // quad (see QuadRange). 'anchor' is a point on the cloud seen through this pixel, in the atmosphere frame. 'drifts' is 1 when the anchor moves
-// with the low cloud's wind, otherwise 0. 'pixel' is the screen pixel.
+// with the low cloud's wind, otherwise 0. 'pixel' is the screen pixel. Call only when frames are accumulated ('sky_history.enabled' is non-zero).
 // Must be called where every pixel of the quad runs the same code, because the history is shared by the quad.
 float4 AccumulateLowCloud(float4 low_cloud, float4 lo, float4 hi, float3 anchor, float drifts, uint2 pixel)
 {
-	// Frames are not accumulated in views whose camera jumps between frames, such as reflection probe captures.
-	SkyHistory history = g_frame.sky_history;
-	if (history.enabled == 0)
-		return low_cloud;
-
 	// Move the anchor back to where the cloud was in the previous frame.
+	SkyHistory history = g_frame.sky_history;
 	CloudConstants clouds = g_sky.clouds;
 	float3 prev_anchor = anchor - drifts * float3(history.cloud_shift, 0);
 
@@ -911,18 +907,35 @@ float3 ProceduralSkyColour(float3 dir, float3 cam, float pixel_angle, uint2 pixe
 		if ((clouds.hidden_layers & 1) == 0)
 		{
 			// The low cloud is nearest. It is composited below, once all pixels of the quad have their samples.
-			float quad_slot = (pixel.x & 1) + 2 * (pixel.y & 1);
-			low_cloud = CloudSlab(cam, dir, pixel_angle, quad_slot, g_frame.sky_history.frame_jitter, lower_scale, sun_dir, sun_light, ambient, haze, anchor);
+			// With frame accumulation, each pixel marches one quarter of every step, and the quad and frame averages fill in the rest.
+			// Frames are not accumulated in views whose camera jumps between frames, such as reflection probe captures. There, each pixel marches
+			// all four quarters itself, because averaging one sample per pixel over the quad would make every quad a flat block, which shows as
+			// pixelation when the view is magnified.
+			if (g_frame.sky_history.enabled != 0)
+			{
+				float quad_slot = (pixel.x & 1) + 2 * (pixel.y & 1);
+				low_cloud = CloudSlab(cam, dir, pixel_angle, quad_slot, g_frame.sky_history.frame_jitter, lower_scale, sun_dir, sun_light, ambient, haze, anchor);
+			}
+			else
+			{
+				// Average the four quarters of every step, as the quad average would for a single pixel.
+				[loop] for (int slot = 0; slot != 4; ++slot)
+					low_cloud += 0.25 * CloudSlab(cam, dir, pixel_angle, slot, 0.0, lower_scale, sun_dir, sun_light, ambient, haze, anchor);
+			}
 			drifts = 1;
 		}
 	}
 
 	// Blend the low cloud's samples over each 2x2 pixel quad, then over frames, which removes the grain left by the widely spaced march steps.
-	// Then put the low cloud in front of the rest of the sky.
-	float4 lo, hi;
-	QuadRange(low_cloud, lo, hi);
-	low_cloud = QuadAverage(low_cloud, pixel);
-	low_cloud = AccumulateLowCloud(low_cloud, lo, hi, anchor, drifts, pixel);
+	// Then put the low cloud in front of the rest of the sky. Without frame accumulation, each pixel already holds all four quarters (see above).
+	// The condition is the same for every pixel, so all pixels of a quad still run the quad operations together.
+	if (g_frame.sky_history.enabled != 0)
+	{
+		float4 lo, hi;
+		QuadRange(low_cloud, lo, hi);
+		low_cloud = QuadAverage(low_cloud, pixel);
+		low_cloud = AccumulateLowCloud(low_cloud, lo, hi, anchor, drifts, pixel);
+	}
 	sky = sky * (1.0 - low_cloud.a) + low_cloud.rgb;
 
 	// Compress the radiance into display range; bright areas roll off smoothly instead of clipping.

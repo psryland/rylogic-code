@@ -223,16 +223,19 @@ namespace pr::rdr12
 		//  - Don't set members of 'm_desc' directly otherwise
 		//    the hash won't be updated and pooling won't work.
 		D3D12_GRAPHICS_PIPELINE_STATE_DESC m_desc;
+		int m_view_count;
 		int m_hash;
 
 	public:
 
 		PipeStateDesc()
 			:m_desc()
+			,m_view_count()
 			,m_hash(hash::HashBytes32(&m_desc, &m_desc + 1))
 		{}
 		PipeStateDesc(D3D12_GRAPHICS_PIPELINE_STATE_DESC const& rhs)
 			:m_desc(rhs)
+			,m_view_count()
 			,m_hash(hash::HashBytes32(&m_desc, &m_desc + 1))
 		{}
 
@@ -240,6 +243,20 @@ namespace pr::rdr12
 		int hash() const
 		{
 			return m_hash;
+		}
+
+		// The number of view instances. Zero disables view instancing. Otherwise each draw is rasterised once per view, and view 'i' goes to
+		// viewport and scissor 'i'. Requires device support for view instancing (see D3D12_FEATURE_DATA_D3D12_OPTIONS3::ViewInstancingTier).
+		int ViewCount() const
+		{
+			return m_view_count;
+		}
+		void ViewCount(int count)
+		{
+			// Record the change in the hash
+			assert(count >= 0 && count <= D3D12_MAX_VIEW_INSTANCE_COUNT);
+			m_hash = hash::HashBytes32(&count, &count + 1, m_hash);
+			m_view_count = count;
 		}
 
 		// Apply changes to the pipeline state description

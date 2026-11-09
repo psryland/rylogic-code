@@ -722,6 +722,16 @@ namespace Rylogic.Gfx
 				set => View3D_EnvMapCaptureShadowsSet(Handle, ref value);
 			}
 
+			/// <summary>
+			/// Get/Set whether environment map faces ('EnvMapCapture' and the probe) render only objects in the 'Skybox' sort group.
+			/// A sky-only map has no scene geometry, so it never shows stale or low-resolution copies of nearby objects, and its faces are cheap to render.
+			/// </summary>
+			public bool EnvMapCaptureSkyOnly
+			{
+				get => View3D_EnvMapCaptureSkyOnlyGet(Handle);
+				set => View3D_EnvMapCaptureSkyOnlySet(Handle, value);
+			}
+
 			/// <summary>Set the global environment map used by this window.</summary>
 			public CubeMap? EnvironmentMap
 			{
@@ -768,6 +778,26 @@ namespace Rylogic.Gfx
 			{
 				get => View3D_WindowEnvMapParallaxBoundsGet(Handle);
 				set => View3D_WindowEnvMapParallaxBoundsSet(Handle, value);
+			}
+
+			/// <summary>
+			/// The world-space plane whose surfaces reflect the rendered scene, as (unit normal xyz, distance w along the normal). Shaders that opt in
+			/// reflect the opaque scene visible on screen and fall back to the environment map where it has no data. v4.Zero (the default) disables it.
+			/// </summary>
+			public v4 ReflectionPlane
+			{
+				get => View3D_WindowReflectionPlaneGet(Handle);
+				set => View3D_WindowReflectionPlaneSet(Handle, value);
+			}
+
+			/// <summary>
+			/// The bounding radius below which populations are left out of the reflection's off-screen sources. Reflections of the scene just beyond
+			/// the view edges are drawn at low resolution, where small objects add cost but little detail. Zero (the default) draws them all.
+			/// </summary>
+			public float ReflectionMinPopulationRadius
+			{
+				get => View3D_WindowReflectionMinPopulationRadiusGet(Handle);
+				set => View3D_WindowReflectionMinPopulationRadiusSet(Handle, value);
 			}
 
 			/// <summary>Show the lighting dialog</summary>

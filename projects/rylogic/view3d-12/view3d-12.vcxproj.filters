@@ -874,6 +874,9 @@
     <ShaderBuild Include="src\shaders\hlsl\utility\env_map_distance.hlsl">
       <Filter>src\shaders\hlsl\utility</Filter>
     </ShaderBuild>
+    <ShaderBuild Include="src\shaders\hlsl\utility\reflection_plane.hlsl">
+      <Filter>src\shaders\hlsl\utility</Filter>
+    </ShaderBuild>
     <None Include="src\shaders\hlsl\utility\env_map.hlsli">
       <Filter>src\shaders\hlsl\utility</Filter>
     </None>
