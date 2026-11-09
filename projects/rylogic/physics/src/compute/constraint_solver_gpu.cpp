@@ -92,6 +92,7 @@ namespace pr::physics
 		, m_endpoint_shadow()
 		, m_endpoint_identity_shadow()
 		, m_descriptor_shadow()
+		, m_body_degrees()
 		, m_source()
 		, m_capacity()
 		, m_body_capacity()
@@ -99,6 +100,7 @@ namespace pr::physics
 		, m_slot_count()
 		, m_active_count()
 		, m_breakable_count()
+		, m_colour_count(MaxColours)
 		, m_body_count()
 		, m_dispatch_count()
 		, m_previous_timestep()
@@ -236,6 +238,7 @@ namespace pr::physics
 			throw std::invalid_argument("GPU breakable constraint count is outside the stable-slot range");
 
 		auto const resized = ResizeBuffers(job, m_slot_count);
+		m_colour_count = ColourBound(upload.m_endpoints);
 		auto endpoints = upload.m_endpoints;
 		auto descriptor_dirty = std::vector<bool>(m_slot_count, resized || m_descriptor_shadow.size() != upload.m_descriptors.size());
 		auto const reset_all = resized || m_source != upload.m_source;
@@ -432,7 +435,53 @@ namespace pr::physics
 		job.m_barriers.Commit();
 	}
 
-	// Record one colour sweep in the established colour order. Small slot sets use the single-group fused step; larger sets use one indirect pass per colour.
+	// Return an upper bound on the number of colours that greedy colouring can use for 'endpoints'.
+	int GpuConstraintSolver::ColourBound(std::span<GpuConstraintEndpoint const> endpoints)
+	{
+		// Count the slots that touch each body. Coupled slots are not coloured, and a world endpoint (a negative index) never limits a colour. Every
+		// other body is counted as dynamic, which can only raise the bound.
+		m_body_degrees.clear();
+		auto count = [&](int body_idx)
+		{
+			// Grow the table to cover the body, then count the slot
+			if (body_idx < 0)
+				return;
+			if (body_idx >= isize(m_body_degrees))
+				m_body_degrees.resize(body_idx + 1, 0);
+
+			++m_body_degrees[body_idx];
+		};
+		for (auto const& endpoint : endpoints)
+		{
+			// Coupled slots belong to the coupled solver
+			if (AllSet(endpoint.flags, GpuConstraintEndpointFlags_Coupled))
+				continue;
+
+			count(endpoint.body_idx_a);
+			count(endpoint.body_idx_b);
+		}
+
+		// Greedy colouring gives a slot the lowest colour that neither body has used yet. Before the slot is coloured, each body has used at most one
+		// colour for each of its other slots, so the slot's colour index is at most the sum of those counts.
+		auto bound = 1;
+		auto degree = [&](int body_idx)
+		{
+			// A world endpoint has no other slots that could block a colour
+			return body_idx >= 0 ? m_body_degrees[body_idx] - 1 : 0;
+		};
+		for (auto const& endpoint : endpoints)
+		{
+			// Coupled slots belong to the coupled solver
+			if (AllSet(endpoint.flags, GpuConstraintEndpointFlags_Coupled))
+				continue;
+
+			bound = std::max(bound, degree(endpoint.body_idx_a) + degree(endpoint.body_idx_b) + 1);
+		}
+		return std::min(bound, int(MaxColours));
+	}
+
+	// Record one colour sweep in the established colour order. Small slot sets use the single-group fused step; larger sets use one indirect pass for
+	// each colour that the colour bound allows.
 	void GpuConstraintSolver::RecordColourSweep(GpuJob& job, ComputeStep& per_colour_step, ComputeStep& fused_step, float timestep, int body_count, int position_iterations, D3DPtr<ID3D12Resource> bodies)
 	{
 		// The slot count is exact on the CPU, so the form is chosen without a GPU readback. Both forms visit the colours in the same order.
@@ -472,9 +521,10 @@ namespace pr::physics
 			return;
 		}
 
-		// Empty colours have zero groups. Occupied colours keep the full stable-slot grid, so the solve order and results are unchanged.
+		// Empty colours have zero groups. Occupied colours keep the full stable-slot grid, so the solve order and results are unchanged. Colours past
+		// the bound are always empty, so they are not recorded. Serial fallback after colour exhaustion runs in colour zero, which is always recorded.
 		job.m_cmd_list.Use(m_r_colour_dispatch.get());
-		for (int colour = 0; colour != MaxColours; ++colour)
+		for (int colour = 0; colour != m_colour_count; ++colour)
 		{
 			cmd_list->SetComputeRoot32BitConstants(0, 1, &colour, offsetof(cbConstraintSolve, colour) / sizeof(uint32_t));
 			cmd_list->ExecuteIndirect(m_cmd_sig.get(), 1, m_r_colour_dispatch.get(), colour * sizeof(DispatchArguments), nullptr, 0);

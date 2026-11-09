@@ -1250,6 +1250,69 @@ namespace pr::physics::tests
 			}
 		}
 
+		// Slots that each anchor one body to the world need only one colour, so the per-colour form records one pass per sweep, like the fused form.
+		PRUnitTestMethod(HardwareWorldAnchoredSlotsRecordOneColour, Extended)
+		{
+			// More slots than one group's threads, so the per-colour form is not limited by the slot count
+			constexpr auto BodyCount = 150;
+			auto upload = GpuConstraintUpload{};
+			for (int body_idx = 0; body_idx != BodyCount; ++body_idx)
+			{
+				// Lock every axis of the body to the world
+				auto& endpoint = upload.m_endpoints.emplace_back();
+				endpoint.body_idx_a = body_idx;
+				endpoint.body_idx_b = -1;
+				endpoint.flags = GpuConstraintEndpointFlags_Enabled;
+				endpoint.generation = 1;
+				upload.m_endpoint_identities.emplace_back();
+				auto& descriptor = upload.m_descriptors.emplace_back();
+				descriptor.frame_a.rotation = float4{0, 0, 0, 1};
+				descriptor.frame_b.rotation = float4{0, 0, 0, 1};
+				for (int axis_idx = 0; axis_idx != GpuConstraintRowsPerBlock; ++axis_idx)
+				{
+					descriptor.axes[axis_idx].mode = GpuConstraintAxisMode_Locked;
+					descriptor.axes[axis_idx].max_force = 1000.0f;
+				}
+			}
+			upload.m_rigid_active_count = isize(upload.m_endpoints);
+
+			// Give every body a distinct velocity so the locks have work to do
+			auto initial = std::vector<GpuRigidBody>{};
+			for (int body_idx = 0; body_idx != BodyCount; ++body_idx)
+			{
+				auto rigid_body = MakeConstraintGpuBody(1.0f + 0.01f * body_idx);
+				auto const phase = 0.37f * body_idx;
+				rigid_body.VelocityWS(v8motion{v4{std::sin(phase), std::cos(phase), 0, 0}, v4{0.3f * std::cos(phase), 0.2f, -0.4f * std::sin(phase), 0}});
+				initial.push_back(PackDynamics(rigid_body, body_idx));
+			}
+
+			// Solve one frame in each form and compare both the work recorded and the results
+			auto run = [&](int fused_limit, int& dispatch_count)
+			{
+				auto config = EngineConfig{};
+				config.solver_iterations = 3;
+				config.push_out_iterations = 2;
+				config.constraint_warm_start_factor = 0.8f;
+				config.fused_colour_sweep_limit = fused_limit;
+				auto solver = GpuConstraintSolver{ConstraintTestGpu(), config};
+				auto bodies = initial;
+				solver.Solve(ConstraintTestGpu().m_job, 1.0f / 60.0f, upload, bodies);
+				dispatch_count = solver.Stats().m_dispatch_count;
+				return bodies;
+			};
+			auto per_colour_dispatches = 0;
+			auto fused_dispatches = 0;
+			auto const per_colour = run(0, per_colour_dispatches);
+			auto const fused = run(256, fused_dispatches);
+			PR_EXPECT(per_colour_dispatches == fused_dispatches);
+			for (int body_idx = 0; body_idx != BodyCount; ++body_idx)
+			{
+				PR_EXPECT(FEqlAbsolute(fused[body_idx].o2w, per_colour[body_idx].o2w, 1.0e-5f));
+				PR_EXPECT(FEqlAbsolute(fused[body_idx].momentum_lin, per_colour[body_idx].momentum_lin, 1.0e-5f));
+				PR_EXPECT(FEqlAbsolute(fused[body_idx].momentum_ang, per_colour[body_idx].momentum_ang, 1.0e-5f));
+			}
+		}
+
 		// Read a production compute-shader overload latch back through the solver's single diagnostic transaction.
 		PRUnitTestMethod(HardwareReportsBreakState, Extended)
 		{

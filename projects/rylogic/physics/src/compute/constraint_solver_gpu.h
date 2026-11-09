@@ -71,6 +71,7 @@ namespace pr::physics
 		std::vector<GpuConstraintEndpoint> m_endpoint_shadow;
 		std::vector<ConstraintEndpointIdentity> m_endpoint_identity_shadow;
 		std::vector<GpuD6ConstraintDesc> m_descriptor_shadow;
+		std::vector<int> m_body_degrees;
 		ConstraintSet const* m_source;
 		int m_capacity;
 		int m_body_capacity;
@@ -78,6 +79,7 @@ namespace pr::physics
 		int m_slot_count;
 		int m_active_count;
 		int m_breakable_count;
+		int m_colour_count;
 		int m_body_count;
 		int m_dispatch_count;
 		float m_previous_timestep;
@@ -163,7 +165,11 @@ namespace pr::physics
 		// Insert UAV ordering between dependent compiler, colouring, and solver passes.
 		void CommitUavBarriers(GpuJob& job, D3DPtr<ID3D12Resource> bodies);
 
-		// Record one colour sweep in the established colour order. Small slot sets use the single-group fused step; larger sets use one indirect pass per colour.
+		// Return an upper bound on the number of colours that greedy colouring can use for 'endpoints'.
+		int ColourBound(std::span<GpuConstraintEndpoint const> endpoints);
+
+		// Record one colour sweep in the established colour order. Small slot sets use the single-group fused step; larger sets use one indirect pass for
+		// each colour that the colour bound allows.
 		void RecordColourSweep(GpuJob& job, ComputeStep& per_colour_step, ComputeStep& fused_step, float timestep, int body_count, int position_iterations, D3DPtr<ID3D12Resource> bodies);
 	};
 }

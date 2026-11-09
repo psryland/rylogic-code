@@ -396,6 +396,14 @@ namespace pr::animation
 			return m_family;
 		}
 
+		// The model-space frame of each bone, in rig bone order, when the character stands in the family at 'index' in 'gait().families'. This is the
+		// stance of the family's slowest cycle, with the hip joints at that cycle's hip height above the model origin.
+		std::span<xform const> stance(int index) const
+		{
+			pr_assert(index >= 0 && index < static_cast<int>(m_families.size()) && "Family index out of range");
+			return m_families[index].stance_model;
+		}
+
 		// Request the movement family at 'index' in 'gait().families'. Each step blends to it over 'blend_s' seconds (> 0) once the ground allows
 		// it, and the same blend time is used when the ground forces a change to another family. A change during a blend starts from the family
 		// that was being blended to.

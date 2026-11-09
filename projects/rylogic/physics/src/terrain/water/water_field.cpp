@@ -331,6 +331,11 @@ namespace pr::physics::terrain::water
 		auto const xy_f = v2{static_cast<float>(xy.x), static_cast<float>(xy.y)};
 		auto const t = LocalTime(time_s);
 		auto const depth = WaveDepth(xy);
+		// Waves shoal to nothing where there is no water, even allowing for swash, so dry ground has the still level without evaluating any element.
+		if (!(depth > 0.0f))
+			return m_level;
+
+		// Sum the depth-corrected elements
 		auto buffer = std::array<WaterFieldElement, MaxElementCount>{};
 		auto const elements = Localise(xy_f, buffer, true);
 		auto const correction = Correction(elements, depth);
@@ -348,10 +353,15 @@ namespace pr::physics::terrain::water
 		auto const xy_f = v2{static_cast<float>(xy.x), static_cast<float>(xy.y)};
 		auto const t = LocalTime(time_s);
 		auto const depth = WaveDepth(xy);
+		auto sample = WaterSample{.m_height = m_level, .m_gradient_xy = v2d::Zero()};
+		// Waves shoal to nothing where there is no water, even allowing for swash, so dry ground has the still level and no slope without evaluating any element.
+		if (!(depth > 0.0f))
+			return sample;
+
+		// Sum the depth-corrected elements
 		auto buffer = std::array<WaterFieldElement, MaxElementCount>{};
 		auto const elements = Localise(xy_f, buffer, true);
 		auto const correction = Correction(elements, depth);
-		auto sample = WaterSample{.m_height = m_level, .m_gradient_xy = v2d::Zero()};
 		for (auto const& element : elements)
 		{
 			// Each contribution is (height, dh/dx, dh/dy).
@@ -371,6 +381,11 @@ namespace pr::physics::terrain::water
 
 		auto const t = LocalTime(time_s);
 		auto const depth = WaveDepth(v2d{xy.x, xy.y});
+		// Waves shoal to nothing where there is no water, even allowing for swash, so dry ground has no flow.
+		if (!(depth > 0.0f))
+			return v4::Zero();
+
+		// Accumulate the depth-corrected elements' flow
 		auto buffer = std::array<WaterFieldElement, MaxElementCount>{};
 		auto const elements = Localise(xy, buffer, true);
 		auto const correction = Correction(elements, depth);
@@ -390,6 +405,11 @@ namespace pr::physics::terrain::water
 		// Orbital flow decays with depth below the still-water level.
 		auto const t = LocalTime(time_s);
 		auto const depth = WaveDepth(v2d{pos_ws.x, pos_ws.y});
+		// Waves shoal to nothing where there is no water, even allowing for swash, so dry ground has no flow.
+		if (!(depth > 0.0f))
+			return v4::Zero();
+
+		// Accumulate the depth-corrected elements' flow
 		auto buffer = std::array<WaterFieldElement, MaxElementCount>{};
 		auto const elements = Localise(v2{pos_ws.x, pos_ws.y}, buffer, true);
 		auto const correction = Correction(elements, depth);
