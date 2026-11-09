@@ -12,47 +12,56 @@
 namespace pr::compute
 {
 	template <D3D12_COMMAND_LIST_TYPE ListType>
+	Gpu<ListType>::Gpu(EGpuOptions options, D3D12_COMMAND_QUEUE_PRIORITY priority)
+		: m_device()
+		, m_cmd_queue()
+	{
+		// Enable the debug layer. Must be done before creating the device, because enabling it later removes existing devices.
+		if (AllSet(options, EGpuOptions::DeviceDebug))
+		{
+			EnableDeviceRemovedDiagnostics();
+
+			D3DPtr<ID3D12Debug> dbg;
+			Check(D3D12GetDebugInterface(__uuidof(ID3D12Debug), (void**)dbg.address_of()));
+			dbg->EnableDebugLayer();
+
+			if (AllSet(options, EGpuOptions::DeviceGPUDebug))
+			{
+				D3DPtr<ID3D12Debug1> dbg1;
+				Check(dbg->QueryInterface<ID3D12Debug1>(dbg1.address_of()));
+				dbg1->SetEnableGPUBasedValidation(true);
+			}
+		}
+
+		// Create the d3d device
+		Check(D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_11_0, __uuidof(ID3D12Device4), (void**)m_device.address_of()));
+
+		// The info queue exists only when the debug layer is enabled
+		if (AllSet(options, EGpuOptions::BreakOnErrors))
+		{
+			D3DPtr<ID3D12InfoQueue> info;
+			Check(m_device->QueryInterface<ID3D12InfoQueue>(info.address_of()));
+			Check(info->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, TRUE));
+			Check(info->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR, TRUE));
+			Check(info->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_WARNING, TRUE));
+		}
+
+		InitQueue(priority);
+	}
+
+	template <D3D12_COMMAND_LIST_TYPE ListType>
 	Gpu<ListType>::Gpu(ID3D12Device4* existing_device, ID3D12CommandQueue* existing_queue, D3D12_COMMAND_QUEUE_PRIORITY priority)
 		: m_device(existing_device, true)
 		, m_cmd_queue(existing_queue, true)
 	{
-		if (existing_device == nullptr)
-		{
-			// Enable the D3D Debug layer (must be before create device)
-			if constexpr (IsDebug)
-			{
-				EnableDeviceRemovedDiagnostics();
+		// The device's diagnostics belong to its owner
+		assert(existing_device != nullptr && "Use the 'EGpuOptions' constructor to create a device");
+		InitQueue(priority);
+	}
 
-				D3DPtr<ID3D12Debug> dbg;
-				Check(D3D12GetDebugInterface(__uuidof(ID3D12Debug), (void**)dbg.address_of()));
-				dbg->EnableDebugLayer();
-
-				#define PR_RDR12_GPU_VALIDATION 0
-				#if PR_RDR12_GPU_VALIDATION
-				{
-					#pragma message(HP_FILE_LINE "WARNING: ************************************************** GPU Validation enabled")
-
-					D3DPtr<ID3D12Debug1> dbg1;
-					Check(dbg->QueryInterface<ID3D12Debug1>(dbg1.address_of()));
-					dbg1->SetEnableGPUBasedValidation(true);
-				}
-				#endif
-			}
-
-			// Create the d3d device
-			Check(D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_11_0, __uuidof(ID3D12Device4), (void**)m_device.address_of()));
-
-			// Force break on D3D Errors
-			if constexpr (IsDebug)
-			{
-				D3DPtr<ID3D12InfoQueue> info;
-				Check(m_device->QueryInterface<ID3D12InfoQueue>(info.address_of()));
-				Check(info->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, TRUE));
-				Check(info->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR, TRUE));
-				Check(info->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_WARNING, TRUE));
-			}
-		}
-
+	template <D3D12_COMMAND_LIST_TYPE ListType>
+	void Gpu<ListType>::InitQueue(D3D12_COMMAND_QUEUE_PRIORITY priority)
+	{
 		// Create the command queue
 		if (m_cmd_queue == nullptr)
 		{

@@ -31,10 +31,20 @@ namespace pr::physics
 		ComGpu m_gpu; // A GPU wrapper for running compute shaders
 		GpuJob m_job; // A GpuJob for running Engine::Step()
 		
-		// Create an independent compute context, or borrow a matching device and command queue owned by a longer-lived host.
-		Gpu(ID3D12Device4* existing_device = nullptr, ID3D12CommandQueue* existing_queue = nullptr)
-			: m_gpu(existing_device, existing_queue)
+		// Borrow 'existing_device' and the optional 'existing_queue' owned by a longer-lived host, or create an independent device with the diagnostics in 'options' when 'existing_device' is null.
+		Gpu(ID3D12Device4* existing_device, ID3D12CommandQueue* existing_queue, ::pr::compute::EGpuOptions options)
+			: m_gpu(existing_device != nullptr ? ComGpu(existing_device, existing_queue) : ComGpu(options))
 			, m_job(m_gpu, "Physics Engine Job", 0xFF00FFFF, 1)
+		{}
+
+		// Borrow 'existing_device', which must not be null.
+		explicit Gpu(ID3D12Device4* existing_device)
+			: Gpu(existing_device, nullptr, ::pr::compute::EGpuOptions::None)
+		{}
+
+		// Create an independent device with the diagnostics in 'options'.
+		explicit Gpu(::pr::compute::EGpuOptions options)
+			: Gpu(nullptr, nullptr, options)
 		{}
 
 		// Allow use as a device

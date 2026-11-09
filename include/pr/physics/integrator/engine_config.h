@@ -118,5 +118,9 @@ namespace pr::physics
 		// against this one (see CollisionFilterPasses). Bit values have no built-in meaning; the defaults match the default body filter.
 		std::uint32_t world_collision_layer = 1U;
 		std::uint32_t world_collision_mask = 0xFFFFFFFFU;
+
+		// Enable the D3D12 debug layer on the device the engine creates. It has no effect when the engine borrows a device,
+		// whose diagnostics belong to its owner. The debug layer is process-wide and adds a large CPU cost to every GPU call.
+		bool device_debug = false;
 	};
 }

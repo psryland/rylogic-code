@@ -358,7 +358,7 @@ namespace pr::compute::tests
 			// Confirm the test values really collide, otherwise the test proves nothing
 			PR_EXPECT(hash::HashBytes32(&CollisionA, &CollisionA + 1) == hash::HashBytes32(&CollisionB, &CollisionB + 1));
 
-			ComGpu gpu;
+			ComGpu gpu(TestGpuOptions);
 			ComputeJob job(gpu, "UploadBufferReuse", 0xFF000000);
 			auto addr_a = job.m_upload.Add(CollisionA, 8, true).VirtualAddress();
 			auto addr_b = job.m_upload.Add(CollisionB, 8, true).VirtualAddress();
@@ -388,7 +388,7 @@ namespace pr::compute::tests
 		// The view heap must not share a GPU block between descriptor tables for different descriptor-store slot generations.
 		PRUnitTestMethod(ViewHeapReusesOnlyIdenticalTables, Extended)
 		{
-			ComGpu gpu;
+			ComGpu gpu(TestGpuOptions);
 			ComputeJob job(gpu, "ViewHeapReuse", 0xFF000000, 8);
 
 			// Create two null SRVs in a CPU-only heap to act as descriptor sources
@@ -456,7 +456,7 @@ namespace pr::compute::tests
 		PRUnitTestMethod(DescriptorHeapHoldsCapacityDescriptors, Extended)
 		{
 			// One null SRV fits, and a second overflows
-			ComGpu gpu;
+			ComGpu gpu(TestGpuOptions);
 			ComputeJob job(gpu, "DescriptorHeapCapacity", 0xFF000000, 1);
 			D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc = {
 				.Format = DXGI_FORMAT_R32_UINT,
@@ -472,7 +472,7 @@ namespace pr::compute::tests
 		// Setting the default state back to COMMON must replace a previously stored state.
 		PRUnitTestMethod(DefaultResStateCanBeSetToCommon, Extended)
 		{
-			ComGpu gpu;
+			ComGpu gpu(TestGpuOptions);
 			ComputeJob job(gpu, "DefaultResState", 0xFF000000);
 			auto buf = gpu.CreateResource(ResDesc::Buf<int>(4, {}), job, "DefaultState");
 			DefaultResState(buf.get(), D3D12_RESOURCE_STATE_COPY_DEST);
@@ -486,7 +486,7 @@ namespace pr::compute::tests
 		PRUnitTestMethod(UpdateSubresourceStagesAllMips, Extended)
 		{
 			// A 5x3 texture with two mips needs an aligned offset before mip 1
-			GfxGpu gpu;
+			GfxGpu gpu(TestGpuOptions);
 			GraphicsJob job(gpu, "UpdateSubresourceMips", 0xFF000000);
 			auto tex = gpu.CreateResource(ResDesc::Tex2D(Image(5, 3, nullptr, DXGI_FORMAT_R32_FLOAT), 2), job, "Mips");
 			GfxUpdateSubresourceScope update(job.m_cmd_list, job.m_upload, tex.get(), 0, 0, 2, D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT);
@@ -510,7 +510,7 @@ namespace pr::compute::tests
 		PRUnitTestMethod(UpdateSubresourceCopiesPartialBox, Extended)
 		{
 			// Update a 3x2 box at (1,1) of a zero-initialised 5x3 texture
-			GfxGpu gpu;
+			GfxGpu gpu(TestGpuOptions);
 			GraphicsJob job(gpu, "UpdateSubresourceBox", 0xFF000000);
 			auto tex = gpu.CreateResource(ResDesc::Tex2D(Image(5, 3, nullptr, DXGI_FORMAT_R32_FLOAT), 1), job, "Box");
 			float const box[] = { 1, 2, 3, 4, 5, 6 };
@@ -536,7 +536,7 @@ namespace pr::compute::tests
 		PRUnitTestMethod(UpdateSubresourceClippedAwayHasNoStaging, Extended)
 		{
 			// Update a box that starts outside a 4x4 texture
-			GfxGpu gpu;
+			GfxGpu gpu(TestGpuOptions);
 			GraphicsJob job(gpu, "UpdateSubresourceClipped", 0xFF000000);
 			auto tex = gpu.CreateResource(ResDesc::Tex2D(Image(4, 4, nullptr, DXGI_FORMAT_R32_FLOAT), 1), job, "Clipped");
 			GfxUpdateSubresourceScope update(job.m_cmd_list, job.m_upload, tex.get(), 0, 0, 1, D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT, { 4, 0, 0 }, { 2, 2, 1 });
@@ -555,7 +555,7 @@ namespace pr::compute::tests
 		PRUnitTestMethod(UpdateSubresourceRestoresSliceState, Extended)
 		{
 			// Put slice 1 of a two-slice array in a different state from slice 0
-			GfxGpu gpu;
+			GfxGpu gpu(TestGpuOptions);
 			GraphicsJob job(gpu, "UpdateSubresourceRestore", 0xFF000000);
 			auto desc = ResDesc::Tex2D(Image(4, 4, nullptr, DXGI_FORMAT_R32_FLOAT), 1);
 			desc.DepthOrArraySize = 2;
@@ -580,7 +580,7 @@ namespace pr::compute::tests
 		PRUnitTestMethod(CreateResourceStagesInitialDataInJob, Extended)
 		{
 			// Create a buffer with initial data and read it back in the same job
-			ComGpu gpu;
+			ComGpu gpu(TestGpuOptions);
 			ComputeJob job(gpu, "CreateResourceInitData", 0xFF000000);
 			int const data[] = { 3, 1, 4, 1, 5 };
 			auto buf = gpu.CreateResource(ResDesc::Buf<int>(_countof(data), data).def_state(D3D12_RESOURCE_STATE_COPY_SOURCE), job, "InitData");

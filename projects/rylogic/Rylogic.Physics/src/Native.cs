@@ -96,6 +96,7 @@ internal static unsafe partial class Native
 		internal float m_constraint_warm_start_factor;
 		internal uint m_world_collision_layer;
 		internal uint m_world_collision_mask;
+		internal int m_device_debug;
 
 		/// <summary>Convert caller-facing options into the exact ABI layout.</summary>
 		internal static EngineConfig From(EngineOptions options)
@@ -156,6 +157,7 @@ internal static unsafe partial class Native
 				m_constraint_warm_start_factor = options.ConstraintWarmStartFactor,
 				m_world_collision_layer = options.WorldCollisionLayer,
 				m_world_collision_mask = options.WorldCollisionMask,
+				m_device_debug = options.DeviceDebug ? 1 : 0,
 			};
 		}
 
@@ -217,6 +219,7 @@ internal static unsafe partial class Native
 				ConstraintWarmStartFactor = m_constraint_warm_start_factor,
 				WorldCollisionLayer = m_world_collision_layer,
 				WorldCollisionMask = m_world_collision_mask,
+				DeviceDebug = m_device_debug != 0,
 			};
 		}
 	}

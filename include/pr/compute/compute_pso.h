@@ -84,7 +84,7 @@ namespace pr::compute::tests
 				std::filesystem::remove_all(cache_dir, ec);
 			});
 
-			ComGpu gpu;
+			ComGpu gpu(TestGpuOptions);
 			auto const bytecode = ShaderCompiler{}
 				.Source("RWStructuredBuffer<uint> buf : register(u0);\n[numthreads(1,1,1)] void main(uint3 id : SV_DispatchThreadID) { buf[id.x] = id.x; }\n")
 				.EntryPoint(L"main")

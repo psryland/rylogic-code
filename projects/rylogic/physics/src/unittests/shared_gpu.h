@@ -39,7 +39,7 @@ namespace pr::physics::tests
 	inline Gpu& SharedTestGpu()
 	{
 		thread_local auto gpu = std::unique_ptr<Gpu>{};
-		return ClassFixture(gpu, [] { return std::make_unique<Gpu>(); });
+		return ClassFixture(gpu, [] { return std::make_unique<Gpu>(::pr::compute::TestGpuOptions); });
 	}
 }
 #endif

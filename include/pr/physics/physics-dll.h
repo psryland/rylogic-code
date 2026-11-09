@@ -241,6 +241,9 @@ namespace pr::physics
 		// Collision filter of the world surfaces (terrain and cylindrical boundary). See BodyDesc::collision_layer.
 		std::uint32_t world_collision_layer;
 		std::uint32_t world_collision_mask;
+
+		// Non-zero to enable the D3D12 debug layer on a device the engine creates. See EngineConfig::device_debug.
+		std::int32_t device_debug;
 	};
 
 	#pragma endregion

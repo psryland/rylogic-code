@@ -933,7 +933,7 @@ namespace pr::compute::gpu_radix_sort::tests
 
 			// External streams include guard elements beyond the bound capacity.
 			explicit Fixture(uint32_t capacity)
-				: m_gpu()
+				: m_gpu(TestGpuOptions)
 				, m_job(m_gpu, "Radix sort tests", 0xff90aa3f)
 				, m_sorter(m_gpu)
 			{

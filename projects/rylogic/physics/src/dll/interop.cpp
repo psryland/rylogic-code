@@ -992,6 +992,7 @@ namespace pr::physics
 			config.selective_refresh_aabb_margin = value.selective_refresh_aabb_margin;
 			config.world_collision_layer = value.world_collision_layer;
 			config.world_collision_mask = value.world_collision_mask;
+			config.device_debug = value.device_debug != 0;
 			return config;
 		}
 
@@ -1052,6 +1053,7 @@ namespace pr::physics
 			value.selective_refresh_aabb_margin = config.selective_refresh_aabb_margin;
 			value.world_collision_layer = config.world_collision_layer;
 			value.world_collision_mask = config.world_collision_mask;
+			value.device_debug = config.device_debug;
 		}
 
 		// Translate shared optional-lane work and storage costs to fixed-width ABI fields.
