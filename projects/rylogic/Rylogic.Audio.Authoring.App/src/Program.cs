@@ -63,7 +63,7 @@ public static partial class Program
 		// One HTTP client serves Freesound for the whole session
 		var config = AuthoringConfig.Load(config_path);
 		using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
-		var workspace = new Workspace(config, new Ffmpeg(), http);
+		using var workspace = new Workspace(config, new Ffmpeg(), http, new CopilotAssistant(config.AssistantModel, config.AssistantCommand));
 
 		await Serve(workspace, port);
 		return 0;
@@ -115,6 +115,10 @@ public static partial class Program
 			}
 		}
 		using var auto = workspace.Config.Send != null || workspace.Config.Apply != null ? new AutoPublish(PublishDelay, Publish) : null;
+
+		// Edits imported from the external editor change the game without a review action, so they publish too
+		if (auto != null)
+			workspace.GameChanged += auto.Touch;
 
 		// Every reply carries the review state, the publishing state and a notice or error for the user
 		IResult Reply(string? notice, string? error)

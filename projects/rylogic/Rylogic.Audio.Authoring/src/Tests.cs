@@ -492,6 +492,223 @@ public sealed class TestAuthoring
 		Assert.Throws<InvalidOperationException>(() => config.LocalPathOf("local:missing/track.mp3"));
 	}
 
+	/// <summary>Playback matches the game: opening a project renders the recipes the game uses, and editing a recipe replaces a reference master.</summary>
+	[Test]
+	public void RecipesPlayAsInTheGame()
+	{
+		// A project with one local recording for one looping sound
+		using var temp = new TempFolder();
+		File.WriteAllText(Path.Combine(temp.Path, "sounds.json"), $"{{\"schema\":1,\"sections\":[{{\"name\":\"Wind\",\"sounds\":[{BedSound("wind.test")}]}}]}}");
+		File.WriteAllText(Path.Combine(temp.Path, "authoring.json"), "{\"schema\":1,\"catalog\":\"sounds.json\",\"originals\":\"originals\",\"prep\":\"prep\",\"origins\":\"origins.json\",\"cache\":\"cache\",\"local\":[{\"name\":\"rec\",\"path\":\"rec\",\"author\":\"Me\",\"licence\":\"CC0\"}]}");
+		Directory.CreateDirectory(Path.Combine(temp.Path, "rec", "wind.test"));
+		File.WriteAllBytes(Path.Combine(temp.Path, "rec", "wind.test", "gust.wav"), WavFile.Encode(Sine(440, 0.1, 1)));
+		Directory.CreateDirectory(Path.Combine(temp.Path, "masters"));
+		File.WriteAllBytes(Path.Combine(temp.Path, "masters", "wind.test.1.wav"), WavFile.Encode(Sine(220, 0.1, 1)));
+		var config = AuthoringConfig.Load(Path.Combine(temp.Path, "authoring.json"));
+		using var http = new System.Net.Http.HttpClient();
+		JsonNode Variant(Workspace ws) => ws.Snapshot()["preps"]!["wind.test"]![0]!;
+
+		// Accepting the recording imports and renders it
+		var first = new Workspace(config, new Ffmpeg(), http);
+		first.Refresh();
+		first.Apply(new JsonObject { ["action"] = "status", ["id"] = "wind.test", ["variant"] = "v1", ["status"] = "accepted" });
+		Assert.True(WaitFor(() => Variant(first)["render_url"] != null, 30));
+
+		// A reopened project renders the recipe without any edit
+		var second = new Workspace(config, new Ffmpeg(), http);
+		Assert.True(WaitFor(() => Variant(second)["render_url"] != null, 30));
+
+		// A variant with a reference master plays that file, and is not rendered on opening
+		var prep = PrepFile.Load(config.PrepFolder, "wind.test");
+		prep.Variants[0].ReferenceMaster = "masters/wind.test.1.wav";
+		prep.Save(config.PrepFolder);
+		var third = new Workspace(config, new Ffmpeg(), http);
+		Assert.True(WaitFor(() => third.Jobs.Pending.Count == 0, 30));
+		Assert.Null((string?)Variant(third)["render_url"]);
+		Assert.NotNull((string?)Variant(third)["reference_url"]);
+
+		// Editing the recipe makes the recipe what the game plays
+		third.Apply(new JsonObject { ["action"] = "recipe", ["id"] = "wind.test", ["variant"] = "v1", ["recipe"] = JsonNode.Parse("[{\"step\":\"gain\",\"db\":-3}]") });
+		Assert.Null(PrepFile.Load(config.PrepFolder, "wind.test").Variants[0].ReferenceMaster);
+		Assert.True(WaitFor(() => Variant(third)["render_url"] != null, 30));
+		Assert.Null((string?)Variant(third)["reference_url"]);
+	}
+
+	/// <summary>
+	/// A variant opened in an external editor takes each version the editor saves over its working copy as its new original, keeping its review state,
+	/// recipe and credit, and only the latest edit is kept.
+	/// </summary>
+	[Test]
+	public void EditInExternalEditor()
+	{
+		// A project with one local recording and an 'editor' that exits at once, so the test writes the edits itself
+		using var temp = new TempFolder();
+		File.WriteAllText(Path.Combine(temp.Path, "sounds.json"), $"{{\"schema\":1,\"sections\":[{{\"name\":\"Wind\",\"sounds\":[{BedSound("wind.test")}]}}]}}");
+		File.WriteAllText(Path.Combine(temp.Path, "authoring.json"), "{\"schema\":1,\"catalog\":\"sounds.json\",\"originals\":\"originals\",\"prep\":\"prep\",\"origins\":\"origins.json\",\"cache\":\"cache\",\"local\":[{\"name\":\"rec\",\"path\":\"rec\",\"author\":\"Me\",\"licence\":\"CC0\",\"url\":\"https://example.org\"}],\"editor\":{\"command\":\"cmd\",\"arguments\":[\"/c\",\"rem\",\"{file}\"]}}");
+		Directory.CreateDirectory(Path.Combine(temp.Path, "rec", "wind.test"));
+		File.WriteAllBytes(Path.Combine(temp.Path, "rec", "wind.test", "gust.wav"), WavFile.Encode(Sine(440, 0.1, 1)));
+		var config = AuthoringConfig.Load(Path.Combine(temp.Path, "authoring.json"));
+		using var http = new System.Net.Http.HttpClient();
+		using var workspace = new Workspace(config, new Ffmpeg(), http);
+		var changed = new List<string>();
+		workspace.GameChanged += id => { lock (changed) changed.Add(id); };
+		JsonNode Variant() => workspace.Snapshot()["preps"]!["wind.test"]![0]!;
+		JsonNode Origin(string origin) => workspace.Snapshot()["origins"]![origin]!;
+
+		// Accept the recording with a recipe, then open it in the editor, which writes the working copy
+		workspace.Refresh();
+		workspace.Apply(new JsonObject { ["action"] = "status", ["id"] = "wind.test", ["variant"] = "v1", ["status"] = "accepted" });
+		Assert.True(WaitFor(() => Variant()["render_url"] != null, 30));
+		workspace.Apply(new JsonObject { ["action"] = "recipe", ["id"] = "wind.test", ["variant"] = "v1", ["recipe"] = JsonNode.Parse("[{\"step\":\"gain\",\"db\":-3}]") });
+		workspace.Apply(new JsonObject { ["action"] = "open_editor", ["id"] = "wind.test", ["variant"] = "v1" });
+		Assert.True(WaitFor(() => Variant()["edit"]?["path"] != null && Variant()["edit"]?["pending"]?.GetValue<bool>() == false, 30));
+		Assert.Null((string?)Variant()["edit"]!["error"]);
+		var working = (string)Variant()["edit"]!["path"]!;
+		Assert.True(File.Exists(working));
+
+		// Saving an edit over the working copy replaces the original, crediting the recording it was made from
+		File.WriteAllBytes(working, WavFile.Encode(Sine(330, 0.1, 2)));
+		Assert.True(WaitFor(() => ((string?)Variant()["origin"])?.StartsWith("edited:") == true && Variant()["render_pending"]?.GetValue<bool>() == false && Variant()["render_url"] != null, 30));
+		var first_edit = (string)Variant()["origin"]!;
+		var first_source = (string)Variant()["source"]!;
+		Assert.Equal("local:rec/wind.test/gust.wav", (string?)Origin(first_edit)["edit_of"]);
+		Assert.Equal("Me", (string?)Origin(first_edit)["user"]);
+		Assert.Equal("CC0", (string?)Origin(first_edit)["licence"]);
+		Assert.True(File.Exists(Path.Combine(config.OriginalsFolder, $"{first_source}.json")));
+		Assert.Equal("accepted", (string?)Variant()["status"]);
+		Assert.Equal("gain", (string?)Variant()["recipe"]![0]!["step"]);
+		lock (changed)
+			Assert.True(changed.Contains("wind.test"));
+
+		// A second edit replaces the first, which nothing uses any more; the recording the edits were made from is kept
+		File.WriteAllBytes(working, WavFile.Encode(Sine(550, 0.1, 3)));
+		Assert.True(WaitFor(() => (string?)Variant()["origin"] != first_edit && ((string?)Variant()["origin"])?.StartsWith("edited:") == true, 30));
+		var second_edit = (string)Variant()["origin"]!;
+		Assert.Equal("local:rec/wind.test/gust.wav", (string?)Origin(second_edit)["edit_of"]);
+		Assert.Null(workspace.Snapshot()["origins"]![first_edit]);
+		Assert.True(!File.Exists(Path.Combine(config.OriginalsFolder, $"{first_source}.json")));
+		Assert.NotNull(workspace.Snapshot()["origins"]!["local:rec/wind.test/gust.wav"]);
+	}
+
+	/// <summary>An assistant that gives fixed replies in order and records the prompts it was given.</summary>
+	private sealed class ScriptedAssistant(params string[] replies) : IAssistant
+	{
+		private int m_next;
+
+		public List<string> Prompts { get; } = [];
+
+		public AssistantStatus Status { get; } = new(true, "scripted");
+
+		public Task<JsonObject> AskAsync(string prompt, CancellationToken cancel)
+		{
+			// Each prompt receives the next reply
+			Prompts.Add(prompt);
+			return Task.FromResult(CopilotAssistant.ParseReply(replies[m_next++]));
+		}
+	}
+
+	/// <summary>Answers Freesound search, sound page and preview requests with made-up sounds, and records the search requests.</summary>
+	private sealed class FakeFreesound : System.Net.Http.HttpMessageHandler
+	{
+		public List<System.Net.Http.HttpRequestMessage> Searches { get; } = [];
+
+		protected override Task<System.Net.Http.HttpResponseMessage> SendAsync(System.Net.Http.HttpRequestMessage request, CancellationToken cancel)
+		{
+			// Searches return five sounds with mixed licences; pages describe sound N as "Sound N" by "user", licensed CC-BY 4.0
+			var url = request.RequestUri!.ToString();
+			System.Net.Http.HttpContent content;
+			if (url.Contains("/search/text/", StringComparison.Ordinal))
+			{
+				Searches.Add(request);
+				string Result(int n, string licence) => $"{{\"id\":{n},\"name\":\"Sound {n}\",\"username\":\"user\",\"license\":\"{licence}\",\"duration\":12.5,\"tags\":[\"wind\",\"forest\"],\"description\":\"Wind in trees\"}}";
+				var zero = "http://creativecommons.org/publicdomain/zero/1.0/";
+				var by = "https://creativecommons.org/licenses/by/4.0/";
+				var nc = "https://creativecommons.org/licenses/by-nc/4.0/";
+				content = new System.Net.Http.StringContent($"{{\"results\":[{Result(1, zero)},{Result(2, by)},{Result(3, zero)},{Result(4, by)},{Result(5, nc)}]}}");
+			}
+			else if (System.Text.RegularExpressions.Regex.Match(url, @"/s/(\d+)/$") is { Success: true } page)
+			{
+				var n = page.Groups[1].Value;
+				content = new System.Net.Http.StringContent($"<meta property=\"og:title\" content=\"Sound {n} by user\"><meta property=\"og:url\" content=\"https://freesound.org/people/user/sounds/{n}/\"><a href=\"https://creativecommons.org/licenses/by/4.0/\"></a>\"https://cdn.freesound.org/previews/0/{n}-lq.mp3\"");
+			}
+			else
+			{
+				content = new System.Net.Http.ByteArrayContent([1, 2, 3]);
+			}
+			return Task.FromResult(new System.Net.Http.HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = content });
+		}
+	}
+
+	/// <summary>
+	/// Finding candidates searches Freesound with the assistant's queries and adds the assistant's picks as unheard variants. Sounds the project already
+	/// knows, licences other than CC0 and CC-BY, and picks that were not offered are never added, and the review history guides the assistant.
+	/// </summary>
+	[Test]
+	public void FindCandidatesAddsNewSounds()
+	{
+		// A sound with one accepted and one rejected Freesound recording
+		using var temp = new TempFolder();
+		File.WriteAllText(Path.Combine(temp.Path, "sounds.json"), $"{{\"schema\":1,\"sections\":[{{\"name\":\"Wind\",\"sounds\":[{BedSound("wind.test")}]}}]}}");
+		File.WriteAllText(Path.Combine(temp.Path, "authoring.json"), "{\"schema\":1,\"catalog\":\"sounds.json\",\"originals\":\"originals\",\"prep\":\"prep\",\"origins\":\"origins.json\",\"cache\":\"cache\",\"previews\":\"previews\",\"freesound\":{\"credentials\":\"freesound.json\"}}");
+		File.WriteAllText(Path.Combine(temp.Path, "origins.json"), "{\"schema\":1,\"origins\":{\"freesound:1\":{\"title\":\"Liked wind\",\"user\":\"a\",\"licence\":\"CC0\"},\"freesound:2\":{\"title\":\"Hissy wind\",\"user\":\"b\",\"licence\":\"CC0\"}}}");
+		File.WriteAllText(Path.Combine(temp.Path, "freesound.json"), "{\"client_id\":\"id\",\"client_secret\":\"secret\"}");
+		var freesound = new FakeFreesound();
+		using var http = new System.Net.Http.HttpClient(freesound);
+		var assistant = new ScriptedAssistant("```json\n{\"queries\":[\"forest wind\",\"Forest Wind\",\" \",\"leaves\"]}\n```", "{\"picks\":[\"4\",1,\"99\",\"3\",\"5\",\"4\"]}");
+		var workspace = new Workspace(AuthoringConfig.Load(Path.Combine(temp.Path, "authoring.json")), new Ffmpeg(), http, assistant);
+		workspace.Apply(new JsonObject { ["action"] = "assign", ["id"] = "wind.test", ["origin"] = "freesound:1" });
+		workspace.Apply(new JsonObject { ["action"] = "assign", ["id"] = "wind.test", ["origin"] = "freesound:2" });
+		workspace.Apply(new JsonObject { ["action"] = "note", ["id"] = "wind.test", ["variant"] = "v2", ["note"] = "too hissy" });
+		workspace.Apply(new JsonObject { ["action"] = "status", ["id"] = "wind.test", ["variant"] = "v1", ["status"] = "accepted" });
+		workspace.Apply(new JsonObject { ["action"] = "status", ["id"] = "wind.test", ["variant"] = "v2", ["status"] = "rejected" });
+
+		// Run the search to completion
+		workspace.Apply(new JsonObject { ["action"] = "find_candidates", ["id"] = "wind.test" });
+		Assert.True(WaitFor(() => workspace.Snapshot()["finds"]!["wind.test"]?["pending"]?.GetValue<bool>() == false, 30));
+		var find = workspace.Snapshot()["finds"]!["wind.test"]!;
+		Assert.Null((string?)find["error"]);
+		Assert.Equal("Added 2 candidates for wind.test: Sound 4, Sound 3.", (string?)find["notice"]);
+
+		// The catalog entry and the review history were given to the assistant, and only new CC0 or CC-BY sounds were offered to it
+		Assert.True(assistant.Prompts[0].Contains("\"wind.test\"") && assistant.Prompts[0].Contains("Liked wind") && assistant.Prompts[0].Contains("too hissy"));
+		Assert.True(assistant.Prompts[1].Contains("\"number\":\"3\"") && assistant.Prompts[1].Contains("\"number\":\"4\""));
+		Assert.True(!assistant.Prompts[1].Contains("\"number\":\"1\"") && !assistant.Prompts[1].Contains("\"number\":\"5\""));
+
+		// Each distinct query was searched once with the API key and a CC0 or CC-BY filter
+		Assert.Equal(2, freesound.Searches.Count);
+		Assert.Equal("Token secret", freesound.Searches[0].Headers.Authorization!.ToString());
+		Assert.True(Uri.UnescapeDataString(freesound.Searches[0].RequestUri!.Query).Contains("license:(\"Creative Commons 0\" OR \"Attribution\")"));
+
+		// The picks are new unheard variants, and the known recordings are unchanged
+		var variants = PrepFile.Load(workspace.Config.PrepFolder, "wind.test").Variants;
+		Assert.Equal(4, variants.Count);
+		Assert.Equal("freesound:4", variants[2].Origin);
+		Assert.Equal("freesound:3", variants[3].Origin);
+		Assert.True(variants.Skip(2).All(x => x.Status == EVariantStatus.Unheard));
+		Assert.Equal(EVariantStatus.Rejected, variants[1].Status);
+		Assert.Equal("CC-BY 4.0", OriginsFile.Load(workspace.Config.OriginsPath).Origins["freesound:4"].Licence);
+	}
+
+	/// <summary>Finding candidates is refused without an assistant, and model replies are read even when wrapped in other text.</summary>
+	[Test]
+	public void FindCandidatesNeedsAssistant()
+	{
+		// A project with no assistant
+		using var temp = new TempFolder();
+		File.WriteAllText(Path.Combine(temp.Path, "sounds.json"), $"{{\"schema\":1,\"sections\":[{{\"name\":\"Wind\",\"sounds\":[{BedSound("wind.test")}]}}]}}");
+		File.WriteAllText(Path.Combine(temp.Path, "authoring.json"), "{\"schema\":1,\"catalog\":\"sounds.json\",\"originals\":\"originals\",\"prep\":\"prep\",\"origins\":\"origins.json\",\"cache\":\"cache\"}");
+		var config = AuthoringConfig.Load(Path.Combine(temp.Path, "authoring.json"));
+		using var http = new System.Net.Http.HttpClient();
+		var workspace = new Workspace(config, new Ffmpeg(), http);
+		Assert.Equal(AuthoringConfig.DefaultAssistantModel, config.AssistantModel);
+		Assert.True(!workspace.Snapshot()["assistant"]!["available"]!.GetValue<bool>());
+		Assert.Throws<InvalidOperationException>(() => workspace.Apply(new JsonObject { ["action"] = "find_candidates", ["id"] = "wind.test" }));
+
+		// Replies may be fenced or explained; text without an object is an error
+		Assert.Equal(1, CopilotAssistant.ParseReply("Here you go:\n```json\n{\"a\":1}\n```")["a"]!.GetValue<int>());
+		Assert.Throws<InvalidOperationException>(() => CopilotAssistant.ParseReply("Sorry, I can't help."));
+	}
+
 	/// <summary>Project commands are optional; their arguments are kept as given and their directory is a project path defaulting to the configuration folder.</summary>
 	[Test]
 	public void ApplyCommandConfig()
@@ -755,7 +972,7 @@ public sealed class TestAuthoring
 	public void GameActionsChangeTheGame()
 	{
 		// Catalog edits change what the game plays; notes, finalised flags, assignment and rendering only change the review
-		foreach (var action in new[] { "add_sound", "edit_sound", "delete_sound", "status", "move", "recipe", "adopt" })
+		foreach (var action in new[] { "add_sound", "edit_sound", "delete_sound", "status", "move", "recipe" })
 			Assert.True(Workspace.GameActions.Contains(action));
 
 		foreach (var action in new[] { "note", "finalised", "assign", "useful", "prepare", "add_freesound" })

@@ -27,7 +27,9 @@ A project supplies an `authoring.json` file. Relative paths are resolved against
 	],
 	"freesound": { "credentials": "%LOCALAPPDATA%/MyGame/freesound.json" },
 	"apply": { "command": "dotnet", "arguments": ["msbuild", "build/Build.proj", "-t:CookAssets"], "directory": "../.." },
-	"send": { "command": "dotnet", "arguments": ["msbuild", "build/Build.proj", "-t:SendSound", "-p:SoundId={id}"], "directory": "../.." }
+	"send": { "command": "dotnet", "arguments": ["msbuild", "build/Build.proj", "-t:SendSound", "-p:SoundId={id}"], "directory": "../.." },
+	"assistant": { "model": "claude-haiku-5.5" },
+	"editor": { "command": "C:/Program Files/Audacity 4/bin/Audacity4.exe", "arguments": ["{file}"] }
 }
 ```
 
@@ -55,15 +57,39 @@ A project supplies an `authoring.json` file. Relative paths are resolved against
   in `directory` (default: the configuration folder). The tool shows the command's last output line, or the end of its output if it fails.
 - `send` (optional): a command that makes running instances of the project play the current preparation of one sound, so it can be heard in place
   without a full cook. It runs like `apply`, with `{id}` in each argument replaced by the sound ID.
+- `assistant` (optional): the AI model behind "Find more candidates" (`model`, default `claude-haiku-5.5`), and optionally the Copilot CLI
+  executable to run (`command`, default `copilot` on PATH).
+- `editor` (optional): the audio editor behind "Edit in Audacity" (see below). It runs like `apply`, with `{file}` in each argument replaced by the
+  path of the working copy; `arguments` defaults to `["{file}"]`. Without this setting, Audacity is used if it is installed in its default folder
+  (Audacity 4 is preferred to Audacity 3).
 
 When the project has either command, the tool publishes edits automatically. About 2 s after the last review action that changes what the project
-plays (accepting or rejecting a variant, reordering, a recipe edit, adopting a recipe, and adding, editing or deleting a sound), it runs `send` for each
+plays (accepting or rejecting a variant, reordering, a recipe edit, an imported edit from the external editor, and adding, editing or deleting a sound), it runs `send` for each
 edited sound and then `apply` once. Edits made during a publish wait for the next pause. Only one project command runs at a time.
+
+## Finding candidates
+
+"Find more candidates" asks an AI model, through the user's own GitHub Copilot CLI sign-in, to find new Freesound recordings for the selected
+sound. The model sees only the sound's catalog entry and the titles and notes of its accepted and rejected variants. It writes up to 4 search
+queries; the tool runs them through the Freesound API (which needs only the API credentials, not a connection), keeps CC0 and CC-BY sounds that the
+project does not know yet, and asks the model to choose up to 5 of them. Each choice is added as an unheard variant. A search takes a minute or
+two. To enable it, install the Copilot CLI (`winget install GitHub.Copilot`), run `copilot` once to sign in, and restart the tool.
+
+## Editing in Audacity
+
+A recipe cannot fix everything, such as a click in the middle of a recording. "Edit in Audacity" opens a WAV working copy of the variant's
+unprocessed original (in `cache/edits`) in the configured editor. Each time the editor exports over that same file (in Audacity, File > Export
+Audio; saving a project does not change the file), the tool imports the new version as an original of kind `edited:<source id>` and gives it to the
+variant. The variant keeps its status, note and recipe, and the recipe now applies to the edited recording. The edit keeps the credit of the recording
+it was made from, and records that recording as `edit_of`. Only the latest edit is kept: an earlier edit that no variant uses any more is deleted. Edits
+are stored in `originals`, because they cannot be downloaded again.
 
 ## Recipes
 
 A recipe is an ordered list of built-in steps, each of which can be bypassed: `trim`, `cut`, `fade_in`, `fade_out`, `gain`, `loudness`, `high_pass`,
-`low_pass`, `eq` and `loop`. `RecipeRenderer.Render` applies them to 48 kHz float audio. Rendering always starts from the original.
+`low_pass`, `eq` and `loop`. `RecipeRenderer.Render` applies them to 48 kHz float audio. Rendering always starts from the original. A variant may
+start with a reference master, an existing prepared file that stands in for the recipe. The first recipe edit replaces it, so playback in the tool
+always matches the game; bypass every step to hear the original.
 
 ## Resolving prepared audio
 

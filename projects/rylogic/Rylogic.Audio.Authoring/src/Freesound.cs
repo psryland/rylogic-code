@@ -18,6 +18,9 @@ public sealed record FreesoundStatus(bool Configured, bool Connected);
 /// <summary>The descriptive fields of a Freesound sound, read from its public page.</summary>
 public sealed record FreesoundSoundInfo(string Number, string Title, string User, string Licence, string Url, string PreviewUrl);
 
+/// <summary>One Freesound search result. 'Licence' uses the short form, such as 'CC0' or 'CC-BY 4.0'.</summary>
+public sealed record FreesoundSearchResult(string Number, string Title, string User, string Licence, double Duration, IReadOnlyList<string> Tags, string Description);
+
 /// <summary>
 /// Freesound access for the authoring tool: public sound pages for browsing, and the OAuth2 API for downloading original recordings. The credentials
 /// file is per user and outside version control; it holds 'client_id', 'client_secret' and, once connected, 'access_token', 'refresh_token' and
@@ -127,6 +130,37 @@ public sealed partial class FreesoundClient
 		using var request = new HttpRequestMessage(HttpMethod.Get, preview_url);
 		request.Headers.UserAgent.ParseAdd(BrowserAgent);
 		await DownloadAsync(request, path, cancel);
+	}
+
+	/// <summary>
+	/// Search Freesound for 'query', returning up to 'count' CC0 and CC-BY sounds in Freesound's relevance order. Needs only the API credentials, not
+	/// a connection, because searching uses the client secret as an API key.
+	/// </summary>
+	public async Task<IReadOnlyList<FreesoundSearchResult>> SearchAsync(string query, int count, CancellationToken cancel)
+	{
+		// Freesound's licence filter names licence families, so Non-Commercial and Sampling+ sounds are never returned
+		var secret = Text(LoadCredentials(), "client_secret") ?? throw new InvalidOperationException("Enter the Freesound API credentials first.");
+		var filter = "license:(\"Creative Commons 0\" OR \"Attribution\")";
+		var url = $"{ApiRoot}/search/text/?query={Uri.EscapeDataString(query)}&filter={Uri.EscapeDataString(filter)}&fields=id,name,username,license,duration,tags,description&page_size={count}";
+		using var request = new HttpRequestMessage(HttpMethod.Get, url);
+		request.Headers.Authorization = new AuthenticationHeaderValue("Token", secret);
+		using var response = await m_http.SendAsync(request, cancel);
+		response.EnsureSuccessStatusCode();
+		var reply = JsonNode.Parse(await response.Content.ReadAsStringAsync(cancel));
+
+		// Keep only results whose licence is recognised as CC0 or CC-BY, in case the filter is ever looser than expected
+		var results = new List<FreesoundSearchResult>();
+		foreach (var item in reply?["results"]?.AsArray() ?? [])
+		{
+			var lic = LicenceRegex().Match(Text(item, "license") ?? string.Empty);
+			if (!lic.Success || (lic.Groups[2].Value != "zero" && lic.Groups[2].Value != "by"))
+				continue;
+
+			var licence = lic.Groups[2].Value == "zero" ? "CC0" : $"CC-BY {lic.Groups[3].Value}";
+			var tags = item?["tags"]?.AsArray().Select(x => (string?)x).OfType<string>().ToList() ?? [];
+			results.Add(new FreesoundSearchResult(item!["id"]!.ToString(), Text(item, "name") ?? "?", Text(item, "username") ?? "?", licence, item["duration"]?.GetValue<double>() ?? 0, tags, Text(item, "description") ?? string.Empty));
+		}
+		return results;
 	}
 
 	/// <summary>Download the original recording of sound 'number' into 'folder' as '&lt;number&gt;.&lt;type&gt;' and return its path. Requires a connection.</summary>

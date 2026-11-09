@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
@@ -16,12 +17,30 @@ namespace Rylogic.Audio.Authoring;
 /// recipes. Every method is thread-safe. Reading the state and applying review actions only take a short in-memory lock, so they never wait for
 /// downloads, imports or renders; those run as <see cref="LatestJobs"/> and publish their results when they finish.
 /// </summary>
-public sealed partial class Workspace
+public sealed partial class Workspace : IDisposable
 {
 	/// <summary>The latest render of one variant. A failed render keeps the key of the last successful one, so the last working audio stays playable.</summary>
 	private sealed class RenderState
 	{
 		public string? Key;
+		public string? Error;
+	}
+
+	/// <summary>The size and write time of a file, which change whenever the file is written.</summary>
+	private readonly record struct FileStamp(long Length, DateTime Modified);
+
+	/// <summary>
+	/// A variant's working copy, opened in the external editor. 'Seen' is the stamp of the last version imported or written by the tool, and 'Candidate'
+	/// is the stamp found by the previous poll. A new version is imported once its stamp has stopped changing for one poll.
+	/// </summary>
+	private sealed class EditSession
+	{
+		public required string SoundId;
+		public required string VariantId;
+		public required string Path;
+		public FileStamp? Seen;
+		public FileStamp? Candidate;
+		public string? Notice;
 		public string? Error;
 	}
 
@@ -31,15 +50,20 @@ public sealed partial class Workspace
 	private readonly Dictionary<string, PrepFile> m_preps = new(StringComparer.Ordinal);
 	private readonly Dictionary<string, RenderState> m_renders = new(StringComparer.Ordinal);
 	private readonly Dictionary<string, string> m_import_errors = new(StringComparer.Ordinal);
+	private readonly Dictionary<string, (string? notice, string? error)> m_finds = new(StringComparer.Ordinal);
+	private readonly Dictionary<string, EditSession> m_edits = new(StringComparer.Ordinal);
+	private readonly CancellationTokenSource m_shutdown = new();
+	private Task? m_edit_poll;
 	private readonly OriginsFile m_origins;
 	private IReadOnlyList<CatalogSound> m_catalog;
 
-	/// <summary>Open the project described by 'config'.</summary>
-	public Workspace(AuthoringConfig config, Ffmpeg ffmpeg, HttpClient http)
+	/// <summary>Open the project described by 'config'. 'assistant' finds new candidates; without one, finding is unavailable.</summary>
+	public Workspace(AuthoringConfig config, Ffmpeg ffmpeg, HttpClient http, IAssistant? assistant = null)
 	{
-		// The catalog and origins are read now; preparation files are read when their sound is first used
+		// The catalog, origins and preparation files are read now
 		Config = config;
 		Ffmpeg = ffmpeg;
+		Assistant = assistant;
 		Sources = new SourceStore(config.OriginalsFolder, config.FetchedFolder, ffmpeg);
 		Cache = new RenderCache(config.CacheFolder, Sources, ffmpeg);
 		Freesound = new FreesoundClient(http, config.FreesoundCredentialsPath);
@@ -47,7 +71,33 @@ public sealed partial class Workspace
 		Jobs = new LatestJobs(Math.Max(1, Environment.ProcessorCount / 2));
 		m_catalog = Catalog.Read(config.CatalogPath);
 		m_origins = OriginsFile.Load(config.OriginsPath);
+
+		// Render every recipe the game uses, so playback matches the game from the start. Renders already in the cache finish at once.
+		lock (m_lock)
+		{
+			foreach (var sound in m_catalog)
+			{
+				foreach (var variant in PrepOf(sound.Id).Variants.Where(x => x.Source != null && x.ReferenceMaster == null && x.Status != EVariantStatus.Rejected))
+					QueueRender(sound.Id, variant);
+			}
+		}
 	}
+
+	/// <summary>Stop watching the editor working copies. Background jobs already running finish on their own.</summary>
+	public void Dispose()
+	{
+		// The poll loop ends at its next tick
+		m_shutdown.Cancel();
+	}
+
+	/// <summary>
+	/// Raised with a sound ID when background work, rather than a review action, changes what the project's game plays for that sound. It is raised
+	/// on a worker thread, without any workspace lock held.
+	/// </summary>
+	public event Action<string>? GameChanged;
+
+	/// <summary>How often the editor working copies are checked for a new export.</summary>
+	public static TimeSpan EditPollPeriod { get; } = TimeSpan.FromMilliseconds(500);
 
 	/// <summary>The project configuration.</summary>
 	public AuthoringConfig Config { get; }
@@ -67,14 +117,20 @@ public sealed partial class Workspace
 	/// <summary>Fetches originals that are not stored yet.</summary>
 	public OriginalFetcher Fetcher { get; }
 
-	/// <summary>The background jobs. Slots are 'import:&lt;origin&gt;' and 'render:&lt;sound-id&gt;/&lt;variant-id&gt;'.</summary>
+	/// <summary>The AI assistant that finds new candidates, or null if none is configured.</summary>
+	public IAssistant? Assistant { get; }
+
+	/// <summary>
+	/// The background jobs. Slots are 'import:&lt;origin&gt;', 'render:&lt;sound-id&gt;/&lt;variant-id&gt;', 'find:&lt;sound-id&gt;' and
+	/// 'edit:&lt;sound-id&gt;/&lt;variant-id&gt;'.
+	/// </summary>
 	public LatestJobs Jobs { get; }
 
 	/// <summary>The file types accepted from local folders.</summary>
 	public static IReadOnlyList<string> LocalTypes { get; } = [".wav", ".mp3", ".flac", ".ogg", ".opus"];
 
 	/// <summary>The review actions that change what the project's game plays for the action's sound 'id'. Other actions only change the review state.</summary>
-	public static IReadOnlySet<string> GameActions { get; } = new HashSet<string>(["add_sound", "edit_sound", "delete_sound", "status", "move", "recipe", "adopt"], StringComparer.Ordinal);
+	public static IReadOnlySet<string> GameActions { get; } = new HashSet<string>(["add_sound", "edit_sound", "delete_sound", "status", "move", "recipe"], StringComparer.Ordinal);
 
 	/// <summary>The sound ID an action changes: the new ID of an added or edited sound, otherwise the action's 'id', or null when it names none.</summary>
 	public static string? SoundIdOf(JsonObject action)
@@ -125,11 +181,29 @@ public sealed partial class Workspace
 					node["render_error"] = render?.Error;
 					node["render_pending"] = pending.ContainsKey(slot);
 					node["reference_url"] = variant.ReferenceMaster != null ? $"/reference/{string.Join('/', variant.ReferenceMaster.Split('/').Select(Uri.EscapeDataString))}" : null;
+
+					// The state of editing the variant in the external editor, once it has been opened there
+					var edit_slot = EditSlot(sound.Id, variant.Id);
+					var edit = m_edits.GetValueOrDefault(edit_slot);
+					if (edit != null || pending.ContainsKey(edit_slot))
+						node["edit"] = new JsonObject { ["pending"] = pending.ContainsKey(edit_slot), ["notice"] = edit?.Notice, ["error"] = edit?.Error, ["path"] = edit?.Path };
+
 					variants.Add(node);
 				}
 				preps[sound.Id] = variants;
 			}
 
+			// The latest candidate search of each sound ID that has one
+			var finds = new JsonObject();
+			foreach (var sound in m_catalog)
+			{
+				var slot = FindSlot(sound.Id);
+				var (notice, error) = m_finds.GetValueOrDefault(sound.Id);
+				if (pending.ContainsKey(slot) || notice != null || error != null)
+					finds[sound.Id] = new JsonObject { ["pending"] = pending.ContainsKey(slot), ["notice"] = notice, ["error"] = error };
+			}
+
+			var assistant = Assistant?.Status ?? new AssistantStatus(false, CopilotAssistant.EnableHint);
 			return new JsonObject
 			{
 				["ids"] = ids,
@@ -137,6 +211,14 @@ public sealed partial class Workspace
 				["preps"] = preps,
 				["pending"] = new JsonArray(pending.Values.Order(StringComparer.Ordinal).Select(x => (JsonNode)x).ToArray()),
 				["freesound"] = new JsonObject { ["configured"] = freesound.Configured, ["connected"] = freesound.Connected },
+				["assistant"] = new JsonObject { ["available"] = assistant.Available, ["description"] = assistant.Description },
+				["finds"] = finds,
+				["editor"] = new JsonObject
+				{
+					["available"] = Config.Editor != null,
+					["name"] = Config.Editor?.ProgramName ?? "Audacity",
+					["hint"] = Config.Editor == null ? $"Install Audacity, or set 'editor.command' in '{Config.ConfigPath}', then restart the tool." : null,
+				},
 				["apply"] = Config.Apply?.Display,
 				["send"] = Config.Send?.Display,
 			};
@@ -210,6 +292,15 @@ public sealed partial class Workspace
 				case "assign":
 				{
 					return Assign(Text(action, "id"), Text(action, "origin"));
+				}
+				case "find_candidates":
+				{
+					return FindCandidates(Text(action, "id"));
+				}
+				case "open_editor":
+				{
+					var (prep, variant) = VariantOf(action);
+					return OpenEditor(prep.Id, variant);
 				}
 				case "add_sound":
 				{
@@ -294,23 +385,17 @@ public sealed partial class Workspace
 				}
 				case "recipe":
 				{
-					// Save the edited recipe and render it; a newer edit supersedes a render still in progress
+					// Save the edited recipe and render it; a newer edit supersedes a render still in progress.
+					// Editing a recipe makes it the variant's prepared audio, replacing any reference master; the reference file itself is left untouched.
 					var (prep, variant) = VariantOf(action);
+					if (variant.Source == null)
+						throw new InvalidOperationException("Import the original before editing its recipe.");
+
 					variant.Recipe = JsonSerializer.Deserialize<List<RecipeStep>>(action["recipe"], AuthoringJson.Options) ?? [];
+					variant.ReferenceMaster = null;
 					prep.Save(Config.PrepFolder);
 					Prepare(prep.Id, variant);
 					return null;
-				}
-				case "adopt":
-				{
-					// From now on the recipe's render is the variant's prepared audio; the reference file itself is left untouched
-					var (prep, variant) = VariantOf(action);
-					if (variant.Source == null)
-						throw new InvalidOperationException("Import the original before adopting its recipe.");
-
-					variant.ReferenceMaster = null;
-					prep.Save(Config.PrepFolder);
-					return "The recipe now prepares this variant. The previous reference file was not changed.";
 				}
 				case "prepare":
 				{
@@ -369,6 +454,73 @@ public sealed partial class Workspace
 			return m_origins.Origins.FirstOrDefault(x => x.Value.Preview == preview).Key;
 	}
 
+	/// <summary>
+	/// Start a background search for up to <see cref="CandidateFinder.MaxPicks"/> new Freesound candidates for 'sound_id'. The assistant writes the
+	/// queries and chooses among the results; each choice is added as an unheard variant. Only CC0 and CC-BY sounds new to the project are considered.
+	/// Caller holds the lock.
+	/// </summary>
+	private string FindCandidates(string sound_id)
+	{
+		// Both the assistant and the Freesound credentials are needed before anything starts
+		if (Assistant?.Status is not { Available: true })
+			throw new InvalidOperationException(Assistant?.Status.Description ?? CopilotAssistant.EnableHint);
+		if (!Freesound.Status.Configured)
+			throw new InvalidOperationException("Enter the Freesound API credentials first.");
+
+		// Capture the context now: the catalog entry, the author's accepted and rejected choices, and every Freesound sound the project already knows
+		var sound = m_catalog.FirstOrDefault(x => x.Id == sound_id) ?? throw new InvalidOperationException($"'{sound_id}' is not a sound ID in the catalog.");
+		var sound_json = Catalog.FormatSound(sound);
+		var variants = PrepOf(sound_id).Variants;
+		List<ReviewedSound> Reviewed(EVariantStatus status)
+		{
+			// The origin's title names the recording; the variant's note says what the author thought of it
+			return [.. variants.Where(x => x.Status == status).Select(x => new ReviewedSound(m_origins.Origins.GetValueOrDefault(x.Origin)?.Title ?? x.Origin, x.Note))];
+		}
+		var liked = Reviewed(EVariantStatus.Accepted);
+		var disliked = Reviewed(EVariantStatus.Rejected);
+		var known = m_origins.Origins.Keys
+			.Concat(m_catalog.SelectMany(x => PrepOf(x.Id).Variants.Select(v => v.Origin)))
+			.Where(x => OriginsFile.KindOf(x) == EOriginKind.Freesound)
+			.Select(OriginsFile.ReferenceOf)
+			.ToHashSet(StringComparer.Ordinal);
+
+		// Each step waits on the network or the model, so the whole search runs as one job; a new search for the same sound replaces it
+		var assistant = Assistant!;
+		m_finds.Remove(sound_id);
+		QueueJob(FindSlot(sound_id), $"Find candidates for {sound_id}", async cancel =>
+		{
+			// Ask for queries, then search for each, keeping only sounds new to the project
+			var queries = CandidateFinder.QueriesOf(await assistant.AskAsync(CandidateFinder.QueryPrompt(sound_json, liked, disliked), cancel));
+			var results = new List<FreesoundSearchResult>();
+			foreach (var query in queries)
+				results.AddRange(await Freesound.SearchAsync(query, CandidateFinder.ResultsPerQuery, cancel));
+
+			var choices = CandidateFinder.ChoicesOf(results, known);
+			if (choices.Count == 0)
+				return $"No new CC0 or CC-BY sounds were found for {sound_id} (searched: {string.Join(", ", queries)}).";
+
+			// Let the assistant choose, then add each choice as an unheard variant
+			var picks = CandidateFinder.PicksOf(await assistant.AskAsync(CandidateFinder.PickPrompt(sound_json, liked, disliked, choices), cancel), choices);
+			if (picks.Count == 0)
+				return $"None of the {choices.Count} new sounds found suit {sound_id} (searched: {string.Join(", ", queries)}).";
+
+			foreach (var pick in picks)
+				await AddFreesoundAsync(sound_id, pick.Number, cancel);
+
+			return $"Added {picks.Count} candidate{(picks.Count == 1 ? "" : "s")} for {sound_id}: {string.Join(", ", picks.Select(x => x.Title))}.";
+		}, notice =>
+		{
+			// The result stays visible until the next search of the sound
+			lock (m_lock)
+				m_finds[sound_id] = (notice, null);
+		}, error =>
+		{
+			lock (m_lock)
+				m_finds[sound_id] = (null, error.Message);
+		});
+		return $"Searching Freesound for {sound_id} candidates. This takes a minute or two.";
+	}
+
 	/// <summary>Assign 'origin' to 'sound_id' and describe its other uses. Caller holds the lock.</summary>
 	private string Assign(string sound_id, string origin)
 	{
@@ -402,6 +554,202 @@ public sealed partial class Workspace
 		return others.Count != 0 ? $"{notice} Also used for {string.Join(", ", others)}." : notice;
 	}
 
+	/// <summary>
+	/// Open a working WAV copy of the original of 'variant' in the external editor, and import each version the editor later saves over it. The
+	/// imported version replaces the variant's original; its status, note and recipe are kept. Caller holds the lock.
+	/// </summary>
+	private string OpenEditor(string sound_id, Variant variant)
+	{
+		// The editor works on the unprocessed original, so the variant needs one
+		var editor = Config.Editor ?? throw new InvalidOperationException($"No audio editor is available. Install Audacity, or set 'editor.command' in '{Config.ConfigPath}'.");
+		if (variant.Source == null)
+			throw new InvalidOperationException("Import the original before editing it.");
+
+		// Capture the inputs; the working copy is named after the variant so the editor's title shows what is being edited
+		var slot = EditSlot(sound_id, variant.Id);
+		var origin = variant.Origin;
+		var record = CopyOf(OriginRecordOf(origin));
+		var source = variant.Source;
+		var path = Path.Combine(Config.CacheFolder, "edits", $"{sound_id}.{variant.Id}.wav");
+		var variant_id = variant.Id;
+		QueueJob(slot, $"Open {sound_id} {variant_id} in {editor.ProgramName}", async cancel =>
+		{
+			// Write the original as 48 kHz float WAV, which every editor reads, then start the editor without waiting for it
+			await Fetcher.EnsureAsync(origin, record, source, cancel);
+			var audio = await Ffmpeg.DecodeAsync(Sources.OriginalPath(source), cancel);
+			Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+			AuthoringJson.WriteAtomic(path, WavFile.Encode(audio));
+			var stamp = StampOf(path);
+
+			var command = editor.ForFile(path);
+			var info = new ProcessStartInfo(command.Command) { UseShellExecute = false, WorkingDirectory = command.Directory };
+			foreach (var argument in command.Arguments)
+				info.ArgumentList.Add(argument);
+
+			using var process = Process.Start(info) ?? throw new InvalidOperationException($"'{command.Command}' did not start.");
+			return stamp;
+		}, stamp =>
+		{
+			// The tool's own copy is not an edit; only a later version is imported
+			lock (m_lock)
+			{
+				m_edits[slot] = new EditSession { SoundId = sound_id, VariantId = variant_id, Path = path, Seen = stamp, Candidate = stamp };
+				m_edit_poll ??= Task.Run(() => PollEditsAsync(m_shutdown.Token));
+			}
+		}, error =>
+		{
+			// Keep any earlier session, so a failed reopen does not stop the watch on a copy that is still open
+			lock (m_lock)
+			{
+				var session = m_edits.GetValueOrDefault(slot) ?? (m_edits[slot] = new EditSession { SoundId = sound_id, VariantId = variant_id, Path = path });
+				session.Error = error.Message;
+			}
+		});
+		return $"Opening {sound_id} {variant_id} in {editor.ProgramName}. Export the edit over the same file to use it.";
+	}
+
+	/// <summary>Watch every editor working copy, and import each new version once it has stopped changing.</summary>
+	private async Task PollEditsAsync(CancellationToken cancel)
+	{
+		// Polling is used instead of change notifications, because editors replace files in several steps and a stable stamp shows that saving has finished
+		using var timer = new PeriodicTimer(EditPollPeriod);
+		try
+		{
+			while (await timer.WaitForNextTickAsync(cancel))
+			{
+				// Read the file stamps outside the lock, then compare and record them under it
+				List<(string slot, EditSession session)> sessions;
+				lock (m_lock)
+					sessions = m_edits.Select(x => (x.Key, x.Value)).ToList();
+
+				foreach (var (slot, session) in sessions)
+				{
+					// A version is imported when it differs from the last one seen and has not changed since the previous poll
+					var stamp = StampOf(session.Path);
+					lock (m_lock)
+					{
+						var ready = stamp != null && stamp != session.Seen && stamp == session.Candidate;
+						session.Candidate = stamp;
+						if (!ready)
+							continue;
+
+						session.Seen = stamp;
+						QueueEditImport(slot, session);
+					}
+				}
+			}
+		}
+		catch (OperationCanceledException)
+		{
+			// The workspace was disposed
+		}
+	}
+
+	/// <summary>Import the current version of an editor working copy as the new original of its variant. Caller holds the lock.</summary>
+	private void QueueEditImport(string slot, EditSession session)
+	{
+		// The variant may have been removed or renamed since it was opened
+		var variant = m_catalog.Any(x => x.Id == session.SoundId) ? PrepOf(session.SoundId).Find(session.VariantId) : null;
+		if (variant == null)
+		{
+			session.Error = $"{session.SoundId} {session.VariantId} no longer exists, so the edit was not imported.";
+			return;
+		}
+
+		// An edit is credited like the recording it was made from, and names the first recording in its chain of edits
+		var record = CopyOf(OriginRecordOf(variant.Origin));
+		var edit_of = record.EditOf ?? variant.Origin;
+		var path = session.Path;
+		QueueJob(slot, $"Import the edit of {session.SoundId} {session.VariantId}", async cancel =>
+		{
+			// Work on a private copy, so the editor can save again while this version is imported
+			var copy = Path.Combine(Path.GetDirectoryName(path)!, $"{Guid.NewGuid():N}.wav");
+			try
+			{
+				File.Copy(path, copy);
+				var id = SourceStore.SourceIdOf(await SourceStore.Sha256Async(copy, cancel));
+				var provenance = new SourceSidecar
+				{
+					Kind = EOriginKind.Edited,
+					Origin = $"edited:{id}",
+					Title = record.Title,
+					Author = record.User,
+					Licence = record.Licence,
+					Url = record.Url,
+					EditOf = edit_of,
+					DownloadName = Path.GetFileName(path),
+				};
+				return await Sources.ImportAsync(copy, provenance, cancel);
+			}
+			finally
+			{
+				File.Delete(copy);
+			}
+		}, sidecar =>
+		{
+			// The game only needs telling when the variant's original actually changed
+			bool changed;
+			lock (m_lock)
+				changed = AdoptEdit(session, sidecar, record, edit_of);
+
+			if (changed)
+				GameChanged?.Invoke(session.SoundId);
+		}, error =>
+		{
+			lock (m_lock)
+				session.Error = error.Message;
+		});
+	}
+
+	/// <summary>
+	/// Make the imported edit 'sidecar' the original of the session's variant, and remove the edit it replaces if nothing else uses it. Returns false
+	/// when the variant already uses it. Caller holds the lock.
+	/// </summary>
+	private bool AdoptEdit(EditSession session, SourceSidecar sidecar, OriginRecord record, string edit_of)
+	{
+		// The variant may have gone while the edit was imported, and an export of unchanged audio changes nothing
+		session.Error = null;
+		var variant = m_catalog.Any(x => x.Id == session.SoundId) ? PrepOf(session.SoundId).Find(session.VariantId) : null;
+		if (variant == null)
+		{
+			session.Error = $"{session.SoundId} {session.VariantId} no longer exists, so the edit was not imported.";
+			return false;
+		}
+		if (variant.Source == sidecar.Id)
+			return false;
+
+		// Register the edit as an origin and give it to the variant. Its review state and recipe still apply to the edited recording.
+		var origin = sidecar.Origin;
+		var previous = variant.Origin;
+		m_origins.Origins[origin] = new OriginRecord { Title = record.Title, User = record.User, Licence = record.Licence, Url = record.Url, Source = sidecar.Id, EditOf = edit_of };
+		variant.Origin = origin;
+		variant.Source = sidecar.Id;
+		variant.ReferenceMaster = null;
+		var prep = PrepOf(session.SoundId);
+		prep.Save(Config.PrepFolder);
+		QueueRender(session.SoundId, variant);
+
+		// Only the latest edit is kept: an earlier edit that no variant uses any more exists nowhere else worth keeping
+		if (OriginsFile.KindOf(previous) == EOriginKind.Edited && !m_catalog.Any(x => PrepOf(x.Id).Variants.Any(v => v.Origin == previous)))
+		{
+			if (m_origins.Origins.GetValueOrDefault(previous)?.Source is string old_source)
+				Sources.Delete(old_source);
+
+			m_origins.Origins.Remove(previous);
+		}
+		SaveOrigins();
+		session.Notice = $"Imported the edit at {DateTime.Now:HH:mm:ss}.";
+		return true;
+	}
+
+	/// <summary>The stamp of the file at 'path', or null if it does not exist.</summary>
+	private static FileStamp? StampOf(string path)
+	{
+		// A missing file has no stamp, so deleting the working copy is never mistaken for an edit
+		var info = new FileInfo(path);
+		return info.Exists ? new FileStamp(info.Length, info.LastWriteTimeUtc) : null;
+	}
+
 	/// <summary>Render 'variant' if its original is imported, otherwise import it first when 'import' is true. Caller holds the lock.</summary>
 	private void Prepare(string sound_id, Variant variant, bool import = true)
 	{
@@ -412,8 +760,8 @@ public sealed partial class Workspace
 			return;
 		}
 
-		// Hand-made sources are added outside the tool, so there is nothing to fetch
-		if (!import || OriginsFile.KindOf(variant.Origin) == EOriginKind.HandMade)
+		// Hand-made and edited sources are added outside the tool or by the editor, so there is nothing to fetch
+		if (!import || OriginsFile.KindOf(variant.Origin) is EOriginKind.HandMade or EOriginKind.Edited)
 			return;
 
 		QueueImport(variant.Origin);
@@ -509,6 +857,7 @@ public sealed partial class Workspace
 				return $"/local/{EscapePath(OriginsFile.ReferenceOf(origin))}";
 			}
 			case EOriginKind.HandMade:
+			case EOriginKind.Edited:
 			{
 				return null;
 			}
@@ -652,7 +1001,7 @@ public sealed partial class Workspace
 	/// <summary>A copy of the provenance in 'record', for a background job to read while the registry may change. Caller holds the lock.</summary>
 	private static OriginRecord CopyOf(OriginRecord record)
 	{
-		return new OriginRecord { Title = record.Title, User = record.User, Licence = record.Licence, Url = record.Url };
+		return new OriginRecord { Title = record.Title, User = record.User, Licence = record.Licence, Url = record.Url, EditOf = record.EditOf };
 	}
 
 	/// <summary>Save the origins registry. Caller holds the lock.</summary>
@@ -671,6 +1020,18 @@ public sealed partial class Workspace
 	private static string RenderSlot(string sound_id, string variant_id)
 	{
 		return $"render:{sound_id}/{variant_id}";
+	}
+
+	/// <summary>The job slot that finds new candidates for a sound ID.</summary>
+	private static string FindSlot(string sound_id)
+	{
+		return $"find:{sound_id}";
+	}
+
+	/// <summary>The job slot that opens a variant in the external editor and imports its edits. It also keys the variant's edit session.</summary>
+	private static string EditSlot(string sound_id, string variant_id)
+	{
+		return $"edit:{sound_id}/{variant_id}";
 	}
 
 	/// <summary>A required string argument of an action.</summary>

@@ -23,6 +23,12 @@ public enum EOriginKind
 
 	/// <summary>Made by hand with no separate original. The origin reference is 'hand_made:&lt;name&gt;'.</summary>
 	HandMade,
+
+	/// <summary>
+	/// An external editor's change to another recording, kept as a new original. The origin reference is 'edited:&lt;source id&gt;', and its record names the
+	/// recording it was made from (see <see cref="OriginRecord.EditOf"/>), whose credit it keeps.
+	/// </summary>
+	Edited,
 }
 
 /// <summary>The review state of one variant.</summary>
@@ -253,6 +259,9 @@ public sealed class SourceSidecar
 	public string? Licence { get; set; }
 	public string? Url { get; set; }
 
+	/// <summary>For an edited recording, the origin of the recording it was made from.</summary>
+	public string? EditOf { get; set; }
+
 	/// <summary>The file name of the original download or generation.</summary>
 	public string? DownloadName { get; set; }
 
@@ -278,6 +287,12 @@ public sealed class OriginRecord
 	[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
 	public bool NotUseful { get; set; }
 
+	/// <summary>
+	/// For an edited recording, the origin of the first recording in its chain of edits. The edit is credited like that recording, and that recording
+	/// counts as in use while the edit is.
+	/// </summary>
+	public string? EditOf { get; set; }
+
 	/// <summary>The source ID once imported.</summary>
 	public string? Source { get; set; }
 }
@@ -298,6 +313,7 @@ public sealed class OriginsFile
 			"freesound" => EOriginKind.Freesound,
 			"local" => EOriginKind.Local,
 			"hand_made" => EOriginKind.HandMade,
+			"edited" => EOriginKind.Edited,
 			_ => throw new InvalidDataException($"Origin '{origin}' has an unknown kind."),
 		};
 	}
