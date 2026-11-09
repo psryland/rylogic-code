@@ -34,6 +34,48 @@ namespace pr::rdr12
 {
 	using namespace ::pr::compute;
 
+	namespace
+	{
+		// A 2D affine map: (x, y) -> (a*x + b*y + tx, c*x + d*y + ty)
+		struct Affine2
+		{
+			float a, b, tx;
+			float c, d, ty;
+		};
+
+		// The map that applies 'rhs' and then 'lhs'
+		Affine2 operator * (Affine2 const& lhs, Affine2 const& rhs)
+		{
+			return Affine2{
+				.a = lhs.a * rhs.a + lhs.b * rhs.c,
+				.b = lhs.a * rhs.b + lhs.b * rhs.d,
+				.tx = lhs.a * rhs.tx + lhs.b * rhs.ty + lhs.tx,
+				.c = lhs.c * rhs.a + lhs.d * rhs.c,
+				.d = lhs.c * rhs.b + lhs.d * rhs.d,
+				.ty = lhs.c * rhs.tx + lhs.d * rhs.ty + lhs.ty,
+			};
+		}
+
+		// The inverse of an invertible affine map
+		Affine2 InvertAffine(Affine2 const& m)
+		{
+			// Invert the linear part, then undo the translation with it
+			auto det = m.a * m.d - m.b * m.c;
+			auto a = m.d / det;
+			auto b = -m.b / det;
+			auto c = -m.c / det;
+			auto d = m.a / det;
+			return Affine2{ .a = a, .b = b, .tx = -(a * m.tx + b * m.ty), .c = c, .d = d, .ty = -(c * m.tx + d * m.ty) };
+		}
+
+		// The clip space transform that applies 'm' to normalised device (x, y). Clip x and y are scaled by w, so the translation is scaled by w too.
+		// Depth and w are unchanged.
+		m4x4 ClipTransform(Affine2 const& m)
+		{
+			return m4x4{ v4{ m.a, m.c, 0, 0 }, v4{ m.b, m.d, 0, 0 }, v4{ 0, 0, 1, 0 }, v4{ m.tx, m.ty, 0, 1 } };
+		}
+	}
+
 	// The procedural sky's low cloud accumulated over frames. The sky shader reads the previous frame's history and writes this frame's.
 	struct RenderForward::SkyHistory
 	{
@@ -65,6 +107,120 @@ namespace pr::rdr12
 		{}
 	};
 
+	// The reflection of the opaque scene in the scene's reflection plane, projected each frame by three compute passes (see reflection_plane.hlsl).
+	// Sources just beyond the viewport are rendered at low resolution into guard bands above, left of, and right of the viewport, so that their
+	// reflections are found too. The bands are packed side by side into one atlas, and all of them are drawn in one pass using view instancing.
+	struct RenderForward::ReflectionPlane
+	{
+		// Root parameters of the projection passes. Each view gets its own table, because consecutive heap entries can wrap around the ring.
+		enum class EParam { Constants, Colour, Depth, Key, Raw, Final, Coverage };
+
+		// The guard bands' resolution relative to the viewport, the top band's resolution relative to the other bands, and the most the side bands
+		// can reach beyond the viewport in normalised device units. The top band's lower resolution lets it reach further above the viewport.
+		static constexpr float GuardScale = 0.25f;
+		static constexpr float GuardTopScale = 0.5f;
+		static constexpr float GuardSideMax = 0.5f;
+
+		// Matches 'CBufReflectionPlane' in reflection_plane.hlsl
+		struct Constants
+		{
+			m4x4 s2w;
+			m4x4 w2s;
+			v4 plane;
+			v4 viewport;
+			v4 cam;
+			v4 src0;
+			v4 src1;
+			v4 src2;
+		};
+
+		// One guard band
+		struct GuardBand
+		{
+			// Places the guarded area's normalised device coordinates (see 'm_guard_remap') in the band's area of the atlas
+			D3D12_VIEWPORT m_viewport;
+
+			// Maps atlas pixel positions in the band to the main view's normalised device coordinates
+			Affine2 m_src;
+
+			// The band's area in the atlas, in pixels
+			D3D12_RECT m_rect;
+
+			// The size of the square that each band pixel's reflection covers, in viewport pixels
+			float m_splat;
+
+			// True when reflections this frame can need sources from the band
+			bool m_needed;
+		};
+
+		// The passes' shared root signature and their pipeline states
+		D3DPtr<ID3D12RootSignature> m_sig;
+		D3DPtr<ID3D12PipelineState> m_project;
+		D3DPtr<ID3D12PipelineState> m_write;
+		D3DPtr<ID3D12PipelineState> m_fill;
+
+		// The winning depth key per pixel, the raw projected reflection, and the gap-filled reflection and its coverage read by the shaders.
+		// All are the size of the back buffer.
+		Texture2DPtr m_key;
+		Texture2DPtr m_raw;
+		Texture2DPtr m_final;
+		Texture2DPtr m_coverage;
+		iv2 m_size;
+
+		// The guard band atlas colour and depth, and the atlas size. They use the main target's formats and sampling, so the scene's pipeline states draw into them.
+		Texture2DPtr m_band_colour;
+		Texture2DPtr m_band_depth;
+		iv2 m_band_size;
+
+		// This frame's bands: top, left, right. 'm_guard' is how far they reach beyond the viewport in normalised device units, (sides, top).
+		// 'm_guard_remap' maps the main view's clip space so that the guarded area, x in [-1-gx, 1+gx] and y in [-1, 1+gy], fills the unit square.
+		std::array<GuardBand, 3> m_bands;
+		v2 m_guard;
+		m4x4 m_guard_remap;
+		bool m_active;
+
+		// Per opaque drawlist element, non-zero when the element can appear in a needed band this frame
+		pr::vector<uint8_t> m_draw_elements;
+
+		// The constants for this frame's shaders.
+		shaders::fwd::ReflectionPlane m_constants;
+
+		explicit ReflectionPlane(ID3D12Device4* device)
+			: m_sig()
+			, m_project()
+			, m_write()
+			, m_fill()
+			, m_key()
+			, m_raw()
+			, m_final()
+			, m_coverage()
+			, m_size()
+			, m_band_colour()
+			, m_band_depth()
+			, m_band_size()
+			, m_bands()
+			, m_guard()
+			, m_guard_remap(m4x4::Identity())
+			, m_active()
+			, m_draw_elements()
+			, m_constants()
+		{
+			// The three passes read and write the same resources, so they share one signature
+			m_sig = RootSig(ERootSigFlags::ComputeOnly)
+				.U32(ECBufReg::b0, sizeof(Constants) / sizeof(uint32_t))
+				.SRV(ESRVReg::t0, 1, D3D12_SHADER_VISIBILITY_ALL, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE)
+				.SRV(ESRVReg::t1, 1, D3D12_SHADER_VISIBILITY_ALL, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE)
+				.UAV(EUAVReg::u0, 1, D3D12_SHADER_VISIBILITY_ALL, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE)
+				.UAV(EUAVReg::u1, 1, D3D12_SHADER_VISIBILITY_ALL, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE)
+				.UAV(EUAVReg::u2, 1, D3D12_SHADER_VISIBILITY_ALL, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE)
+				.UAV(EUAVReg::u3, 1, D3D12_SHADER_VISIBILITY_ALL, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE)
+				.Create(device, "ReflectionPlaneSig");
+			m_project = ComputePSO(m_sig.get(), shader_code::reflection_plane_project_cs).Create(device, "ReflectionPlaneProjectPSO");
+			m_write = ComputePSO(m_sig.get(), shader_code::reflection_plane_write_cs).Create(device, "ReflectionPlaneWritePSO");
+			m_fill = ComputePSO(m_sig.get(), shader_code::reflection_plane_fill_cs).Create(device, "ReflectionPlaneFillPSO");
+		}
+	};
+
 	RenderForward::RenderForward(Scene& scene)
 		: RenderStep(Id, scene, scene.wnd().m_gsync)
 		, m_shader(scene.rdr())
@@ -73,6 +229,7 @@ namespace pr::rdr12
 		, m_default_tex(rdr().store().StockTexture(EStockTexture::White))
 		, m_default_sam(rdr().store().StockSampler(EStockSampler::LinearClamp))
 		, m_sky_history(std::make_unique<SkyHistory>())
+		, m_reflection_plane(std::make_unique<ReflectionPlane>(scene.d3d()))
 	{
 		// Create the default PSO description
 		m_default_pipe_state = D3D12_GRAPHICS_PIPELINE_STATE_DESC {
@@ -277,7 +434,9 @@ namespace pr::rdr12
 			m_elements = shaders::Forward::UploadElements(m_upload_buffer, scn(), CameraTransforms(scn().m_cam), std::span{ *drawlist });
 		}
 
-		// Classify the populations before any draws, so the classification can overlap earlier work on the GPU.
+		// Classify the populations before any draws, so the classification can overlap earlier work on the GPU. The classification includes the
+		// reflection guard bands, which are drawn from the same draws.
+		PrepareGuardBands();
 		CullPopulations();
 
 		// Bind the descriptor heaps
@@ -336,6 +495,8 @@ namespace pr::rdr12
 			DrawOpaques(frame, pipe_state, std::span{ *drawlist }.subspan(0, s_cast<size_t>(alpha_start)));
 			if (!kbuf)
 				DrawNuggets(frame, m_cmd_list, pipe_state, std::span{ *drawlist }.subspan(s_cast<size_t>(alpha_start)), alpha_start, ESubPass::Opaque);
+
+			DrawGuardBands(frame, std::span{ *drawlist }.subspan(0, s_cast<size_t>(alpha_start)));
 		}
 
 		// Render the alpha nuggets
@@ -343,6 +504,7 @@ namespace pr::rdr12
 		{
 			// Separate transparent collection from opaque work recorded on the other command list.
 			auto pix_alpha = pix::EventScope<ID3D12GraphicsCommandList>(m_alp_list.get(), 0xFFBA84E5, "View3D::Alpha");
+			ProjectReflectionPlane(frame);
 			BindFrameResources(m_alp_list);
 
 			m_alp_list.OMSetRenderTargets({}, FALSE, nullptr);
@@ -363,6 +525,9 @@ namespace pr::rdr12
 
 			// Use the alpha collect shader and disable depth writes for the alpha pass
 			DrawNuggets(frame, m_alp_list, m_alpha_pipe_state, std::span{ *drawlist }.subspan(s_cast<size_t>(alpha_start), s_cast<size_t>(alpha_end - alpha_start)), alpha_start, ESubPass::Alpha);
+
+			// Only the alpha surfaces read the reflection. Later passes rebind the frame without it.
+			m_shader.m_reflection_plane = nullptr;
 
 			BarrierBatch bb_end(m_alp_list);
 			bb_end.Transition(frame.bb_main().m_depth_stencil.get(), D3D12_RESOURCE_STATE_DEPTH_WRITE);
@@ -469,6 +634,460 @@ namespace pr::rdr12
 		++history.m_frame;
 	}
 
+	// True when this frame needs the reflection of the scene's reflection plane
+	bool RenderForward::ReflectionPlaneNeeded() const
+	{
+		// The reflection needs the K-buffer's separate alpha command list, and is seen only from above the plane
+		auto const& vp = scn().m_viewport;
+		auto const plane = scn().m_reflection_plane;
+		auto const bb_size = wnd().BackBufferSize();
+		auto const cam_pos = scn().m_cam.CameraToWorld().pos;
+		if (!wnd().m_alpha_kbuffer || All(plane == v4::Zero()) || bb_size.x == 0 || bb_size.y == 0 || vp.Width < 1 || vp.Height < 1)
+			return false;
+
+		return Dot(plane.xyz, cam_pos.xyz) - plane.w > 0.0f;
+	}
+
+	// Lay out this frame's reflection guard bands, and size their atlas
+	void RenderForward::PrepareGuardBands()
+	{
+		// The bands are drawn only when the reflection is projected, and in one pass that needs view instancing
+		auto& rp = *m_reflection_plane;
+		rp.m_active = false;
+		rp.m_guard = v2::Zero();
+		rp.m_guard_remap = m4x4::Identity();
+		if (!ReflectionPlaneNeeded() || rdr().Features().Options3.ViewInstancingTier == D3D12_VIEW_INSTANCING_TIER_NOT_SUPPORTED)
+			return;
+
+		// Find how far the side bands must reach. Reflections are seen only along view directions that point down towards the plane. A source seen in
+		// the reflection along such a direction lies along the mirror image of that direction, or below it when the source is nearer, which only
+		// moves it towards the centre of the view. So the side bands must cover the projection of the mirrored downward part of the view frustum.
+		// The frustum's directions form a convex polygon, so clipping it and finding its extent needs only its corners.
+		using Poly = pr::vector<v4, 8, false>;
+		auto clip = [](Poly const& poly, auto&& dist)
+		{
+			// Keep the part of the polygon where 'dist' is not negative. 'dist' must be linear, so edges cross zero where it interpolates to zero.
+			Poly out;
+			for (size_t i = 0, iend = poly.size(); i != iend; ++i)
+			{
+				// Keep inside vertices, and add the crossing point of each edge that crosses the boundary
+				auto const& a = poly[i];
+				auto const& b = poly[(i + 1) % iend];
+				auto const da = dist(a);
+				auto const db = dist(b);
+				if (da >= 0)
+					out.push_back(a);
+				if ((da >= 0) != (db >= 0))
+					out.push_back(a + (b - a) * (da / (da - db)));
+			}
+			return out;
+		};
+		auto need = std::array<float, 3>{}; // How far beyond the top, left and right edges sources are needed, in normalised device units
+		{
+			// Build the view directions through the viewport corners from two depths in front of the camera, which works for both projections.
+			// Reversed depth puts the near plane at 1.
+			auto const& cam = scn().m_cam;
+			auto const s2w = cam.CameraToWorld() * Invert(cam.CameraToScreen());
+			auto const w2s = cam.CameraToScreen() * InvertOrthonormal(cam.CameraToWorld());
+			auto const norm = v4(scn().m_reflection_plane.xyz, 0.0f);
+			Poly dirs;
+			for (auto const& corner : { v2(-1, -1), v2(+1, -1), v2(+1, +1), v2(-1, +1) })
+			{
+				auto const p0 = s2w * v4(corner.x, corner.y, 1.0f, 1.0f);
+				auto const p1 = s2w * v4(corner.x, corner.y, 0.5f, 1.0f);
+				dirs.push_back(p1 / p1.w - p0 / p0.w);
+			}
+
+			// Keep the downward directions, mirror them in the plane, and project them as points at infinity. Clipping to |x| <= w (1 + max) both
+			// removes directions behind the camera and caps the side extent. The top extent is capped similarly, beyond any reach of the top band.
+			dirs = clip(dirs, [&](v4 const& d) { return -Dot(d, norm); });
+			Poly proj;
+			for (auto const& d : dirs)
+				proj.push_back(w2s * (d - 2.0f * Dot(d, norm) * norm));
+
+			proj = clip(proj, [](v4 const& c) { return c.w * (1.0f + ReflectionPlane::GuardSideMax) - c.x; });
+			proj = clip(proj, [](v4 const& c) { return c.w * (1.0f + ReflectionPlane::GuardSideMax) + c.x; });
+			proj = clip(proj, [](v4 const& c) { return c.w * 10.0f - c.y; });
+			for (auto const& c : proj)
+			{
+				// Points on the w = 0 boundary only appear when x and y are zero too, so they add nothing
+				if (c.w <= 0.0f)
+					continue;
+
+				need[0] = std::max(need[0], c.y / c.w - 1.0f);
+				need[1] = std::max(need[1], -c.x / c.w - 1.0f);
+				need[2] = std::max(need[2], +c.x / c.w - 1.0f);
+			}
+		}
+		auto const gx = std::max(need[1], need[2]);
+
+		// Size the bands. The scaled viewport is (sw, sh). The atlas size depends only on the viewport, so it is not recreated as the camera turns.
+		// The atlas is 'sh' rows high. The top band is on the left, spanning the full width of the guarded area at scale 'ts', with its content
+		// against its lower edge. The left and right bands follow, each up to 'bw_max' columns wide. Whole pixel sizes keep each band's edges on
+		// pixel boundaries, so the guard extents are recomputed from them.
+		auto const& vp = scn().m_viewport;
+		auto const ts = ReflectionPlane::GuardTopScale;
+		auto const sw = std::max(s_cast<int>(std::round(vp.Width * ReflectionPlane::GuardScale)), 1);
+		auto const sh = std::max(s_cast<int>(std::round(vp.Height * ReflectionPlane::GuardScale)), 1);
+		auto const bw_max = std::max(s_cast<int>(std::ceil(sw * ReflectionPlane::GuardSideMax * 0.5f)), 1);
+		auto const wt_max = s_cast<int>(std::ceil((sw + 2 * bw_max) * ts));
+		auto const size = iv2(wt_max + 2 * bw_max, sh);
+
+		// Draw only the bands, and the top band rows, that the reflections can need. The top band's unused rows are dropped from its top, and its
+		// width covers the side bands only when they are drawn. The guard extents shrink to match, which also tightens the population cull.
+		auto const sides = need[1] > 0.0f || need[2] > 0.0f;
+		auto const bw = sides ? std::clamp(s_cast<int>(std::ceil(sw * gx * 0.5f)), 1, bw_max) : 0;
+		auto const wt = s_cast<int>(std::ceil((sw + 2 * bw) * ts));
+		auto const top_rows = std::clamp(s_cast<int>(std::ceil(need[0] * sh * ts * 0.5f)), 0, sh);
+		auto const needed = std::array<bool, 3>{ top_rows != 0, sides && need[1] > 0.0f, sides && need[2] > 0.0f };
+		if (!needed[0] && !needed[1] && !needed[2])
+			return;
+
+		// The guarded area, and the map from it to the main view's normalised device coordinates: x = X (1 + gx), y = (Y (2 + gy) + gy) / 2.
+		// Every band is drawn through the same projection, which maps the guarded area to the unit square. Each band's viewport then places it.
+		auto const guard_x = 2.0f * bw / sw;
+		auto const guard_y = needed[0] ? 2.0f * top_rows / (sh * ts) : 0.0f;
+		auto const g2n = Affine2{ .a = 1.0f + guard_x, .b = 0, .tx = 0, .c = 0, .d = 1.0f + 0.5f * guard_y, .ty = 0.5f * guard_y };
+		rp.m_guard = v2(guard_x, guard_y);
+		rp.m_guard_remap = ClipTransform(InvertAffine(g2n));
+
+		// The map from the main view's normalised device coordinates to scaled viewport pixels (u, v)
+		auto const fsw = s_cast<float>(sw);
+		auto const fsh = s_cast<float>(sh);
+		auto const n2u = Affine2{ .a = 0.5f * fsw, .b = 0, .tx = 0.5f * fsw, .c = 0, .d = -0.5f * fsh, .ty = 0.5f * fsh };
+
+		// Place each band in the atlas. The top band is scaled by 'ts', so its left edge (u = -bw) is at x = 0 and the viewport's top edge (v = 0)
+		// is at the bottom row. The side bands are unscaled, so the left band's columns u in [-bw, 0) and the right band's columns u in [sw, sw + bw)
+		// land at the start of their areas. Each map must be a scale and a translation, so that a viewport can express it.
+		auto const band_maps = std::array<Affine2, 3>{
+			Affine2{ .a = ts, .b = 0, .tx = ts * bw, .c = 0, .d = ts, .ty = fsh },
+			Affine2{ .a = 1, .b = 0, .tx = s_cast<float>(wt_max + bw), .c = 0, .d = 1, .ty = 0 },
+			Affine2{ .a = 1, .b = 0, .tx = s_cast<float>(wt_max + bw_max - sw), .c = 0, .d = 1, .ty = 0 },
+		};
+		auto const band_rects = std::array<D3D12_RECT, 3>{
+			D3D12_RECT{ 0, sh - top_rows, wt, sh },
+			D3D12_RECT{ wt_max, 0, wt_max + bw, sh },
+			D3D12_RECT{ wt_max + bw_max, 0, wt_max + bw_max + bw, sh },
+		};
+		auto const band_splats = std::array<float, 3>{ 1.0f / (ReflectionPlane::GuardScale * ts), 1.0f / ReflectionPlane::GuardScale, 1.0f / ReflectionPlane::GuardScale };
+		for (int i = 0; i != 3; ++i)
+		{
+			// The viewport maps the guarded area's X in [-1, 1] to [left, left + width] and Y in [-1, 1] to [top + height, top], so it follows from
+			// the map from guarded area to atlas pixels. The projection passes read the band from its top-left corner, so its source map starts
+			// there, at the centre of the first pixel. Each band pixel's reflection covers as many viewport pixels as the pixel spans.
+			auto& band = rp.m_bands[i];
+			auto const n2p = band_maps[i] * n2u;
+			auto const g2p = n2p * g2n;
+			auto const origin = Affine2{ .a = 1, .b = 0, .tx = s_cast<float>(band_rects[i].left), .c = 0, .d = 1, .ty = s_cast<float>(band_rects[i].top) };
+			band.m_viewport = D3D12_VIEWPORT{ .TopLeftX = g2p.tx - g2p.a, .TopLeftY = g2p.ty + g2p.d, .Width = 2.0f * g2p.a, .Height = -2.0f * g2p.d, .MinDepth = 0.0f, .MaxDepth = 1.0f };
+			band.m_src = InvertAffine(n2p) * origin;
+			band.m_rect = band_rects[i];
+			band.m_splat = std::round(band_splats[i]);
+			assert(band.m_splat >= 1.0f && band.m_splat <= 9.0f && "The projection keys record splat sizes up to 'ReflectionMaxSplat' in reflection_plane.hlsl");
+			band.m_needed = needed[i];
+		}
+
+		// Size the atlas. It matches the main target's formats and sampling, so the scene's pipeline states can draw into it.
+		auto const ms = wnd().MultiSampling();
+		auto const resize = rp.m_band_colour == nullptr || Any(size != rp.m_band_size) || rp.m_band_colour->m_res->GetDesc().SampleDesc.Count != ms.Count;
+		if (resize)
+		{
+			// Colour is written and read through sRGB views, like the main target
+			ResourceFactory factory(rdr());
+			auto const rt_format = wnd().m_rt_props.Format;
+			auto const ds_format = wnd().m_ds_props.Format;
+			auto col_desc = ResDesc::Tex2D(Image{ size.x, size.y, nullptr, rt_format }, 1U, EUsage::RenderTarget)
+				.multisamp(ms)
+				.clear(wnd().m_rt_props)
+				.def_state(D3D12_RESOURCE_STATE_RENDER_TARGET);
+			auto dep_desc = ResDesc::Tex2D(Image{ size.x, size.y, nullptr, DepthResourceFormat(ds_format) }, 1U, EUsage::DepthStencil)
+				.multisamp(ms)
+				.clear(wnd().m_ds_props)
+				.def_state(D3D12_RESOURCE_STATE_DEPTH_WRITE);
+			rp.m_band_colour = factory.CreateTexture2D(TextureDesc(AutoId, col_desc).rtv_format(ToSRGB(rt_format)).srv_format(ToSRGB(rt_format)).name("ReflectionGuardColour"));
+			rp.m_band_depth = factory.CreateTexture2D(TextureDesc(AutoId, dep_desc).dsv_format(ds_format).srv_format(DepthSrvFormat(ds_format)).name("ReflectionGuardDepth"));
+			rp.m_band_size = size;
+		}
+		rp.m_active = true;
+	}
+
+	// Draw the opaque scene, without the sky, into the reflection guard bands
+	void RenderForward::DrawGuardBands(Frame& frame, std::span<DrawListElement const> opaques)
+	{
+		// Clear the atlas. Areas the scene does not cover keep depth 0, which the projection passes ignore.
+		auto& rp = *m_reflection_plane;
+		if (!rp.m_active)
+			return;
+
+		auto pix_bands = pix::EventScope<ID3D12GraphicsCommandList>(m_cmd_list.get(), 0xFF5EC8D5, "View3D::ReflectionGuardBands");
+		auto const rtv = rp.m_band_colour->m_rtv.m_cpu;
+		auto const dsv = rp.m_band_depth->m_dsv.m_cpu;
+		m_cmd_list.ClearRenderTargetView(rtv, frame.bb_main().rt_clear());
+		m_cmd_list.ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, frame.bb_main().ds_depth(), 0);
+		m_cmd_list.OMSetRenderTargets({ &rtv, 1 }, FALSE, &dsv);
+
+		// The needed bands' areas in the main view's normalised device coordinates. The top band includes the corners above the side bands.
+		struct Area { v2 m_lower; v2 m_upper; };
+		auto const gx = rp.m_guard.x;
+		auto const gy = rp.m_guard.y;
+		auto const band_areas = std::array<Area, 3>{
+			Area{ v2(-1.0f - gx, 1.0f), v2(1.0f + gx, 1.0f + gy) },
+			Area{ v2(-1.0f - gx, -1.0f), v2(-1.0f, 1.0f) },
+			Area{ v2(1.0f, -1.0f), v2(1.0f + gx, 1.0f) },
+		};
+
+		// Select the drawlist elements that can appear in a needed band. Elements whose screen bounds cannot be known are always drawn.
+		// Skinned bounds can need a CPU pose evaluation, and the nuggets of one model share a pose, so each model/pose pair is evaluated once.
+		struct PosedBBox { Model const* m_model; Pose const* m_pose; std::optional<BBox> m_bbox; };
+		pr::vector<PosedBBox, 8> posed_bboxes;
+		auto const w2s = scn().m_cam.CameraToScreen() * InvertOrthonormal(scn().m_cam.CameraToWorld());
+		auto in_bands = [&](DrawListElement const& dle)
+		{
+			// Find the element's world bounds, posed if it is skinned
+			auto const& nugget = *dle.m_nugget;
+			auto const& instance = *dle.m_instance;
+			auto const& mbox = nugget.m_model->m_bbox;
+			auto const& i2w = GetO2W(instance);
+			if (!mbox.valid() || !IsAffine(i2w))
+				return true;
+
+			auto bbox = i2w * mbox;
+			if (auto pose = FindPose(instance); pose != nullptr)
+			{
+				// Posed models without a skin, or without pose bounds, can move outside their rest bounds
+				if (!nugget.m_model->m_skin)
+					return true;
+
+				auto iter = std::ranges::find_if(posed_bboxes, [&](PosedBBox const& p) { return p.m_model == nugget.m_model && p.m_pose == pose.get(); });
+				if (iter == posed_bboxes.end())
+				{
+					posed_bboxes.push_back(PosedBBox{ .m_model = nugget.m_model, .m_pose = pose.get(), .m_bbox = rdr().SkinnedModelBBox(*nugget.m_model, *pose.get()) });
+					iter = posed_bboxes.end() - 1;
+				}
+				if (!iter->m_bbox)
+					return true;
+
+				bbox = i2w * *iter->m_bbox;
+			}
+
+			// Bound the element on screen. Bounds that reach behind the camera cannot be bounded this way.
+			auto screen = Area{ v2(+std::numeric_limits<float>::infinity()), v2(-std::numeric_limits<float>::infinity()) };
+			for (int c = 0; c != 8; ++c)
+			{
+				auto const corner = w2s * Corner(bbox, c);
+				if (corner.w <= math::tiny<float>)
+					return true;
+
+				auto const ndc = corner.xy / corner.w;
+				screen.m_lower = Min(screen.m_lower, ndc);
+				screen.m_upper = Max(screen.m_upper, ndc);
+			}
+
+			// Draw the element if it overlaps any needed band
+			for (int i = 0; i != 3; ++i)
+			{
+				auto const& area = band_areas[i];
+				if (rp.m_bands[i].m_needed && All(screen.m_lower <= area.m_upper) && All(screen.m_upper >= area.m_lower))
+					return true;
+			}
+			return false;
+		};
+		rp.m_draw_elements.resize(opaques.size());
+		for (size_t i = 0; i != opaques.size(); ++i)
+			rp.m_draw_elements[i] = in_bands(opaques[i]);
+
+		// Draw the scene once into all the needed bands. The frame constants map the guarded area to the unit square, and view instancing
+		// repeats each draw through each band's viewport, clipped to the band's area of the atlas.
+		pr::vector<D3D12_VIEWPORT, 3, false> viewports;
+		pr::vector<D3D12_RECT, 3, false> scissors;
+		for (auto const& band : rp.m_bands)
+		{
+			// Bands that are not needed are not drawn
+			if (!band.m_needed)
+				continue;
+
+			viewports.push_back(band.m_viewport);
+			scissors.push_back(band.m_rect);
+		}
+		auto band_pipe_state = m_default_pipe_state;
+		band_pipe_state.ViewCount(isize(viewports));
+		m_cmd_list.get()->RSSetViewports(s_cast<UINT>(viewports.size()), viewports.data());
+		m_cmd_list.RSSetScissorRects({ scissors.data(), scissors.size() });
+		m_shader.m_clip_remap = &rp.m_guard_remap;
+		BindFrameResources(m_cmd_list);
+		auto const filter = GuardBandFilter{ .m_elements = rp.m_draw_elements, .m_min_population_radius = scn().m_reflection_min_population_radius };
+		DrawOpaques(frame, band_pipe_state, opaques, &filter);
+
+		// Restore the main view for any later draws
+		auto const& vp = scn().m_viewport;
+		m_shader.m_clip_remap = nullptr;
+		BindFrameResources(m_cmd_list);
+		m_cmd_list.RSSetViewports({ &vp, 1 });
+		m_cmd_list.RSSetScissorRects(vp.m_clip);
+	}
+
+	// Project the opaque scene into the reflection of the scene's reflection plane.
+	void RenderForward::ProjectReflectionPlane(Frame& frame)
+	{
+		// The reflection must be projected after the opaques are complete and before the alpha draws read it
+		auto& rp = *m_reflection_plane;
+		auto const& cam = scn().m_cam;
+		auto const& vp = scn().m_viewport;
+		auto const plane = scn().m_reflection_plane;
+		auto const bb_size = wnd().BackBufferSize();
+		auto const cam_pos = cam.CameraToWorld().pos;
+		m_shader.m_reflection_plane = nullptr;
+		if (!ReflectionPlaneNeeded())
+			return;
+
+		// Size the textures to the back buffer
+		if (Any(bb_size != rp.m_size))
+		{
+			ResourceFactory factory(rdr());
+			auto key_desc = ResDesc::Tex2D(Image{ bb_size.x, bb_size.y, nullptr, DXGI_FORMAT_R32_UINT }, 1U, EUsage::UnorderedAccess).def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
+			auto col_desc = ResDesc::Tex2D(Image{ bb_size.x, bb_size.y, nullptr, DXGI_FORMAT_R16G16B16A16_FLOAT }, 1U, EUsage::UnorderedAccess).def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
+			auto cov_desc = ResDesc::Tex2D(Image{ bb_size.x, bb_size.y, nullptr, DXGI_FORMAT_R8_UNORM }, 1U, EUsage::UnorderedAccess).def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
+			rp.m_key = factory.CreateTexture2D(TextureDesc(AutoId, key_desc).name("ReflectionPlaneKey"));
+			rp.m_raw = factory.CreateTexture2D(TextureDesc(AutoId, col_desc).name("ReflectionPlaneRaw"));
+			rp.m_final = factory.CreateTexture2D(TextureDesc(AutoId, col_desc).name("ReflectionPlane"));
+			rp.m_coverage = factory.CreateTexture2D(TextureDesc(AutoId, cov_desc).name("ReflectionPlaneCoverage"));
+			rp.m_size = bb_size;
+		}
+
+		auto pix_scope = pix::EventScope<ID3D12GraphicsCommandList>(m_alp_list.get(), 0xFF5EC8D5, "View3D::ReflectionPlane");
+		auto& bb_main = frame.bb_main();
+		auto* colour = bb_main.m_render_target.get();
+		auto* depth = bb_main.m_depth_stencil.get();
+
+		// The opaque colour and depth become inputs, and every target texel starts with no candidate
+		BarrierBatch bb(m_alp_list);
+		bb.Transition(colour, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+		bb.Transition(depth, D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
+		if (rp.m_active)
+		{
+			bb.Transition(rp.m_band_colour->m_res.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			bb.Transition(rp.m_band_depth->m_res.get(), D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
+		}
+		bb.Transition(rp.m_key->m_res.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		bb.Transition(rp.m_raw->m_res.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		bb.Transition(rp.m_final->m_res.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		bb.Transition(rp.m_coverage->m_res.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		bb.Commit();
+
+		UINT const cleared[4] = { 0, 0, 0, 0 };
+		m_alp_list.ClearUnorderedAccessViewUint(wnd().m_heap_view.Add(rp.m_key->m_uav), rp.m_key->m_uav.m_cpu, rp.m_key->m_res.get(), cleared);
+		bb.UAV(rp.m_key->m_res.get());
+		bb.Commit();
+
+		// Describe the sources. The main view is read pixel for pixel. Each guard band is read through its own map, and its pixels each cover
+		// a square of target pixels as wide as one band pixel is in the viewport. The bands do not draw the sky, so their empty pixels are ignored.
+		// The colour is read through an sRGB view, which converts it to linear colour. Creating a view does not modify the frame's back buffer,
+		// so it is safe to drop the const.
+		struct Source
+		{
+			v4 src0, src1, src2;
+			D3D12_GPU_DESCRIPTOR_HANDLE colour, depth;
+		};
+		auto colour_srv = D3D12_SHADER_RESOURCE_VIEW_DESC{
+			.Format = ToSRGB(wnd().m_rt_props.Format),
+			.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2DMS,
+			.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+		};
+		auto sources = pr::vector<Source, 4, false>{};
+		sources.push_back(Source{
+			.src0 = v4(2.0f / vp.Width, 0.0f, -1.0f, vp.Width),
+			.src1 = v4(0.0f, -2.0f / vp.Height, 1.0f, vp.Height),
+			.src2 = v4(vp.TopLeftX, vp.TopLeftY, 1.0f, 0.0f),
+			.colour = wnd().m_heap_view.Add(const_cast<ID3D12Resource*>(colour), colour_srv),
+			.depth = wnd().m_heap_view.Add(bb_main.m_depth_srv),
+		});
+		if (rp.m_active)
+		{
+			for (auto const& band : rp.m_bands)
+			{
+				// Bands that were not drawn hold no sources
+				if (!band.m_needed)
+					continue;
+
+				auto const& m = band.m_src;
+				auto const w = s_cast<float>(band.m_rect.right - band.m_rect.left);
+				auto const h = s_cast<float>(band.m_rect.bottom - band.m_rect.top);
+				sources.push_back(Source{
+					.src0 = v4(m.a, m.b, m.tx, w),
+					.src1 = v4(m.c, m.d, m.ty, h),
+					.src2 = v4(s_cast<float>(band.m_rect.left), s_cast<float>(band.m_rect.top), band.m_splat, 1.0f),
+					.colour = wnd().m_heap_view.Add(rp.m_band_colour->m_srv),
+					.depth = wnd().m_heap_view.Add(rp.m_band_depth->m_srv),
+				});
+			}
+		}
+
+		// Bind the passes' constants and outputs
+		auto const w2s = cam.CameraToScreen() * InvertOrthonormal(cam.CameraToWorld());
+		auto const s2w = cam.CameraToWorld() * Invert(cam.CameraToScreen());
+		auto const viewport = v4(vp.TopLeftX, vp.TopLeftY, vp.Width, vp.Height);
+		auto cb = ReflectionPlane::Constants{
+			.s2w = s2w,
+			.w2s = w2s,
+			.plane = plane,
+			.viewport = viewport,
+			.cam = cam_pos,
+		};
+		using EParam = ReflectionPlane::EParam;
+		m_alp_list.SetComputeRootSignature(rp.m_sig.get());
+		m_alp_list.SetComputeRootDescriptorTable(EParam::Key, wnd().m_heap_view.Add(rp.m_key->m_uav));
+		m_alp_list.SetComputeRootDescriptorTable(EParam::Raw, wnd().m_heap_view.Add(rp.m_raw->m_uav));
+		m_alp_list.SetComputeRootDescriptorTable(EParam::Final, wnd().m_heap_view.Add(rp.m_final->m_uav));
+		m_alp_list.SetComputeRootDescriptorTable(EParam::Coverage, wnd().m_heap_view.Add(rp.m_coverage->m_uav));
+
+		// Run each pass over every source, one thread per source pixel in 8x8 groups. Each pass reads what the previous one wrote.
+		for (auto* pso : { rp.m_project.get(), rp.m_write.get() })
+		{
+			// Dispatch one pass per source, then make its writes visible to the next pass
+			m_alp_list.SetPipelineState(pso);
+			for (auto const& src : sources)
+			{
+				// Bind the source and its map
+				cb.src0 = src.src0;
+				cb.src1 = src.src1;
+				cb.src2 = src.src2;
+				m_alp_list.SetComputeRoot32BitConstants(EParam::Constants, sizeof(cb) / sizeof(uint32_t), &cb, 0);
+				m_alp_list.SetComputeRootDescriptorTable(EParam::Colour, src.colour);
+				m_alp_list.SetComputeRootDescriptorTable(EParam::Depth, src.depth);
+				m_alp_list.Dispatch((s_cast<int>(src.src0.w) + 7) / 8, (s_cast<int>(src.src1.w) + 7) / 8, 1);
+			}
+			bb.UAV(rp.m_key->m_res.get());
+			bb.UAV(rp.m_raw->m_res.get());
+			bb.Commit();
+		}
+
+		// Fill the gaps once over the viewport, one thread per viewport pixel
+		m_alp_list.SetPipelineState(rp.m_fill.get());
+		m_alp_list.Dispatch((s_cast<int>(vp.Width) + 7) / 8, (s_cast<int>(vp.Height) + 7) / 8, 1);
+		bb.UAV(rp.m_final->m_res.get());
+		bb.UAV(rp.m_coverage->m_res.get());
+		bb.Commit();
+
+		// The alpha draws read the final reflection, and the colour targets return to their normal states
+		bb.Transition(rp.m_final->m_res.get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+		bb.Transition(rp.m_coverage->m_res.get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+		bb.Transition(colour, D3D12_RESOURCE_STATE_RENDER_TARGET);
+		if (rp.m_active)
+		{
+			bb.Transition(rp.m_band_colour->m_res.get(), D3D12_RESOURCE_STATE_RENDER_TARGET);
+			bb.Transition(rp.m_band_depth->m_res.get(), D3D12_RESOURCE_STATE_DEPTH_WRITE);
+		}
+		bb.Commit();
+
+		rp.m_constants = shaders::fwd::ReflectionPlane{
+			.plane = plane,
+			.viewport = viewport,
+			.guard = v4(rp.m_guard.x, rp.m_guard.y, 0.0f, 0.0f),
+			.enabled = 1,
+		};
+		m_shader.m_reflection_plane = &rp.m_constants;
+	}
+
 	// Set up shader resources that are common to all nuggets in this render step.
 	void RenderForward::BindFrameResources(GfxCmdList& cmd_list)
 	{
@@ -509,6 +1128,14 @@ namespace pr::rdr12
 			cmd_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::SkyHistory, wnd().m_heap_view.Add(history.m_tex[1]->m_srv));
 			cmd_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::SkyHistoryOut, wnd().m_heap_view.Add(history.m_tex[0]->m_uav));
 		}
+
+		// Add the projected reflection of the scene's reflection plane and its coverage. They are only read while the reflection constants are set
+		// (see ProjectReflectionPlane). They share one table so that the forward root signature stays within the 64 DWORD limit.
+		if (m_shader.m_reflection_plane != nullptr)
+		{
+			Descriptor const srvs[] = {m_reflection_plane->m_final->m_srv, m_reflection_plane->m_coverage->m_srv};
+			cmd_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::ReflectionPlane, wnd().m_heap_view.Add(srvs));
+		}
 	}
 
 	// Set up shader resources used by the alpha collection pass.
@@ -541,6 +1168,11 @@ namespace pr::rdr12
 		// Record the classification on the opaque command list, which also records the draws that consume it.
 		auto pix_cull = pix::EventScope<ID3D12GraphicsCommandList>(m_cmd_list.get(), 0xFF5AC8A0, "View3D::PopulationCull");
 		auto view = PopulationCameraView(reinterpret_cast<uint64_t>(this), scn().m_cam, scn().m_viewport.Height);
+		if (auto const& rp = *m_reflection_plane; rp.m_active)
+		{
+			// Widen the frustum to include the reflection guard bands, without changing the projected sizes that select LODs
+			view.m_w2s = rp.m_guard_remap * view.m_w2s;
+		}
 		m_population_lists.reserve(populations.size());
 		for (auto pop : populations)
 		{
@@ -583,8 +1215,10 @@ namespace pr::rdr12
 	}
 
 	// Draw the opaque drawlist elements and the classified populations, merged in sort group order
-	void RenderForward::DrawOpaques(Frame& frame, PipeStateDesc const& pipe_state, std::span<DrawListElement const> opaques)
+	void RenderForward::DrawOpaques(Frame& frame, PipeStateDesc const& pipe_state, std::span<DrawListElement const> opaques, GuardBandFilter const* filter)
 	{
+		assert(filter == nullptr || filter->m_elements.size() == opaques.size());
+
 		// Draw one sort group at a time: its drawlist elements, then its population draws. Both sequences are sorted by group.
 		auto const pops = std::span<DrawListElement const>{ m_population_dles };
 		for (size_t d = 0, p = 0; d != opaques.size() || p != pops.size();)
@@ -602,11 +1236,32 @@ namespace pr::rdr12
 			for (; d_end != opaques.size() && opaques[d_end].m_sort_key.Group() == group; ++d_end) {}
 			for (; p_end != pops.size() && pops[p_end].m_sort_key.Group() == group; ++p_end) {}
 
-			// Draw the group
-			if (d_end != d)
+			// Draw the group's drawlist elements. A filter draws the accepted elements in runs, because the position of each
+			// run in the drawlist selects its element constants.
+			auto const draw = filter == nullptr || group != ESortGroup::Skybox;
+			if (draw && filter == nullptr && d_end != d)
+			{
 				DrawNuggets(frame, m_cmd_list, pipe_state, opaques.subspan(d, d_end - d), s_cast<int>(d), ESubPass::Opaque);
-			if (p_end != p)
-				DrawPopulations(frame, pipe_state, s_cast<int>(p), s_cast<int>(p_end));
+			}
+			else if (draw && filter != nullptr)
+			{
+				// Draw each run of consecutive accepted elements
+				for (auto r = d; r != d_end;)
+				{
+					// Skip rejected elements, then find the end of the run
+					for (; r != d_end && filter->m_elements[r] == 0; ++r) {}
+					auto r_end = r;
+					for (; r_end != d_end && filter->m_elements[r_end] != 0; ++r_end) {}
+					if (r_end != r)
+						DrawNuggets(frame, m_cmd_list, pipe_state, opaques.subspan(r, r_end - r), s_cast<int>(r), ESubPass::Opaque);
+
+					r = r_end;
+				}
+			}
+
+			// Draw the group's populations
+			if (draw && p_end != p)
+				DrawPopulations(frame, pipe_state, s_cast<int>(p), s_cast<int>(p_end), filter);
 
 			d = d_end;
 			p = p_end;
@@ -614,15 +1269,41 @@ namespace pr::rdr12
 	}
 
 	// Draw the population draws [beg, end) into the opaque targets.
-	void RenderForward::DrawPopulations(Frame& frame, PipeStateDesc const& pipe_state, int beg, int end)
+	void RenderForward::DrawPopulations(Frame& frame, PipeStateDesc const& pipe_state, int beg, int end, GuardBandFilter const* filter)
 	{
 		// Population draws select element constants from their own table, so swap it in, then restore the drawlist's table for later draws.
 		auto pix_population = pix::EventScope<ID3D12GraphicsCommandList>(m_cmd_list.get(), 0xFF5AC8A0, "View3D::Populations");
 		auto drawlist_elements = m_elements;
 		m_elements = m_population_elements;
 		BindFrameResources(m_cmd_list);
-		auto const count = s_cast<size_t>(end - beg);
-		DrawNuggets(frame, m_cmd_list, pipe_state, std::span<DrawListElement const>{ m_population_dles }.subspan(beg, count), beg, ESubPass::Opaque, std::span<PopulationDrawRef const>{ m_population_draws }.subspan(beg, count));
+
+		// Draw the accepted draws in runs, because the position of each run selects its element constants. Without a filter, all draws are one run.
+		auto const dles = std::span<DrawListElement const>{ m_population_dles };
+		auto const draws = std::span<PopulationDrawRef const>{ m_population_draws };
+		auto accepted = [&](int i)
+		{
+			// Leave out populations that are too small to matter in the filtered view
+			if (filter == nullptr)
+				return true;
+
+			auto const& ref = draws[i];
+			return ref.m_lists->m_population->m_prototypes[ref.m_draw->m_prototype]->m_bound.w >= filter->m_min_population_radius;
+		};
+		for (auto r = beg; r != end;)
+		{
+			// Skip rejected draws, then find the end of the run
+			for (; r != end && !accepted(r); ++r) {}
+			auto r_end = r;
+			for (; r_end != end && accepted(r_end); ++r_end) {}
+			if (r_end != r)
+			{
+				auto const count = s_cast<size_t>(r_end - r);
+				DrawNuggets(frame, m_cmd_list, pipe_state, dles.subspan(r, count), r, ESubPass::Opaque, draws.subspan(r, count));
+			}
+			r = r_end;
+		}
+
+		// Restore the drawlist's element constants
 		m_elements = drawlist_elements;
 		BindFrameResources(m_cmd_list);
 	}

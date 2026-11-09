@@ -1544,6 +1544,17 @@ namespace pr::rdr12
 		m_envmap_capture_shadows = settings;
 	}
 
+	// Get/Set whether environment map faces render only the sky
+	bool V3dWindow::EnvMapCaptureSkyOnly() const
+	{
+		return m_envmap_capture_sky_only;
+	}
+	void V3dWindow::EnvMapCaptureSkyOnly(bool sky_only)
+	{
+		// Captured faces read the setting when they render, so later captures use the new setting.
+		m_envmap_capture_sky_only = sky_only;
+	}
+
 	// Get/Set the global environment map for this window
 	TextureCube const* V3dWindow::EnvMap() const
 	{
@@ -1733,11 +1744,17 @@ namespace pr::rdr12
 			auto up = -(mirror * axes.v);
 			m_scene.m_cam.CameraToWorld(m4x4{ right, up, -forward, cube.m_centre });
 
-			// Render the source window's objects from the face camera. The draw lists are cleared afterwards so that
-			// captured objects can be freed between captures.
+			// Render the source window's objects from the face camera. A sky-only capture skips every object outside the 'Skybox' sort group.
+			// The draw lists are cleared afterwards so that captured objects can be freed between captures.
 			m_scene.ClearDrawlists();
 			for (auto& obj : src.m_objects)
+			{
+				// Add the object, unless the capture wants only the sky
+				if (src.m_envmap_capture_sky_only && obj->m_sko.Group() != ESortGroup::Skybox)
+					continue;
+
 				obj->AddToScene(m_scene);
+			}
 
 			auto& frame = m_wnd.NewFrame();
 			m_scene.Render(frame);
@@ -2008,6 +2025,40 @@ namespace pr::rdr12
 			return;
 
 		m_scene.m_global_envmap_parallax_bounds = bounds;
+		Invalidate();
+	}
+
+	// Get/Set the world-space plane whose surfaces reflect the rendered scene
+	v4 V3dWindow::ReflectionPlane() const
+	{
+		return m_scene.m_reflection_plane;
+	}
+	void V3dWindow::ReflectionPlane(v4 const& plane)
+	{
+		// Zero disables the reflection. Otherwise the normal must be unit length, because the shaders mirror points with it.
+		if (!All(plane == v4::Zero()) && (!IsFinite(plane) || !FEql(LengthSq(plane.xyz), 1.0f)))
+			throw std::runtime_error("The reflection plane normal must be unit length");
+		if (All(plane == m_scene.m_reflection_plane))
+			return;
+
+		m_scene.m_reflection_plane = plane;
+		Invalidate();
+	}
+
+	// Get/Set the bounding radius below which populations are left out of the reflection's off-screen sources
+	float V3dWindow::ReflectionMinPopulationRadius() const
+	{
+		return m_scene.m_reflection_min_population_radius;
+	}
+	void V3dWindow::ReflectionMinPopulationRadius(float radius)
+	{
+		// Negative radii have no meaning
+		if (!(radius >= 0.0f) || !IsFinite(radius))
+			throw std::runtime_error("The reflection minimum population radius must be a finite, non-negative value");
+		if (radius == m_scene.m_reflection_min_population_radius)
+			return;
+
+		m_scene.m_reflection_min_population_radius = radius;
 		Invalidate();
 	}
 

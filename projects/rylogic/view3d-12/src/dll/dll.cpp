@@ -1500,6 +1500,54 @@ VIEW3D_API void __stdcall View3D_WindowEnvMapParallaxBoundsSet(view3d::Window wi
 	CatchAndReport(View3D_WindowEnvMapParallaxBoundsSet, window, );
 }
 
+// Get/Set the world-space plane whose surfaces reflect the rendered scene
+VIEW3D_API view3d::Vec4 __stdcall View3D_WindowReflectionPlaneGet(view3d::Window window)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		return To<view3d::Vec4>(window->ReflectionPlane());
+	}
+	CatchAndReport(View3D_WindowReflectionPlaneGet, window, To<view3d::Vec4>(pr::v4::Zero()));
+}
+VIEW3D_API void __stdcall View3D_WindowReflectionPlaneSet(view3d::Window window, view3d::Vec4 plane)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		window->ReflectionPlane(To<pr::v4>(plane));
+	}
+	CatchAndReport(View3D_WindowReflectionPlaneSet, window, );
+}
+
+// Get/Set the bounding radius below which populations are left out of the reflection's off-screen sources
+VIEW3D_API float __stdcall View3D_WindowReflectionMinPopulationRadiusGet(view3d::Window window)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		return window->ReflectionMinPopulationRadius();
+	}
+	CatchAndReport(View3D_WindowReflectionMinPopulationRadiusGet, window, 0.0f);
+}
+VIEW3D_API void __stdcall View3D_WindowReflectionMinPopulationRadiusSet(view3d::Window window, float radius)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		window->ReflectionMinPopulationRadius(radius);
+	}
+	CatchAndReport(View3D_WindowReflectionMinPopulationRadiusSet, window, );
+}
+
 // Enable/Disable the depth buffer
 VIEW3D_API BOOL __stdcall View3D_DepthBufferEnabledGet(view3d::Window window)
 {
@@ -2396,6 +2444,30 @@ VIEW3D_API void __stdcall View3D_EnvMapCaptureShadowsSet(view3d::Window window, 
 		window->EnvMapCaptureShadows(ToRdr(settings));
 	}
 	CatchAndReport(View3D_EnvMapCaptureShadowsSet, window,);
+}
+
+// Get/Set whether environment map faces render only the sky
+VIEW3D_API BOOL __stdcall View3D_EnvMapCaptureSkyOnlyGet(view3d::Window window)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		return window->EnvMapCaptureSkyOnly();
+	}
+	CatchAndReport(View3D_EnvMapCaptureSkyOnlyGet, window, FALSE);
+}
+VIEW3D_API void __stdcall View3D_EnvMapCaptureSkyOnlySet(view3d::Window window, BOOL sky_only)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		window->EnvMapCaptureSkyOnly(sky_only != 0);
+	}
+	CatchAndReport(View3D_EnvMapCaptureSkyOnlySet, window,);
 }
 
 // Objects ********************************

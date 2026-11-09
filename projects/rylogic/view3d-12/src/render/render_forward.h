@@ -30,11 +30,24 @@ namespace pr::rdr12
 		// The procedural sky's low cloud accumulated over frames. See AccumulateLowCloud in procedural_sky.hlsl.
 		struct SkyHistory;
 
+		// The reflection of the opaque scene in the scene's reflection plane. See reflection_plane.hlsl.
+		struct ReflectionPlane;
+
 		// One population draw: the classified lists of a population and a (LOD, nugget) draw within them.
 		struct PopulationDrawRef
 		{
 			PopulationViewLists const* m_lists;
 			PopulationViewDraw const* m_draw;
+		};
+
+		// Selects what the reflection guard bands draw. The sky is always left out.
+		struct GuardBandFilter
+		{
+			// Per opaque drawlist element, non-zero when the element is drawn
+			std::span<uint8_t const> m_elements;
+
+			// Populations whose prototype bounding radius is less than this are not drawn
+			float m_min_population_radius;
 		};
 
 		shaders::Forward m_shader;
@@ -47,6 +60,7 @@ namespace pr::rdr12
 		SamplerPtr m_default_sam;
 		D3D12_GPU_VIRTUAL_ADDRESS m_elements = {}; // This frame's element constants table, one entry per drawlist element
 		std::unique_ptr<SkyHistory> m_sky_history;
+		std::unique_ptr<ReflectionPlane> m_reflection_plane;
 		std::vector<PopulationViewLists> m_population_lists; // This frame's classification of each scene population
 		std::vector<DrawListElement> m_population_dles;      // One element per population draw, referencing the LOD proxies, in sort group order
 		std::vector<PopulationDrawRef> m_population_draws;   // Parallel to 'm_population_dles'
@@ -70,6 +84,20 @@ namespace pr::rdr12
 		// Prepare the sky's low cloud history for this frame: size, swap, and clear the history textures, and set the shader's history constants.
 		void PrepareSkyHistory();
 
+		// Project the opaque scene into the reflection of the scene's reflection plane, recording the work into the alpha command list. Sets the
+		// shader's reflection constants when the reflection is available, otherwise clears them. Call after the opaque pass, before the alpha draws.
+		void ProjectReflectionPlane(Frame& frame);
+
+		// True when this frame needs the reflection of the scene's reflection plane: there is a plane, the camera is above it, and there are
+		// targets to project into.
+		bool ReflectionPlaneNeeded() const;
+
+		// Lay out this frame's reflection guard bands, and size their atlas. Call before the populations are culled, which must include the bands.
+		void PrepareGuardBands();
+
+		// Draw the opaque scene, without the sky, into the reflection guard bands. Call after the opaque pass, while the drawlist is still locked.
+		void DrawGuardBands(Frame& frame, std::span<DrawListElement const> opaques);
+
 		// Add model nuggets to the draw list for this render step
 		void AddNuggets(BaseInstance const& inst, NuggetPtr nuggets, drawlist_t& drawlist) override;
 
@@ -83,11 +111,12 @@ namespace pr::rdr12
 		void CullPopulations();
 
 		// Draw the opaque drawlist elements 'opaques' and the classified populations into the opaque targets, merged in sort group order.
-		// Within one sort group, the drawlist elements are drawn before the populations.
-		void DrawOpaques(Frame& frame, PipeStateDesc const& pipe_state, std::span<DrawListElement const> opaques);
+		// Within one sort group, the drawlist elements are drawn before the populations. A non-null 'filter' selects what the guard bands draw.
+		void DrawOpaques(Frame& frame, PipeStateDesc const& pipe_state, std::span<DrawListElement const> opaques, GuardBandFilter const* filter = nullptr);
 
-		// Draw the population draws [beg, end) into the opaque targets. Restores the frame resources of the step's drawlist afterwards.
-		void DrawPopulations(Frame& frame, PipeStateDesc const& pipe_state, int beg, int end);
+		// Draw the population draws [beg, end) into the opaque targets, leaving out those rejected by 'filter' when it is not null.
+		// Restores the frame resources of the step's drawlist afterwards.
+		void DrawPopulations(Frame& frame, PipeStateDesc const& pipe_state, int beg, int end, GuardBandFilter const* filter);
 
 		// Add the nuggets in the draw list to 'cmd_list' for rendering. 'first_index' is the position of 'drawlist[0]' in the step's drawlist.
 		// 'populations' is empty for ordinary draws, or parallel to 'drawlist' for population draws.
