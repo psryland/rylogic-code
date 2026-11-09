@@ -45,6 +45,7 @@ public sealed class SourceStore
 			}
 			case EOriginKind.Local:
 			case EOriginKind.HandMade:
+			case EOriginKind.Edited:
 			{
 				return false;
 			}
@@ -151,12 +152,23 @@ public sealed class SourceStore
 			Author = provenance.Author,
 			Licence = provenance.Licence,
 			Url = provenance.Url,
+			EditOf = provenance.EditOf,
 			DownloadName = provenance.DownloadName ?? Path.GetFileName(file_path),
 			DownloadSha256 = download_sha,
 			OriginalSha256 = await Sha256Async(original_path, cancel),
 		};
 		AuthoringJson.Write(Path.Combine(folder, $"{id}.json"), sidecar);
 		return sidecar;
+	}
+
+	/// <summary>Remove the original 'source_id' and its sidecar. The caller makes sure that nothing uses it.</summary>
+	public void Delete(string source_id)
+	{
+		// Find both files before deleting either, because the sidecar is what marks the folder that holds them.
+		// The sidecar goes first, so a half-removed source no longer counts as imported.
+		var original_path = OriginalPath(source_id);
+		File.Delete(SidecarPath(source_id));
+		File.Delete(original_path);
 	}
 
 	/// <summary>Throw if the stored audio file of 'source_id' no longer matches the hash recorded when it was imported.</summary>

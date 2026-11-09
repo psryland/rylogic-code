@@ -27,7 +27,19 @@ public sealed partial class AuthoringConfig
 		public FreesoundData? Freesound { get; set; }
 		public CommandData? Apply { get; set; }
 		public CommandData? Send { get; set; }
+		public AssistantData? Assistant { get; set; }
+		public CommandData? Editor { get; set; }
 	}
+
+	/// <summary>The JSON shape of the AI assistant settings.</summary>
+	private sealed class AssistantData
+	{
+		public string? Model { get; set; }
+		public string? Command { get; set; }
+	}
+
+	/// <summary>The model the AI assistant uses when the configuration names none. A small, cheap model is enough for searching and ranking.</summary>
+	public const string DefaultAssistantModel = "claude-haiku-5.5";
 
 	/// <summary>The JSON shape of a project command.</summary>
 	private sealed class CommandData
@@ -98,6 +110,33 @@ public sealed partial class AuthoringConfig
 	/// </summary>
 	public ProjectCommand? Send { get; }
 
+	/// <summary>The model the AI assistant uses to find candidate sounds.</summary>
+	public string AssistantModel { get; }
+
+	/// <summary>The Copilot CLI executable the AI assistant runs, or null to find 'copilot' on PATH.</summary>
+	public string? AssistantCommand { get; }
+
+	/// <summary>
+	/// The audio editor that opens a working copy of a recording, or null if there is none. Each argument has '{file}' replaced by the working copy's path
+	/// (see <see cref="ProjectCommand.ForFile"/>). Without an 'editor' setting, Audacity is used if it is installed in a default location (see <see cref="DefaultEditorPaths"/>).
+	/// </summary>
+	public ProjectCommand? Editor { get; }
+
+	/// <summary>Where the Audacity installers put Audacity, newest version first.</summary>
+	public static IReadOnlyList<string> DefaultEditorPaths
+	{
+		get
+		{
+			// Audacity 4 installs beside Audacity 3 under a new folder and program name
+			var program_files = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+			return
+			[
+				Path.Combine(program_files, "Audacity 4", "bin", "Audacity4.exe"),
+				Path.Combine(program_files, "Audacity", "Audacity.exe"),
+			];
+		}
+	}
+
 	private AuthoringConfig(string config_path, FileData data)
 	{
 		// Resolve every location once so later code works only with absolute paths
@@ -115,6 +154,13 @@ public sealed partial class AuthoringConfig
 		// Project commands are run as given; only their working directory is a project path
 		Apply = ReadCommand(data.Apply, "apply");
 		Send = ReadCommand(data.Send, "send");
+		AssistantModel = string.IsNullOrWhiteSpace(data.Assistant?.Model) ? DefaultAssistantModel : data.Assistant.Model;
+		AssistantCommand = Resolve(data.Assistant?.Command, null);
+
+		// An editor opens the working copy named by its arguments, which by default is its only argument
+		Editor = ReadCommand(data.Editor, "editor") is ProjectCommand editor
+			? (editor.Arguments.Count != 0 ? editor : editor with { Arguments = ["{file}"] })
+			: DefaultEditorPaths.FirstOrDefault(File.Exists) is string installed ? new ProjectCommand(installed, ["{file}"], Root) : null;
 
 		// A local folder's name is the first part of its origin references, so it must be unique and contain no path separator
 		var folders = new List<LocalFolder>();
@@ -206,6 +252,16 @@ public sealed record ProjectCommand(string Command, IReadOnlyList<string> Argume
 		// Only arguments are substituted, so the program and working directory stay fixed
 		return this with { Arguments = Arguments.Select(x => x.Replace("{id}", sound_id, StringComparison.Ordinal)).ToList() };
 	}
+
+	/// <summary>This command with '{file}' in each argument replaced by 'path'.</summary>
+	public ProjectCommand ForFile(string path)
+	{
+		// Only arguments are substituted, so the program and working directory stay fixed
+		return this with { Arguments = Arguments.Select(x => x.Replace("{file}", path, StringComparison.Ordinal)).ToList() };
+	}
+
+	/// <summary>The program's name without its folder or extension, such as 'Audacity', for display.</summary>
+	public string ProgramName => Path.GetFileNameWithoutExtension(Command);
 
 	/// <summary>The command line as a user would type it, for display.</summary>
 	public string Display => string.Join(' ', Arguments.Prepend(Command).Select(x => x.Contains(' ') ? $"\"{x}\"" : x));

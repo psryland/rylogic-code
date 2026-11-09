@@ -527,6 +527,9 @@ PSOut PSForwardPbrSampledUV(PSIn In, bool is_front_face, float2 base_uv, float2 
 		emissive *= emissive_tex.rgb;
 	}
 
+	// Scale the authored emission per instance, so copies of one model can glow independently.
+	emissive *= g_nugget.emissive_scale;
+
 	metallic = saturate(metallic);
 	roughness = clamp(roughness, 0.04f, 1.0f);
 

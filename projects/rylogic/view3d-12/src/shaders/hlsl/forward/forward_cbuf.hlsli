@@ -45,7 +45,9 @@ struct ElementConstants
 
 	// Screen-door dither word of the object (see 'pr/view3d-12/shaders/population.hlsli'). Zero draws every pixel.
 	uint dither;
-	float2 pad0;
+	// Emission
+	float emissive_scale; // Per-instance multiplier of the material emissive colour
+	float pad0;
 };
 
 // Constants used for radial fading.

@@ -52,7 +52,8 @@ struct View3DForwardElement
 	float4 colour_blend;
 	float env_reflectivity;
 	uint dither;
-	float2 pad0;
+	float emissive_scale;
+	float pad0;
 };
 
 // Stock per-element constants consumed by a procedural ShadowMap vertex wrapper. Bind the table as 'StructuredBuffer<View3DShadowElement>'.

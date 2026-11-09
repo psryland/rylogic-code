@@ -2065,7 +2065,7 @@ namespace pr::rdr12
 				{
 					tree.push_back(ModelTreeNode{
 						.m_o2p = node.m_o2p,
-						.m_name = node.m_name,
+						.m_name = std::string(node.m_name),
 						.m_model = m_models[node.m_mesh_id],
 						.m_level = node.m_level,
 					});
@@ -2328,7 +2328,7 @@ namespace pr::rdr12
 				{
 					tree.push_back(ModelTreeNode{
 						.m_o2p = node.m_o2p,
-						.m_name = node.m_name,
+						.m_name = std::string(node.m_name),
 						.m_model = m_models[node.m_mesh_id],
 						.m_level = node.m_level,
 					});
