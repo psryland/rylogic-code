@@ -11,12 +11,13 @@ namespace pr::compute
 	{
 		// Insert resource state transitions back to the default state for
 		// any resource not in its default state at the end of the command list.
+		// Each resource appears once in the state record, so the batch can skip the search for earlier transitions.
 		BarrierBatch bb(cmd_list);
 		for (auto const& [res, state] : cmd_list.m_res_state.States())
 		{
 			auto def_state = DefaultResState(res);
 			if (state == def_state) continue;
-			bb.Transition(res, def_state);
+			bb.TransitionNew(res, def_state);
 		}
 		bb.Commit();
 	}

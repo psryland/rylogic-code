@@ -53,8 +53,16 @@ namespace pr::compute
 				pr::erase_if(m_barriers, [=](auto& b) { return b.Type == D3D12_RESOURCE_BARRIER_TYPE_TRANSITION && b.Transition.pResource == resource && b.Transition.Subresource == sub; });
 			}
 
+			return TransitionNew(resource, state, sub, flags);
+		}
+
+		// Add a transition for a resource that has no transition in this batch yet.
+		// This is 'Transition' without the search for earlier transitions of 'resource', so the cost does not grow with the batch size.
+		BarrierBatch& TransitionNew(ID3D12Resource const* resource, D3D12_RESOURCE_STATES state, uint32_t sub = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES, D3D12_RESOURCE_BARRIER_FLAGS flags = D3D12_RESOURCE_BARRIER_FLAG_NONE)
+		{
 			// If all of the sub resources of 'resource' are in the same state, then we can simply transition from that one state to 'state'.
 			// If the sub resources are in different states, we need to transition each back to the default state first.
+			assert(resource != nullptr);
 			auto res_state = m_cmd_list.ResState(resource);
 			if (sub == D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES && res_state != state) // Tests all subresource states for any != 'state'
 			{
