@@ -126,6 +126,8 @@ namespace pr::rdr12
 		extern ByteCode const forward_texn_pbr_vs;
 		extern ByteCode const forward_population_vs;
 		extern ByteCode const forward_texn_population_vs;
+		extern ByteCode const forward_skinned_population_vs;
+		extern ByteCode const forward_texn_skinned_population_vs;
 		extern ByteCode const forward_texn_pbr_ps;
 		extern ByteCode const forward_reflection_attrs_texn_pbr_ps;
 		extern ByteCode const forward_alpha_collect_texn_pbr_ps;
@@ -149,6 +151,7 @@ namespace pr::rdr12
 		// Shadows
 		extern ByteCode const shadow_map_vs;
 		extern ByteCode const shadow_map_population_vs;
+		extern ByteCode const shadow_map_skinned_population_vs;
 		extern ByteCode const shadow_map_ps;
 
 		// Screen Space

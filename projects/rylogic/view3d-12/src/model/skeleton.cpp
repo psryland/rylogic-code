@@ -27,6 +27,21 @@ namespace pr::rdr12
 		return isize(m_bone_ids);
 	}
 
+	// Convert bone-to-parent transforms to object-space skinning matrices in place.
+	void Skeleton::SkinningMatrices(std::span<m4x4> pose) const
+	{
+		// Each bone's deformed bone-to-object transform is its parent's times its own bone-to-parent. The skinning matrix takes object space verts
+		// to bind-pose bone-relative space, then from deformed bone space back to object space: 'cp2o * bp2cp * o2bp'.
+		assert(isize(pose) == BoneCount() && "Pose buffer should have one matrix per bone");
+		WalkHierarchy<m4x4>([ptr = pose.data(), &o2bp = m_o2bp](int idx, m4x4 const* p2o) -> m4x4
+		{
+			// Return 'b2o' as the parent of any child bones
+			auto b2o = p2o ? *p2o * ptr[idx] : ptr[idx];
+			ptr[idx] = b2o * o2bp[idx];
+			return b2o;
+		});
+	}
+
 	// Check if this skeleton is structurally compatible with another (same bone count and names)
 	bool Skeleton::IsCompatible(Skeleton const& other) const
 	{

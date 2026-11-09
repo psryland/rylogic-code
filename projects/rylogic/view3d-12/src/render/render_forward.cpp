@@ -737,27 +737,29 @@ namespace pr::rdr12
 			if (population != nullptr)
 			{
 				// Procedural vertex shader overlays (accepted by population admission) place population vertices themselves, so they are kept.
-				// Stock vertex shaders are swapped for their population variants.
+				// Stock vertex shaders are swapped for their population variants. Skinned LOD models use the variants that pose each instance from the payload.
 				auto vs = desc.Get<EPipeState::VS>().pShaderBytecode;
 				auto const* overlay = PopulationVertexOverlay(material, m_step_id);
+				auto skinned = static_cast<bool>(nugget.m_model->m_skin);
 				if (overlay == nullptr || vs != overlay->m_code.VS.pShaderBytecode)
 				{
 					// Only stock vertex shaders have population variants
 					if (vs == shader_code::forward_vs.pShaderBytecode)
-						desc.Apply(PSO<EPipeState::VS>(shader_code::forward_population_vs));
+						desc.Apply(PSO<EPipeState::VS>(skinned ? shader_code::forward_skinned_population_vs : shader_code::forward_population_vs));
 					else if (vs == shader_code::forward_texn_pbr_vs.pShaderBytecode)
-						desc.Apply(PSO<EPipeState::VS>(shader_code::forward_texn_population_vs));
+						desc.Apply(PSO<EPipeState::VS>(skinned ? shader_code::forward_texn_skinned_population_vs : shader_code::forward_texn_population_vs));
 					else
 						throw std::logic_error("Population draw has a vertex shader without a population variant");
 				}
 
-				// The payload slot needs a valid address even when the population has no payload, so it aliases the instance records.
+				// The payload and skin slots need valid addresses even when unused, so they alias the instance records.
 				auto const& lists = *population->m_lists;
 				auto const& pop = *lists.m_population;
 				auto draw = PopulationDraw{ .list = s_cast<uint32_t>(population->m_draw->m_list), .list_base = lists.m_list_base, .offsets = lists.m_offsets, .pad = 0 };
 				cmd_list.SetGraphicsRootShaderResourceView(shaders::fwd::ERootParam::PopulationInstances, GpuAddress(pop.m_instances));
 				cmd_list.SetGraphicsRootShaderResourceView(shaders::fwd::ERootParam::PopulationView, GpuAddress(lists.m_scratch));
 				cmd_list.SetGraphicsRootShaderResourceView(shaders::fwd::ERootParam::PopulationPayload, pop.m_payload != nullptr ? GpuAddress(pop.m_payload) : GpuAddress(pop.m_instances));
+				cmd_list.SetGraphicsRootShaderResourceView(shaders::fwd::ERootParam::PopulationSkin, skinned ? GpuAddress(nugget.m_model->m_skin.m_res) : GpuAddress(pop.m_instances));
 				cmd_list.SetGraphicsRoot32BitConstants(shaders::fwd::ERootParam::PopulationDraw, draw);
 			}
 

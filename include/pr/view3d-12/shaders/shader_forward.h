@@ -56,6 +56,7 @@ namespace pr::rdr12::shaders
 			PopulationView,
 			PopulationPayload,
 			PopulationDraw,
+			PopulationSkin,
 		};
 
 		enum class ESampParam

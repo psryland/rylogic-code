@@ -506,6 +506,19 @@ namespace Rylogic.Gfx
 			}
 
 			/// <summary>
+			/// Convert 'bones', bone-to-parent transforms in skeleton bone order, to object-space skinning matrices for the skeleton of the first
+			/// skinned model in this object (or child objects matching 'name'). 'palette' receives one matrix per bone, in the layout of a population
+			/// skin-pose palette. Both spans must have one entry per skeleton bone.</summary>
+			public void SkinningPalette(ReadOnlySpan<m4x4> bones, Span<m4x4> palette, string? name = null)
+			{
+				// The native side validates the bone count against the skeleton
+				if (palette.Length != bones.Length)
+					throw new ArgumentException("The palette needs one matrix per bone", nameof(palette));
+
+				View3D_ObjectSkinningPalette(Handle, ref MemoryMarshal.GetReference(bones), bones.Length, ref MemoryMarshal.GetReference(palette), name);
+			}
+
+			/// <summary>
 			/// Get/Set the visibility of this object or any of its child objects that match 'name'.
 			/// If 'name' is null, then the state change is applied to this object only
 			/// If 'name' is "", then the state change is applied to this object and all children recursively
@@ -794,6 +807,20 @@ namespace Rylogic.Gfx
 			{
 				// Apply the packed target and weight to the selected instance scope.
 				View3D_ObjectColourBlendSet(Handle, blend, name);
+			}
+
+			/// <summary>
+			/// Get/Set the screen-door dither word of stock-shader draws of this object (or child objects matching 'name'; see ColourSet).
+			/// Zero (the default) draws every pixel. Build words with 'Population.DitherWord' to cross-fade this object with a population instance.</summary>
+			public uint DitherGet(string? name = null)
+			{
+				// Return the first matching object's word
+				return View3D_ObjectDitherGet(Handle, name);
+			}
+			public void DitherSet(uint dither, string? name = null)
+			{
+				// Apply the word to the selected instance scope
+				View3D_ObjectDitherSet(Handle, dither, name);
 			}
 
 			/// <summary>

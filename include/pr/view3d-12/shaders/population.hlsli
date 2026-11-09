@@ -30,23 +30,37 @@
 #include "pr/view3d-12/shaders/procedural_vertex.hlsli"
 
 // Contract version of the population layouts and bindings in this file.
-#define VIEW3D_POPULATION_VERSION 2
+#define VIEW3D_POPULATION_VERSION 3
 
 // The maximum number of LODs in a population prototype.
 #define VIEW3D_POPULATION_MAX_LODS 8
 
 // Instance flags in 'View3DPopulationInstance.info.y'. Disabled instances are never drawn.
+// A FADED instance is dithered by its own coverage, held as unorm16 in bits 16-31 of the flags word, instead of by its prototype's fade bands.
+// With FADE_COMPLEMENT it keeps exactly the pixels that a draw with the same coverage and origin discards, so an ordinary object with the
+// dither word from 'View3D_PopulationDitherWord' can hand over to the instance without a pop. Like a fade band, this replaces the LOD transition dither.
+// FADED instances that keep no pixels (coverage 0, or coverage 1 with FADE_COMPLEMENT) are culled.
 #define VIEW3D_POPULATION_FLAG_ENABLED 0x1
+#define VIEW3D_POPULATION_FLAG_FADED 0x2
+#define VIEW3D_POPULATION_FLAG_FADE_COMPLEMENT 0x4
+#define VIEW3D_POPULATION_FLAG_FADE_SHIFT 16
 
 // Draw-time bindings, available to the vertex and pixel stages of population draws in the forward and shadow render steps.
 //  - Instances: 'StructuredBuffer<View3DPopulationInstance>', the population's instance records.
 //  - View: 'ByteAddressBuffer', the renderer's per-view visible lists. Read it only through 'View3DPopulationFetch'.
 //  - Payload: 'ByteAddressBuffer', the caller's optional payload. Unbound when the population has no payload.
 //  - Draw: 'ConstantBuffer<View3DPopulationDraw>', the list and list location of the current draw.
+//  - Skin: 'StructuredBuffer<View3DPopulationSkinfluence>', the skin of the LOD model being drawn. Only meaningful for skinned LOD models.
 #define VIEW3D_POPULATION_INSTANCES_REGISTER t24
 #define VIEW3D_POPULATION_VIEW_REGISTER t25
 #define VIEW3D_POPULATION_PAYLOAD_REGISTER t26
+#define VIEW3D_POPULATION_SKIN_REGISTER t27
 #define VIEW3D_POPULATION_DRAW_REGISTER b8
+
+// Skinned LODs. When a LOD model has a skin, the stock population vertex shaders pose each instance from the payload (procedural LODs do not).
+// 'info.z' of a skinned instance is the byte offset of a 'View3DPopulationSkinPose' record in the payload. The record names two bone palettes,
+// also in the payload, and the vertex uses the blend of the two poses. A palette holds one row-major float4x4 per bone of the model's skin,
+// 64 bytes each, mapping object-space rest positions to object-space posed positions (see 'View3D_ObjectSkinningPalette'). Offsets must be 4-byte aligned.
 
 // Producer bindings, used by compute shaders that generate population content on the GPU (see View3D_PopulationProduce).
 //  - Constants: 'ConstantBuffer<T>', the caller's constants.
@@ -109,7 +123,83 @@ struct View3DPopulationDraw
 	uint pad;
 };
 
+// The pose of a skinned instance, in the payload at the byte offset in 'info.z'. 16 bytes.
+struct View3DPopulationSkinPose
+{
+	uint pose0;  // Byte offset of the first bone palette in the payload
+	uint pose1;  // Byte offset of the second bone palette in the payload
+	float blend; // The weight of 'pose1', in [0,1]
+	uint pad;
+};
+
+// The bone influences of one skinned vertex. Eight 16-bit bone indices and eight 16-bit unorm weights, low halves first. Matches the model skin.
+struct View3DPopulationSkinfluence
+{
+	uint4 bones;
+	uint4 weights;
+};
+
 #ifndef __cplusplus
+
+// Return the blend of bone 'bone' from the two palettes of 'pose', as rows of a row-major matrix.
+float4x4 View3DPopulationSkinBone(ByteAddressBuffer payload, View3DPopulationSkinPose pose, uint bone)
+{
+	// Each palette matrix is four float4 rows, 64 bytes
+	uint ofs = bone * 64;
+	float4x4 m0 = float4x4(
+		asfloat(payload.Load4(pose.pose0 + ofs + 0)),
+		asfloat(payload.Load4(pose.pose0 + ofs + 16)),
+		asfloat(payload.Load4(pose.pose0 + ofs + 32)),
+		asfloat(payload.Load4(pose.pose0 + ofs + 48)));
+	float4x4 m1 = float4x4(
+		asfloat(payload.Load4(pose.pose1 + ofs + 0)),
+		asfloat(payload.Load4(pose.pose1 + ofs + 16)),
+		asfloat(payload.Load4(pose.pose1 + ofs + 32)),
+		asfloat(payload.Load4(pose.pose1 + ofs + 48)));
+	return lerp(m0, m1, pose.blend);
+}
+
+// Pose an object-space rest vertex and normal of a skinned population instance. 'skin_index' is the vertex's skin index ('idx0.x');
+// negative indices mean the vertex has no skin and is left unchanged.
+void View3DPopulationSkinVertex(
+	ByteAddressBuffer payload,
+	StructuredBuffer<View3DPopulationSkinfluence> skin,
+	View3DPopulationInstance inst,
+	int skin_index,
+	inout float4 os_vert,
+	inout float4 os_norm)
+{
+	// Unused vertex slots can hold a negative skin index
+	if (skin_index < 0)
+		return;
+
+	// Read the instance pose record and the vertex influences
+	uint4 raw = payload.Load4(inst.info.z);
+	View3DPopulationSkinPose pose;
+	pose.pose0 = raw.x;
+	pose.pose1 = raw.y;
+	pose.blend = asfloat(raw.z);
+	pose.pad = raw.w;
+	View3DPopulationSkinfluence influence = skin[skin_index];
+
+	// Accumulate the weighted bone transforms. Zero weights are skipped, because most vertices use few of the eight influences.
+	float3 vert = 0;
+	float3 norm = 0;
+	[unroll] for (uint i = 0; i != 8; ++i)
+	{
+		// Influence 'i' is in the low half of component 'i/2' for even 'i', and the high half for odd 'i'
+		uint shift = (i & 1) * 16;
+		float weight = ((influence.weights[i / 2] >> shift) & 0xFFFF) / 65535.0f;
+		if (weight == 0)
+			continue;
+
+		float4x4 m = View3DPopulationSkinBone(payload, pose, (influence.bones[i / 2] >> shift) & 0xFFFF);
+		vert += mul(os_vert, m).xyz * weight;
+		norm += mul(os_norm, m).xyz * weight;
+	}
+	os_vert = float4(vert, 1);
+	os_norm = float4(norm, 0);
+}
 
 // Read the list entry for 'instance_id' (SV_InstanceID) of the current population draw.
 View3DPopulationEntry View3DPopulationFetch(ByteAddressBuffer view, View3DPopulationDraw draw, uint instance_id)

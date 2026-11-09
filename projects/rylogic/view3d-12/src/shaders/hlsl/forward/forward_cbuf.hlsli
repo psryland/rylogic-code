@@ -42,7 +42,10 @@ struct ElementConstants
 
 	// EnvMap
 	float env_reflectivity; // Environment map reflectivity when viewed straight on (rises to 1 at grazing angles)
-	float3 pad0;
+
+	// Screen-door dither word of the object (see 'pr/view3d-12/shaders/population.hlsli'). Zero draws every pixel.
+	uint dither;
+	float2 pad0;
 };
 
 // Constants used for radial fading.

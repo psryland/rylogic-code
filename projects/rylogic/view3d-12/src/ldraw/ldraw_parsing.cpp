@@ -6255,6 +6255,7 @@ namespace pr::rdr12::ldraw
 				obj->m_o2p = source->m_o2p;
 				obj->m_base_colour = source->m_base_colour;
 				obj->m_colour_blend = source->m_colour_blend;
+				obj->m_dither = source->m_dither;
 				obj->m_group_tint = source->m_group_tint;
 				obj->m_root_anim = source->m_root_anim;
 				obj->m_flipbook = source->m_flipbook;
@@ -6637,6 +6638,7 @@ namespace pr::rdr12::ldraw
 		obj->m_name = existing->m_name;
 		obj->m_base_colour = existing->m_base_colour;
 		obj->m_colour_blend = existing->m_colour_blend;
+		obj->m_dither = existing->m_dither;
 
 		// Recursively create instances of the child objects
 		for (auto& child : existing->m_child)

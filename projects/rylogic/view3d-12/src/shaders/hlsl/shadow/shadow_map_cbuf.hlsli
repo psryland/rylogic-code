@@ -45,6 +45,10 @@ struct ElementConstants
 
 	// Tinting
 	float4 tint; // object tint colour
+
+	// Screen-door dither word of the object (see 'pr/view3d-12/shaders/population.hlsli'). Zero draws every pixel.
+	uint dither;
+	uint3 pad0;
 };
 
 #endif

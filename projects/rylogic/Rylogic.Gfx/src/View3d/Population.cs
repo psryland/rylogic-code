@@ -17,6 +17,32 @@ public sealed partial class View3d
 
 		/// <summary>Only enabled instances are drawn.</summary>
 		Enabled = 1 << 0,
+
+		/// <summary>
+		/// The instance is dithered by its own coverage, held as unorm16 in bits 16-31 of the flags, instead of by its prototype's fade bands.
+		/// Use 'PopulationFadeFlags' to build the flags.</summary>
+		Faded = 1 << 1,
+
+		/// <summary>A 'Faded' instance keeps the pixels that its coverage would discard.</summary>
+		FadeComplement = 1 << 2,
+	}
+
+	/// <summary>The bit position of the coverage of a 'Faded' instance in its flags. Matches 'view3d::PopulationFadeShift'.</summary>
+	public const int PopulationFadeShift = 16;
+
+	/// <summary>
+	/// Return the flags of an enabled instance that is dithered by 'coverage' in [0,1] instead of by its prototype's fade bands. With 'complement',
+	/// the instance keeps exactly the pixels that an object with the word from 'Population.DitherWord' for the same coverage and origin discards.
+	/// Matches 'view3d::PopulationFadeFlags'.</summary>
+	public static EPopulationInstanceFlags PopulationFadeFlags(float coverage, bool complement)
+	{
+		// Quantise the coverage to unorm16 in the upper half of the flags word
+		var word = (uint)(Math.Min(Math.Max(coverage, 0f), 1f) * 65535f + 0.5f) << PopulationFadeShift;
+		var flags = EPopulationInstanceFlags.Enabled | EPopulationInstanceFlags.Faded;
+		if (complement)
+			flags |= EPopulationInstanceFlags.FadeComplement;
+
+		return (EPopulationInstanceFlags)((uint)flags | word);
 	}
 
 	/// <summary>One placement of a population prototype. Matches 'view3d::PopulationInstance' (64 bytes).</summary>
@@ -226,6 +252,15 @@ public sealed partial class View3d
 		public IntPtr Handle { get; private set; }
 
 		/// <summary>
+		/// Return the screen-door dither word that an ordinary object at 'origin' (its object-to-world translation) uses to draw 'coverage' in [0,1]
+		/// of its pixels (see 'Object.DitherSet'). An instance with the same translation floats and 'PopulationFadeFlags(coverage, !complement)' draws
+		/// exactly the other pixels, so the pair cross-fades without gaps or double coverage.</summary>
+		public static uint DitherWord(v4 origin, float coverage, bool complement)
+		{
+			return View3D_PopulationDitherWord(origin, coverage, complement);
+		}
+
+		/// <summary>
 		/// Define block 'index' as the instance slots [first, first + capacity), of which the first 'live_count' are drawn. 'bbox' is a world-space bound
 		/// that must contain the bounding sphere of every live instance.
 		/// </summary>
@@ -331,6 +366,9 @@ public sealed partial class View3d
 
 	[DllImport(Dll)]
 	private static extern void View3D_PopulationCoverageSet(IntPtr population, float coverage);
+
+	[DllImport(Dll)]
+	private static extern uint View3D_PopulationDitherWord(v4 origin, float coverage, [MarshalAs(UnmanagedType.Bool)] bool complement);
 
 	[DllImport(Dll)]
 	private static extern unsafe void View3D_PopulationInstancesUpdate(IntPtr population, int first, PopulationInstance* instances, int count);

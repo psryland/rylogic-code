@@ -46,6 +46,7 @@ namespace pr::rdr12::ldraw
 		x(PipeStates  ,m_pso         ,EInstComp::PipeStates        )/*    104 bytes, align 8 */\
 		x(Colour32    ,m_colour      ,EInstComp::TintColour32      )/*      4 bytes, align 4 */\
 		x(Colour32    ,m_colour_blend,EInstComp::ColourBlend32     )/*      4 bytes, align 4 */\
+		x(uint32_t    ,m_dither      ,EInstComp::DitherWord        )/*      4 bytes, align 4 */\
 		x(float       ,m_env         ,EInstComp::EnvMapReflectivity)/*      4 bytes, align 4 */\
 		x(EInstFlag   ,m_iflags      ,EInstComp::Flags             )/*      4 bytes, align 4 */\
 		x(SKOverride  ,m_sko         ,EInstComp::SortkeyOverride   )/*      8 bytes, align 4 */
@@ -274,6 +275,11 @@ namespace pr::rdr12::ldraw
 		// Alpha zero disables the override. Name follows Apply; getters return the first match, or zero if absent.
 		Colour32 ColourBlend(char const* name = nullptr) const;
 		void ColourBlend(Colour32 blend, char const* name = nullptr);
+
+		// Get/Set the screen-door dither word of this object or child objects matching 'name' (see Apply).
+		// Zero draws every pixel. Build words with 'PopulationDitherWord' so that an object can cross-fade with a population instance.
+		uint32_t Dither(char const* name = nullptr) const;
+		void Dither(uint32_t dither, char const* name = nullptr);
 
 		// Get/Set the reflectivity of this object or child objects matching 'name' (see Apply)
 		float Reflectivity(char const* name = nullptr) const;

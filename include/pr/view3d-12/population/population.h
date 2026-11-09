@@ -15,12 +15,32 @@ namespace pr::rdr12
 	inline constexpr int PopulationMaxLods = 8;
 
 	// Flags of a population instance. Matches VIEW3D_POPULATION_FLAG_*.
+	// A 'Faded' instance holds its own unorm16 coverage in bits 16-31 of the flags word (see PopulationFadeFlags).
 	enum class EPopulationInstanceFlags : uint32_t
 	{
 		None = 0,
 		Enabled = 1 << 0,
+		Faded = 1 << 1,
+		FadeComplement = 1 << 2,
 		_flags_enum = 0,
 	};
+
+	// The bit position of the coverage of a 'Faded' instance in its flags word. Matches VIEW3D_POPULATION_FLAG_FADE_SHIFT.
+	inline constexpr int PopulationFadeShift = 16;
+
+	// Return the flags of an enabled instance that is dithered by 'coverage' in [0,1] instead of by its prototype's fade bands.
+	// With 'complement', the instance keeps exactly the pixels that an object with the dither word from 'PopulationDitherWord' for the same
+	// coverage and origin discards.
+	inline EPopulationInstanceFlags PopulationFadeFlags(float coverage, bool complement)
+	{
+		// Quantise the coverage to unorm16 in the upper half of the flags word
+		auto word = static_cast<uint32_t>(std::clamp(coverage, 0.0f, 1.0f) * 65535.0f + 0.5f) << PopulationFadeShift;
+		auto flags = EPopulationInstanceFlags::Enabled | EPopulationInstanceFlags::Faded;
+		if (complement)
+			flags = flags | EPopulationInstanceFlags::FadeComplement;
+
+		return static_cast<EPopulationInstanceFlags>(static_cast<uint32_t>(flags) | word);
+	}
 
 	// One placement of one of a population's prototypes. Matches 'View3DPopulationInstance'.
 	struct PopulationInstance
@@ -66,6 +86,11 @@ namespace pr::rdr12
 	inline constexpr uint32_t PopulationDitherSeedMask = 0x3FFFu;
 	inline constexpr uint32_t PopulationDitherActive = 0x40000000u;
 	inline constexpr uint32_t PopulationDitherComplement = 0x80000000u;
+
+	// Return the dither word that an ordinary object at 'origin' (its object-to-world translation) uses to draw 'coverage' in [0,1] of its pixels.
+	// The word uses the same seed as a population instance at the same origin, so the object and a 'Faded' instance with the same coverage and the
+	// complement flag together cover each pixel exactly once. 'origin' must have exactly the float values of the instance translation.
+	uint32_t PopulationDitherWord(v4 const& origin, float coverage, bool complement);
 
 	// Layout of the per-view list header, for a population with 'list_count' visible lists. Match VIEW3D_POPULATION_HEADER_*.
 	inline constexpr int PopulationHeaderDiag = 0;

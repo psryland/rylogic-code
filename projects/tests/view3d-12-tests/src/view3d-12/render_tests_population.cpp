@@ -312,6 +312,55 @@ namespace render_tests
 			View3D_WindowRemovePopulation(fixture.m_window, near_fade.get());
 			View3D_WindowRemovePopulation(fixture.m_window, far_fade.get());
 		}
+		{
+			// An ordinary object with a dither word and a 'Faded' complementary instance at the same origin cover each pixel exactly once
+			auto origin = instances[1].m_o2w;
+			auto coverage = 0.45f;
+			auto object = PopulationQuad(fixture);
+			View3D_ObjectO2WSet(object, api::Mat4x4{ {1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}, {origin[0].w, origin[1].w, origin[2].w, 1} }, nullptr);
+			View3D_ObjectColourSet(object, FALSE, 0xFFFF0000, nullptr, api::EColourOp::Overwrite, 0);
+			View3D_ObjectDitherSet(object, View3D_PopulationDitherWord({origin[0].w, origin[1].w, origin[2].w, 1}, coverage, FALSE), nullptr);
+			Require(View3D_ObjectDitherGet(object, nullptr) != 0, "An object dither word was not stored");
+			View3D_WindowAddObject(fixture.m_window, object);
+
+			// The instance holds the same coverage and keeps the complementary pixels
+			auto faded_prototype = api::PopulationPrototypePtr(View3D_PopulationPrototypeCreate(&lods, 1, 0, {}, {}));
+			auto pop = api::PopulationPtr(PopulationCreate(faded_prototype.get(), 8, 2, 0));
+			auto faded = instances[1];
+			faded.m_tint = 0xFF00FF00;
+			auto fade_word = static_cast<uint32_t>(coverage * 65535.0f + 0.5f) << 16;
+			faded.m_flags = static_cast<api::EPopulationInstanceFlags>(fade_word) | api::EPopulationInstanceFlags::Enabled | api::EPopulationInstanceFlags::Faded | api::EPopulationInstanceFlags::FadeComplement;
+			View3D_PopulationInstancesUpdate(pop.get(), 0, &faded, 1);
+			View3D_PopulationBlockSet(pop.get(), 0, bbox, 0, 4, 1);
+			View3D_WindowAddPopulation(fixture.m_window, pop.get());
+			fixture.CheckErrors();
+
+			// Count the interior pixels of the quad, as for the band cross-fade above
+			auto image = fixture.Image();
+			auto red = 0, green = 0, total = 0;
+			for (int y = 59; y != 70; ++y)
+			{
+				for (int x = 97; x != 108; ++x)
+				{
+					// Each pixel must be drawn by exactly one of the object and the instance
+					auto pixel = image.data() + (y * ImageSize + x) * 4;
+					auto is_red = pixel[0] > 128 && pixel[1] < 64;
+					auto is_green = pixel[1] > 128 && pixel[0] < 64;
+					Require(is_red || is_green, "A pixel of an object cross-faded with an instance was drawn by neither or both");
+					red += is_red ? 1 : 0;
+					green += is_green ? 1 : 0;
+					++total;
+				}
+			}
+			Require(red > total / 4 && green > total / 4, "An object cross-faded with an instance did not show both");
+
+			// A zero dither word draws the object in full again
+			View3D_WindowRemovePopulation(fixture.m_window, pop.get());
+			View3D_ObjectDitherSet(object, 0, nullptr);
+			Expect(fixture.Image(), 1, 0, 0, 102, 64);
+			View3D_WindowRemoveObject(fixture.m_window, object);
+			fixture.CheckErrors();
+		}
 
 		// Overlapping fade bands are rejected
 		auto overlapping = View3D_PopulationPrototypeCreate(&lods, 1, 0, { .m_start = 10, .m_width = 20 }, { .m_start = 20, .m_width = 10 });

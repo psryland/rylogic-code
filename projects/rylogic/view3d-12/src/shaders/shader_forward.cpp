@@ -56,6 +56,7 @@ namespace pr::rdr12::shaders
 		inline static constexpr auto PopulationInstances = ESRVReg::t24;
 		inline static constexpr auto PopulationView = ESRVReg::t25;
 		inline static constexpr auto PopulationPayload = ESRVReg::t26;
+		inline static constexpr auto PopulationSkin = ESRVReg::t27;
 		inline static constexpr auto PopulationDraw = ECBufReg::b8;
 	};
 	struct ESamp
@@ -134,6 +135,7 @@ namespace pr::rdr12::shaders
 			.SRV(EReg::PopulationView, D3D12_SHADER_VISIBILITY_ALL)
 			.SRV(EReg::PopulationPayload, D3D12_SHADER_VISIBILITY_ALL)
 			.U32<PopulationDraw>(EReg::PopulationDraw)
+			.SRV(EReg::PopulationSkin, D3D12_SHADER_VISIBILITY_VERTEX)
 			.Create(rdr.d3d(), "ForwardSig");
 	}
 
@@ -201,6 +203,7 @@ namespace pr::rdr12::shaders
 			SetTint(cb, inst, material);
 			SetTex2Surf(cb, inst, material);
 			SetReflectivity(cb, inst, material);
+			SetDither(cb, inst);
 
 			// Write the complete entry to the table
 			*elements++ = cb;

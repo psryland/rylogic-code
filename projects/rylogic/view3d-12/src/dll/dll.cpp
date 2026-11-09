@@ -2925,6 +2925,15 @@ VIEW3D_API void __stdcall View3D_PopulationCoverageSet(view3d::Population popula
 	}
 	CatchAndReport(View3D_PopulationCoverageSet, , );
 }
+VIEW3D_API uint32_t __stdcall View3D_PopulationDitherWord(view3d::Vec4 origin, float coverage, BOOL complement)
+{
+	try
+	{
+		// A pure function of its arguments, so no renderer lock is needed
+		return PopulationDitherWord(To<v4>(origin), coverage, complement != 0);
+	}
+	CatchAndReport(View3D_PopulationDitherWord, , 0U);
+}
 
 // Copy instance records into a range of slots
 VIEW3D_API void __stdcall View3D_PopulationInstancesUpdate(view3d::Population population, int first, view3d::PopulationInstance const* instances, int count)
@@ -3314,6 +3323,34 @@ VIEW3D_API void __stdcall View3D_ObjectColourBlendSet(view3d::Object object, vie
 	CatchAndReport(View3D_ObjectColourBlendSet, ,);
 }
 
+// Return the screen-door dither word of the first matching object.
+VIEW3D_API uint32_t __stdcall View3D_ObjectDitherGet(view3d::Object object, char const* name)
+{
+	// Use the normal DLL error reporting and serialization boundary.
+	try
+	{
+		// Read only instance state, never shared model data.
+		Validate(object);
+		DllLockGuard;
+		return object->Dither(name);
+	}
+	CatchAndReport(View3D_ObjectDitherGet, , 0U);
+}
+
+// Set the instance-owned screen-door dither word. See View3D_ObjectDitherSet's public contract.
+VIEW3D_API void __stdcall View3D_ObjectDitherSet(view3d::Object object, uint32_t dither, char const* name)
+{
+	// Use the normal DLL error reporting and serialization boundary.
+	try
+	{
+		// Validate before applying the change to the requested hierarchy.
+		Validate(object);
+		DllLockGuard;
+		object->Dither(dither, name);
+	}
+	CatchAndReport(View3D_ObjectDitherSet, ,);
+}
+
 // Reset the object colour back to its default
 VIEW3D_API void __stdcall View3D_ObjectResetColour(view3d::Object object, char const* name)
 {
@@ -3470,6 +3507,42 @@ VIEW3D_API void __stdcall View3D_ObjectPoseSnapshotPublish(view3d::Object object
 		obj->m_pose->InvalidateGpuData();
 	}
 	CatchAndReport(View3D_ObjectPoseSnapshotPublish, ,);
+}
+
+// Convert bone-to-parent transforms of the skeleton of 'object' (or children matching 'name') to object-space skinning matrices.
+VIEW3D_API void __stdcall View3D_ObjectSkinningPalette(view3d::Object object, view3d::Mat4x4 const* bones, int bone_count, view3d::Mat4x4* palette_out, char const* name)
+{
+	try
+	{
+		// The skeleton comes from the first skinned model in the matching objects, as for 'View3D_ObjectPoseSnapshotsCreate'
+		Validate(object);
+		DllLockGuard;
+		SkeletonPtr skeleton;
+		object->Apply([&](rdr12::ldraw::LdrObject* ob)
+		{
+			// Stop at the first object with a skinned model
+			if (!ob->m_model || !ob->m_model->m_skin)
+				return true;
+
+			skeleton = ob->m_model->m_skin.m_skeleton;
+			return false;
+		}, name);
+		if (skeleton == nullptr)
+			throw std::runtime_error("Object has no skinned model");
+
+		// Validate the caller's buffers at the DLL boundary
+		if (bones == nullptr || palette_out == nullptr)
+			throw std::runtime_error("Bone and palette buffers are required");
+		if (bone_count != skeleton->BoneCount())
+			throw std::runtime_error(std::format("Expected {} bones, got {}", skeleton->BoneCount(), bone_count));
+
+		// Convert in the output buffer. The view3d and maths matrix types share the same layout
+		static_assert(sizeof(view3d::Mat4x4) == sizeof(m4x4));
+		auto palette = std::span<m4x4>{ reinterpret_cast<m4x4*>(palette_out), s_cast<size_t>(bone_count) };
+		std::memmove(palette.data(), bones, palette.size_bytes());
+		skeleton->SkinningMatrices(palette);
+	}
+	CatchAndReport(View3D_ObjectSkinningPalette, ,);
 }
 
 // Return the model space bounding box for 'object'

@@ -165,19 +165,8 @@ namespace pr::rdr12
 		// These are bone-to-parent transforms for each bone.
 		m_animator->Animate(pose, SrcAnimTime(m_time1), m_flags);
 
-		// Convert the pose into object space transforms
-		m_skeleton->WalkHierarchy<m4x4>([ptr = pose.data(), &o2bp = m_skeleton->m_o2bp](int idx, m4x4 const* p2o) -> m4x4
-		{
-			// Find the deformed bone-to-object space transform
-			auto b2o = p2o ? *p2o * ptr[idx] : ptr[idx];
-
-			// Update the pose buffer with the transform that takes object space verts, transforms them to
-			// bind pose bone-relative, then from deformed bone space back to object space.
-			ptr[idx] = b2o * o2bp[idx];
-
-			// Return 'b2o' as the parent of any child bones
-			return b2o;
-		});
+		// Convert the pose into object space skinning transforms
+		m_skeleton->SkinningMatrices(pose);
 	}
 
 	// Evaluate the skinning matrices at the current animation time, unless they are already current.
