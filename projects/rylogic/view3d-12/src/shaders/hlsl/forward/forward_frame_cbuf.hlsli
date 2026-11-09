@@ -31,6 +31,24 @@ struct SkyHistory
 	int pad0, pad1, pad2;
 };
 
+// The plane whose reflection is projected from the rendered scene. See reflection_plane.hlsl.
+struct ReflectionPlane
+{
+	// xyz = the plane's unit normal, w = its distance from the origin along the normal.
+	float4 plane;
+
+	// The viewport the reflection was projected into, in pixels: (x, y, width, height).
+	float4 viewport;
+
+	// How far beyond the viewport the reflection sources reach, in normalised device units: x = to the left and right, y = above the top.
+	// Sources in this border were rendered at lower resolution, so the reflection is still found for them. zw are unused.
+	float4 guard;
+
+	// 1 when the projected reflection is available, otherwise 0.
+	int enabled;
+	int pad0, pad1, pad2;
+};
+
 // Constants per frame.
 struct CBufFrame// :reg(b0)
 {
@@ -55,6 +73,13 @@ struct CBufFrame// :reg(b0)
 
 	// The procedural sky's low cloud history. 'sky_history.enabled' is 0 when frames are not accumulated.
 	SkyHistory sky_history;
+
+	// The projected planar reflection. 'reflection_plane.enabled' is 0 when there is none.
+	ReflectionPlane reflection_plane;
+
+	// Applied after the projection to clip space, to move the output into another render target region. 'cam.c2s' and 'cam.w2s' already include it.
+	// It is the identity for normal rendering.
+	row_major float4x4 clip_remap;
 };
 
 #endif

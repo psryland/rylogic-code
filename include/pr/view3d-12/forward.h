@@ -335,6 +335,7 @@ namespace pr::rdr12
 		namespace fwd
 		{
 			struct SkyHistory;
+			struct ReflectionPlane;
 		}
 	}
 	using ShaderPtr = RefPtr<Shader>;

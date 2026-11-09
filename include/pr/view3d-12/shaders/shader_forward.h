@@ -56,6 +56,8 @@ namespace pr::rdr12::shaders
 			PopulationView,
 			PopulationPayload,
 			PopulationDraw,
+			ReflectionPlane,
+			ReflectionPlaneCoverage,
 		};
 
 		enum class ESampParam
@@ -71,6 +73,14 @@ namespace pr::rdr12::shaders
 		// The procedural sky's low cloud history constants for the frame, or null when the sky does not blend its low cloud over frames.
 		// Not owned; the render step that sets it keeps it valid while it renders.
 		fwd::SkyHistory const* m_sky_history;
+
+		// The projected planar reflection constants for the frame, or null when the reflection texture is not available to the draws being rendered.
+		// Not owned; the render step that sets it keeps it valid while it renders.
+		fwd::ReflectionPlane const* m_reflection_plane;
+
+		// A transform applied after the camera projection, which moves clip space into a different render target region, or null for none.
+		// It maps clip (x, y) affinely using w, and keeps z and w, so depth testing and clipping are unchanged. Not owned.
+		m4x4 const* m_clip_remap;
 
 		explicit Forward(Renderer& rdr);
 		void SetupFrame(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, Scene const& scene) override;

@@ -58,6 +58,8 @@ namespace pr::rdr12
 		TextureCubePtr   m_global_envmap_prev;  // An optional environment map that 'm_global_envmap' fades in over. It is sampled with 'm_global_envmap's orientation
 		float            m_global_envmap_blend; // The weight of 'm_global_envmap' over 'm_global_envmap_prev', in [0,1]. Ignored when 'm_global_envmap_prev' is null
 		BBox             m_global_envmap_parallax_bounds; // Reflections correct parallax for captured geometry inside these world-space bounds. Anything beyond them, or everything when invalid, is infinitely distant
+		v4               m_reflection_plane; // The world-space plane (unit normal xyz, distance w along the normal) whose surfaces reflect the rendered scene. Zero for none
+		float            m_reflection_min_population_radius; // Populations whose prototype bounding radius is smaller than this are not drawn into the reflection's off-screen sources. Zero draws them all
 		EFillMode         m_global_fill_mode; // A scene-wide fill mode override. EFillMode::Default means "use the model's default"
 		PipeStates       m_pso;              // Scene-wide pipe state overrides
 		RayTracingProps  m_ray_tracing_props; // Ray tracing render settings for this scene.

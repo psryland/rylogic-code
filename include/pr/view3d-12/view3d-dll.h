@@ -1486,6 +1486,16 @@ extern "C"
 	VIEW3D_API pr::view3d::BBox __stdcall View3D_WindowEnvMapParallaxBoundsGet(pr::view3d::Window window);
 	VIEW3D_API void __stdcall View3D_WindowEnvMapParallaxBoundsSet(pr::view3d::Window window, pr::view3d::BBox bounds);
 
+	// Get/Set the world-space plane whose surfaces reflect the rendered scene, as (unit normal xyz, distance w along the normal). Shaders that opt in
+	// reflect the opaque scene visible on screen and fall back to the environment map where it has no data. Zero (the default) disables it.
+	VIEW3D_API pr::view3d::Vec4 __stdcall View3D_WindowReflectionPlaneGet(pr::view3d::Window window);
+	VIEW3D_API void __stdcall View3D_WindowReflectionPlaneSet(pr::view3d::Window window, pr::view3d::Vec4 plane);
+
+	// Get/Set the bounding radius below which populations are left out of the reflection's off-screen sources. Reflections of the scene just
+	// beyond the view edges are drawn at low resolution, where small objects add cost but little detail. Zero (the default) draws them all.
+	VIEW3D_API float __stdcall View3D_WindowReflectionMinPopulationRadiusGet(pr::view3d::Window window);
+	VIEW3D_API void __stdcall View3D_WindowReflectionMinPopulationRadiusSet(pr::view3d::Window window, float radius);
+
 	// Enable/Disable the depth buffer
 	VIEW3D_API BOOL __stdcall View3D_DepthBufferEnabledGet(pr::view3d::Window window);
 	VIEW3D_API void __stdcall View3D_DepthBufferEnabledSet(pr::view3d::Window window, BOOL enabled);
@@ -1649,6 +1659,11 @@ extern "C"
 	// Shadow cascades are fitted to each face's view, so every captured face renders its own shadow maps. Defaults to the default shadow settings.
 	VIEW3D_API pr::view3d::ShadowSettings __stdcall View3D_EnvMapCaptureShadowsGet(pr::view3d::Window window);
 	VIEW3D_API void __stdcall View3D_EnvMapCaptureShadowsSet(pr::view3d::Window window, pr::view3d::ShadowSettings const& settings);
+
+	// Get/Set whether environment map faces (View3D_WindowEnvMapCapture and the environment map probe) render only objects in the 'Skybox' sort group.
+	// A sky-only map has no scene geometry, so it never shows stale or low-resolution copies of nearby objects, and its faces are cheap to render. Defaults to false.
+	VIEW3D_API BOOL __stdcall View3D_EnvMapCaptureSkyOnlyGet(pr::view3d::Window window);
+	VIEW3D_API void __stdcall View3D_EnvMapCaptureSkyOnlySet(pr::view3d::Window window, BOOL sky_only);
 
 	// Objects ********************************
 

@@ -313,6 +313,99 @@ float4 SampleEnvMapLevel(float3 dir, float3 dir_prev, float lod)
 	return col;
 }
 
+// True when the surface being shaded lies in the reflection plane (see 'g_frame.reflection_plane'), so its reflections can be read from the
+// reflection projected from the rendered scene. Pixel-shader variants for such surfaces set it before shading.
+static bool g_reflection_plane_surface = false;
+
+// Stored reflection distances at or above this are mirrored sky (see 'ReflectionSkyDistance' in reflection_plane.hlsl).
+static const float ReflectionPlaneSkyDistance = 60000.0f;
+
+// The width of the band at the edge of the screen, in pixels, over which reflections fade out as their source approaches the edge.
+// The band only hides the hard cut where the source leaves the screen, so it is kept narrow to let reflections reach the screen edge.
+static const float ReflectionPlaneEdgeFadePixels = 4.0f;
+
+// Return the pixel position of world-space point 'ws' (w = 1) or direction (w = 0), and true if it is in front of the camera and inside the viewport.
+bool ReflectionPlaneToPixel(float4 ws, out float2 pix)
+{
+	// Directions project to their vanishing point
+	float4 vp = g_frame.reflection_plane.viewport;
+	float4 clip = mul(ws, g_frame.cam.w2s);
+	pix = float2(0, 0);
+	if (clip.w <= 0.0f)
+		return false;
+
+	float2 ndc = clip.xy / clip.w;
+	pix = vp.xy + float2(ndc.x * 0.5f + 0.5f, 0.5f - ndc.y * 0.5f) * vp.zw;
+	return all(abs(ndc) < 1.0f);
+}
+
+// Return the reflection seen from the plane surface point 'ws_pos' at pixel 'ss_pos', along the reflected ray 'ws_dir', from the reflection
+// projected from the rendered scene. 'rgb' is the linear colour and 'a' is how much of it to use, in [0,1]; the rest comes from the environment map.
+// The projected reflection holds what a flat mirror shows. Waves tilt the reflected ray away from the flat mirror's ray, so the point the tilted ray
+// reaches is estimated by going the same distance along it as the flat mirror's ray goes, and the reflection is read where that point's mirror
+// image is on screen.
+float4 ReflectionPlaneSample(float3 ws_pos, float3 ws_cam, float3 ws_dir, float2 ss_pos)
+{
+	// Pixels with no projected reflection have no distance estimate
+	float4 vp = g_frame.reflection_plane.viewport;
+	float4 flat = g_reflection_plane_tex.Load(int3(ss_pos, 0));
+	if (flat.a <= 0.0f)
+		return float4(0, 0, 0, 0);
+
+	// Find the source of the reflection: the point (or sky direction) that the tilted ray reaches. The flat texel's distance is measured from
+	// the camera, so the part beyond the surface is what remains after the distance from the camera to the surface.
+	float3 n = g_frame.reflection_plane.plane.xyz;
+	float3 dir = normalize(ws_dir);
+	float4 source;
+	if (flat.a >= ReflectionPlaneSkyDistance)
+	{
+		// The sky is infinitely distant, so only the direction matters
+		source = float4(dir, 0.0f);
+	}
+	else
+	{
+		// The source must be above the plane to be reflected in it
+		float dist = max(flat.a - length(ws_pos - ws_cam), 0.0f);
+		source = float4(ws_pos + dir * dist, 1.0f);
+	}
+
+	// The reflection texel that shows the source is where the source's mirror image is on screen
+	float h = dot(n, source.xyz) - g_frame.reflection_plane.plane.w * source.w;
+	float4 image = float4(source.xyz - 2.0f * h * n, source.w);
+	float2 image_pix;
+	if (h <= 0.0f || !ReflectionPlaneToPixel(image, image_pix))
+		return float4(0, 0, 0, 0);
+
+	float4 texel = g_reflection_plane_tex.Load(int3(image_pix, 0));
+	if (texel.a <= 0.0f)
+		return float4(0, 0, 0, 0);
+
+	// Only part of the texels around the outlines of low resolution sources is used, so those outlines fade into the other reflection sources
+	float weight = g_reflection_plane_coverage.Load(int3(image_pix, 0));
+
+	// Fade out the reflection as its source nears the edge of the rendered area, because beyond it the source is not rendered. The rendered area
+	// includes the guard bands beyond the left, right, and top of the viewport. Sky texels come from the mirrored sky, which is always on screen
+	// when its mirror image is.
+	if (source.w != 0.0f)
+	{
+		// Measure the source's distance to the nearest edge of the rendered area in viewport pixels
+		float4 clip = mul(source, g_frame.cam.w2s);
+		if (clip.w <= 0.0f)
+			return float4(0, 0, 0, 0);
+
+		float2 guard = g_frame.reflection_plane.guard.xy;
+		float2 ndc = clip.xy / clip.w;
+		float2 edge_x = float2(ndc.x + 1.0f + guard.x, 1.0f + guard.x - ndc.x) * (vp.z * 0.5f);
+		float2 edge_y = float2(ndc.y + 1.0f, 1.0f + guard.y - ndc.y) * (vp.w * 0.5f);
+		float edge = min(min(edge_x.x, edge_x.y), min(edge_y.x, edge_y.y));
+		if (edge <= 0.0f)
+			return float4(0, 0, 0, 0);
+
+		weight *= saturate(edge / ReflectionPlaneEdgeFadePixels);
+	}
+	return float4(texel.rgb, weight);
+}
+
 // Blend the reflected environment into 'initial_diff'. 'env_reflectivity' is the reflectivity when viewed straight on; the reflection
 // strengthens towards a full mirror at grazing angles, so a value of 1 is a perfect mirror from every direction.
 // 'slope_variance' is the mean square slope of surface detail too fine for 'ws_norm' to show. Zero gives a sharp mirror reflection; larger
@@ -339,12 +432,29 @@ float4 EnvironmentMap(float4 ws_pos, float4 ws_norm, float4 ws_cam, float2 ss_po
 	// Sample the environment at the parallax-corrected hit. The filtering follows the plain mirror direction, which changes smoothly across the
 	// surface; the hit directions jump between near and far surfaces at their edges, which would otherwise select a needlessly blurred mip.
 	// Scaling the changes by 2^lod moves the selected mip 'lod' levels coarser. The Fresnel weight sets how much effort the parallax correction gets.
+	// The derivatives are taken before any branch, so every pixel of the quad still runs.
 	float3 ws_mirror = reflect(to_surface, ws_norm).xyz;
 	float3 mirror = mul(float4(normalize(ws_mirror), 0.0f), g_frame.env_map.w2env).xyz;
 	float lod_scale = exp2(lod);
-	float3 dir, dir_prev;
-	EnvMapDirections(ws_pos.xyz, ws_mirror, ss_pos, fresnel, lod, dir, dir_prev);
-	float4 col = SampleEnvMap(dir, dir_prev, ddx(mirror) * lod_scale, ddy(mirror) * lod_scale);
+	float3 mirror_dx = ddx(mirror) * lod_scale;
+	float3 mirror_dy = ddy(mirror) * lod_scale;
+
+	// Surfaces in the reflection plane read nearby reflections from the projected reflection, which already shows nearby objects in place. The
+	// environment map fills only what that misses, mostly the distant scene and the sky, so a direction-only lookup is enough and the march is
+	// skipped. The condition is the same for every pixel of a draw.
+	bool projected = g_reflection_plane_surface && g_frame.reflection_plane.enabled != 0;
+	float3 dir = mirror, dir_prev = mirror;
+	if (!projected)
+		EnvMapDirections(ws_pos.xyz, ws_mirror, ss_pos, fresnel, lod, dir, dir_prev);
+
+	float4 col = SampleEnvMap(dir, dir_prev, mirror_dx, mirror_dy);
+
+	// The projected reflection holds only sharp mirror images, so it fades out as the surface becomes rough.
+	if (projected)
+	{
+		float4 ppr = ReflectionPlaneSample(ws_pos.xyz, ws_cam.xyz, ws_mirror, ss_pos);
+		col.rgb = lerp(col.rgb, ppr.rgb, ppr.a * saturate(1.0f - 2.0f * roughness));
+	}
 	return lerp(initial_diff, col, fresnel);
 }
 

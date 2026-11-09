@@ -57,6 +57,8 @@ namespace pr::rdr12::shaders
 		inline static constexpr auto PopulationView = ESRVReg::t25;
 		inline static constexpr auto PopulationPayload = ESRVReg::t26;
 		inline static constexpr auto PopulationDraw = ECBufReg::b8;
+		inline static constexpr auto ReflectionPlane = ESRVReg::t27;
+		inline static constexpr auto ReflectionPlaneCoverage = ESRVReg::t28;
 	};
 	struct ESamp
 	{
@@ -74,6 +76,8 @@ namespace pr::rdr12::shaders
 	Forward::Forward(Renderer& rdr)
 		:Shader(rdr)
 		,m_sky_history()
+		,m_reflection_plane()
+		,m_clip_remap()
 	{
 		m_code = ShaderCode
 		{
@@ -134,6 +138,8 @@ namespace pr::rdr12::shaders
 			.SRV(EReg::PopulationView, D3D12_SHADER_VISIBILITY_ALL)
 			.SRV(EReg::PopulationPayload, D3D12_SHADER_VISIBILITY_ALL)
 			.U32<PopulationDraw>(EReg::PopulationDraw)
+			.SRV(EReg::ReflectionPlane, 1, D3D12_SHADER_VISIBILITY_PIXEL)
+			.SRV(EReg::ReflectionPlaneCoverage, 1, D3D12_SHADER_VISIBILITY_PIXEL)
 			.Create(rdr.d3d(), "ForwardSig");
 	}
 
@@ -148,6 +154,18 @@ namespace pr::rdr12::shaders
 		cb0.output = v4(scene.wnd().m_dither_amount, 0, 0, 0);
 		if (m_sky_history != nullptr)
 			cb0.sky_history = *m_sky_history;
+		if (m_reflection_plane != nullptr)
+			cb0.reflection_plane = *m_reflection_plane;
+
+		// Move the projection into the remapped target region. Shaders that project with the camera transforms follow it automatically,
+		// and shaders that use the per-element object to screen transform apply 'clip_remap' themselves.
+		cb0.clip_remap = m4x4::Identity();
+		if (m_clip_remap != nullptr)
+		{
+			cb0.clip_remap = *m_clip_remap;
+			cb0.cam.c2s = *m_clip_remap * cb0.cam.c2s;
+			cb0.cam.w2s = *m_clip_remap * cb0.cam.w2s;
+		}
 
 		// Clouds shade the sun when a visible procedural sky has them. Otherwise the zero shadow strength turns cloud shadows off,
 		// and the sky's descriptor table is left unbound because the shader does not read it.
