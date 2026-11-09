@@ -25,6 +25,7 @@ namespace pr::rdr12
 		, m_style(style)
 		, m_flags(flags)
 		, m_revision()
+		, m_uploaded_revision()
 		, m_gpu_update_required(true)
 		, m_matrices(skeleton->BoneCount())
 	{
@@ -138,7 +139,7 @@ namespace pr::rdr12
 		return AdjTime((time - m_bias) * m_stretch + m_time_range.begin(), m_time_range, m_style);
 	}
 
-	// Revision of the most recently recorded pose data, not GPU completion.
+	// Revision of the most recently evaluated pose data, not GPU completion.
 	uint64_t Pose::Revision() const
 	{
 		return m_revision;
@@ -179,59 +180,41 @@ namespace pr::rdr12
 		});
 	}
 
-	// Reset to the rest pose
-	void Pose::ResetPose(GfxCmdList& cmd_list, GpuUploadBuffer& upload_buffer)
+	// Evaluate the skinning matrices at the current animation time, unless they are already current.
+	void Pose::Evaluate()
 	{
-		// Build the rest pose in the working buffer, because observers read it and upload memory is slow to read.
-		for (int i = 0, iend = BoneCount(); i != iend; ++i)
-			m_matrices[i] = InvertOrthonormal(m_skeleton->m_o2bp[i]);
-
-		m_time0 = m_time1;
-		++m_revision;
-		if (PoseUpdated)
-			PoseUpdated(*this, PoseUpdatedArgs{ m_matrices, m_revision });
-
-		// Copy the finished pose to the GPU buffer.
-		auto update = UpdateSubresourceScope(cmd_list, upload_buffer, m_res.get(), alignof(m4x4), 0, BoneCount() * sizeof(m4x4));
-		memcpy(update.ptr<m4x4>(), m_matrices.data(), BoneCount() * sizeof(m4x4));
-		update.Commit();
-		m_gpu_update_required = false;
-	}
-
-	// Update the bone transforms
-	void Pose::Update(GfxCmdList& cmd_list, GpuUploadBuffer& upload_buffer)
-	{
-		// A matching time is reusable only if its recorded GPU update was not abandoned.
+		// The matrices stay current while the time is unchanged, unless an abandoned recording needs a new revision.
 		if (m_time1 == m_time0 && !m_gpu_update_required)
 			return;
-
-		// No animator, return to the rest pose
-		if (m_animator == nullptr)
-		{
-			ResetPose(cmd_list, upload_buffer);
-			return;
-		}
-
-		assert(m_animator->SkelId() == m_skeleton->Id() && "Skeleton mismatch");
 
 		// Populate the pose buffer. These are transforms from object-space to deformed-object-space.
 		// I.e. object space verts are transformed to be bone relative, then deformed, then back to object space.
 		//    `os_vert = cp2o * bp2cp * o2bp * os_vert`, where cp = current-pose, and bp = bind-pose.
 		//               [ animation ] [skel]  [model]
-		// The pose is evaluated in the working buffer, because evaluation and observers read it back and upload memory is slow to read.
+		// Without an animator, this is the rest pose.
 		EvaluatePose(m_matrices);
 		m_time0 = m_time1;
+		m_gpu_update_required = false;
 		++m_revision;
 
 		// Notify observers that the pose has been updated. This is a synchronous call, so the pose data is valid during the call, but not after.
 		if (PoseUpdated)
 			PoseUpdated(*this, PoseUpdatedArgs{ m_matrices, m_revision });
+	}
+
+	// Evaluate the pose and record the upload of its bone transforms
+	void Pose::Update(GfxCmdList& cmd_list, GpuUploadBuffer& upload_buffer)
+	{
+		// A revision already recorded for upload needs no new commands.
+		Evaluate();
+		if (m_uploaded_revision == m_revision)
+			return;
 
 		// Copy the finished pose to the GPU buffer.
 		auto update = UpdateSubresourceScope(cmd_list, upload_buffer, m_res.get(), alignof(m4x4), 0, BoneCount() * sizeof(m4x4));
 		memcpy(update.ptr<m4x4>(), m_matrices.data(), BoneCount() * sizeof(m4x4));
 		update.Commit();
-		m_gpu_update_required = false;
+		m_uploaded_revision = m_revision;
 	}
 
 	void Pose::InvalidateGpuData()

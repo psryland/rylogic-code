@@ -258,6 +258,10 @@ namespace pr::rdr12
 				auto const pose = FindPose(instance);
 				auto& info = elements[e];
 
+				// Evaluate the pose for this frame before hashing it, so the hash sees the evaluated revision and the later render steps reuse the evaluation.
+				if (pose != nullptr)
+					pose->Evaluate();
+
 				// Hash everything that can change the depth this element writes into a view
 				auto h = HashSeed;
 				HashPtr(h, &instance);
