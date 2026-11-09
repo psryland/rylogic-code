@@ -211,6 +211,14 @@ namespace pr::rdr12
 		return Colour(*colour).rgba;
 	}
 
+	// Return the instance's multiplier of material emissive colour. Missing components keep the authored emission.
+	inline float EmissiveScaleConstant(BaseInstance const& inst)
+	{
+		// One is the neutral scale, so instance types without the component are unaffected.
+		auto scale = inst.find<float>(EInstComp::EmissiveScale);
+		return scale != nullptr ? *scale : 1.0f;
+	}
+
 	// Set the multiplicative tint, and the independent surface RGB override when the constants buffer has one.
 	template <typename TCBuf> requires(requires(TCBuf cb) { cb.tint; })
 	void SetTint(TCBuf& cb, BaseInstance const& inst, Material const& material)
@@ -223,6 +231,10 @@ namespace pr::rdr12
 		// Missing components preserve the original surface; this changes no material or alpha flags.
 		if constexpr (requires { cb.colour_blend; })
 			cb.colour_blend = ColourBlendConstant(inst);
+
+		// Instances without an emissive scale keep the authored material emission.
+		if constexpr (requires { cb.emissive_scale; })
+			cb.emissive_scale = EmissiveScaleConstant(inst);
 	}
 
 	// Set the texture properties of a constants buffer

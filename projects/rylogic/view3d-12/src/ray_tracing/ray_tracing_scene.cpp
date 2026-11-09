@@ -417,7 +417,7 @@ namespace pr::rdr12
 			shaders::rt::RayTracingMaterial material = {};
 			material.diffuse = tint.rgba;
 			material.colour_blend = ColourBlendConstant(inst);
-			material.emissive = emissive != nullptr ? emissive->m_colour.rgba : ColourZero.rgba;
+			material.emissive = emissive != nullptr ? (emissive->m_colour * EmissiveScaleConstant(inst)).rgba : ColourZero.rgba;
 			material.optics = v4(
 				rt_reflectivity,
 				transmission,

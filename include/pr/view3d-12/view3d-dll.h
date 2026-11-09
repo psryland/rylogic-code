@@ -2004,6 +2004,12 @@ extern "C"
 	VIEW3D_API pr::view3d::Colour __stdcall View3D_ObjectColourBlendGet(pr::view3d::Object object, char const* name);
 	VIEW3D_API void __stdcall View3D_ObjectColourBlendSet(pr::view3d::Object object, pr::view3d::Colour blend, char const* name);
 
+	// Get/Set an instance-owned multiplier of material emissive colour in the stock PBR and ray-traced shaders. One (the default) keeps the
+	// authored emission and zero turns it off, so copies of one model can glow independently. Custom pixel shaders must apply the
+	// emissive_scale constant themselves. Name follows LdrObject::Apply; the getter returns the first match, or one if absent.
+	VIEW3D_API float __stdcall View3D_ObjectEmissiveScaleGet(pr::view3d::Object object, char const* name);
+	VIEW3D_API void __stdcall View3D_ObjectEmissiveScaleSet(pr::view3d::Object object, float scale, char const* name);
+
 	// Resource batches ******************************
 
 	// Begin a resource batch on the calling thread. Until the matching 'View3D_ResourceBatchEnd', resource creation calls made on this thread

@@ -196,6 +196,50 @@ namespace render_tests
 		std::cout << "PASS packed colour blend identity/UNORM8 weights/linear RGB/opacity/sorting/scope/clone/reset: MSAA " << samples << '\n';
 	}
 
+	// Check that the per-instance emissive scale fades authored PBR emission without affecting other instances of the same model.
+	void EmissiveScaleTests(int samples)
+	{
+		// Remove all scene light so the rendered colour is the emission alone.
+		Fixture fixture(samples);
+		auto light = SceneLightingGet(fixture.m_window);
+		light.m_ambient = light.m_diffuse = light.m_specular = 0xFF000000;
+		light.m_on = TRUE;
+		light.m_intensity = 1;
+		SceneLightingSet(fixture.m_window, light);
+
+		// A black PBR plane that emits full green, plus a second instance that shares its model and material.
+		auto glow = View3D_ObjectCreateLdrA("*Plane Glow { *Data {90 90} *Material {*BaseColour{FF000000} *Emissive{FF00FF00} *Metallic{0} *Roughness{1}} *o2w{*pos{0 0 -50}}}", FALSE, nullptr, nullptr);
+		Require(glow != nullptr, "Emissive plane creation failed");
+		fixture.m_objects.push_back(glow);
+		auto copy = View3D_ObjectCreateInstance(glow);
+		Require(copy != nullptr, "Instance creation failed");
+		fixture.m_objects.push_back(copy);
+		View3D_ObjectO2WSet(copy, View3D_ObjectO2WGet(glow, nullptr), nullptr);
+		Require(View3D_ObjectEmissiveScaleGet(glow, nullptr) == 1.0f, "New object emissive scale is not one");
+		Require(View3D_ObjectEmissiveScaleGet(glow, "Missing") == 1.0f, "Missing selection did not return the neutral scale");
+
+		// The scale multiplies the linear emission, so the green channel follows it directly.
+		View3D_WindowAddObject(fixture.m_window, glow);
+		for (auto scale : {1.0f, 0.5f, 0.0f})
+		{
+			// Each scale changes only the green emission of this black surface.
+			View3D_ObjectEmissiveScaleSet(glow, scale, nullptr);
+			Require(View3D_ObjectEmissiveScaleGet(glow, nullptr) == scale, "Emissive scale did not round-trip");
+			Expect(fixture.Image(), 0, scale, 0);
+		}
+
+		// The instance owns its scale, so it still glows while the source is dark.
+		Require(View3D_ObjectEmissiveScaleGet(copy, nullptr) == 1.0f, "Instance shared the source's emissive scale");
+		View3D_WindowRemoveObject(fixture.m_window, glow);
+		View3D_WindowAddObject(fixture.m_window, copy);
+		Expect(fixture.Image(), 0, 1, 0);
+
+		// Any DLL or GPU validation error fails the fixture.
+		fixture.CheckErrors();
+		fixture.CheckDebugLayer();
+		std::cout << "PASS emissive scale fade/instance independence: MSAA " << samples << '\n';
+	}
+
 	// Check that translucent surfaces composite in depth order regardless of add order, and that back faces are still drawn.
 	void AlphaLayeringTests(int samples)
 	{
@@ -237,5 +281,10 @@ namespace pr::unittests::view3d12
 	{
 		render_tests::AlphaLayeringTests(1);
 		render_tests::AlphaLayeringTests(4);
+	}
+	PRUnitTest(View3d12_EmissiveScale, Extended | Serial)
+	{
+		render_tests::EmissiveScaleTests(1);
+		render_tests::EmissiveScaleTests(4);
 	}
 }

@@ -151,6 +151,7 @@ namespace pr::rdr12::ldraw
 	{
 		m_i2w = m4x4::Identity();
 		m_colour = m_base_colour;
+		m_emissive = 1.0f;
 		PR_EXPAND(PR_DBG, g_ldr_object_tracker.add(this));
 	}
 	LdrObject::~LdrObject()
@@ -977,6 +978,26 @@ namespace pr::rdr12::ldraw
 		{
 			// Each selected instance owns its override, even when models are shared.
 			obj->m_colour_blend = blend;
+			return true;
+		}, name);
+	}
+
+	// Return the emissive scale of the first selected object.
+	float LdrObject::EmissiveScale(char const* name) const
+	{
+		// A missing selection reports the neutral scale of a new object.
+		auto obj = Child(name);
+		return obj ? obj->m_emissive : 1.0f;
+	}
+
+	// Set the instance-owned multiplier of material emissive colour without changing shared models or materials.
+	void LdrObject::EmissiveScale(float scale, char const* name)
+	{
+		// Each selected instance owns its scale, even when models are shared.
+		Apply([&](LdrObject* obj)
+		{
+			// Store the scale on the instance so it reaches the shader constants of every nugget drawn for it.
+			obj->m_emissive = scale;
 			return true;
 		}, name);
 	}

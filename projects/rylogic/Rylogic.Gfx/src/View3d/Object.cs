@@ -796,6 +796,24 @@ namespace Rylogic.Gfx
 				View3D_ObjectColourBlendSet(Handle, blend, name);
 			}
 
+			/// <summary>Return the emissive scale of the first selected object, or one when no object matches.</summary>
+			public float EmissiveScaleGet(string? name = null)
+			{
+				// Read the instance-owned scale through the DLL boundary.
+				return View3D_ObjectEmissiveScaleGet(Handle, name);
+			}
+
+			/// <summary>
+			/// Multiply the material emissive colour of the selected objects in the stock PBR and ray-traced shaders.
+			/// One (the default) keeps the authored emission and zero turns it off. The scale belongs to each instance,
+			/// so copies of one model can glow independently. Custom pixel shaders must apply the emissive_scale constant themselves.
+			/// Name follows ColourSet.</summary>
+			public void EmissiveScaleSet(float scale, string? name = null)
+			{
+				// Apply the scale to the selected instance scope.
+				View3D_ObjectEmissiveScaleSet(Handle, scale, name);
+			}
+
 			/// <summary>
 			/// Reset the colour to the base colour for this object or any of its child objects that match 'name'.
 			/// If 'name' is null, then the state change is applied to this object only
