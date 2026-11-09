@@ -3386,6 +3386,34 @@ VIEW3D_API void __stdcall View3D_ObjectColourBlendSet(view3d::Object object, vie
 	CatchAndReport(View3D_ObjectColourBlendSet, ,);
 }
 
+// Return the emissive scale of the first selected object.
+VIEW3D_API float __stdcall View3D_ObjectEmissiveScaleGet(view3d::Object object, char const* name)
+{
+	// Use the normal DLL error reporting and serialization boundary.
+	try
+	{
+		// Read only instance state, never shared model data.
+		Validate(object);
+		DllLockGuard;
+		return object->EmissiveScale(name);
+	}
+	CatchAndReport(View3D_ObjectEmissiveScaleGet, , 1.0f);
+}
+
+// Set the instance-owned multiplier of material emissive colour. See View3D_ObjectEmissiveScaleSet's public contract.
+VIEW3D_API void __stdcall View3D_ObjectEmissiveScaleSet(view3d::Object object, float scale, char const* name)
+{
+	// Use the normal DLL error reporting and serialization boundary.
+	try
+	{
+		// Validate before applying the change to the requested hierarchy.
+		Validate(object);
+		DllLockGuard;
+		object->EmissiveScale(scale, name);
+	}
+	CatchAndReport(View3D_ObjectEmissiveScaleSet, ,);
+}
+
 // Reset the object colour back to its default
 VIEW3D_API void __stdcall View3D_ObjectResetColour(view3d::Object object, char const* name)
 {

@@ -46,6 +46,7 @@ namespace pr::rdr12
 		Float1,              // float - for general use
 		Float2,              // pr::v2 - for general use
 		Float4,              // pr::v4 - for general use
+		EmissiveScale,       // float - multiplies the material emissive colour; missing means 1
 	};
 	static_assert(sizeof(EInstComp) == 1, "Padding of Instance types relies on this");
 
@@ -94,6 +95,7 @@ namespace pr::rdr12
 			case EInstComp::Float1:              return sizeof(float);
 			case EInstComp::Float2:              return sizeof(v2);
 			case EInstComp::Float4:              return sizeof(v4);
+			case EInstComp::EmissiveScale:       return sizeof(float);
 			default: throw std::runtime_error("Unknown instance component type");
 		}
 	}

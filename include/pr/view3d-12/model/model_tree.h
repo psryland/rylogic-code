@@ -22,8 +22,8 @@ namespace pr::rdr12
 		// Model to parent transform
 		m4x4 m_o2p = m4x4::Identity();
 
-		// Model instance name
-		std::string_view m_name = {};
+		// Model instance name. Owned, because consumers may keep the tree after the loader's source data is released.
+		std::string m_name = {};
 
 		// The renderer model for this node in the model tree
 		ModelPtr m_model = {};
