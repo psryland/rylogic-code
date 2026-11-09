@@ -57,19 +57,40 @@ inline double NoiseFloor(double value)
 	return truncated > value ? truncated - 1 : truncated;
 }
 
-// Preserve the original unsigned 64-bit coordinate hash, including negative two's-complement coordinates.
-inline uint NoiseHash(uint seed, int64_t x, int64_t y, int64_t z)
+// The coordinate hash is the XOR of a seed term and one product per axis, followed by a mixing finaliser.
+// The terms combine by XOR, so their order does not matter, and a caller can compute each axis term once and reuse it for several corners.
+inline uint64_t NoiseSeedTerm(uint seed)
 {
-	uint64_t hash = (uint64_t)seed + 0x9E3779B97F4A7C15ull;
-	hash ^= (uint64_t)x * 0x9E3779B185EBCA87ull;
-	hash ^= (uint64_t)y * 0xC2B2AE3D27D4EB4Full;
-	hash ^= (uint64_t)z * 0x165667B19E3779F9ull;
+	return (uint64_t)seed + 0x9E3779B97F4A7C15ull;
+}
+inline uint64_t NoiseXTerm(int64_t x)
+{
+	return (uint64_t)x * 0x9E3779B185EBCA87ull;
+}
+inline uint64_t NoiseYTerm(int64_t y)
+{
+	return (uint64_t)y * 0xC2B2AE3D27D4EB4Full;
+}
+inline uint64_t NoiseZTerm(int64_t z)
+{
+	return (uint64_t)z * 0x165667B19E3779F9ull;
+}
+
+// Mix the combined coordinate terms into the final 32-bit hash.
+inline uint NoiseMix(uint64_t hash)
+{
 	hash ^= hash >> 33;
 	hash *= 0xFF51AFD7ED558CCDull;
 	hash ^= hash >> 33;
 	hash *= 0xC4CEB9FE1A85EC53ull;
 	hash ^= hash >> 33;
 	return (uint)hash;
+}
+
+// Preserve the original unsigned 64-bit coordinate hash, including negative two's-complement coordinates.
+inline uint NoiseHash(uint seed, int64_t x, int64_t y, int64_t z)
+{
+	return NoiseMix(NoiseSeedTerm(seed) ^ NoiseXTerm(x) ^ NoiseYTerm(y) ^ NoiseZTerm(z));
 }
 
 // Wrap signed lattice coordinates into a positive period; zero selects the nonperiodic field.
@@ -126,14 +147,19 @@ inline NoiseSample NoiseCellWithDerivatives(uint seed, int64_t cell_x0, int64_t 
 	NoiseSample result;
 	NoiseReal u = NoiseFade(local_x), v = NoiseFade(local_y), w = NoiseFade(local_z);
 	NoiseReal du = NoiseFadeDerivative(local_x), dv = NoiseFadeDerivative(local_y), dw = NoiseFadeDerivative(local_z);
-	NoiseReal3 g000 = NoiseGradient(NoiseHash(seed, cell_x0, cell_y0, cell_z0));
-	NoiseReal3 g100 = NoiseGradient(NoiseHash(seed, cell_x1, cell_y0, cell_z0));
-	NoiseReal3 g010 = NoiseGradient(NoiseHash(seed, cell_x0, cell_y1, cell_z0));
-	NoiseReal3 g110 = NoiseGradient(NoiseHash(seed, cell_x1, cell_y1, cell_z0));
-	NoiseReal3 g001 = NoiseGradient(NoiseHash(seed, cell_x0, cell_y0, cell_z1));
-	NoiseReal3 g101 = NoiseGradient(NoiseHash(seed, cell_x1, cell_y0, cell_z1));
-	NoiseReal3 g011 = NoiseGradient(NoiseHash(seed, cell_x0, cell_y1, cell_z1));
-	NoiseReal3 g111 = NoiseGradient(NoiseHash(seed, cell_x1, cell_y1, cell_z1));
+
+	// Each axis term is shared by four corners, so compute the six terms once. 64-bit multiplies are slow on GPUs, and NoiseHash would repeat them per corner.
+	uint64_t x0 = NoiseXTerm(cell_x0), x1 = NoiseXTerm(cell_x1);
+	uint64_t y0 = NoiseYTerm(cell_y0), y1 = NoiseYTerm(cell_y1);
+	uint64_t z0 = NoiseSeedTerm(seed) ^ NoiseZTerm(cell_z0), z1 = NoiseSeedTerm(seed) ^ NoiseZTerm(cell_z1);
+	NoiseReal3 g000 = NoiseGradient(NoiseMix(x0 ^ y0 ^ z0));
+	NoiseReal3 g100 = NoiseGradient(NoiseMix(x1 ^ y0 ^ z0));
+	NoiseReal3 g010 = NoiseGradient(NoiseMix(x0 ^ y1 ^ z0));
+	NoiseReal3 g110 = NoiseGradient(NoiseMix(x1 ^ y1 ^ z0));
+	NoiseReal3 g001 = NoiseGradient(NoiseMix(x0 ^ y0 ^ z1));
+	NoiseReal3 g101 = NoiseGradient(NoiseMix(x1 ^ y0 ^ z1));
+	NoiseReal3 g011 = NoiseGradient(NoiseMix(x0 ^ y1 ^ z1));
+	NoiseReal3 g111 = NoiseGradient(NoiseMix(x1 ^ y1 ^ z1));
 	NoiseReal n000 = NoiseDot(g000, local_x, local_y, local_z);
 	NoiseReal n100 = NoiseDot(g100, local_x - 1, local_y, local_z);
 	NoiseReal n010 = NoiseDot(g010, local_x, local_y - 1, local_z);

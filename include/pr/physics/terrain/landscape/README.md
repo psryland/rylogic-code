@@ -25,7 +25,11 @@ Boxes, spheres, thick/thin lines, triangles, convex polytopes and array leaves u
 `NoShape` is a sentinel, not physical geometry. Each leaf's shape-to-root and body's root-to-world
 transform is applied once; no buoyancy registration, wetness or union-ownership filtering applies.
 
-For each eligible instance, the GPU streams every ordinal and queries `BaselineEvaluate` at its world XY. A candidate within
+For each eligible instance, the GPU streams every ordinal and queries `BaselineEvaluateLocal` at its world XY, using a recipe
+prepared around the world origin over the surface's whole supported range. Sample positions are already single-precision world
+coordinates, so this adds only single-precision lattice rounding (about 0.25 mm at 4 km), and contacts match a renderer that uses
+the same evaluator. Construction throws `out_of_range` when the supported range is too large for the shortest wavelength (see
+`LocalRecipe` below); the domain check and material still come from the double-precision recipe. A candidate within
 1 mm of contact, or penetrating, retains the actual upward normal `n = normalize(-dx,-dy,1)`.
 Its normal-distance depth is `(height - z)*n.z`, not vertical gap. This is distance to the local
 tangent plane through the vertical terrain projection, not a closest-point search on curved terrain.
@@ -251,7 +255,7 @@ ByteAddressBuffer terrain_local : register(t3);
 ```
 
 `BaselineEvaluateLocal` samples the same surface with **no double-precision
-arithmetic**, for renderers that should not require FP64 shader support. The CPU
+arithmetic**, for renderers that should not require FP64 shader support and for sampled world contacts. The CPU
 prepares `surface.LocalRecipe(origin_xy, radius_m)` (2480 bytes,
 `BaselineLocalRecipe`) and the shader samples positions relative to `origin_xy`.
 Local positions must satisfy `|x|, |y| <= radius_m`.

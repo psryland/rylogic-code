@@ -4,6 +4,7 @@
 //*********************************************
 #include "pr/common/cast.h"
 #include "src/compute/coupled_contact_gpu.h"
+#include "src/compute/gpu_capacity.h"
 #include "src/compute/shader_code.h"
 
 namespace pr::physics
@@ -81,8 +82,7 @@ namespace pr::physics
 			if (required_count <= capacity)
 				return;
 
-			auto const doubled_capacity = capacity <= std::numeric_limits<int>::max() / 2 ? 2 * capacity : std::numeric_limits<int>::max();
-			capacity = std::max(required_count, std::max(1, doubled_capacity));
+			capacity = GrowCapacity(required_count, capacity);
 			resource = gpu.CreateResource(ResDesc::Buf<Type>(capacity, {}).usage(EUsage::UnorderedAccess), job, name);
 		}
 

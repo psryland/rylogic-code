@@ -4,6 +4,7 @@
 //*********************************************
 #include "pr/common/cast.h"
 #include "src/compute/coupled_constraint_velocity_gpu.h"
+#include "src/compute/gpu_capacity.h"
 #include "src/compute/shader_code.h"
 
 namespace pr::physics
@@ -77,7 +78,7 @@ namespace pr::physics
 			if (required_count <= capacity)
 				return;
 
-			auto const grown_capacity = std::max(required_count, std::max(1, 2 * capacity));
+			auto const grown_capacity = GrowCapacity(required_count, capacity);
 			resource = gpu.CreateResource(ResDesc::Buf<Type>(grown_capacity, {}).usage(usage), job, name);
 			capacity = grown_capacity;
 		}

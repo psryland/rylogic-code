@@ -99,7 +99,9 @@ namespace pr::physics::shader_code
 
 	// Persistent rigid constraints
 	extern ByteCode const compile_constraints;
-	extern ByteCode const assign_constraint_colours;
+	extern ByteCode const reset_constraint_colours;
+	extern ByteCode const assign_constraint_colour_level;
+	extern ByteCode const finish_constraint_colours;
 	extern ByteCode const apply_constraint_warm_start;
 	extern ByteCode const clear_constraint_pseudo_velocity;
 	extern ByteCode const prepare_constraint_position_solve;

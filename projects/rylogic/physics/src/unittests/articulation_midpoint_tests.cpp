@@ -721,7 +721,7 @@ namespace pr::physics::tests
 			config.sleep_velocity_threshold_lin = 0.01f;
 			config.sleep_velocity_threshold_ang = 0.01f;
 			config.sleep_delay_s = 0.015f;
-			config.device_debug = IsDebug;
+			config.device_debug = ::pr::compute::IsDebug;
 			auto engine = Engine{config, &SharedTestShaderCache()};
 
 			// Two quiet frames cross the tree-owned delay without allowing individual links to sleep early.

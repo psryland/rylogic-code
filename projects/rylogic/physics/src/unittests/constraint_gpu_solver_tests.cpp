@@ -152,6 +152,145 @@ namespace pr::physics::tests
 			PR_EXPECT(runner.FrameState().failure_slot_plus_one == 0u);
 		}
 
+		// The level-parallel colouring reproduces the serial greedy colouring exactly, including the overflow fallback.
+		PRUnitTestMethod(ParallelColouringMatchesSerialGreedy, Quick)
+		{
+			// Visit the compiled blocks in slot order, as the serial colouring does, and record colours, body masks, and the indirect arguments.
+			struct SerialResult
+			{
+				std::vector<uint32_t> m_colours;
+				std::vector<uint32_t> m_body_masks;
+				std::vector<DispatchArguments> m_args;
+				bool m_overflow;
+			};
+			auto serial_colouring = [](std::span<GpuConstraintBlock const> blocks, std::span<GpuConstraintEndpoint const> endpoints, std::span<GpuRigidBody const> bodies)
+			{
+				// Track per-body masks and the union of used colours.
+				auto result = SerialResult{
+					.m_colours = std::vector<uint32_t>(blocks.size(), MaxColours),
+					.m_body_masks = std::vector<uint32_t>(bodies.size(), 0u),
+					.m_args = std::vector<DispatchArguments>(MaxColours),
+					.m_overflow = false,
+				};
+				auto dynamic = [&](int body_idx)
+				{
+					return body_idx >= 0 && body_idx < isize(bodies) && bodies[body_idx].os_com_and_invmass.w > 0.0f && !AllSet(bodies[body_idx].state_flags, ERigidBodyStateFlags_Static);
+				};
+				auto used_colours = 0u;
+				for (int slot_idx = 0; slot_idx != isize(blocks); ++slot_idx)
+				{
+					// Coupled, inactive, and velocity-free slots are not coloured.
+					auto const& block = blocks[slot_idx];
+					if (AllSet(endpoints[slot_idx].flags, GpuConstraintEndpointFlags_Coupled) || !AllSet(block.flags, ConstraintBlockFlags_Active) || block.velocity_mask == 0u)
+						continue;
+
+					auto used = 0u;
+					if (dynamic(block.body_idx_a))
+						used |= result.m_body_masks[block.body_idx_a];
+					if (dynamic(block.body_idx_b))
+						used |= result.m_body_masks[block.body_idx_b];
+					if (~used == 0u)
+					{
+						result.m_overflow = true;
+						break;
+					}
+
+					auto const colour = static_cast<uint32_t>(std::countr_zero(~used));
+					result.m_colours[slot_idx] = colour;
+					used_colours |= 1u << colour;
+					if (dynamic(block.body_idx_a))
+						result.m_body_masks[block.body_idx_a] |= 1u << colour;
+					if (dynamic(block.body_idx_b))
+						result.m_body_masks[block.body_idx_b] |= 1u << colour;
+				}
+
+				// Overflow selects one serial pass in colour zero; otherwise each used colour covers every slot.
+				if (result.m_overflow)
+					std::ranges::fill(result.m_colours, MaxColours);
+
+				auto const groups = static_cast<uint32_t>((blocks.size() + ConstraintThreadCount - 1) / ConstraintThreadCount);
+				for (int colour = 0; colour != MaxColours; ++colour)
+				{
+					auto& args = result.m_args[colour];
+					args.ThreadGroupCountX = result.m_overflow ? (colour == 0 ? 1u : 0u) : ((used_colours & (1u << colour)) != 0u ? groups : 0u);
+					args.ThreadGroupCountY = 1;
+					args.ThreadGroupCountZ = 1;
+				}
+				return result;
+			};
+
+			// Random topologies mix dynamic, static, and world endpoints with disabled and coupled slots. Every fourth case adds a hub that
+			// needs more colours than exist, so the overflow path is covered at different slot positions.
+			auto rng = std::default_random_engine{1234u};
+			auto pick = [&](int count)
+			{
+				return std::uniform_int_distribution<int>(0, count - 1)(rng);
+			};
+			for (int test_case = 0; test_case != 24; ++test_case)
+			{
+				// Bodies are slightly separated so every locked axis has a finite frame. Some bodies are static.
+				auto const body_count = 4 + pick(60);
+				auto bodies = std::vector<GpuRigidBody>{};
+				for (int body_idx = 0; body_idx != body_count; ++body_idx)
+				{
+					auto const rigid_body = MakeConstraintGpuBody(1.0f, m4x4::Translation(0.01f * body_idx, 0, 0));
+					bodies.push_back(PackDynamics(rigid_body, body_idx));
+					if (pick(8) == 0)
+						bodies.back().os_com_and_invmass.w = 0.0f;
+				}
+
+				// Random slots, with an optional hub run of more than 'MaxColours' slots on body zero.
+				auto const hub = test_case % 4 == 3;
+				auto const slot_count = 1 + pick(200) + (hub ? MaxColours + 8 : 0);
+				auto const hub_begin = pick(slot_count - (hub ? MaxColours + 8 : 0));
+				auto endpoints = std::vector<GpuConstraintEndpoint>(slot_count);
+				auto descriptors = std::vector<GpuD6ConstraintDesc>(slot_count);
+				for (int slot_idx = 0; slot_idx != slot_count; ++slot_idx)
+				{
+					auto& endpoint = endpoints[slot_idx];
+					auto const in_hub = hub && slot_idx >= hub_begin && slot_idx < hub_begin + MaxColours + 8;
+					endpoint.body_idx_a = in_hub ? 0 : pick(body_count + 1) - 1;
+					endpoint.body_idx_b = in_hub ? 1 + (slot_idx - hub_begin) % (body_count - 1) : pick(body_count + 1) - 1;
+					endpoint.flags = pick(10) == 0 ? GpuConstraintEndpointFlags_None : GpuConstraintEndpointFlags_Enabled;
+					if (!in_hub && pick(12) == 0)
+						endpoint.flags |= GpuConstraintEndpointFlags_Coupled;
+
+					auto& descriptor = descriptors[slot_idx];
+					descriptor.frame_a.rotation = float4{0, 0, 0, 1};
+					descriptor.frame_b.rotation = float4{0, 0, 0, 1};
+					descriptor.axes[0].mode = GpuConstraintAxisMode_Locked;
+					descriptor.axes[0].max_force = 1000.0f;
+				}
+				if (hub)
+					bodies[0].os_com_and_invmass.w = 1.0f;
+
+				// Compile, then compare the parallel colouring with the serial reference over the same compiled blocks.
+				auto runner = ConstraintInteropRunner{MakeConstraintGpuHubConfig()};
+				runner.Load(ConstraintRunnerBuffers{1.0f / 60.0f, bodies, endpoints, descriptors});
+				runner.CompileConstraints();
+				auto const compiled = std::vector<GpuConstraintBlock>(runner.Blocks().begin(), runner.Blocks().end());
+				auto const expected = serial_colouring(compiled, endpoints, bodies);
+				runner.AssignColours();
+
+				PR_EXPECT(runner.ColourOverflow() == expected.m_overflow);
+				if (hub)
+					PR_EXPECT(expected.m_overflow);
+
+				for (int slot_idx = 0; slot_idx != slot_count; ++slot_idx)
+					PR_EXPECT(runner.Colours()[slot_idx] == expected.m_colours[slot_idx]);
+
+				for (int body_idx = 0; body_idx != body_count; ++body_idx)
+					PR_EXPECT(runner.Bodies()[body_idx].colour_used == expected.m_body_masks[body_idx]);
+
+				for (int colour = 0; colour != MaxColours; ++colour)
+				{
+					PR_EXPECT(runner.ColourDispatch()[colour].ThreadGroupCountX == expected.m_args[colour].ThreadGroupCountX);
+					PR_EXPECT(runner.ColourDispatch()[colour].ThreadGroupCountY == 1u);
+					PR_EXPECT(runner.ColourDispatch()[colour].ThreadGroupCountZ == 1u);
+				}
+			}
+		}
+
 		// A later successful row compilation cannot erase an earlier physical-solve failure from the same loaded frame.
 		PRUnitTestMethod(FrameLatchSurvivesSuccessfulRecompile, Quick)
 		{
@@ -1141,7 +1280,9 @@ namespace pr::physics::tests
 				sizeof(GpuD6ConstraintDesc) +
 				sizeof(GpuConstraintBlock) +
 				GpuConstraintRowsPerBlock * sizeof(GpuConstraintRow) +
-				sizeof(GpuConstraintSolveCache);
+				sizeof(GpuConstraintSolveCache) +
+				sizeof(GpuConstraintColourTask) +
+				2 * sizeof(uint32_t);
 			auto const expected_logical_bytes =
 				static_cast<size_t>(first_stats.m_slot_count) * slot_bytes +
 				sizeof(GpuConstraintSolverState) +
@@ -1348,7 +1489,9 @@ namespace pr::physics::tests
 				sizeof(GpuD6ConstraintDesc) +
 				sizeof(GpuConstraintBlock) +
 				GpuConstraintRowsPerBlock * sizeof(GpuConstraintRow) +
-				sizeof(GpuConstraintSolveCache);
+				sizeof(GpuConstraintSolveCache) +
+				sizeof(GpuConstraintColourTask) +
+				2 * sizeof(uint32_t);
 			auto const expected_logical_bytes =
 				slot_bytes +
 				sizeof(GpuConstraintSolverState) +
@@ -1425,7 +1568,9 @@ namespace pr::physics::tests
 				sizeof(GpuD6ConstraintDesc) +
 				sizeof(GpuConstraintBlock) +
 				GpuConstraintRowsPerBlock * sizeof(GpuConstraintRow) +
-				sizeof(GpuConstraintSolveCache);
+				sizeof(GpuConstraintSolveCache) +
+				sizeof(GpuConstraintColourTask) +
+				2 * sizeof(uint32_t);
 			auto const expected_small_logical_bytes =
 				static_cast<size_t>(SmallSlotCount) * slot_bytes +
 				sizeof(GpuConstraintSolverState) +

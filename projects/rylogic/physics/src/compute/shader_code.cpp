@@ -189,7 +189,9 @@ namespace pr::physics::shader_code
 	namespace compiled
 	{
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(compile_constraints_cs.h)
-		#include PR_PHYSICS_SHADER_COMPILED_DIR(assign_constraint_colours_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(reset_constraint_colours_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(assign_constraint_colour_level_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(finish_constraint_colours_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(apply_constraint_warm_start_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(clear_constraint_pseudo_velocity_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(prepare_constraint_position_solve_cs.h)
@@ -226,7 +228,9 @@ namespace pr::physics::shader_code
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(finalize_coupled_velocity_islands_cs.h)
 	}
 	ByteCode const compile_constraints(compiled::compile_constraints_cs);
-	ByteCode const assign_constraint_colours(compiled::assign_constraint_colours_cs);
+	ByteCode const reset_constraint_colours(compiled::reset_constraint_colours_cs);
+	ByteCode const assign_constraint_colour_level(compiled::assign_constraint_colour_level_cs);
+	ByteCode const finish_constraint_colours(compiled::finish_constraint_colours_cs);
 	ByteCode const apply_constraint_warm_start(compiled::apply_constraint_warm_start_cs);
 	ByteCode const clear_constraint_pseudo_velocity(compiled::clear_constraint_pseudo_velocity_cs);
 	ByteCode const prepare_constraint_position_solve(compiled::prepare_constraint_position_solve_cs);

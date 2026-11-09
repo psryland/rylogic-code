@@ -532,11 +532,16 @@ bool ContactEnabled(GpuResolveContact c, GpuRigidBody bodyA)
 	return g.support_only == 0.0f || SupportContact(c, bodyA);
 }
 
+// Return whether a loaded contact belongs to the current full or selective resolve pass.
+bool ContactEnabledFor(GpuResolveContact c)
+{
+	return RigidContact(c) && ContactEnabled(c, g_bodies[c.body_idx_a]);
+}
+
 // Return whether a contact index belongs to the current full or selective resolve pass.
 bool ContactEnabledAt(uint idx)
 {
-	GpuResolveContact c = g_contacts[idx];
-	return RigidContact(c) && ContactEnabled(c, g_bodies[c.body_idx_a]);
+	return ContactEnabledFor(g_contacts[idx]);
 }
 
 // Compute the local contact-priority tie-breaker that is folded into the collision-time radix key.
@@ -793,14 +798,6 @@ void CSComputeCollisionTimes(int3 DTID(dtid))
 
 		// Position correction is applied after graph colouring by CSPositionSolve so contacts sharing a dynamic body are never written in parallel.
 	}
-
-	// Body colour masks are independent of contact-key writes; the existing UAV barrier exposes both to the next phase.
-	if (idx == 0)
-	{
-		// Reset the graph-colouring bitmask on every body. CSAssignColours will OR colour bits into dynamic bodies as it walks the sorted contacts.
-		for (int i = 0; i != g.body_count; ++i)
-			g_bodies[i].colour_used = 0;
-	}
 }
 
 // ----- Shock-priority propagation -----
@@ -896,75 +893,36 @@ void CSFinalizeShockPriority(int3 DTID(dtid))
 }
 
 // ----- CSAssignColours -----
-// Serial: single thread. Walks contacts in order sorted by collision time.
-// Uses per-body colour bitmasks stored in g_bodies[].colour_used.
-//
-// The greedy colour assignment is serial because each contact's colour depends on the colours already reserved by earlier contacts. Earlier contacts in
-// g_contact_order get lower colours and therefore get solved earlier in each solver iteration.
-numthreads(CSAssignColours, 1, 1, 1)
-void CSAssignColours(int3 DTID(dtid))
+// Walks contacts in the order sorted by collision time and greedily gives each one the lowest colour that neither of its dynamic bodies has used.
+// Per-body colour bitmasks are kept in g_bodies[].colour_used, which this pass clears first. The assignment is inherently serial because each
+// contact's colour depends on the colours already reserved by earlier contacts. Earlier contacts in g_contact_order get lower colours and therefore get
+// solved earlier in each solver iteration.
+
+// Return whether a body's colour mask constrains colouring. Static bodies (inv_mass == 0) never have their momentum changed, so contacts involving them
+// do not conflict with each other.
+bool ColourDynamic(int body)
 {
-	if (dtid.x != 0)
-		return;
+	return g_bodies[body].os_com_and_invmass.w > 0;
+}
 
-	// A single overflow makes the complete solve use one coherent serial order, so partial assignments are discarded after the first exhausted mask.
-	bool colour_overflow = false;
-	uint used_colours = 0;
-	int contact_count = ContactCount();
-	for (int i = 0; i != contact_count; ++i)
-	{
-		// g_contact_order is the radix-sorted permutation. Colouring in this order is what turns the contact-priority sort into actual solve order.
-		int idx = g_contact_order[i]; // get contact index from sorted order
-		GpuResolveContact c = g_contacts[idx];
-
-		if (!RigidContact(c) || !ContactEnabled(c, g_bodies[c.body_idx_a]))
-		{
-			g_colours[idx] = MaxColours;
-			continue;
-		}
-
-		int a = c.body_idx_a;
-		int b = c.body_idx_b;
-
-		// Only consider colour conflicts for dynamic bodies (inv_mass > 0).
-		// Static bodies (inv_mass == 0) never have their momentum changed,
-		// so contacts involving them don't conflict with each other.
-		bool a_dynamic = g_bodies[a].os_com_and_invmass.w > 0;
-		bool b_dynamic = g_bodies[b].os_com_and_invmass.w > 0;
-		uint used_a = a_dynamic ? g_bodies[a].colour_used : 0;
-		uint used_b = b_dynamic ? g_bodies[b].colour_used : 0;
-
-		// Pick the first colour that neither dynamic body has used. Exhaustion is represented by the MaxColours sentinel rather than aliasing the final colour,
-		// because aliasing would let multiple contacts write the same dynamic body concurrently.
-		uint used = used_a | used_b;
-		uint available = ~used;
-		if (available == 0)
-		{
-			g_colours[idx] = MaxColours;
-			colour_overflow = true;
-			break;
-		}
-
-		uint colour = firstbitlow(available);
-		g_colours[idx] = colour;
-		used_colours |= (1u << colour);
-		if (a_dynamic) g_bodies[a].colour_used |= (1u << colour);
-		if (b_dynamic) g_bodies[b].colour_used |= (1u << colour);
-	}
-
-	// Mark every contact with the disabled sentinel so colour passes after zero can return through their ordinary local filter without reading the overflow flag.
+// Write the frame-wide colouring results. Threads 'thread' of 'thread_count' share the work, so a serial caller passes 0 and 1.
+void PublishColourResults(bool colour_overflow, uint used_colours, int contact_count, uint thread, uint thread_count)
+{
+	// A single overflow makes the complete solve use one coherent serial order, so partial assignments are replaced with the disabled sentinel. Colour
+	// passes after zero can then return through their ordinary local filter without reading the overflow flag.
 	if (colour_overflow)
 	{
-		for (int i = 0; i != contact_count; ++i)
+		for (int i = (int)thread; i < contact_count; i += (int)thread_count)
 			g_colours[g_contact_order[i]] = MaxColours;
 	}
 
 	// Colour zero inspects this slot before choosing its parallel batch or the serial whole-set fallback.
-	g_colours[ColourOverflowIndex()] = colour_overflow ? 1u : 0u;
+	if (thread == 0)
+		g_colours[ColourOverflowIndex()] = colour_overflow ? 1u : 0u;
 
 	// Preserve the full live-contact grid for occupied colours. Empty colours do no work; overflow needs only the original serial thread in colour zero.
 	uint groups = (contact_count + ResolveThreadCount - 1) / ResolveThreadCount;
-	for (int colour = 0; colour != MaxColours; ++colour)
+	for (int colour = (int)thread; colour < MaxColours; colour += (int)thread_count)
 	{
 		DispatchArguments args;
 		args.ThreadGroupCountX = colour_overflow ? (colour == 0 ? 1u : 0u) : ((used_colours & (1u << colour)) != 0 ? groups : 0u);
@@ -973,6 +931,196 @@ void CSAssignColours(int3 DTID(dtid))
 		g_colour_dispatch[colour] = args;
 	}
 }
+
+#ifdef __cplusplus
+
+// Serial form for the C++ replay emulator, which cannot synchronise the threads of a group. It produces the same assignment as the HLSL form below.
+numthreads(CSAssignColours, 1, 1, 1)
+void CSAssignColours(int3 DTID(dtid))
+{
+	// Only one thread exists. Start every body with no reserved colours.
+	if (dtid.x != 0)
+		return;
+
+	for (int i = 0; i != g.body_count; ++i)
+		g_bodies[i].colour_used = 0;
+
+	// Colour the sorted contacts. Exhaustion is represented by the MaxColours sentinel rather than aliasing the final colour, because aliasing would let
+	// multiple contacts write the same dynamic body concurrently. The first exhausted mask stops the walk.
+	bool colour_overflow = false;
+	uint used_colours = 0;
+	int contact_count = ContactCount();
+	for (int i = 0; i != contact_count; ++i)
+	{
+		// g_contact_order is the radix-sorted permutation. Colouring in this order is what turns the contact-priority sort into actual solve order.
+		int idx = g_contact_order[i];
+		GpuResolveContact c = g_contacts[idx];
+		// Contacts outside this pass receive the MaxColours sentinel, which every colour pass skips.
+		if (!ContactEnabledFor(c))
+		{
+			g_colours[idx] = MaxColours;
+			continue;
+		}
+
+		// Pick the first colour that neither dynamic body has used.
+		int a = c.body_idx_a;
+		int b = c.body_idx_b;
+		bool a_dynamic = ColourDynamic(a);
+		bool b_dynamic = ColourDynamic(b);
+		uint used = (a_dynamic ? g_bodies[a].colour_used : 0) | (b_dynamic ? g_bodies[b].colour_used : 0);
+		if (used == ~0u)
+		{
+			g_colours[idx] = MaxColours;
+			colour_overflow = true;
+			break;
+		}
+
+		uint colour = firstbitlow(~used);
+		g_colours[idx] = colour;
+		used_colours |= (1u << colour);
+		if (a_dynamic) g_bodies[a].colour_used |= (1u << colour);
+		if (b_dynamic) g_bodies[b].colour_used |= (1u << colour);
+	}
+	PublishColourResults(colour_overflow, used_colours, contact_count, 0, 1);
+}
+
+#else
+
+// The GPU form keeps the same serial greedy walk on thread zero, but other threads first stage each chunk of sorted contacts and their bodies' masks
+// in group-shared memory. The walk then reads only group-shared memory instead of waiting on several dependent device-memory loads per contact.
+// Masks are written back to g_bodies after each chunk, so a body that appears in several chunks keeps the colours reserved by earlier chunks.
+static const int ColourThreadCount = 256;
+static const int ColourChunkSize = 512;
+static const uint ColourBodySlots = 2048; // Power of two, more than the 2 * ColourChunkSize bodies a chunk can reference, so probing always ends.
+static const uint ColourNoBody = 0xFFFFFFFFu;
+static const int ColourIneligible = -2;
+
+groupshared uint gs_colour_body[ColourBodySlots];
+groupshared uint gs_colour_mask[ColourBodySlots];
+groupshared uint gs_colour_contact[ColourChunkSize];
+groupshared int gs_colour_slot_a[ColourChunkSize];
+groupshared int gs_colour_slot_b[ColourChunkSize];
+groupshared uint gs_colour_used;
+groupshared uint gs_colour_overflow;
+
+// Return the group-shared mask slot of a dynamic body, or -1 for a static body. Concurrent callers for the same body receive the same slot.
+int ColourBodySlot(int body)
+{
+	// Static bodies never reserve colours.
+	if (!ColourDynamic(body))
+		return -1;
+
+	// Open addressing with linear probing. The compare-exchange claims an empty slot or finds the slot that another thread already claimed for this body.
+	uint slot = ((uint)body * 2654435761u) & (ColourBodySlots - 1);
+	for (;;)
+	{
+		uint previous;
+		InterlockedCompareExchange(gs_colour_body[slot], ColourNoBody, (uint)body, previous);
+		if (previous == ColourNoBody || previous == (uint)body)
+			return (int)slot;
+
+		slot = (slot + 1) & (ColourBodySlots - 1);
+	}
+}
+
+numthreads(CSAssignColours, ColourThreadCount, 1, 1)
+void CSAssignColours(int3 GTID(gtid))
+{
+	// Start every body with no reserved colours. The device barrier makes the cleared masks visible to the mask loads of the first chunk.
+	uint thread = gtid.x;
+	for (int i = (int)thread; i < g.body_count; i += ColourThreadCount)
+		g_bodies[i].colour_used = 0;
+	if (thread == 0)
+	{
+		gs_colour_used = 0;
+		gs_colour_overflow = 0;
+	}
+	DeviceMemoryBarrierWithGroupSync();
+
+	// Colour the sorted contacts one chunk at a time. Every value that controls the loop is uniform, so every thread reaches every barrier.
+	int contact_count = ContactCount();
+	for (int base = 0; base < contact_count; base += ColourChunkSize)
+	{
+		// Empty the body table; each chunk references at most 2 * ColourChunkSize bodies.
+		int chunk_count = min(ColourChunkSize, contact_count - base);
+		for (uint s = thread; s < ColourBodySlots; s += ColourThreadCount)
+			gs_colour_body[s] = ColourNoBody;
+		GroupMemoryBarrierWithGroupSync();
+
+		// Stage the chunk's contacts in sorted order and give each dynamic body a table slot. g_contact_order is the radix-sorted permutation;
+		// colouring in this order is what turns the contact-priority sort into actual solve order.
+		for (int j = (int)thread; j < chunk_count; j += ColourThreadCount)
+		{
+			uint idx = g_contact_order[base + j];
+			GpuResolveContact c = g_contacts[idx];
+			bool eligible = ContactEnabledFor(c);
+			gs_colour_contact[j] = idx;
+			gs_colour_slot_a[j] = eligible ? ColourBodySlot(c.body_idx_a) : ColourIneligible;
+			gs_colour_slot_b[j] = eligible ? ColourBodySlot(c.body_idx_b) : ColourIneligible;
+		}
+		GroupMemoryBarrierWithGroupSync();
+
+		// Load the colours each body has reserved in earlier chunks.
+		for (uint s = thread; s < ColourBodySlots; s += ColourThreadCount)
+		{
+			if (gs_colour_body[s] != ColourNoBody)
+				gs_colour_mask[s] = g_bodies[gs_colour_body[s]].colour_used;
+		}
+		GroupMemoryBarrierWithGroupSync();
+
+		// Walk the chunk serially, picking the first colour that neither dynamic body has used. Exhaustion is represented by the MaxColours sentinel
+		// rather than aliasing the final colour, because aliasing would let multiple contacts write the same dynamic body concurrently.
+		if (thread == 0)
+		{
+			uint used_colours = gs_colour_used;
+			for (int k = 0; k != chunk_count; ++k)
+			{
+				uint idx = gs_colour_contact[k];
+				int slot_a = gs_colour_slot_a[k];
+				int slot_b = gs_colour_slot_b[k];
+				if (slot_a == ColourIneligible)
+				{
+					g_colours[idx] = MaxColours;
+					continue;
+				}
+
+				// Both slots are the same when a contact joins a body to itself; the masks then combine exactly as in the serial form.
+				uint used = (slot_a >= 0 ? gs_colour_mask[slot_a] : 0u) | (slot_b >= 0 ? gs_colour_mask[slot_b] : 0u);
+				if (used == ~0u)
+				{
+					g_colours[idx] = MaxColours;
+					gs_colour_overflow = 1;
+					break;
+				}
+
+				uint colour = firstbitlow(~used);
+				g_colours[idx] = colour;
+				used_colours |= (1u << colour);
+				if (slot_a >= 0) gs_colour_mask[slot_a] |= (1u << colour);
+				if (slot_b >= 0) gs_colour_mask[slot_b] |= (1u << colour);
+			}
+			gs_colour_used = used_colours;
+		}
+		GroupMemoryBarrierWithGroupSync();
+
+		// Persist the updated masks for later chunks. The device barrier orders these writes before the next chunk's mask loads.
+		for (uint s = thread; s < ColourBodySlots; s += ColourThreadCount)
+		{
+			if (gs_colour_body[s] != ColourNoBody)
+				g_bodies[gs_colour_body[s]].colour_used = gs_colour_mask[s];
+		}
+		DeviceMemoryBarrierWithGroupSync();
+
+		// The first exhausted mask stops the walk, as in the serial form.
+		if (gs_colour_overflow != 0)
+			break;
+	}
+
+	// The barrier above makes the shared totals visible to every thread.
+	PublishColourResults(gs_colour_overflow != 0, gs_colour_used, contact_count, thread, ColourThreadCount);
+}
+
+#endif
 
 // ----- CSWarmStartClear -----
 // Clears the open-addressed current-frame warm-start cache before contacts insert their final accumulated impulses.
@@ -1399,6 +1547,10 @@ static const uint EFusedContactOp_ApplyWarmStart = 0;
 static const uint EFusedContactOp_PositionSolve = 1;
 static const uint EFusedContactOp_Resolve = 2;
 
+// Threads in the single fused group. Larger than ResolveThreadCount because one group scans every contact once per colour, and contacts in one colour
+// are independent, so more threads only shorten each scan.
+static const int FusedThreadCount = 256;
+
 groupshared uint gs_fused_used_colours;
 
 // Apply one solver operation to one contact.
@@ -1413,7 +1565,7 @@ void ApplyFusedContactOp(uint op, uint idx)
 	}
 }
 
-// Run one complete colour sweep inside one thread group. Must be called by every thread of a group of ResolveThreadCount threads.
+// Run one complete colour sweep inside one thread group. Must be called by every thread of a group of FusedThreadCount threads.
 void FusedContactSweep(uint op, uint thread)
 {
 	// The overflow flag is the same for every thread, so the serial fallback keeps the whole group on one path. It matches the per-colour colour-zero fallback.
@@ -1437,7 +1589,7 @@ void FusedContactSweep(uint op, uint thread)
 		gs_fused_used_colours = 0;
 
 	GroupMemoryBarrierWithGroupSync();
-	for (int i = (int)thread; i < contact_count; i += ResolveThreadCount)
+	for (int i = (int)thread; i < contact_count; i += FusedThreadCount)
 	{
 		uint colour = g_colours[g_contact_order[i]];
 		if (colour < MaxColours)
@@ -1452,7 +1604,7 @@ void FusedContactSweep(uint op, uint thread)
 		// Contacts within one colour never share a dynamic body, so threads can process them in any order.
 		uint colour = firstbitlow(used);
 		used &= used - 1;
-		for (int j = (int)thread; j < contact_count; j += ResolveThreadCount)
+		for (int j = (int)thread; j < contact_count; j += FusedThreadCount)
 		{
 			uint idx = g_contact_order[j];
 			if (g_colours[idx] == colour)
@@ -1464,7 +1616,7 @@ void FusedContactSweep(uint op, uint thread)
 
 // ----- CSApplyWarmStartFused -----
 // Single-group form of CSApplyWarmStart. Dispatch exactly one group.
-numthreads(CSApplyWarmStartFused, ResolveThreadCount, 1, 1)
+numthreads(CSApplyWarmStartFused, FusedThreadCount, 1, 1)
 void CSApplyWarmStartFused(int3 GTID(gtid))
 {
 	FusedContactSweep(EFusedContactOp_ApplyWarmStart, gtid.x);
@@ -1472,7 +1624,7 @@ void CSApplyWarmStartFused(int3 GTID(gtid))
 
 // ----- CSPositionSolveFused -----
 // Single-group form of CSPositionSolve. Dispatch exactly one group.
-numthreads(CSPositionSolveFused, ResolveThreadCount, 1, 1)
+numthreads(CSPositionSolveFused, FusedThreadCount, 1, 1)
 void CSPositionSolveFused(int3 GTID(gtid))
 {
 	FusedContactSweep(EFusedContactOp_PositionSolve, gtid.x);
@@ -1480,7 +1632,7 @@ void CSPositionSolveFused(int3 GTID(gtid))
 
 // ----- CSResolveFused -----
 // Single-group form of CSResolve. Dispatch exactly one group.
-numthreads(CSResolveFused, ResolveThreadCount, 1, 1)
+numthreads(CSResolveFused, FusedThreadCount, 1, 1)
 void CSResolveFused(int3 GTID(gtid))
 {
 	FusedContactSweep(EFusedContactOp_Resolve, gtid.x);

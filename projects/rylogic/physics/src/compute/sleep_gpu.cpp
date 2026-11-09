@@ -4,6 +4,7 @@
 //*********************************************
 #include "pr/physics/integrator/engine_config.h"
 #include "src/compute/sleep_gpu.h"
+#include "src/compute/gpu_capacity.h"
 #include "src/compute/physics_types.h"
 #include "src/compute/shader_code.h"
 
@@ -102,23 +103,21 @@ namespace pr::physics
 	// Resize the buffers to support 'capacity' sleep islands.
 	void GpuSleepManager::ResizeIslandBuffers(GpuJob& job, int capacity)
 	{
-		capacity = std::max(1, capacity);
-
+		// Grow geometrically so that slowly changing island counts rarely reallocate.
 		if (m_r_sleep_islands == nullptr || m_island_capacity < capacity)
 		{
-			m_r_sleep_islands = m_gpu.CreateResource(ResDesc::Buf<GpuSleepIsland>(capacity, {}).usage(EUsage::UnorderedAccess), job, "Physics:SleepIslands");
-			m_island_capacity = capacity;
+			m_island_capacity = GrowCapacity(capacity, m_island_capacity);
+			m_r_sleep_islands = m_gpu.CreateResource(ResDesc::Buf<GpuSleepIsland>(m_island_capacity, {}).usage(EUsage::UnorderedAccess), job, "Physics:SleepIslands");
 		}
 	}
 	void GpuSleepManager::ResizeBodyBuffers(GpuJob& job, int capacity)
 	{
-		capacity = std::max(1, capacity);
-
+		// Grow geometrically so that bodies added one at a time rarely reallocate.
 		if (m_r_sleep_parents == nullptr || m_body_capacity < capacity)
 		{
-			m_r_sleep_parents = m_gpu.CreateResource(ResDesc::Buf<int>(capacity, {}).usage(EUsage::UnorderedAccess), job, "Physics:SleepParents");
-			m_r_sleep_stats = m_gpu.CreateResource(ResDesc::Buf<GpuSleepIslandStats>(capacity, {}).usage(EUsage::UnorderedAccess), job, "Physics:SleepStats");
-			m_body_capacity = capacity;
+			m_body_capacity = GrowCapacity(capacity, m_body_capacity);
+			m_r_sleep_parents = m_gpu.CreateResource(ResDesc::Buf<int>(m_body_capacity, {}).usage(EUsage::UnorderedAccess), job, "Physics:SleepParents");
+			m_r_sleep_stats = m_gpu.CreateResource(ResDesc::Buf<GpuSleepIslandStats>(m_body_capacity, {}).usage(EUsage::UnorderedAccess), job, "Physics:SleepStats");
 		}
 	}
 

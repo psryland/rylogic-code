@@ -4,6 +4,7 @@
 //*********************************************
 #include "pr/physics/integrator/engine_config.h"
 #include "src/compute/integrate_gpu.h"
+#include "src/compute/gpu_capacity.h"
 #include "src/compute/physics_types.h"
 #include "src/compute/shader_code.h"
 
@@ -84,6 +85,7 @@ namespace pr::physics
 	}
 
 	// Resize the core buffers and optional immutable force storage to hold 'capacity' bodies.
+	// Storage grows geometrically, because bodies are often added one at a time and each reallocation is expensive.
 	void GpuIntegrator::ResizeBuffers(GpuJob& job, int capacity, bool retain_frame_forces)
 	{
 		capacity = std::max(1, capacity);
@@ -94,16 +96,18 @@ namespace pr::physics
 		}
 		if (m_r_bodies == nullptr || m_capacity < capacity)
 		{
-			m_r_bodies = m_gpu.CreateResource(ResDesc::Buf<GpuRigidBody>(capacity, {}).usage(EUsage::UnorderedAccess), job, "Physics:BodyDynamics");
-			m_r_aabb_sort = m_gpu.CreateResource(ResDesc::Buf<float>(2 * capacity, {}).usage(EUsage::UnorderedAccess), job, "Physics:IntegrateAABB_Sort");
-			m_r_aabb_idx = m_gpu.CreateResource(ResDesc::Buf<int>(2 * capacity, {}).usage(EUsage::UnorderedAccess), job, "Physics:IntegrateAABB_Idx");
-			m_r_aabb_box = m_gpu.CreateResource(ResDesc::Buf<BBox>(capacity, {}).usage(EUsage::UnorderedAccess), job, "Physics:IntegrateAABB_Box");
-			m_capacity = capacity;
+			// The body and bound buffers share one capacity.
+			auto const grown = GrowCapacity(capacity, m_capacity);
+			m_r_bodies = m_gpu.CreateResource(ResDesc::Buf<GpuRigidBody>(grown, {}).usage(EUsage::UnorderedAccess), job, "Physics:BodyDynamics");
+			m_r_aabb_sort = m_gpu.CreateResource(ResDesc::Buf<float>(2 * grown, {}).usage(EUsage::UnorderedAccess), job, "Physics:IntegrateAABB_Sort");
+			m_r_aabb_idx = m_gpu.CreateResource(ResDesc::Buf<int>(2 * grown, {}).usage(EUsage::UnorderedAccess), job, "Physics:IntegrateAABB_Idx");
+			m_r_aabb_box = m_gpu.CreateResource(ResDesc::Buf<BBox>(grown, {}).usage(EUsage::UnorderedAccess), job, "Physics:IntegrateAABB_Box");
+			m_capacity = grown;
 		}
 		if (retain_frame_forces && (m_r_frame_forces == nullptr || m_frame_force_capacity < capacity))
 		{
-			m_r_frame_forces = m_gpu.CreateResource(ResDesc::Buf<GpuFrameForce>(capacity, {}), job, "Physics:FrameForces");
-			m_frame_force_capacity = capacity;
+			m_frame_force_capacity = GrowCapacity(capacity, m_frame_force_capacity);
+			m_r_frame_forces = m_gpu.CreateResource(ResDesc::Buf<GpuFrameForce>(m_frame_force_capacity, {}), job, "Physics:FrameForces");
 		}
 	}
 

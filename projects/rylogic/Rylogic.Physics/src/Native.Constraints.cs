@@ -146,6 +146,7 @@ internal static unsafe partial class Native
 	[DllImport(Dll)] internal static extern EStatus Physics_ConstraintCreateD6(ulong engine, D6Constraint* desc, out ulong constraint);
 	[DllImport(Dll)] internal static extern EStatus Physics_ConstraintGetD6(ulong engine, ulong constraint, D6Constraint* desc, out int broken);
 	[DllImport(Dll)] internal static extern EStatus Physics_ConstraintUpdateD6(ulong engine, ulong constraint, D6Constraint* desc);
+	[DllImport(Dll)] internal static extern EStatus Physics_ConstraintUpdateD6Batch(ulong engine, ulong* constraints, D6Constraint* descs, uint count);
 	[DllImport(Dll)] internal static extern EStatus Physics_ConstraintSetEnabled(ulong engine, ulong constraint, int enabled);
 	[DllImport(Dll)] internal static extern EStatus Physics_ConstraintRepair(ulong engine, ulong constraint);
 	[DllImport(Dll)] internal static extern EStatus Physics_ConstraintDestroy(ulong engine, ulong constraint);

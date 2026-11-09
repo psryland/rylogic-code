@@ -82,6 +82,10 @@ namespace pr::physics
 		// Replace a persistent descriptor while preserving its handle.
 		void Update(ConstraintHandle handle, D6ConstraintDesc const& desc);
 
+		// Replace 'descs[i]' for 'handles[i]' while preserving every handle. Every handle and descriptor is checked before any is replaced, so a failure
+		// changes nothing. A handle that appears more than once takes its last descriptor.
+		void Update(std::span<ConstraintHandle const> handles, std::span<D6ConstraintDesc const> descs);
+
 		// Enable or disable a persistent descriptor without changing topology.
 		void SetEnabled(ConstraintHandle handle, bool enabled);
 

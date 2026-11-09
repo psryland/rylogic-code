@@ -5,6 +5,7 @@
 #pragma once
 #include "pr/physics/integrator/engine_config.h"
 #include "src/constraint/constraint_solver.h"
+#include "src/constraint/constraint_gpu.h"
 #include "src/compute/physics_types.h"
 
 namespace pr::physics
@@ -87,6 +88,9 @@ namespace pr::physics
 		// Return stable-slot colour assignments.
 		std::span<uint32_t const> Colours() const;
 
+		// Return the bodies as last written by a pass, including the per-body colour masks.
+		std::span<GpuRigidBody const> Bodies() const;
+
 		// Return the per-colour indirect dispatch arguments written by the colouring pass.
 		std::span<DispatchArguments const> ColourDispatch() const;
 
@@ -114,5 +118,7 @@ namespace pr::physics
 		std::vector<DispatchArguments> m_colour_dispatch;
 		std::vector<GpuConstraintSolverState> m_state;
 		std::vector<GpuConstraintSolveCache> m_solve_cache;
+		ConstraintColourSchedule m_colour_schedule;
+		std::vector<uint2> m_colour_masks;
 	};
 }

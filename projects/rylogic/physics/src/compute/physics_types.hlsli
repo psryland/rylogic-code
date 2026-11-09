@@ -209,7 +209,7 @@ struct GpuRigidBody
 	int shape_id;
 
 	// Scratch: bitmask of graph-colouring colours used by this body.
-	// Written by CSComputeCollisionTimes, read by CSAssignColours.
+	// Cleared and written by CSAssignColours.
 	uint colour_used;
 
 	// Zero for ordinary rigid bodies; articulation proxies encode their forest identity and self-collision policy.
@@ -513,10 +513,24 @@ struct GpuCollisionExclusion
 };
 
 // Frame-local colour fallback and highest failing stable slot plus one; zero means no numerical failure.
+// 'colour_overflow_slot' and 'used_colours' are scratch words owned by the colouring passes: the lowest slot that found no free colour
+// (0xFFFFFFFF when none did) and the union of the assigned colours.
 struct GpuConstraintSolverState
 {
 	uint colour_overflow;
 	uint failure_slot_plus_one;
+	uint colour_overflow_slot;
+	uint used_colours;
+};
+
+// One independent rigid slot in the colouring schedule. A predecessor is the closest earlier scheduled slot that shares a body with this
+// slot's endpoint A or B, encoded as 'slot * 2 + side' (side 0 for A, 1 for B), or -1 when there is none.
+struct GpuConstraintColourTask
+{
+	int slot_idx;
+	int pred_a;
+	int pred_b;
+	int pad;
 };
 
 // Runtime block state written by the GPU row compiler and retained for warm-start continuity.

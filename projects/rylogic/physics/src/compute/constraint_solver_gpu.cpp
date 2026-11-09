@@ -4,6 +4,7 @@
 //*********************************************
 #include "pr/physics/integrator/engine_config.h"
 #include "src/compute/constraint_solver_gpu.h"
+#include "src/compute/gpu_capacity.h"
 #include "src/compute/shader_code.h"
 
 namespace pr::physics
@@ -30,9 +31,13 @@ namespace pr::physics
 			int retain_current_impulses;
 			int breakable_count;
 			int break_substep_index;
+			int schedule_begin;
+			int schedule_count;
+			int pad0;
+			int pad1;
 			int pad2;
 		};
-		static_assert(sizeof(cbConstraintSolve) == 64);
+		static_assert(sizeof(cbConstraintSolve) == 80);
 
 		// Register assignments shared by every persistent-constraint compute entry point.
 		struct EReg
@@ -48,6 +53,8 @@ namespace pr::physics
 			inline static constexpr auto BreakStates = EUAVReg::u5;
 			inline static constexpr auto ColourDispatch = EUAVReg::u6;
 			inline static constexpr auto SolveCache = EUAVReg::u7;
+			inline static constexpr auto ColourSchedule = ESRVReg::t2;
+			inline static constexpr auto ColourMasks = EUAVReg::u8;
 		};
 
 		// Compare endpoint semantics while ignoring frame-local body-index changes caused only by submission order.
@@ -67,7 +74,9 @@ namespace pr::physics
 		: m_gpu(gpu)
 		, m_config(config)
 		, m_cs_compile()
-		, m_cs_assign_colours()
+		, m_cs_reset_colours()
+		, m_cs_assign_colour_level()
+		, m_cs_finish_colours()
 		, m_cs_apply_warm_start()
 		, m_cs_clear_pseudo_velocity()
 		, m_cs_prepare_position_solve()
@@ -88,11 +97,14 @@ namespace pr::physics
 		, m_r_break_states()
 		, m_r_colour_dispatch()
 		, m_r_solve_cache()
+		, m_r_colour_schedule()
+		, m_r_colour_masks()
 		, m_cmd_sig()
 		, m_endpoint_shadow()
 		, m_endpoint_identity_shadow()
 		, m_descriptor_shadow()
 		, m_body_degrees()
+		, m_colour_schedule()
 		, m_source()
 		, m_capacity()
 		, m_body_capacity()
@@ -120,7 +132,9 @@ namespace pr::physics
 			.UAV(EReg::PseudoVelocities)
 			.UAV(EReg::BreakStates)
 			.UAV(EReg::ColourDispatch)
-			.UAV(EReg::SolveCache);
+			.UAV(EReg::SolveCache)
+			.SRV(EReg::ColourSchedule)
+			.UAV(EReg::ColourMasks);
 		auto const root_sig = sig.Create(m_gpu, "Physics:ConstraintSolverSig");
 
 		auto compile_step = [&](ComputeStep& step, shader_code::ByteCode const& bytecode, char const* name)
@@ -130,7 +144,9 @@ namespace pr::physics
 			step.m_pso = ComputePSO(step.m_sig.get(), bytecode).Create(m_gpu, pso_name);
 		};
 		compile_step(m_cs_compile, shader_code::compile_constraints, "CompileConstraints");
-		compile_step(m_cs_assign_colours, shader_code::assign_constraint_colours, "AssignConstraintColours");
+		compile_step(m_cs_reset_colours, shader_code::reset_constraint_colours, "ResetConstraintColours");
+		compile_step(m_cs_assign_colour_level, shader_code::assign_constraint_colour_level, "AssignConstraintColourLevel");
+		compile_step(m_cs_finish_colours, shader_code::finish_constraint_colours, "FinishConstraintColours");
 		compile_step(m_cs_apply_warm_start, shader_code::apply_constraint_warm_start, "ApplyConstraintWarmStart");
 		compile_step(m_cs_clear_pseudo_velocity, shader_code::clear_constraint_pseudo_velocity, "ClearConstraintPseudoVelocity");
 		compile_step(m_cs_prepare_position_solve, shader_code::prepare_constraint_position_solve, "PrepareConstraintPositionSolve");
@@ -172,8 +188,27 @@ namespace pr::physics
 		m_r_rows = m_gpu.CreateResource(ResDesc::Buf<GpuConstraintRow>(GpuConstraintRowsPerBlock * capacity, {}).usage(EUsage::UnorderedAccess), job, "Physics:ConstraintRows");
 		m_r_state = m_gpu.CreateResource(ResDesc::Buf<GpuConstraintSolverState>(1, {}).usage(EUsage::UnorderedAccess), job, "Physics:ConstraintSolverState");
 		m_r_solve_cache = m_gpu.CreateResource(ResDesc::Buf<GpuConstraintSolveCache>(capacity, {}).usage(EUsage::UnorderedAccess), job, "Physics:ConstraintSolveCache");
+		m_r_colour_schedule = m_gpu.CreateResource(ResDesc::Buf<GpuConstraintColourTask>(capacity, {}), job, "Physics:ConstraintColourSchedule");
+		m_r_colour_masks = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(2 * capacity, {}).usage(EUsage::UnorderedAccess), job, "Physics:ConstraintColourMasks");
 		m_capacity = capacity;
 		return true;
+	}
+
+	// Build the colouring schedule for 'endpoints' and upload it. The schedule buffer has one entry per stable slot.
+	void GpuConstraintSolver::UploadColourSchedule(GpuJob& job, std::span<GpuConstraintEndpoint const> endpoints)
+	{
+		// The schedule depends only on the frame-local endpoint stream, so it is rebuilt with each upload.
+		m_colour_schedule.Build(endpoints);
+		auto const task_count = isize(m_colour_schedule.m_tasks);
+		if (task_count == 0)
+			return;
+
+		// Copy the tasks; the level offsets stay on the CPU and become per-dispatch constants.
+		job.m_barriers.Transition(m_r_colour_schedule.get(), D3D12_RESOURCE_STATE_COPY_DEST).Commit();
+		auto schedule_upload = job.m_upload.Alloc<GpuConstraintColourTask>(task_count);
+		memcpy(schedule_upload.ptr<GpuConstraintColourTask>(), m_colour_schedule.m_tasks.data(), task_count * sizeof(GpuConstraintColourTask));
+		job.m_cmd_list.CopyBufferRegion(m_r_colour_schedule.get(), 0, schedule_upload);
+		job.m_barriers.Transition(m_r_colour_schedule.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE).Commit();
 	}
 
 	// Create or grow shared rigid pseudo-twist storage for either independent or coupled position correction.
@@ -186,7 +221,8 @@ namespace pr::physics
 		if (m_r_pseudo_velocities != nullptr && m_body_capacity >= body_count)
 			return;
 
-		m_body_capacity = std::max(1, body_count);
+		// Grow geometrically so that bodies added one at a time rarely reallocate.
+		m_body_capacity = GrowCapacity(body_count, m_body_capacity);
 		m_r_pseudo_velocities = m_gpu.CreateResource(ResDesc::Buf<GpuConstraintPseudoVelocity>(m_body_capacity, {}).usage(EUsage::UnorderedAccess), job, "Physics:ConstraintPseudoVelocities");
 	}
 
@@ -239,6 +275,7 @@ namespace pr::physics
 
 		auto const resized = ResizeBuffers(job, m_slot_count);
 		m_colour_count = ColourBound(upload.m_endpoints);
+		UploadColourSchedule(job, upload.m_endpoints);
 		auto endpoints = upload.m_endpoints;
 		auto descriptor_dirty = std::vector<bool>(m_slot_count, resized || m_descriptor_shadow.size() != upload.m_descriptors.size());
 		auto const reset_all = resized || m_source != upload.m_source;
@@ -404,6 +441,10 @@ namespace pr::physics
 			.retain_current_impulses = m_retain_current_impulses ? 1 : 0,
 			.breakable_count = m_breakable_count,
 			.break_substep_index = m_break_substep_index,
+			.schedule_begin = 0,
+			.schedule_count = isize(m_colour_schedule.m_tasks),
+			.pad0 = 0,
+			.pad1 = 0,
 			.pad2 = 0,
 		};
 		job.m_cmd_list.SetPipelineState(step.m_pso.get());
@@ -421,6 +462,8 @@ namespace pr::physics
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(break_states);
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(colour_dispatch);
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_solve_cache);
+		job.m_cmd_list.AddComputeRootShaderResourceView(m_r_colour_schedule);
+		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_colour_masks);
 	}
 
 	// Insert UAV ordering between dependent compiler, colouring, and solver passes.
@@ -533,6 +576,58 @@ namespace pr::physics
 		}
 	}
 
+	// Record the colouring passes, which also write the per-colour indirect arguments that every later sweep in this frame reads.
+	void GpuConstraintSolver::RecordColouring(GpuJob& job, float timestep, int body_count, D3DPtr<ID3D12Resource> bodies)
+	{
+		// Clear body masks, slot colours, and the overflow words. One thread covers one body and one slot.
+		auto const groups = [](int count)
+		{
+			return static_cast<UINT>((std::max(1, count) + ConstraintThreadCount - 1) / ConstraintThreadCount);
+		};
+		auto const iterations = std::max(1, m_config.push_out_iterations);
+		Bind(job, m_cs_reset_colours, timestep, body_count, 0, iterations, bodies, m_r_colour_dispatch.get());
+		job.m_cmd_list.Dispatch(groups(std::max(body_count, m_slot_count)), 1, 1);
+		++m_dispatch_count;
+		CommitUavBarriers(job, bodies);
+
+		// Colour the levels in order. Each level reads the masks written by earlier levels, so only those buffers need ordering between levels.
+		auto const uav_barrier = [](ID3D12Resource* resource)
+		{
+			// UAV ordering does not need the state tracking done by BarrierBatch.
+			return D3D12_RESOURCE_BARRIER{
+				.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV,
+				.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE,
+				.UAV = {.pResource = resource},
+			};
+		};
+		auto const barriers = std::array{
+			uav_barrier(m_r_blocks.get()),
+			uav_barrier(m_r_state.get()),
+			uav_barrier(m_r_colour_masks.get()),
+		};
+		Bind(job, m_cs_assign_colour_level, timestep, body_count, 0, iterations, bodies, m_r_colour_dispatch.get());
+		job.m_barriers.Commit();
+		auto* cmd_list = job.m_cmd_list.get();
+		auto const& offsets = m_colour_schedule.m_level_offsets;
+		for (int level = 0; level != m_colour_schedule.LevelCount(); ++level)
+		{
+			// Only the level range changes between dispatches.
+			auto const range = std::array<int, 2>{ offsets[level], offsets[level + 1] - offsets[level] };
+			cmd_list->SetComputeRoot32BitConstants(0, 2, range.data(), offsetof(cbConstraintSolve, schedule_begin) / sizeof(uint32_t));
+			cmd_list->Dispatch(groups(range[1]), 1, 1);
+			cmd_list->ResourceBarrier(static_cast<UINT>(barriers.size()), barriers.data());
+			++m_dispatch_count;
+		}
+
+		// Publish the body masks and the indirect arguments. The arguments then become read-only for the rest of the frame.
+		Bind(job, m_cs_finish_colours, timestep, body_count, 0, iterations, bodies, m_r_colour_dispatch.get());
+		job.m_barriers.Commit();
+		job.m_cmd_list.Dispatch(groups(isize(m_colour_schedule.m_tasks)), 1, 1);
+		++m_dispatch_count;
+		job.m_barriers.Transition(m_r_colour_dispatch.get(), D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT);
+		CommitUavBarriers(job, bodies);
+	}
+
 	// Compile rows, assign colours, and clear pseudo velocity before any position producer writes; optionally retain applied physical impulses.
 	void GpuConstraintSolver::Prepare(GpuJob& job, float timestep, int body_count, D3DPtr<ID3D12Resource> bodies, bool retain_current_impulses)
 	{
@@ -573,6 +668,8 @@ namespace pr::physics
 		job.m_barriers.Transition(m_r_pseudo_velocities.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition(m_r_colour_dispatch.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition(m_r_solve_cache.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		job.m_barriers.Transition(m_r_colour_masks.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		job.m_barriers.Transition(m_r_colour_schedule.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 		job.m_barriers.Commit();
 
 		auto const group_count = static_cast<UINT>((m_slot_count + ConstraintThreadCount - 1) / ConstraintThreadCount);
@@ -582,11 +679,7 @@ namespace pr::physics
 		CommitUavBarriers(job, bodies);
 
 		// Colouring also writes the per-colour indirect arguments that every later sweep in this frame reads.
-		Bind(job, m_cs_assign_colours, timestep, body_count, 0, std::max(1, m_config.push_out_iterations), bodies, m_r_colour_dispatch.get());
-		job.m_cmd_list.Dispatch(1, 1, 1);
-		++m_dispatch_count;
-		job.m_barriers.Transition(m_r_colour_dispatch.get(), D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT);
-		CommitUavBarriers(job, bodies);
+		RecordColouring(job, timestep, body_count, bodies);
 
 		// Each constrained frame starts with zero pseudo velocity independently of physical momentum.
 		Bind(job, m_cs_clear_pseudo_velocity, timestep, body_count, 0, std::max(1, m_config.push_out_iterations), bodies, m_r_state.get());
@@ -762,7 +855,9 @@ namespace pr::physics
 			sizeof(GpuD6ConstraintDesc) +
 			sizeof(GpuConstraintBlock) +
 			GpuConstraintRowsPerBlock * sizeof(GpuConstraintRow) +
-			sizeof(GpuConstraintSolveCache);
+			sizeof(GpuConstraintSolveCache) +
+			sizeof(GpuConstraintColourTask) +
+			2 * sizeof(uint32_t);
 		auto const logical_bytes =
 			static_cast<size_t>(m_slot_count) * slot_bytes +
 			(m_slot_count != 0 ? sizeof(GpuConstraintSolverState) : 0) +

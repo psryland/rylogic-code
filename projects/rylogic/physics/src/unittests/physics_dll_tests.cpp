@@ -69,6 +69,7 @@ namespace pr::unittests
 			decltype(&Physics_ConstraintCreateD6) ConstraintCreateD6;
 			decltype(&Physics_ConstraintGetD6) ConstraintGetD6;
 			decltype(&Physics_ConstraintUpdateD6) ConstraintUpdateD6;
+			decltype(&Physics_ConstraintUpdateD6Batch) ConstraintUpdateD6Batch;
 			decltype(&Physics_ConstraintSetEnabled) ConstraintSetEnabled;
 			decltype(&Physics_ConstraintRepair) ConstraintRepair;
 			decltype(&Physics_ConstraintDestroy) ConstraintDestroy;
@@ -149,6 +150,7 @@ namespace pr::unittests
 				, ConstraintCreateD6(m_module.Proc<decltype(ConstraintCreateD6)>("Physics_ConstraintCreateD6"))
 				, ConstraintGetD6(m_module.Proc<decltype(ConstraintGetD6)>("Physics_ConstraintGetD6"))
 				, ConstraintUpdateD6(m_module.Proc<decltype(ConstraintUpdateD6)>("Physics_ConstraintUpdateD6"))
+				, ConstraintUpdateD6Batch(m_module.Proc<decltype(ConstraintUpdateD6Batch)>("Physics_ConstraintUpdateD6Batch"))
 				, ConstraintSetEnabled(m_module.Proc<decltype(ConstraintSetEnabled)>("Physics_ConstraintSetEnabled"))
 				, ConstraintRepair(m_module.Proc<decltype(ConstraintRepair)>("Physics_ConstraintRepair"))
 				, ConstraintDestroy(m_module.Proc<decltype(ConstraintDestroy)>("Physics_ConstraintDestroy"))
@@ -2005,6 +2007,59 @@ namespace pr::unittests
 			PR_EXPECT(fix.m_api.ConstraintRepair(fix.m_engine, constraint) == EStatus::StaleHandle);
 			PR_EXPECT(fix.m_api.ArticulationDestroy(fix.m_engine, articulation) == EStatus::Success);
 			PR_EXPECT(fix.m_api.BodyDestroy(fix.m_engine, body) == EStatus::Success);
+			PR_EXPECT(fix.m_api.ShapeDestroy(fix.m_engine, shape) == EStatus::Success);
+		}
+
+		PRUnitTestMethod(BatchedConstraintUpdatesAreAtomic, Extended)
+		{
+			// Two welds between distinct body pairs give independent constraints to update together
+			auto fix = PhysicsFixture{};
+			auto shape = MakeBox(fix.m_api, fix.m_engine, {0.25f, 0.25f, 0.25f, 0});
+			auto body0 = MakeBody(fix.m_api, fix.m_engine, shape, Translation(0, 0, 1), EMotionType::Dynamic);
+			auto body1 = MakeBody(fix.m_api, fix.m_engine, shape, Translation(1, 0, 1), EMotionType::Dynamic);
+			auto body2 = MakeBody(fix.m_api, fix.m_engine, shape, Translation(2, 0, 1), EMotionType::Dynamic);
+			auto frame = [](BodyHandle body)
+			{
+				return ConstraintFrameProperties{.type = EConstraintEndpoint::RigidBody, .object_handle = body, .constraint_to_body = Identity()};
+			};
+			auto descs = std::array{WeldConstraint(frame(body0), frame(body1)), WeldConstraint(frame(body1), frame(body2))};
+			auto constraints = std::array<PersistentConstraintHandle, 2>{};
+			PR_EXPECT(fix.m_api.ConstraintCreateD6(fix.m_engine, &descs[0], &constraints[0]) == EStatus::Success);
+			PR_EXPECT(fix.m_api.ConstraintCreateD6(fix.m_engine, &descs[1], &constraints[1]) == EStatus::Success);
+
+			// An invalid entry rejects the whole batch, leaving the valid entry unchanged
+			auto updates = descs;
+			updates[0].angular[0].mode = EConstraintMode::Driven;
+			updates[0].angular[0].target_velocity = 0.5f;
+			updates[0].angular[0].damping = 1.0f;
+			updates[1].frame_b.object_handle = BodyHandle{};
+			PR_EXPECT(fix.m_api.ConstraintUpdateD6Batch(fix.m_engine, constraints.data(), updates.data(), 2) != EStatus::Success);
+			auto readback = D6ConstraintProperties{};
+			auto broken = std::int32_t{};
+			PR_EXPECT(fix.m_api.ConstraintGetD6(fix.m_engine, constraints[0], &readback, &broken) == EStatus::Success);
+			PR_EXPECT(readback.angular[0].mode == descs[0].angular[0].mode);
+
+			// A valid batch replaces every descriptor and moves endpoint references, so the released body can be destroyed
+			updates[1] = WeldConstraint(frame(body1), frame(body0));
+			PR_EXPECT(fix.m_api.ConstraintUpdateD6Batch(fix.m_engine, constraints.data(), updates.data(), 2) == EStatus::Success);
+			PR_EXPECT(fix.m_api.ConstraintGetD6(fix.m_engine, constraints[0], &readback, &broken) == EStatus::Success);
+			PR_EXPECT(readback.angular[0].mode == EConstraintMode::Driven);
+			PR_EXPECT(readback.angular[0].target_velocity == 0.5f);
+			PR_EXPECT(fix.m_api.ConstraintGetD6(fix.m_engine, constraints[1], &readback, &broken) == EStatus::Success);
+			PR_EXPECT(readback.frame_b.object_handle == body0);
+			PR_EXPECT(fix.m_api.BodyDestroy(fix.m_engine, body2) == EStatus::Success);
+			PR_EXPECT(fix.m_api.BodyDestroy(fix.m_engine, body1) == EStatus::InvalidArgument);
+
+			// An empty batch is valid, and null arrays with a non-zero count are rejected
+			PR_EXPECT(fix.m_api.ConstraintUpdateD6Batch(fix.m_engine, nullptr, nullptr, 0) == EStatus::Success);
+			PR_EXPECT(fix.m_api.ConstraintUpdateD6Batch(fix.m_engine, nullptr, nullptr, 1) == EStatus::InvalidArgument);
+
+			// Clean up
+			PR_EXPECT(fix.m_api.StepEx(fix.m_engine, 1.0f / 120.0f, 0.0, 1, nullptr, 0) == EStatus::Success);
+			PR_EXPECT(fix.m_api.ConstraintDestroy(fix.m_engine, constraints[0]) == EStatus::Success);
+			PR_EXPECT(fix.m_api.ConstraintDestroy(fix.m_engine, constraints[1]) == EStatus::Success);
+			PR_EXPECT(fix.m_api.BodyDestroy(fix.m_engine, body1) == EStatus::Success);
+			PR_EXPECT(fix.m_api.BodyDestroy(fix.m_engine, body0) == EStatus::Success);
 			PR_EXPECT(fix.m_api.ShapeDestroy(fix.m_engine, shape) == EStatus::Success);
 		}
 

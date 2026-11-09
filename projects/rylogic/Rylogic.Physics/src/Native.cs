@@ -10,7 +10,7 @@ namespace Rylogic.Physics;
 internal static unsafe partial class Native
 {
 	internal const string Dll = "physics";
-	internal const uint ApiVersion = 0x00080000U;
+	internal const uint ApiVersion = 0x00080001U;
 	internal const uint StructVersion = 3U;
 	private static IntPtr m_module;
 
@@ -495,6 +495,4 @@ internal static unsafe partial class Native
 	[DllImport(Dll)] internal static extern EStatus Physics_CheckpointSize(ulong engine, out ulong required);
 	[DllImport(Dll)] internal static extern EStatus Physics_CheckpointWrite(ulong engine, void* buffer, ulong capacity, out ulong written);
 	[DllImport(Dll)] internal static extern EStatus Physics_CheckpointRead(ulong engine, void* buffer, ulong size);
-
-	[DllImport("kernel32.dll")] internal static extern uint GetCurrentThreadId();
 }
