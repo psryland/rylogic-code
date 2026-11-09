@@ -48,7 +48,7 @@ namespace pr::physics
 
 namespace pr::physics
 {
-	inline constexpr std::uint32_t PHYSICS_API_VERSION = 0x00080000U;
+	inline constexpr std::uint32_t PHYSICS_API_VERSION = 0x00080001U;
 	inline constexpr std::uint32_t PHYSICS_STRUCT_VERSION = 3U;
 	inline constexpr std::uint32_t PHYSICS_CHECKPOINT_VERSION = 4U;
 
@@ -241,6 +241,9 @@ namespace pr::physics
 		// Collision filter of the world surfaces (terrain and cylindrical boundary). See BodyDesc::collision_layer.
 		std::uint32_t world_collision_layer;
 		std::uint32_t world_collision_mask;
+
+		// Non-zero to enable the D3D12 debug layer on a device the engine creates. See EngineConfig::device_debug.
+		std::int32_t device_debug;
 	};
 
 	#pragma endregion
@@ -1228,6 +1231,10 @@ extern "C"
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_ConstraintCreateD6(pr::physics::EngineHandle engine, pr::physics::D6ConstraintProperties const* desc, pr::physics::PersistentConstraintHandle* constraint);
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_ConstraintGetD6(pr::physics::EngineHandle engine, pr::physics::PersistentConstraintHandle constraint, pr::physics::D6ConstraintProperties* desc, std::int32_t* broken);
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_ConstraintUpdateD6(pr::physics::EngineHandle engine, pr::physics::PersistentConstraintHandle constraint, pr::physics::D6ConstraintProperties const* desc);
+
+	// Replace 'descs[i]' for 'constraints[i]', for 'count' entries. All entries are checked before any constraint changes, so a failure changes nothing.
+	// A constraint that appears more than once takes its last descriptor.
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_ConstraintUpdateD6Batch(pr::physics::EngineHandle engine, pr::physics::PersistentConstraintHandle const* constraints, pr::physics::D6ConstraintProperties const* descs, std::uint32_t count);
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_ConstraintSetEnabled(pr::physics::EngineHandle engine, pr::physics::PersistentConstraintHandle constraint, std::int32_t enabled);
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_ConstraintRepair(pr::physics::EngineHandle engine, pr::physics::PersistentConstraintHandle constraint);
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_ConstraintDestroy(pr::physics::EngineHandle engine, pr::physics::PersistentConstraintHandle constraint);

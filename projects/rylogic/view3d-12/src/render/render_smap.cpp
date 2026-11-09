@@ -258,6 +258,10 @@ namespace pr::rdr12
 				auto const pose = FindPose(instance);
 				auto& info = elements[e];
 
+				// Evaluate the pose for this frame before hashing it, so the hash sees the evaluated revision and the later render steps reuse the evaluation.
+				if (pose != nullptr)
+					pose->Evaluate();
+
 				// Hash everything that can change the depth this element writes into a view
 				auto h = HashSeed;
 				HashPtr(h, &instance);
@@ -821,23 +825,25 @@ namespace pr::rdr12
 						}
 
 						// Procedural vertex shader overlays (accepted by population admission) place population vertices themselves, so they are kept.
-						// The stock shadow vertex shader is swapped for its population variant.
+						// The stock shadow vertex shader is swapped for its population variant. Skinned LOD models use the variant that poses each instance.
 						auto vs = desc.Get<EPipeState::VS>().pShaderBytecode;
 						auto const* overlay = PopulationVertexOverlay(material, m_step_id);
+						auto skinned = static_cast<bool>(nugget.m_model->m_skin);
 						if (overlay == nullptr || vs != overlay->m_code.VS.pShaderBytecode)
 						{
 							// Only the stock shadow vertex shader has a population variant
 							if (vs != shader_code::shadow_map_vs.pShaderBytecode)
 								throw std::logic_error("Population shadow draw has a vertex shader without a population variant");
 
-							desc.Apply(PSO<EPipeState::VS>(shader_code::shadow_map_population_vs));
+							desc.Apply(PSO<EPipeState::VS>(skinned ? shader_code::shadow_map_skinned_population_vs : shader_code::shadow_map_population_vs));
 						}
 						desc.Apply(PSO<EPipeState::DepthClipEnable>(clamp_depth ? FALSE : TRUE));
 						m_cmd_list.SetPipelineState(m_pipe_state_pool.Get(desc));
 
-						// Bind the instance records. The payload slot needs a valid address, so it aliases the instance records when there is no payload.
+						// Bind the instance records. The payload and skin slots need valid addresses even when unused, so they alias the instance records.
 						m_cmd_list.SetGraphicsRootShaderResourceView(shaders::smap::ERootParam::PopulationInstances, GpuAddress(pop.m_instances));
 						m_cmd_list.SetGraphicsRootShaderResourceView(shaders::smap::ERootParam::PopulationPayload, pop.m_payload != nullptr ? GpuAddress(pop.m_payload) : GpuAddress(pop.m_instances));
+						m_cmd_list.SetGraphicsRootShaderResourceView(shaders::smap::ERootParam::PopulationSkin, skinned ? GpuAddress(nugget.m_model->m_skin.m_res) : GpuAddress(pop.m_instances));
 
 						// Draw into each classification's view, taking the visible lists and instance counts from its view buffer
 						for (auto const* shadow : group)

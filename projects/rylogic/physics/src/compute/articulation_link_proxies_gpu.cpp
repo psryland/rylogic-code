@@ -3,6 +3,7 @@
 //  Copyright (C) Rylogic Ltd 2026
 //*********************************************
 #include "src/compute/articulation_link_proxies_gpu.h"
+#include "src/compute/gpu_capacity.h"
 #include "src/compute/shader_code.h"
 #include "pr/physics/integrator/engine_config.h"
 
@@ -53,10 +54,7 @@ namespace pr::physics
 			if (resource != nullptr && capacity >= count)
 				return;
 
-			auto const doubled_capacity = capacity <= std::numeric_limits<int>::max() / 2
-				? 2 * capacity
-				: std::numeric_limits<int>::max();
-			capacity = std::max(count, std::max(1, doubled_capacity));
+			capacity = GrowCapacity(count, capacity);
 			resource = gpu.CreateResource(ResDesc::Buf<T>(capacity, {}).usage(usage), job, name);
 		}
 	}

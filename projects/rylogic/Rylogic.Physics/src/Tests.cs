@@ -561,6 +561,15 @@ public sealed class TestPhysics
 		// Mutable declarations preserve stable identity and participate in one frame-wide GPU transaction.
 		constraint_state.Options.Angular[0] = ConstraintAxis.Driven(0.0f, 0.25f, 0.0f, 1.0f, 1000.0f);
 		constraint.Update(constraint_state.Options);
+
+		// A batch applies its updates in one native call and is left empty for reuse
+		var batch = new ConstraintUpdateBatch(engine);
+		constraint_state.Options.Angular[0] = ConstraintAxis.Driven(0.0f, 0.5f, 0.0f, 1.0f, 1000.0f);
+		batch.Add(constraint, constraint_state.Options);
+		Assert.Equal(1, batch.Count);
+		engine.UpdateConstraints(batch);
+		Assert.Equal(0, batch.Count);
+		Assert.Equal(0.5f, constraint.GetState().Options.Angular[0].m_target_velocity);
 		constraint.SetEnabled(false);
 		constraint.SetEnabled(true);
 		constraint.Repair();

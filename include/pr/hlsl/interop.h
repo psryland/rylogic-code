@@ -1325,6 +1325,25 @@ namespace pr::hlsl
 		while (!atomic.compare_exchange_weak(current, value));
 	}
 
+	// C++ equivalent of HLSL InterlockedMin. Thread-safe using std::atomic_ref.
+	inline void InterlockedMin(uint32_t& dest, uint32_t value)
+	{
+		// Retry until the stored value is no greater than 'value'.
+		auto atomic = std::atomic_ref(dest);
+		auto current = atomic.load();
+		while (current > value && !atomic.compare_exchange_weak(current, value))
+		{
+		}
+	}
+
+	// C++ equivalent of HLSL InterlockedOr. Thread-safe using std::atomic_ref.
+	inline void InterlockedOr(uint32_t& dest, uint32_t value)
+	{
+		// Merge the bits atomically.
+		auto atomic = std::atomic_ref(dest);
+		atomic.fetch_or(value);
+	}
+
 	#pragma endregion
 
 	// Execution emulator for running HLSL compute shaders on the calling thread.

@@ -4,6 +4,7 @@
 //*********************************************
 #include "pr/physics/integrator/engine_config.h"
 #include "src/compute/resolve_gpu.h"
+#include "src/compute/gpu_capacity.h"
 #include "src/compute/constraint_solver_gpu.h"
 #include "src/compute/coupled_constraint_solver_gpu.h"
 #include "src/compute/coupled_contact_gpu.h"
@@ -121,7 +122,7 @@ namespace pr::physics
 		, m_materials_dirty(true)
 		, m_colour_sweep(EColourSweep::PerColour)
 	{
-		// m_cs_compute_times: parallel, one thread per contact — writes collision_time + zeroes body colour_used
+		// m_cs_compute_times: parallel, one thread per contact — writes collision_time
 		{
 			auto sig = RootSig(ERootSigFlags::ComputeOnly)
 				.U32<cbResolve>(EReg::Params)
@@ -164,7 +165,7 @@ namespace pr::physics
 			compile_step(m_cs_finalize_shock_priority, shader_code::finalize_shock_priority, "FinalizeShockPriority");
 		}
 
-		// m_cs_assign_colours: serial, walks sorted contacts + assigns colours
+		// m_cs_assign_colours: one thread group; clears body colour masks, then walks sorted contacts + assigns colours
 		{
 			auto sig = RootSig(ERootSigFlags::ComputeOnly)
 				.U32<cbResolve>(EReg::Params)
@@ -288,8 +289,9 @@ namespace pr::physics
 		}
 		if (m_r_body_contact_head == nullptr || m_body_capacity < body_count)
 		{
-			m_r_body_contact_head = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(body_count, {}).usage(EUsage::UnorderedAccess), job, "Physics:BodyContactHead");
-			m_body_capacity = body_count;
+			// Grow geometrically so that bodies added one at a time rarely reallocate.
+			m_body_capacity = GrowCapacity(body_count, m_body_capacity);
+			m_r_body_contact_head = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(m_body_capacity, {}).usage(EUsage::UnorderedAccess), job, "Physics:BodyContactHead");
 		}
 		if (m_r_warm_start_prev == nullptr || m_warm_start_capacity < warm_start_capacity)
 		{

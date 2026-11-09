@@ -772,6 +772,8 @@ namespace pr
 		{
 			None = 0,
 			Enabled = 1 << 0, // Only enabled instances are drawn.
+			Faded = 1 << 1, // Dithered by the instance's own unorm16 coverage in bits 16-31, instead of by its prototype's fade bands.
+			FadeComplement = 1 << 2, // A 'Faded' instance keeps the pixels that its coverage would discard. See View3D_PopulationDitherWord.
 			_flags_enum = 0,
 		};
 
@@ -1822,6 +1824,11 @@ extern "C"
 	// pixels, so complementary entries still never cover a pixel twice.
 	VIEW3D_API void __stdcall View3D_PopulationCoverageSet(pr::view3d::Population population, float coverage);
 
+	// Return the screen-door dither word that an ordinary object at 'origin' (its object-to-world translation) uses to draw 'coverage' of its pixels.
+	// An instance at the same translation with the 'Faded' instance flag and the same coverage draws the complementary pixels when 'complement' is
+	// false for the object and set on the instance (see 'pr/view3d-12/shaders/population.hlsli'). Use it to cross-fade an object with an instance.
+	VIEW3D_API uint32_t __stdcall View3D_PopulationDitherWord(pr::view3d::Vec4 origin, float coverage, BOOL complement);
+
 	// Copy 'count' instance records into the slots [first, first + count). The data is copied during the call and shown from the next frame.
 	VIEW3D_API void __stdcall View3D_PopulationInstancesUpdate(pr::view3d::Population population, int first, pr::view3d::PopulationInstance const* instances, int count);
 
@@ -1908,6 +1915,10 @@ extern "C"
 
 	// Publish a bone pose at 'time_s' (in object animation time, increasing with each call). 'bones' are bone-to-parent transforms without scale, in skeleton bone order.
 	VIEW3D_API void __stdcall View3D_ObjectPoseSnapshotPublish(pr::view3d::Object object, pr::view3d::Mat4x4 const* bones, int bone_count, double time_s, char const* name);
+
+	// Convert 'bones', bone-to-parent transforms in skeleton bone order, to object-space skinning matrices for the skeleton of the first skinned model in
+	// 'object' (or children matching 'name'). 'palette_out' receives 'bone_count' matrices, which is the layout of a population skin-pose palette.
+	VIEW3D_API void __stdcall View3D_ObjectSkinningPalette(pr::view3d::Object object, pr::view3d::Mat4x4 const* bones, int bone_count, pr::view3d::Mat4x4* palette_out, char const* name);
 
 	// Return the model space bounding box for 'object'
 	VIEW3D_API pr::view3d::BBox __stdcall View3D_ObjectBBoxMS(pr::view3d::Object object, pr::view3d::EBBoxFlags bbox_flags);
@@ -2003,6 +2014,11 @@ extern "C"
 	// Name follows LdrObject::Apply; getters return the first packed value/decoded weight, or zero if absent.
 	VIEW3D_API pr::view3d::Colour __stdcall View3D_ObjectColourBlendGet(pr::view3d::Object object, char const* name);
 	VIEW3D_API void __stdcall View3D_ObjectColourBlendSet(pr::view3d::Object object, pr::view3d::Colour blend, char const* name);
+
+	// Get/Set the screen-door dither word of stock-shader draws of 'object'. Zero (the default) draws every pixel. Build words with
+	// 'View3D_PopulationDitherWord'. Name follows LdrObject::Apply; the getter returns the first match, or zero if absent.
+	VIEW3D_API uint32_t __stdcall View3D_ObjectDitherGet(pr::view3d::Object object, char const* name);
+	VIEW3D_API void __stdcall View3D_ObjectDitherSet(pr::view3d::Object object, uint32_t dither, char const* name);
 
 	// Get/Set an instance-owned multiplier of material emissive colour in the stock PBR and ray-traced shaders. One (the default) keeps the
 	// authored emission and zero turns it off, so copies of one model can glow independently. Custom pixel shaders must apply the

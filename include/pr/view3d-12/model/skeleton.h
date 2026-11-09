@@ -39,6 +39,10 @@ namespace pr::rdr12
 			::pr::compute::WalkHierarchy<Ret, std::span<uint8_t const>, Func>(m_hierarchy, func);
 		}
 
+		// Convert bone-to-parent transforms, in skeleton bone order, to object-space skinning matrices in place.
+		// A skinning matrix maps an object-space rest-pose vertex to its posed object-space position.
+		void SkinningMatrices(std::span<m4x4> pose) const;
+
 		// Check if this skeleton is structurally compatible with another (same bone count and names)
 		bool IsCompatible(Skeleton const& other) const;
 

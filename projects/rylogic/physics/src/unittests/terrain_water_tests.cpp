@@ -334,6 +334,12 @@ namespace pr::physics::terrain::water::tests
 			auto dry = WaterField(0.0, std::span{&wave, 1});
 			dry.TerrainHeights(flat_grid(5.0f));
 			PR_EXPECT(dry.Height(v2d{5.0, 0.0}, 1.0) == 0.0);
+			auto const dry_sample = dry.Sample(v2d{5.0, 0.0}, 1.0);
+			auto const dry_pressure = dry.PressureGradient(v2{5.0f, 0.0f}, 1.0, 9.81f);
+			auto const dry_velocity = dry.Velocity(v4{5.0f, 0.0f, -0.2f, 1.0f}, 1.0);
+			PR_EXPECT(dry_sample.m_height == 0.0 && dry_sample.m_gradient_xy.x == 0.0 && dry_sample.m_gradient_xy.y == 0.0);
+			PR_EXPECT(dry_pressure.x == 0.0f && dry_pressure.y == 0.0f && dry_pressure.z == 0.0f);
+			PR_EXPECT(dry_velocity.x == 0.0f && dry_velocity.y == 0.0f && dry_velocity.z == 0.0f);
 			PR_EXPECT(dry.MaxHeight(v2d{-5.0, -5.0}, v2d{5.0, 5.0}) == 0.0);
 			PR_EXPECT(dry.MinHeight(v2d{-5.0, -5.0}, v2d{5.0, 5.0}) == 0.0);
 		}

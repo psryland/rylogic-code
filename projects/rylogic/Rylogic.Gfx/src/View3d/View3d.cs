@@ -2425,6 +2425,8 @@ namespace Rylogic.Gfx
 		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern void View3D_ObjectColourSet(HObject obj, bool base_colour, uint colour, [MarshalAs(UnmanagedType.LPStr)] string? name, EColourOp op, float op_value);
 		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern uint View3D_ObjectColourBlendGet(HObject obj, [MarshalAs(UnmanagedType.LPStr)] string? name);
 		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern void View3D_ObjectColourBlendSet(HObject obj, uint blend, [MarshalAs(UnmanagedType.LPStr)] string? name);
+		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern uint View3D_ObjectDitherGet(HObject obj, [MarshalAs(UnmanagedType.LPStr)] string? name);
+		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern void View3D_ObjectDitherSet(HObject obj, uint dither, [MarshalAs(UnmanagedType.LPStr)] string? name);
 		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern float View3D_ObjectEmissiveScaleGet(HObject obj, [MarshalAs(UnmanagedType.LPStr)] string? name);
 		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern void View3D_ObjectEmissiveScaleSet(HObject obj, float scale, [MarshalAs(UnmanagedType.LPStr)] string? name);
 
@@ -2448,6 +2450,7 @@ namespace Rylogic.Gfx
 		// Drive the skinned model of an object from caller-published bone poses
 		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern void View3D_ObjectPoseSnapshotsCreate(HObject obj, [MarshalAs(UnmanagedType.LPStr)] string? name);
 		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern void View3D_ObjectPoseSnapshotPublish(HObject obj, ref m4x4 bones, int bone_count, double time_s, [MarshalAs(UnmanagedType.LPStr)] string? name);
+		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern void View3D_ObjectSkinningPalette(HObject obj, ref m4x4 bones, int bone_count, ref m4x4 palette_out, [MarshalAs(UnmanagedType.LPStr)] string? name);
 
 		// Return the model space bounding box for 'object'
 		[DllImport(Dll)] private static extern BBox View3D_ObjectBBoxMS(HObject obj, EBBoxFlags bbox_flags);

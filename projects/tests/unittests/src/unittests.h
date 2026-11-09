@@ -92,6 +92,7 @@
 #include "pr/common/value_ptr.h"
 #include "pr/compute/compute_pso.h"
 #include "pr/compute/gpu_job.h"
+#include "pr/compute/gpu.h"
 #include "pr/compute/radix_sort/radix_sort.h"
 #include "pr/compute/shaders/source_resolver.h"
 #include "pr/container/bit_array.h"

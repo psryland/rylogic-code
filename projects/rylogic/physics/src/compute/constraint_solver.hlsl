@@ -4,7 +4,7 @@
 //*********************************************
 // GPU pass order:
 //   1. CSCompileConstraints
-//   2. CSAssignConstraintColours
+//   2. CSResetConstraintColours, CSAssignConstraintColourLevel once per schedule level, then CSFinishConstraintColours
 //   3. CSApplyConstraintWarmStart, once per colour
 //   4. CSClearConstraintPseudoVelocity
 //   5. CSPrepareConstraintPositionSolve, once before the position iterations
@@ -23,8 +23,10 @@
 //   u3: RWStructuredBuffer<GpuConstraintSolverState> - frame-local colour fallback and numerical-failure latch
 //   u4: RWStructuredBuffer<GpuConstraintPseudoVelocity> - per-body split-correction state
 //   u5: RWStructuredBuffer<GpuConstraintBreakState> - optional stable-slot overload latches
-//   u6: RWStructuredBuffer<DispatchArguments>      - per-colour indirect arguments written by CSAssignConstraintColours
+//   u6: RWStructuredBuffer<DispatchArguments>      - per-colour indirect arguments written by CSFinishConstraintColours
 //   u7: RWStructuredBuffer<GpuConstraintSolveCache> - per-slot block response inverse for the current solve phase
+//   t2: StructuredBuffer<GpuConstraintColourTask>  - colouring schedule, ordered by dependency level
+//   u8: RWStructuredBuffer<uint2>                  - per-slot body colour masks after each slot is coloured (endpoint A, endpoint B)
 //
 // Matrices use the row-vector convention from resolve.hlsl. HLSL rows map to C++ columns,
 // mul(v, M) transforms a vector, and mul(local, parent) composes local-to-parent-to-world.
@@ -58,6 +60,10 @@ struct cbConstraintSolver
 	int retain_current_impulses;
 	int breakable_count;
 	int break_substep_index;
+	int schedule_begin;
+	int schedule_count;
+	int pad0;
+	int pad1;
 	int pad2;
 };
 
@@ -72,6 +78,8 @@ RWStructuredBuffer<GpuConstraintPseudoVelocity> resource(g_pseudo_velocities, u4
 RWStructuredBuffer<GpuConstraintBreakState> resource(g_break_states, u5);
 RWStructuredBuffer<DispatchArguments> resource(g_constraint_colour_dispatch, u6);
 RWStructuredBuffer<GpuConstraintSolveCache> resource(g_solve_cache, u7);
+StructuredBuffer<GpuConstraintColourTask> resource(g_colour_schedule, t2);
+RWStructuredBuffer<uint2> resource(g_colour_masks, u8);
 
 #define PR_CONSTRAINT_SOLVER_OPS_CPP_NAMESPACE constraint_solver_ops_detail
 #include "physics/src/compute/constraint_solver_ops.hlsli"
@@ -375,92 +383,177 @@ void CSDetectBrokenConstraints(int3 DTID(dtid))
 	g_break_states[slot_idx] = state;
 }
 
-// Assign deterministic greedy colours after resetting per-body masks.
-numthreads(CSAssignConstraintColours, 1, 1, 1)
-void CSAssignConstraintColours(int3 DTID(dtid))
+// Constraint colouring gives each active slot the lowest colour that neither of its dynamic bodies has used yet, visiting the slots in index
+// order. The result must be identical to that serial visit, so the work is split into passes:
+//   1. CSResetConstraintColours clears the body masks, the slot colours, and the overflow scratch words.
+//   2. CSAssignConstraintColourLevel runs once per schedule level. A slot only depends on the earlier slots that share one of its bodies, and
+//      the schedule (built on the CPU from the endpoints) places every slot in a later level than all of those slots. So each slot reads the
+//      exact body masks that the serial visit would see, from the per-slot masks its predecessors wrote.
+//   3. CSFinishConstraintColours publishes the final body masks, applies the overflow fallback, and writes the indirect arguments.
+// When a slot finds no free colour, the serial visit stops there. Slots after it may compute different values here, but those values are
+// discarded because only slots below the lowest overflowing slot contribute to the published result.
+
+// Return the body mask recorded after an encoded predecessor 'slot * 2 + side', or zero when there is no predecessor.
+uint ConstraintColourMaskAfter(int pred)
 {
-	if (dtid.x != 0)
-		return;
+	// The predecessor stored both endpoint masks; the side selects the one for the shared body.
+	if (pred < 0)
+		return 0u;
 
-	for (int body_idx = 0; body_idx != g.body_count; ++body_idx)
-		g_constraint_bodies[body_idx].colour_used = 0u;
+	uint2 masks = g_colour_masks[pred >> 1];
+	return (pred & 1) == 0 ? masks.x : masks.y;
+}
 
-	bool overflow = false;
-	uint used_colours = 0u;
-	for (int slot_idx = 0; slot_idx != g.slot_count; ++slot_idx)
+// Return true when a compiled block takes part in colouring.
+bool ConstraintBlockColoured(GpuConstraintBlock block)
+{
+	return AllSet(block.flags, ConstraintBlockFlags_Active) && block.velocity_mask != 0u;
+}
+
+// Reset per-body masks, every slot colour, and the overflow scratch words before the level passes. Dispatch max(body_count, slot_count) threads.
+numthreads(CSResetConstraintColours, ConstraintThreadCount, 1, 1)
+void CSResetConstraintColours(int3 DTID(dtid))
+{
+	// Slots that are coupled, inactive, or never coloured keep this value, which matches the serial visit.
+	if (dtid.x < g.body_count)
+		g_constraint_bodies[dtid.x].colour_used = 0u;
+	if (dtid.x < g.slot_count)
+		g_blocks[dtid.x].colour = MaxColours;
+
+	// The overflow slot starts above every real slot so the level passes can lower it atomically.
+	if (dtid.x == 0)
 	{
-		if (AllSet(g_endpoints[slot_idx].flags, GpuConstraintEndpointFlags_Coupled))
-		{
-			GpuConstraintBlock coupled_block = g_blocks[slot_idx];
-			coupled_block.colour = MaxColours;
-			g_blocks[slot_idx] = coupled_block;
-			continue;
-		}
-
-		GpuConstraintBlock block = g_blocks[slot_idx];
-		if (!AllSet(block.flags, ConstraintBlockFlags_Active) || block.velocity_mask == 0u)
-		{
-			block.colour = MaxColours;
-			g_blocks[slot_idx] = block;
-			continue;
-		}
-
-		uint used = 0u;
-		if (ConstraintBodyDynamic(block.body_idx_a))
-			used |= g_constraint_bodies[block.body_idx_a].colour_used;
-		if (ConstraintBodyDynamic(block.body_idx_b))
-			used |= g_constraint_bodies[block.body_idx_b].colour_used;
-		uint available = ~used;
-		if (available == 0u)
-		{
-			overflow = true;
-			break;
-		}
-
-		uint colour = firstbitlow(available);
-		block.colour = colour;
-		g_blocks[slot_idx] = block;
-		used_colours |= 1u << colour;
-		if (ConstraintBodyDynamic(block.body_idx_a))
-			g_constraint_bodies[block.body_idx_a].colour_used |= 1u << colour;
-		if (ConstraintBodyDynamic(block.body_idx_b))
-			g_constraint_bodies[block.body_idx_b].colour_used |= 1u << colour;
-	}
-
-	// A single exhausted mask selects one coherent serial order for every active block.
-	if (overflow)
-	{
-		for (int slot_idx = 0; slot_idx != g.slot_count; ++slot_idx)
-		{
-			GpuConstraintBlock block = g_blocks[slot_idx];
-			block.colour = MaxColours;
-			g_blocks[slot_idx] = block;
-		}
-	}
-	g_constraint_state[0].colour_overflow = overflow ? 1u : 0u;
-
-	// Preserve the full stable-slot grid for occupied colours. Empty colours do no work; overflow needs only the serial thread in colour zero.
-	// Blocks that break later in the frame only leave their colour, so these arguments remain a valid upper bound for the rest of the frame.
-	uint groups = (uint)((g.slot_count + ConstraintThreadCount - 1) / ConstraintThreadCount);
-	for (int colour = 0; colour != MaxColours; ++colour)
-	{
-		DispatchArguments args;
-		args.ThreadGroupCountX = overflow ? (colour == 0 ? 1u : 0u) : ((used_colours & (1u << colour)) != 0u ? groups : 0u);
-		args.ThreadGroupCountY = 1;
-		args.ThreadGroupCountZ = 1;
-		g_constraint_colour_dispatch[colour] = args;
+		g_constraint_state[0].colour_overflow_slot = 0xFFFFFFFFu;
+		g_constraint_state[0].used_colours = 0u;
 	}
 }
 
-// Apply a world-space spatial impulse to one endpoint's authoritative momentum.
-void ApplyConstraintImpulseToBody(int body_idx, float3 jacobian_ang, float3 jacobian_lin, float impulse)
+// Colour every slot in one schedule level. Slots in a level never share a body, so they do not affect each other.
+numthreads(CSAssignConstraintColourLevel, ConstraintThreadCount, 1, 1)
+void CSAssignConstraintColourLevel(int3 DTID(dtid))
 {
-	if (!ConstraintBodyDynamic(body_idx) || impulse == 0.0f || !isfinite(impulse))
+	// Read the body masks left by the predecessors, which completed in earlier levels.
+	if (dtid.x >= g.schedule_count)
 		return;
 
-	GpuRigidBody body = g_constraint_bodies[body_idx];
+	GpuConstraintColourTask task = g_colour_schedule[g.schedule_begin + dtid.x];
+	GpuConstraintBlock block = g_blocks[task.slot_idx];
+	uint before_a = ConstraintColourMaskAfter(task.pred_a);
+	uint before_b = ConstraintColourMaskAfter(task.pred_b);
+
+	// Choose the lowest colour unused by either dynamic body. Non-participating slots pass the masks through unchanged.
+	uint bit = 0u;
+	if (ConstraintBlockColoured(block))
+	{
+		uint used = 0u;
+		if (ConstraintBodyDynamic(block.body_idx_a))
+			used |= before_a;
+		if (ConstraintBodyDynamic(block.body_idx_b))
+			used |= before_b;
+
+		uint available = ~used;
+		if (available == 0u)
+		{
+			InterlockedMin(g_constraint_state[0].colour_overflow_slot, (uint)task.slot_idx);
+		}
+		else
+		{
+			uint colour = firstbitlow(available);
+			bit = 1u << colour;
+			g_blocks[task.slot_idx].colour = colour;
+			InterlockedOr(g_constraint_state[0].used_colours, bit);
+		}
+	}
+	g_colour_masks[task.slot_idx] = uint2(before_a | bit, before_b | bit);
+}
+
+// Publish the body masks and the fallback, then write the per-colour indirect arguments. Dispatch one thread per scheduled slot, and at least one.
+numthreads(CSFinishConstraintColours, ConstraintThreadCount, 1, 1)
+void CSFinishConstraintColours(int3 DTID(dtid))
+{
+	// Write the frame result once. A single exhausted mask selects one coherent serial order for every active block, and only the serial
+	// thread in colour zero runs. Otherwise every occupied colour keeps the full stable-slot grid and empty colours do no work. Blocks that break
+	// later in the frame only leave their colour, so these arguments remain a valid upper bound for the rest of the frame.
+	uint overflow_slot = g_constraint_state[0].colour_overflow_slot;
+	bool overflow = overflow_slot != 0xFFFFFFFFu;
+	if (dtid.x == 0)
+	{
+		uint used_colours = g_constraint_state[0].used_colours;
+		uint groups = (uint)((g.slot_count + ConstraintThreadCount - 1) / ConstraintThreadCount);
+		for (int colour = 0; colour != MaxColours; ++colour)
+		{
+			DispatchArguments args;
+			args.ThreadGroupCountX = overflow ? (colour == 0 ? 1u : 0u) : ((used_colours & (1u << colour)) != 0u ? groups : 0u);
+			args.ThreadGroupCountY = 1;
+			args.ThreadGroupCountZ = 1;
+			g_constraint_colour_dispatch[colour] = args;
+		}
+		g_constraint_state[0].colour_overflow = overflow ? 1u : 0u;
+	}
+	if (dtid.x >= g.schedule_count)
+		return;
+
+	// The serial visit records colours in the body masks only for slots before the overflowing slot, and then clears every colour.
+	int slot_idx = g_colour_schedule[dtid.x].slot_idx;
+	GpuConstraintBlock block = g_blocks[slot_idx];
+	if (block.colour >= MaxColours)
+		return;
+	if (overflow)
+		g_blocks[slot_idx].colour = MaxColours;
+	if (overflow && (uint)slot_idx >= overflow_slot)
+		return;
+
+	uint bit = 1u << block.colour;
+	if (ConstraintBodyDynamic(block.body_idx_a))
+		InterlockedOr(g_constraint_bodies[block.body_idx_a].colour_used, bit);
+	if (ConstraintBodyDynamic(block.body_idx_b))
+		InterlockedOr(g_constraint_bodies[block.body_idx_b].colour_used, bit);
+}
+
+// The mutable momentum and sleep state of one dynamic endpoint. A block holds these in registers while it applies its row impulses, then stores
+// each body once instead of reading and writing the whole body for every row.
+struct ConstraintBodyMomentum
+{
+	float4 momentum_ang;
+	float4 momentum_lin;
+	int state_flags;
+	GpuSleepData sleep;
+	bool changed;
+};
+
+// Read the mutable state of a dynamic body, or an unchanged empty state when 'body_idx' is negative.
+ConstraintBodyMomentum LoadConstraintBodyMomentum(int body_idx)
+{
+	// Empty state for endpoints that never receive impulses.
+	ConstraintBodyMomentum body;
+	body.momentum_ang = float4(0, 0, 0, 0);
+	body.momentum_lin = float4(0, 0, 0, 0);
+	body.state_flags = 0;
+	body.sleep.timer_s = 0.0f;
+	body.sleep.island_id = -1;
+	body.sleep.generation = 0u;
+	body.sleep.flags = 0u;
+	body.changed = false;
+	if (body_idx < 0)
+		return body;
+
+	body.momentum_ang = g_constraint_bodies[body_idx].momentum_ang;
+	body.momentum_lin = g_constraint_bodies[body_idx].momentum_lin;
+	body.state_flags = g_constraint_bodies[body_idx].state_flags;
+	body.sleep = g_constraint_bodies[body_idx].sleep;
+	return body;
+}
+
+// Add a world-space spatial impulse to one endpoint's momentum. Zero and non-finite impulses leave the endpoint unchanged.
+void AccumulateConstraintImpulse(inout_(ConstraintBodyMomentum) body, float3 jacobian_ang, float3 jacobian_lin, float impulse)
+{
+	// Skipped impulses must not wake the body.
+	if (impulse == 0.0f || !isfinite(impulse))
+		return;
+
 	body.momentum_ang.xyz += impulse * jacobian_ang;
 	body.momentum_lin.xyz += impulse * jacobian_lin;
+	body.changed = true;
 
 	// Routine support impulses leave an awake body's quiet-time assessment to the sleep pass, while persisted sleeping state must be invalidated immediately.
 	if (AllSet(body.state_flags, ERigidBodyStateFlags_Sleeping) || body.sleep.island_id >= 0)
@@ -471,14 +564,66 @@ void ApplyConstraintImpulseToBody(int body_idx, float3 jacobian_ang, float3 jaco
 		body.sleep.island_id = -1;
 		body.sleep.flags = 0u;
 	}
-	g_constraint_bodies[body_idx] = body;
 }
 
-// Apply one scalar row impulse to both endpoints.
-void ApplyConstraintRowImpulse(GpuConstraintBlock block, GpuConstraintRow row, float impulse)
+// Write an endpoint's mutable state back to its body if any impulse changed it.
+void StoreConstraintBodyMomentum(int body_idx, ConstraintBodyMomentum body)
 {
-	ApplyConstraintImpulseToBody(block.body_idx_a, row.jacobian_a_ang.xyz, row.jacobian_a_lin.xyz, impulse);
-	ApplyConstraintImpulseToBody(block.body_idx_b, row.jacobian_b_ang.xyz, row.jacobian_b_lin.xyz, impulse);
+	// Other body fields are never changed by impulses, so only the mutable fields are written.
+	if (!body.changed)
+		return;
+
+	g_constraint_bodies[body_idx].momentum_ang = body.momentum_ang;
+	g_constraint_bodies[body_idx].momentum_lin = body.momentum_lin;
+	g_constraint_bodies[body_idx].state_flags = body.state_flags;
+	g_constraint_bodies[body_idx].sleep = body.sleep;
+}
+
+// The authoritative momenta of one block's dynamic endpoints. When both endpoints refer to the same body, endpoint B updates endpoint A's state,
+// so every impulse is added to that body in the same order as separate per-endpoint updates. A colour never gives two concurrent blocks the same
+// dynamic body, so the state cannot be changed by another thread while a block holds it.
+struct ConstraintBlockMomenta
+{
+	ConstraintBodyMomentum a;
+	ConstraintBodyMomentum b;
+	bool dynamic_a;
+	bool dynamic_b;
+	bool same_body;
+};
+
+// Read the mutable state of a block's dynamic endpoints.
+ConstraintBlockMomenta LoadConstraintBlockMomenta(GpuConstraintBlock block)
+{
+	// Static, kinematic, and missing endpoints are never mutated, so they are not loaded.
+	ConstraintBlockMomenta momenta;
+	momenta.dynamic_a = ConstraintBodyDynamic(block.body_idx_a);
+	momenta.dynamic_b = ConstraintBodyDynamic(block.body_idx_b);
+	momenta.same_body = block.body_idx_a == block.body_idx_b;
+	momenta.a = LoadConstraintBodyMomentum(momenta.dynamic_a ? block.body_idx_a : -1);
+	momenta.b = LoadConstraintBodyMomentum(momenta.dynamic_b && !momenta.same_body ? block.body_idx_b : -1);
+	return momenta;
+}
+
+// Apply one scalar row impulse to both endpoints, endpoint A first.
+void AccumulateConstraintRowImpulse(inout_(ConstraintBlockMomenta) momenta, GpuConstraintRow row, float impulse)
+{
+	// A shared body receives both endpoint impulses in sequence.
+	if (momenta.dynamic_a)
+		AccumulateConstraintImpulse(momenta.a, row.jacobian_a_ang.xyz, row.jacobian_a_lin.xyz, impulse);
+	if (momenta.dynamic_b && momenta.same_body)
+		AccumulateConstraintImpulse(momenta.a, row.jacobian_b_ang.xyz, row.jacobian_b_lin.xyz, impulse);
+	else if (momenta.dynamic_b)
+		AccumulateConstraintImpulse(momenta.b, row.jacobian_b_ang.xyz, row.jacobian_b_lin.xyz, impulse);
+}
+
+// Write a block's changed endpoint momenta back to their bodies.
+void StoreConstraintBlockMomenta(GpuConstraintBlock block, ConstraintBlockMomenta momenta)
+{
+	// A shared body is held only in endpoint A.
+	if (momenta.dynamic_a)
+		StoreConstraintBodyMomentum(block.body_idx_a, momenta.a);
+	if (momenta.dynamic_b && !momenta.same_body)
+		StoreConstraintBodyMomentum(block.body_idx_b, momenta.b);
 }
 
 // Apply all retained physical impulses for one block.
@@ -488,14 +633,16 @@ void ApplyConstraintBlockWarmStart(uint slot_idx)
 		return;
 
 	GpuConstraintBlock block = g_blocks[slot_idx];
+	ConstraintBlockMomenta momenta = LoadConstraintBlockMomenta(block);
 	for (uint axis_idx = 0; axis_idx != GpuConstraintRowsPerBlock; ++axis_idx)
 	{
 		if ((block.velocity_mask & (1u << axis_idx)) == 0u)
 			continue;
 
 		GpuConstraintRow row = g_rows[slot_idx * GpuConstraintRowsPerBlock + axis_idx];
-		ApplyConstraintRowImpulse(block, row, row.bounds.z);
+		AccumulateConstraintRowImpulse(momenta, row, row.bounds.z);
 	}
+	StoreConstraintBlockMomenta(block, momenta);
 }
 
 // Apply cached impulses by colour, or serially in stable-slot order after colour exhaustion.
@@ -522,21 +669,44 @@ void CSApplyConstraintWarmStart(int3 DTID(dtid))
 	ApplyConstraintBlockWarmStart(slot_idx);
 }
 
-// Return the current physical row velocity J*v from world-space body twists. Kinematic bodies contribute their twist even though they are never mutated.
-float ConstraintRowVelocity(GpuConstraintBlock block, GpuConstraintRow row)
+// The world-space twists of a block's endpoints. Momentum does not change while a block forms its residuals, so each twist is computed once per block
+// rather than once per row.
+struct ConstraintBlockTwists
+{
+	BodyTwist a;
+	BodyTwist b;
+	bool has_a;
+	bool has_b;
+};
+
+// Read the twists of every endpoint that refers to a body. Kinematic bodies contribute their twist even though they are never mutated.
+ConstraintBlockTwists LoadConstraintBlockTwists(GpuConstraintBlock block)
+{
+	// Missing endpoints keep zero twists and are skipped by ConstraintRowVelocity.
+	ConstraintBlockTwists twists;
+	twists.has_a = block.body_idx_a >= 0 && block.body_idx_a < g.body_count;
+	twists.has_b = block.body_idx_b >= 0 && block.body_idx_b < g.body_count;
+	twists.a.ang = float3(0, 0, 0);
+	twists.a.lin = float3(0, 0, 0);
+	twists.b = twists.a;
+	if (twists.has_a)
+		twists.a = BodyTwistWS(g_constraint_bodies[block.body_idx_a]);
+	if (twists.has_b)
+		twists.b = BodyTwistWS(g_constraint_bodies[block.body_idx_b]);
+
+	return twists;
+}
+
+// Return the current physical row velocity J*v from the block's endpoint twists.
+float ConstraintRowVelocity(ConstraintBlockTwists twists, GpuConstraintRow row)
 {
 	// Sum the contribution of each endpoint that refers to a body
 	float velocity = 0.0f;
-	if (block.body_idx_a >= 0 && block.body_idx_a < g.body_count)
-	{
-		BodyTwist twist = BodyTwistWS(g_constraint_bodies[block.body_idx_a]);
-		velocity += dot(row.jacobian_a_ang.xyz, twist.ang) + dot(row.jacobian_a_lin.xyz, twist.lin);
-	}
-	if (block.body_idx_b >= 0 && block.body_idx_b < g.body_count)
-	{
-		BodyTwist twist = BodyTwistWS(g_constraint_bodies[block.body_idx_b]);
-		velocity += dot(row.jacobian_b_ang.xyz, twist.ang) + dot(row.jacobian_b_lin.xyz, twist.lin);
-	}
+	if (twists.has_a)
+		velocity += dot(row.jacobian_a_ang.xyz, twists.a.ang) + dot(row.jacobian_a_lin.xyz, twists.a.lin);
+	if (twists.has_b)
+		velocity += dot(row.jacobian_b_ang.xyz, twists.b.ang) + dot(row.jacobian_b_lin.xyz, twists.b.lin);
+
 	return velocity;
 }
 
@@ -693,10 +863,11 @@ void SolveConstraintVelocityBlock(uint slot_idx)
 	float lower[6];
 	float upper[6];
 	float projected[6];
+	ConstraintBlockTwists twists = LoadConstraintBlockTwists(block);
 	for (int row_idx = 0; row_idx != row_count; ++row_idx)
 	{
 		GpuConstraintRow row = g_rows[slot_idx * GpuConstraintRowsPerBlock + active_axes[row_idx]];
-		residual[row_idx] = ConstraintRowVelocity(block, row) - row.solve.y + row.solve.z + row.solve.w * row.bounds.z;
+		residual[row_idx] = ConstraintRowVelocity(twists, row) - row.solve.y + row.solve.z + row.solve.w * row.bounds.z;
 	}
 	for (int row_idx = 0; row_idx != row_count; ++row_idx)
 	{
@@ -715,15 +886,18 @@ void SolveConstraintVelocityBlock(uint slot_idx)
 		FailConstraintBlock(slot_idx);
 		return;
 	}
+	// Commit the impulse changes in row order, then store each changed body once.
+	ConstraintBlockMomenta momenta = LoadConstraintBlockMomenta(block);
 	for (int row_idx = 0; row_idx != row_count; ++row_idx)
 	{
 		uint row_storage_idx = slot_idx * GpuConstraintRowsPerBlock + active_axes[row_idx];
 		GpuConstraintRow row = g_rows[row_storage_idx];
 		float delta = projected[row_idx] - row.bounds.z;
-		ApplyConstraintRowImpulse(block, row, delta);
+		AccumulateConstraintRowImpulse(momenta, row, delta);
 		row.bounds.z = projected[row_idx];
 		g_rows[row_storage_idx] = row;
 	}
+	StoreConstraintBlockMomenta(block, momenta);
 }
 
 // Run one coloured physical PGS sweep, with a stable serial fallback on overflow.
@@ -750,40 +924,106 @@ void CSSolveConstraintVelocity(int3 DTID(dtid))
 	SolveConstraintVelocityBlock(slot_idx);
 }
 
-// Return the current split-correction row velocity without consulting physical momentum.
-float ConstraintPseudoRowVelocity(GpuConstraintBlock block, GpuConstraintRow row)
+// The split-correction state of one dynamic endpoint, held in registers while a block forms its residuals and applies its row impulses. The
+// world-space inverse inertia does not change during a position sweep, so it is computed once per block rather than once per row.
+struct ConstraintBodyPseudo
 {
+	GpuConstraintPseudoVelocity pseudo;
+	float3x3 inverse_inertia;
+	float inv_mass;
+	bool changed;
+};
+
+// Read the split-correction state of a dynamic body, or an unchanged empty state when 'body_idx' is negative.
+ConstraintBodyPseudo LoadConstraintBodyPseudo(int body_idx)
+{
+	// Empty state for endpoints that never receive impulses.
+	ConstraintBodyPseudo body;
+	body.pseudo.angular_velocity = float4(0, 0, 0, 0);
+	body.pseudo.linear_velocity = float4(0, 0, 0, 0);
+	body.inverse_inertia = float3x3(float3(0, 0, 0), float3(0, 0, 0), float3(0, 0, 0));
+	body.inv_mass = 0.0f;
+	body.changed = false;
+	if (body_idx < 0)
+		return body;
+
+	body.pseudo = g_pseudo_velocities[body_idx];
+	body.inverse_inertia = ConstraintInverseInertia(body_idx);
+	body.inv_mass = g_constraint_bodies[body_idx].os_com_and_invmass.w;
+	return body;
+}
+
+// Add one scalar split impulse to an endpoint's accumulated pseudo twist. Zero and non-finite impulses leave the endpoint unchanged.
+void AccumulateConstraintPseudoImpulse(inout_(ConstraintBodyPseudo) body, float3 jacobian_ang, float3 jacobian_lin, float impulse)
+{
+	// Skipped impulses leave the stored pseudo twist untouched.
+	if (impulse == 0.0f || !isfinite(impulse))
+		return;
+
+	body.pseudo.angular_velocity.xyz += mul(body.inverse_inertia, impulse * jacobian_ang);
+	body.pseudo.linear_velocity.xyz += body.inv_mass * impulse * jacobian_lin;
+	body.changed = true;
+}
+
+// The split-correction state of one block's dynamic endpoints. A shared body is held only in endpoint A; see ConstraintBlockMomenta.
+struct ConstraintBlockPseudo
+{
+	ConstraintBodyPseudo a;
+	ConstraintBodyPseudo b;
+	bool dynamic_a;
+	bool dynamic_b;
+	bool same_body;
+};
+
+// Read the split-correction state of a block's dynamic endpoints.
+ConstraintBlockPseudo LoadConstraintBlockPseudo(GpuConstraintBlock block)
+{
+	// Only dynamic endpoints contribute to split correction.
+	ConstraintBlockPseudo pseudo;
+	pseudo.dynamic_a = ConstraintBodyDynamic(block.body_idx_a);
+	pseudo.dynamic_b = ConstraintBodyDynamic(block.body_idx_b);
+	pseudo.same_body = block.body_idx_a == block.body_idx_b;
+	pseudo.a = LoadConstraintBodyPseudo(pseudo.dynamic_a ? block.body_idx_a : -1);
+	pseudo.b = LoadConstraintBodyPseudo(pseudo.dynamic_b && !pseudo.same_body ? block.body_idx_b : -1);
+	return pseudo;
+}
+
+// Return the current split-correction row velocity without consulting physical momentum.
+float ConstraintPseudoRowVelocity(ConstraintBlockPseudo pseudo, GpuConstraintRow row)
+{
+	// A shared body contributes its one pseudo twist through both endpoint Jacobians.
 	float velocity = 0.0f;
-	if (ConstraintBodyDynamic(block.body_idx_a))
+	if (pseudo.dynamic_a)
+		velocity += dot(row.jacobian_a_ang.xyz, pseudo.a.pseudo.angular_velocity.xyz) + dot(row.jacobian_a_lin.xyz, pseudo.a.pseudo.linear_velocity.xyz);
+	if (pseudo.dynamic_b)
 	{
-		GpuConstraintPseudoVelocity pseudo = g_pseudo_velocities[block.body_idx_a];
-		velocity += dot(row.jacobian_a_ang.xyz, pseudo.angular_velocity.xyz) + dot(row.jacobian_a_lin.xyz, pseudo.linear_velocity.xyz);
-	}
-	if (ConstraintBodyDynamic(block.body_idx_b))
-	{
-		GpuConstraintPseudoVelocity pseudo = g_pseudo_velocities[block.body_idx_b];
-		velocity += dot(row.jacobian_b_ang.xyz, pseudo.angular_velocity.xyz) + dot(row.jacobian_b_lin.xyz, pseudo.linear_velocity.xyz);
+		float3 b_ang = pseudo.same_body ? pseudo.a.pseudo.angular_velocity.xyz : pseudo.b.pseudo.angular_velocity.xyz;
+		float3 b_lin = pseudo.same_body ? pseudo.a.pseudo.linear_velocity.xyz : pseudo.b.pseudo.linear_velocity.xyz;
+		velocity += dot(row.jacobian_b_ang.xyz, b_ang) + dot(row.jacobian_b_lin.xyz, b_lin);
 	}
 	return velocity;
 }
 
-// Apply one scalar split impulse to a body's accumulated pseudo twist.
-void ApplyConstraintPseudoImpulseToBody(int body_idx, float3 jacobian_ang, float3 jacobian_lin, float impulse)
+// Apply one scalar split impulse to both endpoints, endpoint A first.
+void AccumulateConstraintRowPseudoImpulse(inout_(ConstraintBlockPseudo) pseudo, GpuConstraintRow row, float impulse)
 {
-	if (!ConstraintBodyDynamic(body_idx) || impulse == 0.0f || !isfinite(impulse))
-		return;
-
-	GpuConstraintPseudoVelocity pseudo = g_pseudo_velocities[body_idx];
-	pseudo.angular_velocity.xyz += mul(ConstraintInverseInertia(body_idx), impulse * jacobian_ang);
-	pseudo.linear_velocity.xyz += g_constraint_bodies[body_idx].os_com_and_invmass.w * impulse * jacobian_lin;
-	g_pseudo_velocities[body_idx] = pseudo;
+	// A shared body receives both endpoint impulses in sequence.
+	if (pseudo.dynamic_a)
+		AccumulateConstraintPseudoImpulse(pseudo.a, row.jacobian_a_ang.xyz, row.jacobian_a_lin.xyz, impulse);
+	if (pseudo.dynamic_b && pseudo.same_body)
+		AccumulateConstraintPseudoImpulse(pseudo.a, row.jacobian_b_ang.xyz, row.jacobian_b_lin.xyz, impulse);
+	else if (pseudo.dynamic_b)
+		AccumulateConstraintPseudoImpulse(pseudo.b, row.jacobian_b_ang.xyz, row.jacobian_b_lin.xyz, impulse);
 }
 
-// Apply one scalar split impulse to both endpoints.
-void ApplyConstraintRowPseudoImpulse(GpuConstraintBlock block, GpuConstraintRow row, float impulse)
+// Write a block's changed pseudo twists back to their bodies.
+void StoreConstraintBlockPseudo(GpuConstraintBlock block, ConstraintBlockPseudo pseudo)
 {
-	ApplyConstraintPseudoImpulseToBody(block.body_idx_a, row.jacobian_a_ang.xyz, row.jacobian_a_lin.xyz, impulse);
-	ApplyConstraintPseudoImpulseToBody(block.body_idx_b, row.jacobian_b_ang.xyz, row.jacobian_b_lin.xyz, impulse);
+	// A shared body is held only in endpoint A.
+	if (pseudo.dynamic_a && pseudo.a.changed)
+		g_pseudo_velocities[block.body_idx_a] = pseudo.a.pseudo;
+	if (pseudo.dynamic_b && !pseudo.same_body && pseudo.b.changed)
+		g_pseudo_velocities[block.body_idx_b] = pseudo.b.pseudo;
 }
 
 // Solve one hard passive position block against the accumulated split pseudo-twist.
@@ -805,12 +1045,13 @@ void SolveConstraintPositionBlock(uint slot_idx)
 	float impulse[6];
 	float lower[6];
 	float upper[6];
+	ConstraintBlockPseudo pseudo = LoadConstraintBlockPseudo(block);
 	for (int row_idx = 0; row_idx != row_count; ++row_idx)
 	{
 		GpuConstraintRow row = g_rows[slot_idx * GpuConstraintRowsPerBlock + active_axes[row_idx]];
 		float correction = g.position_beta * row.solve.x / g.timestep;
 		float target_velocity = -clamp(correction, -g.max_position_speed, +g.max_position_speed);
-		residual[row_idx] = ConstraintPseudoRowVelocity(block, row) - target_velocity;
+		residual[row_idx] = ConstraintPseudoRowVelocity(pseudo, row) - target_velocity;
 	}
 	for (int row_idx = 0; row_idx != row_count; ++row_idx)
 	{
@@ -836,10 +1077,11 @@ void SolveConstraintPositionBlock(uint slot_idx)
 		uint row_storage_idx = slot_idx * GpuConstraintRowsPerBlock + active_axes[row_idx];
 		GpuConstraintRow row = g_rows[row_storage_idx];
 		float delta = impulse[row_idx] - row.bounds.w;
-		ApplyConstraintRowPseudoImpulse(block, row, delta);
+		AccumulateConstraintRowPseudoImpulse(pseudo, row, delta);
 		row.bounds.w = impulse[row_idx];
 		g_rows[row_storage_idx] = row;
 	}
+	StoreConstraintBlockPseudo(block, pseudo);
 }
 
 // Clear per-frame split-correction state before position iterations begin.

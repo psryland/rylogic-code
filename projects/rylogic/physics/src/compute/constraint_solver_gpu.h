@@ -46,7 +46,9 @@ namespace pr::physics
 		Gpu& m_gpu;
 		EngineConfig const& m_config;
 		ComputeStep m_cs_compile;
-		ComputeStep m_cs_assign_colours;
+		ComputeStep m_cs_reset_colours;
+		ComputeStep m_cs_assign_colour_level;
+		ComputeStep m_cs_finish_colours;
 		ComputeStep m_cs_apply_warm_start;
 		ComputeStep m_cs_clear_pseudo_velocity;
 		ComputeStep m_cs_prepare_position_solve;
@@ -67,10 +69,14 @@ namespace pr::physics
 		D3DPtr<ID3D12Resource> m_r_break_states;
 		D3DPtr<ID3D12Resource> m_r_colour_dispatch;
 		D3DPtr<ID3D12Resource> m_r_solve_cache;
+		D3DPtr<ID3D12Resource> m_r_colour_schedule;
+		D3DPtr<ID3D12Resource> m_r_colour_masks;
 		D3DPtr<ID3D12CommandSignature> m_cmd_sig;
 		std::vector<GpuConstraintEndpoint> m_endpoint_shadow;
 		std::vector<ConstraintEndpointIdentity> m_endpoint_identity_shadow;
 		std::vector<GpuD6ConstraintDesc> m_descriptor_shadow;
+		std::vector<int> m_body_degrees;
+		ConstraintColourSchedule m_colour_schedule;
 		ConstraintSet const* m_source;
 		int m_capacity;
 		int m_body_capacity;
@@ -78,6 +84,7 @@ namespace pr::physics
 		int m_slot_count;
 		int m_active_count;
 		int m_breakable_count;
+		int m_colour_count;
 		int m_body_count;
 		int m_dispatch_count;
 		float m_previous_timestep;
@@ -155,6 +162,12 @@ namespace pr::physics
 		// Create or geometrically grow the optional per-slot overload latch.
 		void EnsureBreakStateStorage(GpuJob& job, int slot_count);
 
+		// Build the colouring schedule for 'endpoints' and upload it. The schedule buffer has one entry per stable slot.
+		void UploadColourSchedule(GpuJob& job, std::span<GpuConstraintEndpoint const> endpoints);
+
+		// Record the colouring passes, which also write the per-colour indirect arguments that every later sweep in this frame reads.
+		void RecordColouring(GpuJob& job, float timestep, int body_count, D3DPtr<ID3D12Resource> bodies);
+
 		// Bind the common constraint root signature and resources for one compute step.
 		// 'colour_dispatch' is written only by the colouring step. Other steps must pass a UAV-state placeholder, because the arguments buffer is
 		// in the indirect-argument state while the colour sweeps read it.
@@ -163,7 +176,11 @@ namespace pr::physics
 		// Insert UAV ordering between dependent compiler, colouring, and solver passes.
 		void CommitUavBarriers(GpuJob& job, D3DPtr<ID3D12Resource> bodies);
 
-		// Record one colour sweep in the established colour order. Small slot sets use the single-group fused step; larger sets use one indirect pass per colour.
+		// Return an upper bound on the number of colours that greedy colouring can use for 'endpoints'.
+		int ColourBound(std::span<GpuConstraintEndpoint const> endpoints);
+
+		// Record one colour sweep in the established colour order. Small slot sets use the single-group fused step; larger sets use one indirect pass for
+		// each colour that the colour bound allows.
 		void RecordColourSweep(GpuJob& job, ComputeStep& per_colour_step, ComputeStep& fused_step, float timestep, int body_count, int position_iterations, D3DPtr<ID3D12Resource> bodies);
 	};
 }

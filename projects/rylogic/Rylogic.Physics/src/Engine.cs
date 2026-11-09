@@ -11,7 +11,7 @@ namespace Rylogic.Physics;
 public sealed class Engine :IDisposable
 {
 	private readonly Physics m_runtime;
-	private readonly uint m_owner_thread_id;
+	private readonly int m_owner_thread_id;
 	private readonly HashSet<Shape> m_shapes;
 	private readonly HashSet<RigidBody> m_bodies;
 	private readonly HashSet<Articulation> m_articulations;
@@ -20,7 +20,7 @@ public sealed class Engine :IDisposable
 	private EngineSafeHandle? m_handle;
 
 	/// <summary>Adopt a newly-created native engine.</summary>
-	internal Engine(Physics runtime, ulong handle, uint owner_thread_id)
+	internal Engine(Physics runtime, ulong handle, int owner_thread_id)
 	{
 		m_runtime = runtime;
 		m_owner_thread_id = owner_thread_id;
@@ -439,6 +439,30 @@ public sealed class Engine :IDisposable
 		return constraint;
 	}
 
+	/// <summary>
+	/// Apply every update in 'batch' with one native call, then clear the batch. All entries are checked before any constraint changes,
+	/// so a failure changes nothing. The batch is cleared whether or not the update succeeds.
+	/// </summary>
+	public void UpdateConstraints(ConstraintUpdateBatch batch)
+	{
+		// Only the owner thread may change persistent constraints
+		EnsureOwner();
+		if (batch == null)
+			throw new ArgumentNullException(nameof(batch));
+		if (!ReferenceEquals(batch.Engine, this))
+			throw new ArgumentException("The batch belongs to a different engine.", nameof(batch));
+
+		// Clear even on failure so the caller's next fill starts empty
+		try
+		{
+			batch.Apply();
+		}
+		finally
+		{
+			batch.Clear();
+		}
+	}
+
 	/// <summary>Open an object wrapper for a body identity recovered from a checkpoint snapshot.</summary>
 	public unsafe RigidBody OpenBody(BodyHandle handle)
 	{
@@ -711,7 +735,7 @@ public sealed class Engine :IDisposable
 	/// <summary>Throw if a mutable or lifetime operation runs on a non-owner OS thread.</summary>
 	internal void EnsureOwner()
 	{
-		if (Native.GetCurrentThreadId() != m_owner_thread_id)
+		if (Environment.CurrentManagedThreadId != m_owner_thread_id)
 			throw new InvalidOperationException("Physics mutations and lifetime operations must run on the engine's creating OS thread.");
 		if (IsDisposed)
 			throw new ObjectDisposedException(nameof(Engine));

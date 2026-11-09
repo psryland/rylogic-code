@@ -505,4 +505,77 @@ namespace pr::physics
 		upload.m_collision_exclusions = BuildGpuCollisionExclusions(upload.m_endpoints, additional_collision_exclusions);
 		return upload;
 	}
+
+	// Rebuild the schedule for enabled, non-coupled slots in 'endpoints'.
+	void ConstraintColourSchedule::Build(std::span<GpuConstraintEndpoint const> endpoints)
+	{
+		// Visit slots in index order, which is the order of the serial colouring. Each slot depends on the last earlier slot that used each of its bodies,
+		// so its level is one more than the deeper of those two. Disabled slots are never active, and coupled slots are coloured elsewhere.
+		m_unsorted.clear();
+		m_task_levels.clear();
+		m_body_last_ref.clear();
+		m_body_last_level.clear();
+		auto level_count = 0;
+		auto track = [&](int body_idx)
+		{
+			// Grow the per-body tables to cover the body. World endpoints have no table entry.
+			if (body_idx >= isize(m_body_last_ref))
+			{
+				m_body_last_ref.resize(body_idx + 1, -1);
+				m_body_last_level.resize(body_idx + 1, -1);
+			}
+		};
+		for (int slot_idx = 0; slot_idx != isize(endpoints); ++slot_idx)
+		{
+			// Skip slots that the colouring never assigns.
+			auto const& endpoint = endpoints[slot_idx];
+			if (!AllSet(endpoint.flags, GpuConstraintEndpointFlags_Enabled) || AllSet(endpoint.flags, GpuConstraintEndpointFlags_Coupled))
+				continue;
+
+			// Find the predecessors and the level from the bodies' history before recording this slot.
+			auto const a = endpoint.body_idx_a;
+			auto const b = endpoint.body_idx_b;
+			track(a);
+			track(b);
+			auto const pred_a = a >= 0 ? m_body_last_ref[a] : -1;
+			auto const pred_b = b >= 0 ? m_body_last_ref[b] : -1;
+			auto const level = std::max(a >= 0 ? m_body_last_level[a] : -1, b >= 0 ? m_body_last_level[b] : -1) + 1;
+			m_unsorted.push_back(GpuConstraintColourTask{ .slot_idx = slot_idx, .pred_a = pred_a, .pred_b = pred_b, .pad = 0 });
+			m_task_levels.push_back(level);
+			level_count = std::max(level_count, level + 1);
+
+			// This slot is now the latest user of both bodies.
+			if (a >= 0)
+			{
+				m_body_last_ref[a] = slot_idx * 2 + 0;
+				m_body_last_level[a] = level;
+			}
+			if (b >= 0)
+			{
+				m_body_last_ref[b] = slot_idx * 2 + 1;
+				m_body_last_level[b] = level;
+			}
+		}
+
+		// Group the tasks by level with a stable counting sort, so each level keeps slot order.
+		m_level_offsets.assign(level_count + 1, 0);
+		for (auto const level : m_task_levels)
+			++m_level_offsets[level + 1];
+
+		for (int level = 0; level != level_count; ++level)
+			m_level_offsets[level + 1] += m_level_offsets[level];
+
+		m_tasks.resize(m_unsorted.size());
+		for (int i = 0; i != isize(m_unsorted); ++i)
+		{
+			// Each level's offset advances as its tasks are placed, then is restored below.
+			m_tasks[m_level_offsets[m_task_levels[i]]++] = m_unsorted[i];
+		}
+
+		// Placement advanced each offset to the start of the next level, so shift them back by one level.
+		for (int level = level_count; level != 0; --level)
+			m_level_offsets[level] = m_level_offsets[level - 1];
+
+		m_level_offsets[0] = 0;
+	}
 }

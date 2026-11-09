@@ -396,6 +396,14 @@ namespace pr::animation
 			return m_family;
 		}
 
+		// The model-space frame of each bone, in rig bone order, when the character stands in the family at 'index' in 'gait().families'. This is the
+		// stance of the family's slowest cycle, with the hip joints at that cycle's hip height above the model origin.
+		std::span<xform const> stance(int index) const
+		{
+			pr_assert(index >= 0 && index < static_cast<int>(m_families.size()) && "Family index out of range");
+			return m_families[index].stance_model;
+		}
+
 		// Request the movement family at 'index' in 'gait().families'. Each step blends to it over 'blend_s' seconds (> 0) once the ground allows
 		// it, and the same blend time is used when the ground forces a change to another family. A change during a blend starts from the family
 		// that was being blended to.
@@ -406,6 +414,23 @@ namespace pr::animation
 			m_requested = index;
 			m_request_blend_s = blend_s;
 			m_request_pending = true;
+		}
+
+		// Forget the body's motion history so that the next step starts afresh, as the first step does: every foot plants beneath the body, tails take
+		// the guide's shape, and the smoothed speed, turning, ground height and fall start from rest. Use this when the body has moved without being
+		// stepped, for example after it was not animated for a while. The family, look, breath and grasps are kept.
+		void Restart()
+		{
+			// The first step after this plants the feet and rebuilds the world-space state from the body
+			m_started = false;
+			for (auto& rope : m_ropes)
+				rope.clear();
+
+			m_terrain = TargetPath();
+			m_gait_speed = 0.0f;
+			m_turn_rate = 0.0f;
+			m_unsupported_s = 0.0f;
+			m_fall = 0.0f;
 		}
 
 		// True once the latest requested family has been chosen by a step and any blend to it has finished. The chosen family is 'family()', which
@@ -2508,6 +2533,34 @@ namespace pr::animation::tests
 
 			auto cycles = walk.speed * 120 * dt / walk.stride;
 			PR_EXPECT(FEqlAbsolute(loco.phase(), cycles - std::floor(cycles), 1e-3f));
+		}
+		PRUnitTestMethod(RestartPlantsFeetBeneathBody, Quick)
+		{
+			// A body that moved far without being stepped plants every foot beneath itself on the first step after a restart
+			auto rig = TestRig();
+			auto gait = TestGait();
+			auto const& walk = gait.families[0].cycles[0];
+			auto loco = Locomotion(rig, gait);
+			auto ground = TestGround();
+			auto dt = 1.0f / 60;
+			auto body = BodyState{ .velocity = v4(0, -walk.speed, 0, 0) };
+			for (int i = 0; i != 50; ++i)
+			{
+				body.model_to_world.pos += body.velocity * dt;
+				loco.Step(dt, body, ground);
+			}
+
+			// Jump the body away, then restart and step once
+			body.model_to_world.pos += v4(20, 0, 0, 0);
+			body.velocity = v4::Zero();
+			loco.Restart();
+			loco.Step(dt, body, ground);
+			for (auto const& limb : loco.limbs())
+			{
+				auto neutral = body.model_to_world * limb.stance_contact;
+				PR_EXPECT(limb.state == EFootState::Stance);
+				PR_EXPECT(Length((limb.ground - neutral).w0()) <= 0.15f * walk.stride + 1e-4f);
+			}
 		}
 		PRUnitTestMethod(StoppingSettles, Quick)
 		{

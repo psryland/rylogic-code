@@ -17,6 +17,9 @@ namespace pr::rdr12
 
 	namespace
 	{
+		// The state in which raster and compute passes read skinned vertices. A skinned vertex buffer is in this state except during its skinning dispatch.
+		auto const SkinnedReadState = D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+
 		// Calculate the current-pose object/root-space bbox from the skin's bone-bound spheres and object-space pose matrices.
 		std::optional<BBox> CalcSkinnedModelBBox(Model const& model, std::span<m4x4 const> pose_matrices)
 		{
@@ -118,6 +121,7 @@ namespace pr::rdr12
 		}
 
 		std::lock_guard lock(m_mutex);
+		BarrierBatch barriers(cmd_list);
 
 		// Get/Create a cache entry for this model/pose pair.
 		auto key = Key{ &model, pose.get() };
@@ -133,14 +137,18 @@ namespace pr::rdr12
 
 			// Create a new entry for this model/pose pair.
 			InitialiseEntry(entry, model, pose);
+
+			// The new buffer is created in COMMON. Make the read state its default, so command lists that only draw the model need no barriers.
+			barriers.Transition(entry.m_vb.get(), SkinnedReadState);
+			barriers.Commit();
+			DefaultResState(entry.m_vb.get(), SkinnedReadState);
 		}
 
 		// Update the pose transforms. This also updates cached skinned bboxes via the synchronous PoseUpdated event.
 		pose->Update(cmd_list, upload_buffer);
 
-		BarrierBatch barriers(cmd_list);
-
 		// If the pose revision has changed since the last time we computed skinned vertices for this entry, we need to dispatch the compute shader again.
+		// Otherwise the buffer is already in its default read state.
 		if (entry.m_pose_revision != pose->Revision())
 		{
 			auto cb = CBufSkinning{
@@ -168,15 +176,10 @@ namespace pr::rdr12
 			cmd_list.Dispatch(DispatchCount(s_cast<int>(model.m_vcount), 128), 1, 1);
 
 			barriers.UAV(entry.m_vb.get());
-			barriers.Transition(entry.m_vb.get(), D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			barriers.Transition(entry.m_vb.get(), SkinnedReadState);
 			barriers.Commit();
 
 			entry.m_pose_revision = pose->Revision();
-		}
-		else
-		{
-			barriers.Transition(entry.m_vb.get(), D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-			barriers.Commit();
 		}
 
 		return VBuffer{

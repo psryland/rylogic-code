@@ -38,8 +38,8 @@ TextureCube<float4> g_envmap_prev_texture :register(t13);
 TextureCube<float> g_envmap_distance :register(t21);
 
 // The reflection of the opaque scene in the reflection plane: (linear colour, distance). See reflection_plane.hlsl and 'g_frame.reflection_plane'.
-Texture2D<float4> g_reflection_plane_tex :register(t27);
-Texture2D<float> g_reflection_plane_coverage :register(t28);
+Texture2D<float4> g_reflection_plane_tex :register(t28);
+Texture2D<float> g_reflection_plane_coverage :register(t29);
 
 // Shadow atlas. The regions of the atlas are described by the shadow views in 'g_shadow_views'.
 Texture2D<float> g_shadow_atlas         :register(t2);
@@ -296,7 +296,9 @@ PSIn VSForward(VSIn In)
 
 	// Copy the source instance index
 	Out.idx0 = In.idx0;
-	
+
+	// The object's screen-door dither word
+	Out.dither = g_nugget.dither;
 	return Out;
 }
 
@@ -333,6 +335,8 @@ PSInTexN VSForwardTexN(VSIn In, uint vertex_id : SV_VertexID)
 // Population draw bindings (see 'pr/view3d-12/shaders/population.hlsli')
 StructuredBuffer<View3DPopulationInstance> g_pop_instances : register(t24);
 ByteAddressBuffer g_pop_view : register(t25);
+ByteAddressBuffer g_pop_payload : register(t26);
+StructuredBuffer<View3DPopulationSkinfluence> g_pop_skin : register(t27);
 ConstantBuffer<View3DPopulationDraw> g_pop_draw : register(b8);
 
 // Place a vertex, computed with the population's identity-transform proxy element, at the population instance for 'instance_id'.
@@ -367,6 +371,40 @@ PSInTexN VSForwardTexNPopulation(VSIn In, uint vertex_id : SV_VertexID, uint ins
 	base.ws_norm = Out.ws_norm;
 	base.diff = Out.diff;
 	base = PlacePopulationVertex(base, instance_id);
+	Out.ws_vert = base.ws_vert;
+	Out.ws_norm = base.ws_norm;
+	Out.ss_vert = base.ss_vert;
+	Out.diff = base.diff;
+	Out.dither = base.dither;
+	return Out;
+}
+
+// Forward VS for population draws of skinned LOD models. Each instance is posed from its pose record in the payload.
+PSIn VSForwardSkinnedPopulation(VSIn In, uint instance_id : SV_InstanceID)
+{
+	// Pose the object-space rest vertex before the proxy element (whose object-to-world is the identity) and the instance place it
+	View3DPopulationEntry entry = View3DPopulationFetch(g_pop_view, g_pop_draw, instance_id);
+	View3DPopulationInstance inst = g_pop_instances[entry.source];
+	float4 os_vert = mul(In.vert, g_nugget.m2o);
+	float4 os_norm = mul(In.norm, g_nugget.m2o);
+	View3DPopulationSkinVertex(g_pop_payload, g_pop_skin, inst, In.idx0.x, os_vert, os_norm);
+
+	// The proxy's world space is the instance space, so the instance transform places it
+	PSIn base = (PSIn)0;
+	base.ws_vert = mul(os_vert, g_nugget.o2w);
+	base.ws_norm = mul(os_norm, g_nugget.o2w);
+	base.diff = In.diff * g_nugget.tint;
+	base.tex0 = mul(float4(In.tex0, 0, 1), g_nugget.tex2surf0).xy;
+	base.idx0 = In.idx0;
+	return PlacePopulationVertex(base, instance_id);
+}
+
+// Forward VS for population draws of skinned LOD models with PBR materials that use optional texture-coordinate lanes
+PSInTexN VSForwardTexNSkinnedPopulation(VSIn In, uint vertex_id : SV_VertexID, uint instance_id : SV_InstanceID)
+{
+	// The optional lanes do not depend on the pose, so only the shared fields come from the skinned variant
+	PSInTexN Out = VSForwardTexN(In, vertex_id);
+	PSIn base = VSForwardSkinnedPopulation(In, instance_id);
 	Out.ws_vert = base.ws_vert;
 	Out.ws_norm = base.ws_norm;
 	Out.ss_vert = base.ss_vert;

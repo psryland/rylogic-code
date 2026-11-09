@@ -263,6 +263,14 @@ namespace pr::rdr12
 			: 0.0f;
 	}
 
+	// Set the screen-door dither word of a constants buffer. Instances without one draw every pixel.
+	template <typename TCBuf> requires (requires(TCBuf cb) { cb.dither; })
+	void SetDither(TCBuf& cb, BaseInstance const& inst)
+	{
+		auto dither = inst.find<uint32_t>(EInstComp::DitherWord);
+		cb.dither = dither != nullptr ? *dither : 0U;
+	}
+
 	// Set screen space, per instance constants
 	template <typename TCBuf> requires (requires(TCBuf cb) { cb.screen_dim; cb.size; cb.depth; })
 	void SetScreenSpace(TCBuf& cb, BaseInstance const& inst, Scene const& scene, v2 size, bool depth)

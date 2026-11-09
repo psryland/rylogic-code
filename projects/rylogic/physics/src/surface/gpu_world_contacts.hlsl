@@ -8,6 +8,7 @@
 #include "src/compute/physics_types.hlsli"
 #include "pr/physics/surface/surface_sampling.hlsli"
 #include "pr/physics/terrain/landscape/baseline_surface.hlsli"
+#include "pr/physics/terrain/landscape/baseline_surface_local.hlsli"
 
 // Generate contacts between physical shapes and two optional, shapeless world surfaces:
 //   mode 0: the procedural heightfield z = height(x,y);
@@ -62,6 +63,7 @@ cbuffer Params : register(b0)
 	double centre_x, centre_y, radius;
 	float spacing;
 	uint stride;
+	uint block_groups;
 };
 StructuredBuffer<GpuRigidBody> bodies : register(t0);
 StructuredBuffer<GpuShape> shapes : register(t1);
@@ -70,6 +72,7 @@ StructuredBuffer<WorldRange> plans : register(t3);
 StructuredBuffer<SurfacePatch> patches : register(t4);
 StructuredBuffer<WorldInstance> instances : register(t5);
 StructuredBuffer<GpuSleepIsland> sleep_islands : register(t6);
+ByteAddressBuffer local_recipe : register(t7);
 RWStructuredBuffer<GpuCollisionCounters> counters : register(u0);
 RWStructuredBuffer<GpuResolveContact> contacts : register(u1);
 RWStructuredBuffer<uint> status : register(u2);
@@ -189,16 +192,18 @@ WorldCandidate EvaluateSample(WorldInstance instance, WorldRange plan, uint ordi
 	else
 	{
 		// The terrain is the authoritative procedural field, not a rendered triangle mesh. Evaluate height and derivatives
-		// at the sample's XY, then construct the upward normal to the local tangent plane.
-		BaselineResult field = BaselineEvaluate(recipe, (double2)position.xy);
+		// at the sample's XY, then construct the upward normal to the local tangent plane. The local recipe's origin is the
+		// world origin, so the single-precision sample position is already the evaluator's local coordinate.
+		float4 region_weights;
+		BaselineLocalResult field = BaselineEvaluateLocal(local_recipe, 0, position.xy, region_weights);
 		if (field.m_status != 0)
 			ReportFailure(3, instance, ordinal, field.m_status);
 
 		// Project the vertical height gap onto that normal. This is a local tangent-plane approximation, not a global
 		// closest-point search. The common test below keeps points within 1 mm of contact and gives them zero negative depth.
-		double scale = max(1.0, max(abs(field.m_dx), abs(field.m_dy)));
-		normal = normalize(float3((float)(-field.m_dx / scale), (float)(-field.m_dy / scale), (float)(1.0 / scale)));
-		depth = (float)((field.m_height - (double)position.z) * (double)normal.z);
+		float scale = max(1.0f, max(abs(field.m_dx), abs(field.m_dy)));
+		normal = normalize(float3(-field.m_dx / scale, -field.m_dy / scale, 1.0f / scale));
+		depth = (field.m_height - position.z) * normal.z;
 	}
 
 	// Keep finite samples within 1 mm of contact; report nonfinite arithmetic instead of fabricating a contact.
@@ -213,8 +218,9 @@ WorldCandidate EvaluateSample(WorldInstance instance, WorldRange plan, uint ordi
 	return candidate;
 }
 
-// Evaluate one sample per lane. group.x selects the leaf instance and group.y selects a block of 64 consecutive sample ordinals.
-// Spreading samples over many groups keeps the whole GPU busy; the terrain evaluator's double-precision arithmetic is slow on a single group.
+// Evaluate one sample per lane per block. group.x selects the leaf instance; the 'block_groups' Y groups of a leaf take turns over its
+// 64-sample blocks. Spreading blocks over several groups keeps the GPU busy when there are few leaves; striding keeps large populations
+// from launching and testing eligibility once per block.
 numthreads(CSWorldSamples, 64, 1, 1)
 void CSWorldSamples(uint3 group : SV_GroupID, uint lane : SV_GroupIndex)
 {
@@ -229,13 +235,10 @@ void CSWorldSamples(uint3 group : SV_GroupID, uint lane : SV_GroupIndex)
 		return;
 
 	// Blocks beyond this leaf's sample count exist only because another leaf has more samples.
-	WorldRange plan = plans[instance.shape + plan_offset];
-	uint ordinal = group.y * 64 + lane;
-	if (ordinal >= plan.sample_count)
-		return;
-
 	// Store at the sample's ordinal so selection sees the same order as a serial walk of the plan.
-	candidates[group.x * stride + ordinal] = EvaluateSample(instance, plan, ordinal, s2w, recipe);
+	WorldRange plan = plans[instance.shape + plan_offset];
+	for (uint ordinal = group.y * 64 + lane; ordinal < plan.sample_count; ordinal += block_groups * 64)
+		candidates[group.x * stride + ordinal] = EvaluateSample(instance, plan, ordinal, s2w, recipe);
 }
 
 // Append selected surface contacts for one primitive per group from the candidates of CSWorldSamples; report excess slope groups through status.

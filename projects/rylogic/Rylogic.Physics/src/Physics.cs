@@ -9,7 +9,7 @@ namespace Rylogic.Physics;
 /// <summary>Owns a reference-counted native Physics DLL context and the engines created through it.</summary>
 public sealed class Physics :IDisposable
 {
-	private readonly uint m_owner_thread_id;
+	private readonly int m_owner_thread_id;
 	private readonly Native.ReportErrorFn m_error_fn;
 	private readonly HashSet<Engine> m_engines;
 	private ContextHandle? m_context;
@@ -22,7 +22,7 @@ public sealed class Physics :IDisposable
 			throw new PlatformNotSupportedException("Rylogic.Physics requires a 64-bit process.");
 
 		Native.EnsureLoaded();
-		m_owner_thread_id = Native.GetCurrentThreadId();
+		m_owner_thread_id = Environment.CurrentManagedThreadId;
 		m_error_fn = HandleNativeError;
 		m_engines = new HashSet<Engine>();
 
@@ -140,7 +140,7 @@ public sealed class Physics :IDisposable
 	/// <summary>Throw if a mutable or lifetime operation is attempted from a different OS thread.</summary>
 	internal void EnsureOwner()
 	{
-		if (Native.GetCurrentThreadId() != m_owner_thread_id)
+		if (Environment.CurrentManagedThreadId != m_owner_thread_id)
 			throw new InvalidOperationException("Physics lifetime operations must run on the OS thread that created the runtime.");
 	}
 

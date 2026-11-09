@@ -3,6 +3,7 @@
 //  Copyright (C) Rylogic Ltd 2026
 //*********************************************
 #include "src/compute/sweep_gpu.h"
+#include "src/compute/gpu_capacity.h"
 #include "pr/physics/integrator/engine_config.h"
 #include "src/compute/physics_types.h"
 #include "src/compute/shader_code.h"
@@ -134,8 +135,9 @@ namespace pr::physics
 		}
 		if (collision_exclusion_count != 0 && (m_r_collision_exclusions == nullptr || m_collision_exclusion_capacity < collision_exclusion_count))
 		{
-			m_r_collision_exclusions = m_gpu.CreateResource(ResDesc::Buf<GpuCollisionExclusion>(collision_exclusion_count, {}), job, "Physics:CollisionExclusions");
-			m_collision_exclusion_capacity = collision_exclusion_count;
+			// Grow geometrically so that exclusions added one at a time rarely reallocate.
+			m_collision_exclusion_capacity = GrowCapacity(collision_exclusion_count, m_collision_exclusion_capacity);
+			m_r_collision_exclusions = m_gpu.CreateResource(ResDesc::Buf<GpuCollisionExclusion>(m_collision_exclusion_capacity, {}), job, "Physics:CollisionExclusions");
 		}
 	}
 	

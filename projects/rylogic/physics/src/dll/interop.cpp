@@ -399,6 +399,16 @@ namespace pr::physics
 			std::uint64_t m_submitted_step;
 			std::uint64_t m_completed_step;
 
+			// Reusable storage for resolving a batch of constraint updates, so that updating every step does not allocate.
+			struct ConstraintUpdateScratch
+			{
+				std::vector<ConstraintRecord*> m_records;
+				std::vector<ConstraintHandle> m_handles;
+				std::vector<D6ConstraintDesc> m_descs;
+				std::vector<std::array<PhysicsBodyHandle, 2>> m_body_refs;
+				std::vector<std::array<PhysicsArticulationHandle, 2>> m_articulation_refs;
+			} m_constraint_update;
+
 			// The kernel cache current when this engine was created. Atmospheres created later use it too.
 			std::shared_ptr<IShaderCache> m_shader_cache;
 
@@ -992,6 +1002,7 @@ namespace pr::physics
 			config.selective_refresh_aabb_margin = value.selective_refresh_aabb_margin;
 			config.world_collision_layer = value.world_collision_layer;
 			config.world_collision_mask = value.world_collision_mask;
+			config.device_debug = value.device_debug != 0;
 			return config;
 		}
 
@@ -1052,6 +1063,7 @@ namespace pr::physics
 			value.selective_refresh_aabb_margin = config.selective_refresh_aabb_margin;
 			value.world_collision_layer = config.world_collision_layer;
 			value.world_collision_mask = config.world_collision_mask;
+			value.device_debug = config.device_debug;
 		}
 
 		// Translate shared optional-lane work and storage costs to fixed-width ABI fields.
@@ -1685,6 +1697,45 @@ namespace pr::physics
 			{
 				if (handle != 0)
 					--RequireArticulation(engine, handle).m_constraint_refs;
+			}
+		}
+
+		// Replace the descriptors of several persistent constraints. Every entry is resolved and checked before any constraint changes, so a failure
+		// changes nothing.
+		void UpdateConstraints(EngineRecord& engine, PhysicsConstraintHandle const* constraints, PhysicsD6Constraint const* descs, std::uint32_t count)
+		{
+			// Resolve every entry into reusable scratch storage
+			if (count != 0 && (constraints == nullptr || descs == nullptr))
+				throw ApiException(PhysicsStatus::InvalidArgument, "Constraint update arrays are null");
+
+			auto& scratch = engine.m_constraint_update;
+			scratch.m_records.resize(count);
+			scratch.m_handles.resize(count);
+			scratch.m_descs.resize(count);
+			scratch.m_body_refs.assign(count, {});
+			scratch.m_articulation_refs.assign(count, {});
+			for (std::uint32_t i = 0; i != count; ++i)
+			{
+				auto const& value = RequireStruct(&descs[i]);
+				scratch.m_records[i] = &RequireConstraint(engine, constraints[i]);
+				scratch.m_handles[i] = scratch.m_records[i]->m_constraint;
+				scratch.m_descs[i] = ToNative(engine, value, scratch.m_body_refs[i], scratch.m_articulation_refs[i]);
+			}
+
+			// The native set checks the whole batch before replacing any descriptor
+			engine.m_constraint_set.Update(std::span{scratch.m_handles}, std::span{scratch.m_descs});
+
+			// Move the endpoint references to the accepted descriptors. Entries are applied in order, so a repeated constraint keeps its last descriptor.
+			for (std::uint32_t i = 0; i != count; ++i)
+			{
+				auto& constraint_record = *scratch.m_records[i];
+				ReleaseConstraintReferences(engine, constraint_record);
+				constraint_record.m_desc = descs[i];
+				constraint_record.m_desc.header = {sizeof(PhysicsD6Constraint), PHYSICS_STRUCT_VERSION};
+				constraint_record.m_desc.reserved = 0;
+				constraint_record.m_body_refs = scratch.m_body_refs[i];
+				constraint_record.m_articulation_refs = scratch.m_articulation_refs[i];
+				RetainConstraintReferences(engine, constraint_record);
 			}
 		}
 
@@ -3952,20 +4003,20 @@ extern "C"
 			auto& record = *scope;
 			pr::physics::RequireOwner(record);
 			pr::physics::RequireIdle(record);
-			auto const& value = pr::physics::RequireStruct(desc);
-			auto& constraint_record = pr::physics::RequireConstraint(record, constraint);
-			auto body_refs = std::array<PhysicsBodyHandle, 2>{};
-			auto articulation_refs = std::array<PhysicsArticulationHandle, 2>{};
-			auto native_desc = pr::physics::ToNative(record, value, body_refs, articulation_refs);
+			pr::physics::RequireStruct(desc);
+			pr::physics::UpdateConstraints(record, &constraint, desc, 1);
+		});
+	}
 
-			record.m_constraint_set.Update(constraint_record.m_constraint, native_desc);
-			pr::physics::ReleaseConstraintReferences(record, constraint_record);
-			constraint_record.m_desc = value;
-			constraint_record.m_desc.header = {sizeof(PhysicsD6Constraint), PHYSICS_STRUCT_VERSION};
-			constraint_record.m_desc.reserved = 0;
-			constraint_record.m_body_refs = body_refs;
-			constraint_record.m_articulation_refs = articulation_refs;
-			pr::physics::RetainConstraintReferences(record, constraint_record);
+	PhysicsStatus __stdcall Physics_ConstraintUpdateD6Batch(PhysicsEngineHandle engine, PhysicsConstraintHandle const* constraints, PhysicsD6Constraint const* descs, std::uint32_t count)
+	{
+		return pr::physics::ApiCall([&]
+		{
+			auto scope = pr::physics::EngineScope(engine);
+			auto& record = *scope;
+			pr::physics::RequireOwner(record);
+			pr::physics::RequireIdle(record);
+			pr::physics::UpdateConstraints(record, constraints, descs, count);
 		});
 	}
 

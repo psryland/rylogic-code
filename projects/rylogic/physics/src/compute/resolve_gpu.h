@@ -30,7 +30,7 @@ namespace pr::physics
 		ComputeStep m_cs_propagate_shock_priority;// Parallel: propagate shock priority over adjacency
 		ComputeStep m_cs_commit_shock_priority;   // Parallel: commit propagated priority for the next pass
 		ComputeStep m_cs_finalize_shock_priority; // Parallel: finalise shock-biased sort keys
-		ComputeStep m_cs_assign_colours;          // Serial: greedy graph colouring on sorted contacts
+		ComputeStep m_cs_assign_colours;          // One group: greedy graph colouring on sorted contacts
 		ComputeStep m_cs_warm_start_clear;        // Parallel: clear current-frame warm-start cache
 		ComputeStep m_cs_load_warm_start;         // Parallel: load cached impulses into every current contact
 		ComputeStep m_cs_apply_warm_start;        // Parallel by colour: apply cached physical impulses

@@ -982,6 +982,26 @@ namespace pr::rdr12::ldraw
 		}, name);
 	}
 
+	// Return the dither word of the selected object, or zero if absent.
+	uint32_t LdrObject::Dither(char const* name) const
+	{
+		// A missing selection reports the default, which draws every pixel.
+		auto obj = Child(name);
+		return obj ? obj->m_dither : 0U;
+	}
+
+	// Set the instance-owned dither word. Every value is valid; see 'pr/view3d-12/shaders/population.hlsli' for the layout.
+	void LdrObject::Dither(uint32_t dither, char const* name)
+	{
+		// Each selected instance owns its dither, even when models are shared.
+		Apply([&](LdrObject* obj)
+		{
+			// Store the word for the next element upload.
+			obj->m_dither = dither;
+			return true;
+		}, name);
+	}
+
 	// Return the emissive scale of the first selected object.
 	float LdrObject::EmissiveScale(char const* name) const
 	{

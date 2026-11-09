@@ -56,8 +56,8 @@ namespace pr::rdr12::shaders
 			PopulationView,
 			PopulationPayload,
 			PopulationDraw,
-			ReflectionPlane,
-			ReflectionPlaneCoverage,
+			PopulationSkin,
+			ReflectionPlane, // Table of the reflection texture and its coverage
 		};
 
 		enum class ESampParam

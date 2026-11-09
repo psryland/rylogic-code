@@ -335,6 +335,12 @@ public sealed class EngineOptions
 	/// <summary>Collision filter of the world surfaces (terrain and cylindrical boundary). See BodyOptions.CollisionLayer.</summary>
 	public uint WorldCollisionLayer { get; set; } = 1U;
 	public uint WorldCollisionMask { get; set; } = 0xFFFFFFFFU;
+
+	/// <summary>
+	/// Enable the D3D12 debug layer on a device the engine creates. It has no effect when the engine borrows a device, whose diagnostics belong to its owner.
+	/// The debug layer is process-wide and adds a large CPU cost to every GPU call.
+	/// </summary>
+	public bool DeviceDebug { get; set; } = false;
 }
 
 /// <summary>Material properties consumed by native contact resolution.</summary>

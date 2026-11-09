@@ -4,6 +4,7 @@
 //*********************************************
 #include "pr/physics/integrator/engine_config.h"
 #include "src/compute/selective_gpu.h"
+#include "src/compute/gpu_capacity.h"
 #include "src/compute/physics_types.h"
 #include "src/compute/shader_code.h"
 
@@ -162,8 +163,9 @@ namespace pr::physics
 
 		if (m_r_problem_bodies == nullptr || m_body_capacity < body_count)
 		{
-			m_r_problem_bodies = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(body_count, {}).usage(EUsage::UnorderedAccess), job, "Physics:SelectiveProblemBodies");
-			m_body_capacity = body_count;
+			// Grow geometrically so that bodies added one at a time rarely reallocate.
+			m_body_capacity = GrowCapacity(body_count, m_body_capacity);
+			m_r_problem_bodies = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(m_body_capacity, {}).usage(EUsage::UnorderedAccess), job, "Physics:SelectiveProblemBodies");
 		}
 		if (m_r_metrics == nullptr)
 		{

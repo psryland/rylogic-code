@@ -189,6 +189,17 @@ Classification Classify(uint source)
 	else if (od > fade.z)
 		fade_word = DitherWord(seed, 1 - (od - fade.z) / fade.w);
 
+	// A faded instance uses its own coverage instead of the band fade. Instances that would keep no pixels are culled.
+	if ((inst.info.y & VIEW3D_POPULATION_FLAG_FADED) != 0)
+	{
+		uint coverage = inst.info.y >> VIEW3D_POPULATION_FLAG_FADE_SHIFT;
+		bool complement = (inst.info.y & VIEW3D_POPULATION_FLAG_FADE_COMPLEMENT) != 0;
+		if (coverage == (complement ? 0xFFFFu : 0u))
+			return result;
+
+		fade_word = VIEW3D_POPULATION_DITHER_ACTIVE | (seed << VIEW3D_POPULATION_DITHER_SEED_SHIFT) | coverage | (complement ? VIEW3D_POPULATION_DITHER_COMPLEMENT : 0u);
+	}
+
 	// The projected radius in pixels. Orthographic projections do not depend on distance.
 	float dist = length(centre - g_cull.eye.xyz);
 	float size = g_cull.eye.w != 0 ? radius * g_cull.size_scale : radius * g_cull.size_scale / max(dist, 1e-6f);

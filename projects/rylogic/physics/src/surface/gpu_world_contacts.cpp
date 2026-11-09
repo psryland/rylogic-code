@@ -3,6 +3,7 @@
 //  Copyright (C) Rylogic Ltd 2026
 //*********************************************
 #include "src/surface/gpu_world_contacts.h"
+#include "src/compute/gpu_capacity.h"
 #include "src/collision/shape_cache.h"
 #include "src/compute/shader_code.h"
 #include "src/utility/shader_recipes.h"
@@ -23,8 +24,12 @@ namespace pr::physics
 			double m_centre_x, m_centre_y, m_radius;
 			float m_spacing;
 			uint32_t m_stride;
+			uint32_t m_block_groups;
 		};
 		static_assert(sizeof(GpuWorldContacts::Candidate) == 36, "Candidate must match the HLSL WorldCandidate stride");
+
+		// Approximate number of sample groups per dispatch that keeps the GPU occupied. Fewer instances than this receive one group per sample block.
+		constexpr uint32_t TargetSampleGroups = 4096;
 
 		// Upload a complete bounded stream; callers retain buffers until the recorded job completes.
 		// Empty input reserves one addressable element without defining its contents.
@@ -33,11 +38,16 @@ namespace pr::physics
 			if (data.size_bytes() > INT_MAX)
 				throw std::runtime_error("World-contact stream exceeds addressable resource size");
 
-			// Keep even an empty stream bindable, growing storage only when the existing allocation is too small.
+			// Keep even an empty stream bindable, growing storage geometrically only when the existing allocation is too small,
+			// because streams that grow one element at a time would otherwise reallocate every frame.
 			auto const count = std::max(size_t{1}, data.size());
 			auto const bytes = count * sizeof(T);
 			if (!resource || resource->GetDesc().Width < bytes)
-				resource = gpu.CreateResource(ResDesc::Buf<T>(count, {}), job, name);
+			{
+				auto const capacity = resource ? s_cast<int>(resource->GetDesc().Width / sizeof(T)) : 0;
+				auto const grown = std::min(GrowCapacity(s_cast<int>(count), capacity), INT_MAX / s_cast<int>(sizeof(T)));
+				resource = gpu.CreateResource(ResDesc::Buf<T>(grown, {}), job, name);
+			}
 
 			// Stage the source bytes and make the recorded copy visible to subsequent shader reads.
 			job.m_barriers.Transition(resource.get(), D3D12_RESOURCE_STATE_COPY_DEST);
@@ -77,7 +87,7 @@ namespace pr::physics
 
 		// Compile the sample and selection stages, which share one root layout, and the shared dispatch update against its own layout.
 		m_step.m_sig = RootSig(ERootSigFlags::ComputeOnly).U32<Constants>(ECBufReg::b0)
-			.SRV(ESRVReg::t0).SRV(ESRVReg::t1).SRV(ESRVReg::t2).SRV(ESRVReg::t3).SRV(ESRVReg::t4).SRV(ESRVReg::t5).SRV(ESRVReg::t6)
+			.SRV(ESRVReg::t0).SRV(ESRVReg::t1).SRV(ESRVReg::t2).SRV(ESRVReg::t3).SRV(ESRVReg::t4).SRV(ESRVReg::t5).SRV(ESRVReg::t6).SRV(ESRVReg::t7)
 			.UAV(EUAVReg::u0).UAV(EUAVReg::u1).UAV(EUAVReg::u2).UAV(EUAVReg::u3).Create(gpu, "WorldContacts:Signature");
 		m_step.m_pso = ComputePSO(m_step.m_sig.get(), CompileWorldContactKernel(L"CSWorldContacts", shader_cache)).Cache(shader_cache).Create(gpu, "WorldContacts:Contacts");
 		m_samples.m_sig = m_step.m_sig;
@@ -109,6 +119,11 @@ namespace pr::physics
 			m_boundary->Validate();
 		if (m_surface && (m_surface->Config().m_material_id < 0 || m_surface->Config().m_material_id >= Material::MaxMaterialId))
 			throw std::runtime_error("Terrain material ID is outside the engine material table");
+
+		// Terrain samples use the single-precision evaluator around the world origin over the whole supported domain. Sample positions are
+		// single-precision world coordinates, so 'local' is exactly the sample position and the evaluator adds only single-precision lattice rounding.
+		// Preparing it here reports an unsupported range at construction rather than during a step. A cylinder-only source never evaluates terrain.
+		m_local_recipe_host = m_surface ? m_surface->LocalRecipe({0, 0}, m_surface->Config().m_supported_coordinate_abs_m) : terrain::landscape::shared::BaselineLocalRecipe{};
 
 		// The shapeless world endpoint participates in solving but not in physical shape sampling.
 		m_endpoint.SetMassProperties(Inertia::Infinite());
@@ -246,6 +261,7 @@ namespace pr::physics
 		{
 			auto const recipe = m_surface ? m_surface->Recipe() : terrain::landscape::BaselineSurface{}.Recipe();
 			UploadStream(m_gpu, job, m_recipe, std::span(&recipe, 1), "WorldContacts:Recipe");
+			UploadStream(m_gpu, job, m_local_recipe, std::span<terrain::landscape::shared::BaselineLocalRecipe const>(&m_local_recipe_host, 1), "WorldContacts:LocalRecipe");
 		}
 
 		// Skip infinite-mass bodies and bodies whose collision filter rejects the world. Generate missing plans only when a shape first becomes dynamic.
@@ -304,7 +320,10 @@ namespace pr::physics
 		auto const candidate_count = std::max<size_t>(1, m_instances.size() * max_samples);
 		if (!m_candidates || m_candidates->GetDesc().Width < candidate_count * sizeof(Candidate))
 		{
-			m_candidates = m_gpu.CreateResource(ResDesc::Buf<Candidate>(candidate_count, {}).usage(EUsage::UnorderedAccess), job, "WorldContacts:Candidates");
+			// Grow geometrically, within the addressable limit, so that slowly increasing instance counts rarely reallocate.
+			auto const capacity = m_candidates ? s_cast<int>(m_candidates->GetDesc().Width / sizeof(Candidate)) : 0;
+			auto const grown = std::min(GrowCapacity(s_cast<int>(candidate_count), capacity), INT_MAX / s_cast<int>(sizeof(Candidate)));
+			m_candidates = m_gpu.CreateResource(ResDesc::Buf<Candidate>(grown, {}).usage(EUsage::UnorderedAccess), job, "WorldContacts:Candidates");
 			job.m_barriers.Transition(m_candidates.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			job.m_barriers.Commit();
 		}
@@ -361,14 +380,19 @@ namespace pr::physics
 		job.m_barriers.Transition(counters, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition(m_status.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Commit();
+		// Launch enough sample groups to fill the GPU, but no more. Each group strides over the leaf's 64-sample blocks, so a large population
+		// whose leaves mostly fail the eligibility test does not pay launch and eligibility costs once per block.
 		auto const boundary = m_boundary.value_or(CylindricalBoundaryConfig{});
 		auto const max_samples = m_max_samples[mode];
+		auto const instance_count = s_cast<uint32_t>(m_instances.size());
+		auto const block_count = std::max<uint32_t>(1, (max_samples + 63) / 64);
+		auto const block_groups = std::clamp<uint32_t>((TargetSampleGroups + instance_count - 1) / instance_count, 1, block_count);
 		auto const constants = Constants{
 			.m_endpoint = s_cast<uint32_t>(endpoint), .m_max_contacts = s_cast<uint32_t>(max_contacts), .m_plan_offset = mode == 0 ? 0 : m_boundary_plan_offset,
 			.m_height_upper = m_height_upper, .m_sleeping_enabled = sleeping_enabled ? 1 : 0, .m_island_count = island_count,
 			.m_mode = s_cast<uint32_t>(mode), .m_material = s_cast<uint32_t>(boundary.m_material_id),
 			.m_centre_x = boundary.m_centre_x, .m_centre_y = boundary.m_centre_y, .m_radius = boundary.m_radius,
-			.m_spacing = boundary.m_surface_spacing, .m_stride = max_samples};
+			.m_spacing = boundary.m_surface_spacing, .m_stride = max_samples, .m_block_groups = block_groups};
 
 		// Both stages bind the same constants and resources. The sample stage evaluates every sample in parallel; selection then
 		// reads the stored candidates after a UAV barrier, so results match a serial walk of each plan.
@@ -377,15 +401,15 @@ namespace pr::physics
 			job.m_cmd_list.SetPipelineState(step->m_pso.get());
 			job.m_cmd_list.SetComputeRootSignature(step->m_sig.get());
 			job.m_cmd_list.AddComputeRoot32BitConstants(constants);
-			for (auto resource : {bodies, shapes, m_recipe.get(), m_plans.get(), m_patch_buffer.get(), m_instance_buffer.get(), sleep_islands})
+			for (auto resource : {bodies, shapes, m_recipe.get(), m_plans.get(), m_patch_buffer.get(), m_instance_buffer.get(), sleep_islands, m_local_recipe.get()})
 				job.m_cmd_list.AddComputeRootShaderResourceView(resource);
 
 			// Bind append destinations and candidate storage after the read-only streams in root-signature order.
 			for (auto resource : {counters, contacts, m_status.get(), m_candidates.get()})
 				job.m_cmd_list.AddComputeRootUnorderedAccessView(resource);
 
-			// One group per leaf for selection; the sample stage adds one Y group per 64-sample block.
-			auto const blocks = step == &m_pipeline.m_samples ? s_cast<int>((max_samples + 63) / 64) : 1;
+			// One group per leaf for selection; the sample stage adds 'block_groups' Y groups that share the leaf's 64-sample blocks.
+			auto const blocks = step == &m_pipeline.m_samples ? s_cast<int>(block_groups) : 1;
 			job.m_cmd_list.Dispatch(s_cast<int>(m_instances.size()), blocks, 1);
 			job.m_barriers.UAV(m_candidates.get());
 			job.m_barriers.UAV(m_status.get());

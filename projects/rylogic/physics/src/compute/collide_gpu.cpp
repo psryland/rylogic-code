@@ -4,6 +4,7 @@
 //*********************************************
 #include "pr/physics/integrator/engine_config.h"
 #include "src/compute/collide_gpu.h"
+#include "src/compute/gpu_capacity.h"
 #include "src/compute/physics_types.h"
 #include "src/compute/shader_code.h"
 #include "src/collision/shape_cache.h"
@@ -177,28 +178,29 @@ namespace pr::physics
 
 		bool shapes_resized = false;
 
+		// Shape storage grows geometrically, because shapes are often added one at a time and each reallocation forces a full re-upload.
 		if (m_r_shapes == nullptr || max_shapes > m_max_shapes)
 		{
-			m_r_shapes = m_gpu.CreateResource(ResDesc::Buf<GpuShape>(max_shapes, {}), job, "Physics:Shapes");
-			m_max_shapes = max_shapes;
+			m_max_shapes = GrowCapacity(max_shapes, m_max_shapes);
+			m_r_shapes = m_gpu.CreateResource(ResDesc::Buf<GpuShape>(m_max_shapes, {}), job, "Physics:Shapes");
 			shapes_resized = true;
 		}
 		if (m_r_verts == nullptr || max_verts > m_max_verts)
 		{
-			m_r_verts = m_gpu.CreateResource(ResDesc::Buf<v4>(max_verts, {}), job, "Physics:ShapeVerts");
-			m_max_verts = max_verts;
+			m_max_verts = GrowCapacity(max_verts, m_max_verts);
+			m_r_verts = m_gpu.CreateResource(ResDesc::Buf<v4>(m_max_verts, {}), job, "Physics:ShapeVerts");
 			shapes_resized = true;
 		}
 		if (m_r_faces == nullptr || max_faces > m_max_faces)
 		{
-			m_r_faces = m_gpu.CreateResource(ResDesc::Buf<GpuPolytopeFace>(max_faces, {}), job, "Physics:ShapeFaces");
-			m_max_faces = max_faces;
+			m_max_faces = GrowCapacity(max_faces, m_max_faces);
+			m_r_faces = m_gpu.CreateResource(ResDesc::Buf<GpuPolytopeFace>(m_max_faces, {}), job, "Physics:ShapeFaces");
 			shapes_resized = true;
 		}
 		if (m_r_edges == nullptr || max_edges > m_max_edges)
 		{
-			m_r_edges = m_gpu.CreateResource(ResDesc::Buf<GpuPolytopeEdge>(max_edges, {}), job, "Physics:ShapeEdges");
-			m_max_edges = max_edges;
+			m_max_edges = GrowCapacity(max_edges, m_max_edges);
+			m_r_edges = m_gpu.CreateResource(ResDesc::Buf<GpuPolytopeEdge>(m_max_edges, {}), job, "Physics:ShapeEdges");
 			shapes_resized = true;
 		}
 		if (m_r_contacts == nullptr || max_contacts > m_max_contacts)

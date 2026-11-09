@@ -42,7 +42,8 @@ namespace pr::physics
 	static_assert(sizeof(GpuCoupledConstraintIslandState) == 16);
 	static_assert(sizeof(GpuCollisionExclusion) == 8);
 	static_assert(sizeof(GpuConstraintBlock) == 32);
-	static_assert(sizeof(GpuConstraintSolverState) == 8);
+	static_assert(sizeof(GpuConstraintSolverState) == 16);
+	static_assert(sizeof(GpuConstraintColourTask) == 16);
 	static_assert(sizeof(GpuConstraintBreakState) == 32);
 	static_assert(sizeof(GpuConstraintSolveCache) == 160);
 	static_assert(sizeof(GpuConstraintRow) == 96);

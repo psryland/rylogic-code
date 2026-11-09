@@ -309,6 +309,8 @@ namespace pr::rdr12
 			#include PR_RDR_SHADER_COMPILED_DIR(forward_texn_pbr_vs.h)
 			#include PR_RDR_SHADER_COMPILED_DIR(forward_population_vs.h)
 			#include PR_RDR_SHADER_COMPILED_DIR(forward_texn_population_vs.h)
+			#include PR_RDR_SHADER_COMPILED_DIR(forward_skinned_population_vs.h)
+			#include PR_RDR_SHADER_COMPILED_DIR(forward_texn_skinned_population_vs.h)
 			#include PR_RDR_SHADER_COMPILED_DIR(forward_texn_pbr_ps.h)
 			#include PR_RDR_SHADER_COMPILED_DIR(forward_reflection_attrs_texn_pbr_ps.h)
 			#include PR_RDR_SHADER_COMPILED_DIR(forward_alpha_collect_texn_pbr_ps.h)
@@ -329,6 +331,8 @@ namespace pr::rdr12
 		ByteCode const forward_texn_pbr_vs(compiled::forward_texn_pbr_vs);
 		ByteCode const forward_population_vs(compiled::forward_population_vs);
 		ByteCode const forward_texn_population_vs(compiled::forward_texn_population_vs);
+		ByteCode const forward_skinned_population_vs(compiled::forward_skinned_population_vs);
+		ByteCode const forward_texn_skinned_population_vs(compiled::forward_texn_skinned_population_vs);
 		ByteCode const forward_texn_pbr_ps(compiled::forward_texn_pbr_ps);
 		ByteCode const forward_reflection_attrs_texn_pbr_ps(compiled::forward_reflection_attrs_texn_pbr_ps);
 		ByteCode const forward_alpha_collect_texn_pbr_ps(compiled::forward_alpha_collect_texn_pbr_ps);
@@ -369,10 +373,12 @@ namespace pr::rdr12
 		{
 			#include PR_RDR_SHADER_COMPILED_DIR(shadow_map_vs.h)
 			#include PR_RDR_SHADER_COMPILED_DIR(shadow_map_population_vs.h)
+			#include PR_RDR_SHADER_COMPILED_DIR(shadow_map_skinned_population_vs.h)
 			#include PR_RDR_SHADER_COMPILED_DIR(shadow_map_ps.h)
 		}
 		ByteCode const shadow_map_vs(compiled::shadow_map_vs);
 		ByteCode const shadow_map_population_vs(compiled::shadow_map_population_vs);
+		ByteCode const shadow_map_skinned_population_vs(compiled::shadow_map_skinned_population_vs);
 		ByteCode const shadow_map_ps(compiled::shadow_map_ps);
 
 		// Screen Space

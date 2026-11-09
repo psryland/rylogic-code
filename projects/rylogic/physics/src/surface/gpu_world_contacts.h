@@ -75,13 +75,16 @@ namespace pr::physics
 		uint64_t m_plan_generation = 0;                            // Incremented on every full replan; entries not used by the latest one are dropped.
 		size_t m_shape_count = 0;
 		uint32_t m_max_samples[2] = {}; // Largest per-instance sample count for terrain (0) and cylinder (1) plans in this frame.
-		D3DPtr<ID3D12Resource> m_recipe, m_plans, m_patch_buffer, m_instance_buffer, m_status, m_candidates;
+		terrain::landscape::shared::BaselineLocalRecipe m_local_recipe_host; // Single-precision terrain recipe, prepared at construction and uploaded on first use.
+		D3DPtr<ID3D12Resource> m_recipe, m_local_recipe, m_plans, m_patch_buffer, m_instance_buffer, m_status, m_candidates;
 		D3DPtr<ID3D12QueryHeap> m_queries;
 		D3DPtr<ID3D12Resource> m_query_readback;
 		uint32_t m_query_capacity = 0, m_query_count = 0;
 		uint64_t m_frequency = 0;
 
 		// Validate and own independent world sources. 'pipeline' must outlive this object.
+		// Terrain is sampled in single precision over the surface's whole supported range, so construction throws out_of_range when a terrain octave's
+		// lattice cells over that range do not fit in 30 bits (see BaselineSurface::LocalRecipe). Reduce the supported range or lengthen the shortest wavelength.
 		GpuWorldContacts(Gpu& gpu, GpuWorldContactPipeline& pipeline, std::optional<terrain::landscape::BaselineSurface> surface, float spacing, std::optional<CylindricalBoundaryConfig> boundary = {});
 
 		// Invalidate shape-indexed plans after the engine has retired their GPU work.

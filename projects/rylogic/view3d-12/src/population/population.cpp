@@ -213,11 +213,31 @@ namespace pr::rdr12
 								throw std::invalid_argument(std::format("Population model '{}' has a material with a forward or shadow overlay that replaces the root signature", model.m_name));
 							if (entry.m_overlay->m_code.VS && dynamic_cast<ProceduralShader const*>(entry.m_overlay.get()) == nullptr)
 								throw std::invalid_argument(std::format("Population model '{}' has a material with a non-procedural forward or shadow vertex shader overlay", model.m_name));
+							if (entry.m_overlay->m_code.VS && model.m_skin)
+								throw std::invalid_argument(std::format("Population model '{}' is skinned, so its materials cannot replace the vertex shader that poses it", model.m_name));
 						}
 					}
 				}
 			}
 		}
+	}
+
+	// Return the dither word that an ordinary object at 'origin' uses to draw 'coverage' of its pixels.
+	uint32_t PopulationDitherWord(v4 const& origin, float coverage, bool complement)
+	{
+		// Hash the origin bits exactly as 'DitherSeed' in 'population_cull.hlsl' does, so the object and instance masks line up
+		auto bx = std::bit_cast<uint32_t>(origin.x);
+		auto by = std::bit_cast<uint32_t>(origin.y);
+		auto bz = std::bit_cast<uint32_t>(origin.z);
+		auto h = (bx * 0x9E3779B1u) ^ (by * 0x85EBCA77u) ^ (bz * 0xC2B2AE3Du);
+		h ^= h >> 15;
+		h *= 0x85EBCA77u;
+		h ^= h >> 13;
+		auto seed = h & PopulationDitherSeedMask;
+
+		// Pack the seed and the unorm16 coverage as 'DitherWord' does
+		auto cov = static_cast<uint32_t>(std::clamp(coverage, 0.0f, 1.0f) * 65535.0f + 0.5f);
+		return PopulationDitherActive | (seed << PopulationDitherSeedShift) | cov | (complement ? PopulationDitherComplement : 0u);
 	}
 
 	// Validate 'lods' and create a prototype.
@@ -376,6 +396,10 @@ namespace pr::rdr12
 			m_proxies[i].m_model = m_prototypes[m_lists[i].m_prototype]->m_lods[m_lists[i].m_lod].m_model;
 			m_proxies[i].m_i2w = m4x4::Identity();
 			ValidateMaterials(m_proxies[i], *m_proxies[i].m_model.get());
+
+			// Skinned LODs read their instance poses from the payload
+			if (m_proxies[i].m_model->m_skin && payload_size == 0)
+				throw std::invalid_argument(std::format("Population model '{}' is skinned, so the population needs a payload for its poses", m_proxies[i].m_model->m_name));
 		}
 
 		// Blocks have no live instances until they are defined.

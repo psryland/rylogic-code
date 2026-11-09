@@ -205,13 +205,32 @@ namespace pr::physics
 	// Replace a persistent descriptor while preserving its handle.
 	void ConstraintSet::Update(ConstraintHandle handle, D6ConstraintDesc const& desc)
 	{
-		Validate(desc);
-		auto& slot = Require(handle);
-		auto const topology_changed = slot.m_desc.m_frame_a.m_body != desc.m_frame_a.m_body || slot.m_desc.m_frame_b.m_body != desc.m_frame_b.m_body;
-		slot.m_desc = desc;
-		slot.m_dirty = true;
-		m_topology_revision += topology_changed ? 1 : 0;
-		++m_parameter_revision;
+		Update(std::span{&handle, 1}, std::span{&desc, 1});
+	}
+
+	// Replace several persistent descriptors while preserving their handles.
+	void ConstraintSet::Update(std::span<ConstraintHandle const> handles, std::span<D6ConstraintDesc const> descs)
+	{
+		// Check every entry first so that a failure leaves the set unchanged
+		if (handles.size() != descs.size())
+			throw std::invalid_argument("Constraint update handle and descriptor counts differ");
+		for (size_t i = 0; i != handles.size(); ++i)
+		{
+			Validate(descs[i]);
+			Require(handles[i]);
+		}
+
+		// Replace the descriptors. A changed endpoint body changes the topology, which forces the solver to recompute its colouring.
+		for (size_t i = 0; i != handles.size(); ++i)
+		{
+			auto& slot = Require(handles[i]);
+			auto const& desc = descs[i];
+			auto const topology_changed = slot.m_desc.m_frame_a.m_body != desc.m_frame_a.m_body || slot.m_desc.m_frame_b.m_body != desc.m_frame_b.m_body;
+			slot.m_desc = desc;
+			slot.m_dirty = true;
+			m_topology_revision += topology_changed ? 1 : 0;
+		}
+		m_parameter_revision += handles.empty() ? 0 : 1;
 	}
 
 	// Enable or disable a persistent descriptor without changing topology.

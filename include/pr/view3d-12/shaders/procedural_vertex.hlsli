@@ -9,7 +9,7 @@
 #include "view3d-12/src/shaders/hlsl/forward/forward_frame_cbuf.hlsli"
 
 // Contract version implemented by the public ShaderOptions descriptor.
-#define VIEW3D_PROCEDURAL_VERTEX_VERSION 7
+#define VIEW3D_PROCEDURAL_VERTEX_VERSION 8
 
 // Renderer-owned and caller-owned constants occupy these fixed stage-local registers.
 #define VIEW3D_FORWARD_FRAME_REGISTER b0
@@ -51,8 +51,9 @@ struct View3DForwardElement
 	float4 tint;
 	float4 colour_blend;
 	float env_reflectivity;
+	uint dither;
 	float emissive_scale;
-	float2 pad0;
+	float pad0;
 };
 
 // Stock per-element constants consumed by a procedural ShadowMap vertex wrapper. Bind the table as 'StructuredBuffer<View3DShadowElement>'.
@@ -63,6 +64,8 @@ struct View3DShadowElement
 	row_major float4x4 o2w;
 	row_major float4x4 tex2surf0;
 	float4 tint;
+	uint dither;
+	uint3 pad0;
 };
 
 // The stock Forward frame constants: the camera ('cam.c2w', 'cam.w2s', ...), lighting, and the sky's cloud field. It is the renderer's own frame
@@ -79,7 +82,7 @@ struct View3DForwardVertexOut
 	float4 diff : COLOR0;
 	float2 tex0 : TEXCOORD0;
 	float2 idx0 : INDICES0;
-	uint dither : DITHER0; // Population LOD dither word, zero for ordinary draws. See 'pr/view3d-12/shaders/population.hlsli'.
+	uint dither : DITHER0; // Screen-door dither word, from the element or the population entry. See 'pr/view3d-12/shaders/population.hlsli'.
 };
 
 // Stock per-nugget constants consumed by a procedural RayCast vertex wrapper.
@@ -120,7 +123,7 @@ struct View3DShadowVertexOut
 	float4 ss_vert : SV_POSITION;
 	float4 diff : COLOR0;
 	float2 tex0 : TEXCOORD0;
-	uint dither : DITHER0; // Population LOD dither word, zero for ordinary draws. See 'pr/view3d-12/shaders/population.hlsli'.
+	uint dither : DITHER0; // Screen-door dither word, from the element or the population entry. See 'pr/view3d-12/shaders/population.hlsli'.
 	uint viewport : SV_ViewportArrayIndex;
 };
 
@@ -151,6 +154,7 @@ View3DForwardVertexOut View3DProceduralForwardVertex(
 	output.diff = diff * nugget.tint;
 	output.tex0 = tex0;
 	output.idx0 = idx0;
+	output.dither = nugget.dither;
 	return output;
 }
 
@@ -180,6 +184,7 @@ View3DShadowVertexOut View3DProceduralShadowVertex(
 	output.ss_vert = mul(View3DProceduralWorldPosition(ms_vert, nugget.m2o, nugget.o2w), views[view].w2s);
 	output.diff = diff * nugget.tint;
 	output.tex0 = mul(float4(tex0, 0, 1), nugget.tex2surf0).xy;
+	output.dither = nugget.dither;
 	output.viewport = view - draw.info.x;
 	return output;
 }

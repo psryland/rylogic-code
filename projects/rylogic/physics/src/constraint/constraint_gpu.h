@@ -65,4 +65,31 @@ namespace pr::physics
 
 	// Build one deterministic collision-exclusion table from persistent constraints and additional canonical body pairs.
 	GpuCollisionExclusionTable BuildGpuCollisionExclusions(std::span<GpuConstraintEndpoint const> endpoints, std::span<GpuCollisionExclusion const> additional_pairs = {});
+
+	// Dependency-level schedule that lets the GPU colour independent rigid slots in parallel while reproducing the serial greedy colouring.
+	// Each level contains slots that share no body. Every slot is in a later level than each earlier slot that shares one of its bodies.
+	// The storage is retained between builds so a steady constraint set does not allocate.
+	struct ConstraintColourSchedule
+	{
+		// Scheduled slots ordered by level, and by slot index within each level.
+		std::vector<GpuConstraintColourTask> m_tasks;
+
+		// 'm_tasks[m_level_offsets[i], m_level_offsets[i+1])' is level 'i'. Has one more entry than there are levels.
+		std::vector<int> m_level_offsets;
+
+		// Scratch state for the build.
+		std::vector<GpuConstraintColourTask> m_unsorted;
+		std::vector<int> m_task_levels;
+		std::vector<int> m_body_last_ref;
+		std::vector<int> m_body_last_level;
+
+		// The number of dependency levels.
+		int LevelCount() const
+		{
+			return isize(m_level_offsets) - 1;
+		}
+
+		// Rebuild the schedule for enabled, non-coupled slots in 'endpoints'. Negative body indices are world endpoints and never create a dependency.
+		void Build(std::span<GpuConstraintEndpoint const> endpoints);
+	};
 }

@@ -68,6 +68,8 @@ namespace pr::physics
 		, m_colour_dispatch(MaxColours, DispatchArguments{})
 		, m_state(1, GpuConstraintSolverState{})
 		, m_solve_cache()
+		, m_colour_schedule()
+		, m_colour_masks()
 	{
 	}
 
@@ -191,17 +193,45 @@ namespace pr::physics
 		m_state.assign(g_constraint_state.begin(), g_constraint_state.end());
 	}
 
-	// Dispatch the serial deterministic colouring pass.
+	// Dispatch the reset, per-level, and finish colouring passes in the order used by the D3D12 host.
 	void ConstraintInteropRunner::AssignColours()
 	{
+		// Bind the shared resources once; every pass reads and writes the same emulated buffers.
+		m_colour_schedule.Build(m_endpoints);
+		m_colour_masks.assign(m_slot_count, uint2{});
+		auto const task_count = isize(m_colour_schedule.m_tasks);
 		g = MakeConstraintConstants(m_config, m_dt, m_previous_dt, m_body_count, m_slot_count);
+		g.schedule_count = task_count;
 		g_constraint_bodies.assign(ConstraintSpanOf(m_bodies));
 		g_blocks.assign(ConstraintSpanOf(m_blocks));
 		g_constraint_state.assign(ConstraintSpanOf(m_state));
 		g_constraint_colour_dispatch.assign(ConstraintSpanOf(m_colour_dispatch));
+		g_colour_schedule.assign(ConstraintSpanOf(m_colour_schedule.m_tasks));
+		g_colour_masks.assign(ConstraintSpanOf(m_colour_masks));
 
-		hlsl::GpuEmulator emulator(CSAssignConstraintColours, CSAssignConstraintColours_NumThreads);
-		emulator.Dispatch({1, 1, 1});
+		// Clear the masks, colours, and overflow words.
+		{
+			hlsl::GpuEmulator emulator(CSResetConstraintColours, CSResetConstraintColours_NumThreads);
+			emulator.Dispatch({ConstraintThreadGroupCount(std::max(m_body_count, m_slot_count)), 1, 1});
+		}
+
+		// Colour each level after all earlier levels have completed.
+		for (int level = 0; level != m_colour_schedule.LevelCount(); ++level)
+		{
+			// Only the level range changes between dispatches.
+			g.schedule_begin = m_colour_schedule.m_level_offsets[level];
+			g.schedule_count = m_colour_schedule.m_level_offsets[level + 1] - g.schedule_begin;
+			hlsl::GpuEmulator emulator(CSAssignConstraintColourLevel, CSAssignConstraintColourLevel_NumThreads);
+			emulator.Dispatch({ConstraintThreadGroupCount(g.schedule_count), 1, 1});
+		}
+
+		// Publish the body masks and the per-colour arguments over the whole schedule.
+		{
+			g.schedule_begin = 0;
+			g.schedule_count = task_count;
+			hlsl::GpuEmulator emulator(CSFinishConstraintColours, CSFinishConstraintColours_NumThreads);
+			emulator.Dispatch({ConstraintThreadGroupCount(task_count), 1, 1});
+		}
 
 		m_bodies.assign(g_constraint_bodies.begin(), g_constraint_bodies.end());
 		m_blocks.assign(g_blocks.begin(), g_blocks.end());
@@ -380,6 +410,12 @@ namespace pr::physics
 	std::span<uint32_t const> ConstraintInteropRunner::Colours() const
 	{
 		return m_colours;
+	}
+
+	// Return the bodies as last written by a pass, including the per-body colour masks.
+	std::span<GpuRigidBody const> ConstraintInteropRunner::Bodies() const
+	{
+		return m_bodies;
 	}
 
 	// Return the per-colour indirect dispatch arguments written by the colouring pass.
