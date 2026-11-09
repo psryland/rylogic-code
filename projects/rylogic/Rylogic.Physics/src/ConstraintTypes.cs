@@ -263,11 +263,11 @@ public sealed class D6ConstraintOptions
 		m_angular = new[] { ConstraintAxis.Free, ConstraintAxis.Free, ConstraintAxis.Free };
 	}
 
-	/// <summary>The first endpoint-local frame.</summary>
-	public ConstraintFrame FrameA { get; }
+	/// <summary>The first endpoint-local frame. Settable so that one declaration can be refilled and reused for repeated updates.</summary>
+	public ConstraintFrame FrameA { get; set; }
 
-	/// <summary>The second endpoint-local frame.</summary>
-	public ConstraintFrame FrameB { get; }
+	/// <summary>The second endpoint-local frame. Settable so that one declaration can be refilled and reused for repeated updates.</summary>
+	public ConstraintFrame FrameB { get; set; }
 
 	/// <summary>Three translational rows ordered by the constraint frame's X, Y, and Z axes.</summary>
 	public ConstraintAxis[] Linear
