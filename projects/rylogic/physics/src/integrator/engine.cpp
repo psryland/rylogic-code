@@ -1108,7 +1108,13 @@ namespace pr::physics
 					if (!bodies.empty())
 					{
 						auto profile_scope = ProfileScope<&Engine::StepProfile::m_integrate_ms>(m_last_step_profile);
-						Integrate(dt);
+
+						// Later substeps drift with the clamps written by the previous substep's Collide. The first substep has no such pass,
+						// and uploaded poses or instance lists may have changed since the last frame, so its clamps are rebuilt from the current poses.
+						if (m_gpu_world_contacts && substep_index == 0)
+							RefreshDriftClamps(dt);
+
+						Integrate(dt, m_gpu_world_contacts != nullptr);
 					}
 
 					if (!articulations.empty())
@@ -1132,7 +1138,7 @@ namespace pr::physics
 						}
 						{
 							auto profile_scope = ProfileScope<&Engine::StepProfile::m_collide_ms>(m_last_step_profile);
-							Collide();
+							Collide(dt);
 						}
 						{
 							auto profile_scope = ProfileScope<&Engine::StepProfile::m_resolve_ms>(m_last_step_profile);
@@ -1314,14 +1320,14 @@ namespace pr::physics
 			{
 				// A zero-length integrate pass updates the GPU AABBs from the current transforms without advancing the simulation.
 				auto profile_scope = ProfileScope<&Engine::StepProfile::m_integrate_ms>(m_last_step_profile);
-				Integrate(0.0f);
+				Integrate(0.0f, false);
 			}
 			{
 				// Run the same broadphase, narrowphase, and sleep-update graph as a normal frame, but with
 				// sleeping-pair filtering disabled so sleeping/sleeping contacts are visible while the initial islands are being built.
 				auto profile_scope = ProfileScope<&Engine::StepProfile::m_sleepupdate_ms>(m_last_step_profile);
 				BroadPhase(false);
-				Collide();
+				Collide(0.0f);
 				SleepUpdate(0.0f);
 			}
 			CaptureSubstepOutput(0, 1, false);
@@ -1456,10 +1462,21 @@ namespace pr::physics
 	}
 
 	// Apply forces, evolve body dynamics forward in time, and generate AABBs for broadphase.
-	void Engine::Integrate(float dt)
+	// 'drift_clamped' applies the world-contact drift clamps, which must have been written for this 'dt' from the current poses.
+	void Engine::Integrate(float dt, bool drift_clamped)
 	{
 		auto body_count = m_cache->RigidBodyCount();
-		m_gpu_integrator->Integrate(m_gpu->m_job, body_count, dt, m_cache->BroadphaseSortAxis());
+		auto clamps = GpuIntegrator::DriftClamps{};
+		if (drift_clamped)
+		{
+			clamps = GpuIntegrator::DriftClamps{
+				.m_ranges = m_gpu_world_contacts->DriftClampRanges(),
+				.m_planes = m_gpu_world_contacts->DriftClamps(),
+				.m_body_count = m_gpu_world_contacts->DriftClampBodyCount(),
+				.m_modes = m_gpu_world_contacts->DriftClampModes(),
+			};
+		}
+		m_gpu_integrator->Integrate(m_gpu->m_job, body_count, dt, m_cache->BroadphaseSortAxis(), clamps);
 
 		if constexpr (PR_PHYSICS_DIAGNOSTICS)
 		{
@@ -1500,8 +1517,9 @@ namespace pr::physics
 		}
 	}
 
-	// Narrow phase collision detection to generate contact points.
-	void Engine::Collide()
+	// Narrow phase collision detection to generate contact points. 'dt' is the duration of the next integration drift; world contacts use it
+	// to write drift clamps for surfaces that bodies would cross within it. Zero clears the drift clamps.
+	void Engine::Collide(float dt)
 	{
 		auto counters = m_gpu_integrator->Counters();
 		auto dispatch = m_gpu_sort_and_sweep->CDDispatchArgs();
@@ -1510,13 +1528,20 @@ namespace pr::physics
 
 		// Append world constraints before the shared solver reads the final contact count and dispatch.
 		if (m_gpu_world_contacts)
-			m_gpu_world_contacts->Collide(m_gpu->m_job, m_cache->RigidBodyCount() - 1, m_config.max_collision_pairs, m_config.sleeping_enabled, m_cache->SleepIslandCount(), m_gpu_sleep_manager->SleepIslands().get(),
+			m_gpu_world_contacts->Collide(m_gpu->m_job, dt, m_cache->RigidBodyCount() - 1, m_config.max_collision_pairs, m_config.sleeping_enabled, m_cache->SleepIslandCount(), m_gpu_sleep_manager->SleepIslands().get(),
 				m_gpu_integrator->Bodies().get(), m_gpu_collision_detector->Shapes().get(), m_gpu_collision_detector->Contacts().get(), counters.get(), m_gpu_collision_detector->ResolveDispatchArgs().get());
 
 		if constexpr (PR_PHYSICS_DIAGNOSTICS)
 		{
 			//DbgPhysics(*this).ReadbackCollide(counters);
 		}
+	}
+
+	// Write world-contact drift clamps for an integration drift of 'dt' seconds from the current poses, without generating contacts.
+	void Engine::RefreshDriftClamps(float dt)
+	{
+		m_gpu_world_contacts->RefreshDriftClamps(m_gpu->m_job, dt, m_cache->RigidBodyCount() - 1, m_config.max_collision_pairs, m_config.sleeping_enabled, m_cache->SleepIslandCount(), m_gpu_sleep_manager->SleepIslands().get(),
+			m_gpu_integrator->Bodies().get(), m_gpu_collision_detector->Shapes().get(), m_gpu_collision_detector->Contacts().get(), m_gpu_integrator->Counters().get());
 	}
 
 	// Apply impulses to resolve collisions and update body dynamics.

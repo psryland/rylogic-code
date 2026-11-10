@@ -20,8 +20,18 @@ namespace pr::physics
 		D3DPtr<ID3D12Resource> m_r_aabb_sort;// GPU buffer: RWStructuredBuffer<float> expanded sort-axis bounds
 		D3DPtr<ID3D12Resource> m_r_aabb_idx; // GPU buffer: RWStructuredBuffer<int> rigid body indices for the AABB bounds
 		D3DPtr<ID3D12Resource> m_r_aabb_box; // GPU buffer: RWStructuredBuffer<BBox> exact world-space bounding boxes
+		D3DPtr<ID3D12Resource> m_r_no_clamps;// GPU buffer: one-element placeholder bound when integration has no drift clamps
 		int m_capacity;                      // Maximum number of bodies the buffers can hold
 		int m_frame_force_capacity;          // Maximum number of immutable frame-force records retained for internal substeps
+
+		// Optional position limits for one integration (see GpuDriftClampPlane). All members are null or zero when there are none.
+		struct DriftClamps
+		{
+			ID3D12Resource* m_ranges = nullptr; // StructuredBuffer<GpuDriftClampRange>, indexed by body
+			ID3D12Resource* m_planes = nullptr; // StructuredBuffer<GpuDriftClampPlane>, 'DriftClampSlotsPerInstance' per instance
+			int m_body_count = 0;               // Bodies [0, m_body_count) have entries in 'm_ranges'
+			uint32_t m_modes = 0;               // Bit 'm' set when the slots of world-contact mode 'm' are current
+		};
 
 		explicit GpuIntegrator(Gpu& gpu, EngineConfig const& config);
 
@@ -35,7 +45,8 @@ namespace pr::physics
 		void SeedWorkingForces(GpuJob& job, int body_count);
 
 		// Integrate bodies on GPU and write AABBs (but keep bodies GPU-resident for later readback).
-		void Integrate(GpuJob& job, int body_count, float dt, int broadphase_sort_axis);
+		// 'clamps' limits how far the drift may move bodies; it never changes momentum.
+		void Integrate(GpuJob& job, int body_count, float dt, int broadphase_sort_axis, DriftClamps const& clamps);
 
 		// CPU-side testing: upload bodies, integrate on GPU, readback results. Calls job.Run() internally.
 		void Integrate(GpuJob& job, std::span<GpuRigidBody> bodies, float dt, std::span<BBox> aabbs);

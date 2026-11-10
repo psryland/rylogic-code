@@ -603,6 +603,198 @@ namespace pr::physics::tests
 		}
 	};
 
+	// Drift clamps may only limit how far integration moves a body toward a world surface. The impact itself must stay with the contact solver,
+	// so bounce, tangential motion, friction and resting support must match the physical response, independently of the substep count.
+	PRUnitTestClass(WorldDriftClampTests)
+	{
+		// Describes one approach toward a flat world surface with zero gravity.
+		struct Approach
+		{
+			bool m_wall;       // True for the cylindrical wall, false for flat terrain
+			int m_substeps;    // Internal substeps per 1/60 s frame
+			float m_e;         // Normal elasticity
+			float m_speed;     // Approach speed along the surface normal (m/s)
+			float m_tangent;   // Speed along the surface (m/s)
+		};
+
+		// Measured outcome of an approach.
+		struct Outcome
+		{
+			float m_rebound;   // Final speed away from the surface (m/s)
+			float m_tangent;   // Final speed along the surface (m/s)
+			float m_spin;      // Final angular speed (rad/s)
+			double m_peak;     // Peak post-frame penetration (m)
+		};
+
+		// Fire a frictionless 0.5 m sphere at a surface from a 0.3 m gap and measure its free motion after the bounce.
+		static Outcome Fire(Approach const& approach)
+		{
+			// Place the sphere so its normal axis points into the surface: +x for the wall at radius 4000, -z for terrain at height 0.
+			auto& gpu = SharedTestGpu();
+			auto engine = Engine({}, &SharedTestShaderCache(), gpu, gpu.m_job.m_queue.get());
+			if (approach.m_wall)
+				engine.CylindricalBoundary(CylindricalBoundaryConfig{});
+			else
+				engine.Terrain(FlatTerrain());
+
+			engine.Material(Material{.m_friction_static = 0, .m_elasticity_norm = approach.m_e});
+			auto const inward = approach.m_wall ? v4(1, 0, 0, 0) : v4(0, 0, -1, 0);
+			auto const along = v4(0, 1, 0, 0);
+			auto const start = approach.m_wall ? v4(4000 - 0.8f, 0, 20, 1) : v4(0, 0, 0.8f, 1);
+			auto shape = collision::ShapeSphere(0.5f);
+			auto body = RigidBody(&shape, m4x4::Translation(start), Inertia::Sphere(0.5f, 1));
+			body.VelocityWS(v4::Zero(), approach.m_speed * inward + approach.m_tangent * along);
+			auto bodies = std::array{&body};
+
+			// Run long enough for the slowest case to hit and leave the surface, tracking the deepest post-frame overlap.
+			auto outcome = Outcome{};
+			for (int frame = 0; frame != 60; ++frame)
+			{
+				body.GravityWS(v4::Zero());
+				engine.Step(Engine::StepInput{.m_bodies = bodies, .m_elapsed_seconds = 1.0f / 60, .m_substep_count = approach.m_substeps});
+				auto const depth = approach.m_wall ? RadialExtent(shape, body.O2W()) - 4000 : 0.5 - double(body.O2W().pos.z);
+				outcome.m_peak = std::max(outcome.m_peak, depth);
+			}
+
+			// Report the free motion after separation.
+			auto const velocity = body.VelocityWS();
+			outcome.m_rebound = -Dot(velocity.lin, inward);
+			outcome.m_tangent = Dot(velocity.lin, along);
+			outcome.m_spin = Length(velocity.ang);
+			return outcome;
+		}
+
+		// Two substeps drift with clamps for most of each frame, while four substeps rarely need them, so matching outcomes show that clamping adds
+		// no damping and suppresses no restitution. The wall rebound also matches the material elasticity, and penetration stays inside the centimetre gate.
+		PRUnitTestMethod(RestitutionAndPenetration, Extended)
+		{
+			// Log every case before judging so one run reports the whole matrix.
+			auto ok = true;
+			for (auto wall : {false, true})
+			{
+				for (auto e : {0.5f, 1.0f})
+				{
+					for (auto speed : {5.0f, 20.0f})
+					{
+						// Compare the rebound ratios at two and four substeps with each other, and with the elasticity for the wall.
+						auto const two = Fire(Approach{.m_wall = wall, .m_substeps = 2, .m_e = e, .m_speed = speed, .m_tangent = 0});
+						auto const four = Fire(Approach{.m_wall = wall, .m_substeps = 4, .m_e = e, .m_speed = speed, .m_tangent = 0});
+						auto const ratio2 = two.m_rebound / speed, ratio4 = four.m_rebound / speed;
+						log_stream() << std::format("drift_clamp restitution wall={} e={:g} speed={:g} ratio2={:.5f} ratio4={:.5f} peak2={:.6f} peak4={:.6f}\n", int(wall), e, speed, ratio2, ratio4, two.m_peak, four.m_peak);
+						ok &= (std::abs(ratio2 - ratio4) < 0.005f * ratio4);
+						ok &= (!wall || std::abs(ratio2 - e) < 0.03f * e);
+						ok &= (two.m_peak < 0.01 && four.m_peak < 0.01);
+					}
+				}
+			}
+			PR_EXPECT(ok);
+		}
+
+		// A frictionless glancing impact keeps its tangential speed, and its outcome does not depend on how much of each frame was clamped.
+		PRUnitTestMethod(GrazingKeepsTangentialSpeed, Extended)
+		{
+			// Log every case before judging so one run reports the whole matrix.
+			auto ok = true;
+			for (auto wall : {false, true})
+			{
+				auto const two = Fire(Approach{.m_wall = wall, .m_substeps = 2, .m_e = 0.5f, .m_speed = 15, .m_tangent = 10});
+				auto const four = Fire(Approach{.m_wall = wall, .m_substeps = 4, .m_e = 0.5f, .m_speed = 15, .m_tangent = 10});
+				for (auto const& outcome : {two, four})
+					log_stream() << std::format("drift_clamp grazing wall={} rebound={:.5f} tangent={:.5f} spin={:.5f} peak={:.6f}\n", int(wall), outcome.m_rebound, outcome.m_tangent, outcome.m_spin, outcome.m_peak);
+
+				ok &= (std::abs(two.m_rebound - four.m_rebound) < 0.005f * four.m_rebound);
+				ok &= (std::abs(two.m_spin - four.m_spin) < 0.005f * four.m_spin + 0.01f);
+				ok &= (std::abs(two.m_tangent - 10) < 0.01f * 10 && std::abs(four.m_tangent - 10) < 0.01f * 10);
+				ok &= (two.m_peak < 0.01 && four.m_peak < 0.01);
+			}
+			PR_EXPECT(ok);
+		}
+
+		// Boxes and spheres resting on terrain under gravity stay still at their support height, without jitter from clamps.
+		PRUnitTestMethod(RestingContactsStayStill, Extended)
+		{
+			// Log every case before judging so one run reports the whole matrix.
+			auto ok = true;
+			for (auto substeps : {2, 4})
+			{
+				for (auto use_box : {false, true})
+				{
+					// Drop each body a short way so it lands, then settles.
+					auto& gpu = SharedTestGpu();
+					auto engine = Engine({}, &SharedTestShaderCache(), gpu, gpu.m_job.m_queue.get());
+					engine.Terrain(FlatTerrain());
+					engine.Material(Material{.m_friction_static = 0.5f, .m_elasticity_norm = 0});
+					auto box = collision::ShapeBox(v4(1, 1, 1, 0));
+					auto sphere = collision::ShapeSphere(0.5f);
+					auto body = use_box
+						? RigidBody(&box, m4x4::Translation(0, 0, 0.6f), Inertia::Box(v4(0.5f, 0.5f, 0.5f, 0), 1))
+						: RigidBody(&sphere, m4x4::Translation(0, 0, 0.6f), Inertia::Sphere(0.5f, 1));
+					auto bodies = std::array{&body};
+
+					// After two seconds to settle, the body must hold still inside the centimetre penetration gate.
+					auto peak_speed = 0.0f;
+					auto low = 1e9f, high = -1e9f;
+					for (int frame = 0; frame != 240; ++frame)
+					{
+						body.GravityWS(v4(0, 0, -9.81f, 0));
+						engine.Step(Engine::StepInput{.m_bodies = bodies, .m_elapsed_seconds = 1.0f / 60, .m_substep_count = substeps});
+						if (frame < 120)
+							continue;
+
+						peak_speed = std::max(peak_speed, Length(body.VelocityWS().lin));
+						low = std::min(low, body.O2W().pos.z);
+						high = std::max(high, body.O2W().pos.z);
+					}
+					log_stream() << std::format("drift_clamp resting substeps={} box={} z=[{:.6f},{:.6f}] peak_speed={:.6f}\n", substeps, int(use_box), low, high, peak_speed);
+					ok &= (std::abs(low - 0.5f) < 0.01f && std::abs(high - 0.5f) < 0.01f);
+					ok &= (high - low < 0.001f);
+					ok &= (peak_speed < 0.05f);
+				}
+			}
+			PR_EXPECT(ok);
+		}
+
+		// Friction stops a sliding box close to the Coulomb distance v^2 / (2 mu g) at two and four substeps, so clamping does not change friction.
+		PRUnitTestMethod(FrictionSlideMatchesSubsteps, Extended)
+		{
+			// Log every case before judging so one run reports the whole matrix.
+			auto ok = true;
+			auto distances = std::array<float, 2>{};
+			for (int i = 0; i != 2; ++i)
+			{
+				// Land the box at rest first, then launch it along the surface.
+				auto const substeps = i == 0 ? 2 : 4;
+				auto& gpu = SharedTestGpu();
+				auto engine = Engine({}, &SharedTestShaderCache(), gpu, gpu.m_job.m_queue.get());
+				engine.Terrain(FlatTerrain());
+				engine.Material(Material{.m_friction_static = 0.3f, .m_elasticity_norm = 0});
+				auto box = collision::ShapeBox(v4(1, 1, 1, 0));
+				auto body = RigidBody(&box, m4x4::Translation(0, 0, 0.5f), Inertia::Box(v4(0.5f, 0.5f, 0.5f, 0), 1));
+				auto bodies = std::array{&body};
+				for (int frame = 0; frame != 30; ++frame)
+				{
+					body.GravityWS(v4(0, 0, -9.81f, 0));
+					engine.Step(Engine::StepInput{.m_bodies = bodies, .m_elapsed_seconds = 1.0f / 60, .m_substep_count = substeps});
+				}
+
+				// Slide until friction stops the box.
+				auto const x0 = body.O2W().pos.x;
+				body.VelocityWS(v4::Zero(), v4(5, 0, 0, 0));
+				for (int frame = 0; frame != 240; ++frame)
+				{
+					body.GravityWS(v4(0, 0, -9.81f, 0));
+					engine.Step(Engine::StepInput{.m_bodies = bodies, .m_elapsed_seconds = 1.0f / 60, .m_substep_count = substeps});
+				}
+				distances[i] = body.O2W().pos.x - x0;
+				log_stream() << std::format("drift_clamp friction substeps={} distance={:.5f} final_speed={:.6f} z={:.6f}\n", substeps, distances[i], Length(body.VelocityWS().lin), body.O2W().pos.z);
+				ok &= (Length(body.VelocityWS().lin) < 0.05f);
+			}
+			auto const coulomb = 5.0f * 5.0f / (2 * 0.3f * 9.81f);
+			ok &= (std::abs(distances[0] - coulomb) < 0.1f * coulomb && std::abs(distances[1] - coulomb) < 0.1f * coulomb);
+			PR_EXPECT(ok);
+		}
+	};
+
 	// Compare persistent resting support through ordinary collision and sampled terrain.
 	PRUnitTestClass(TerrainSleepTests)
 	{

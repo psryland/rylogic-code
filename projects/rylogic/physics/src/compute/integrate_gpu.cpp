@@ -22,15 +22,21 @@ namespace pr::physics
 		float g_sleep_velocity_threshold_lin;
 		float g_sleep_velocity_threshold_ang;
 		int g_broadphase_sort_axis;
+		int g_clamp_body_count;
+		uint32_t g_clamp_modes;
+		float pad0;
+		float pad1;
 		float pad2;
 	};
-	static_assert(sizeof(cbIntegrate) == 32);
+	static_assert(sizeof(cbIntegrate) == 48);
 
 	// Register assignments for the root signature
 	struct EReg
 	{
 		inline static constexpr auto Params = ECBufReg::b0;
 		inline static constexpr auto FrameForces = ESRVReg::t0;
+		inline static constexpr auto ClampRanges = ESRVReg::t1;
+		inline static constexpr auto Clamps = ESRVReg::t2;
 		inline static constexpr auto Counters = EUAVReg::u0;
 		inline static constexpr auto Bodies = EUAVReg::u1;
 		inline static constexpr auto AABB_Idx = EUAVReg::u2;
@@ -49,6 +55,7 @@ namespace pr::physics
 		, m_r_aabb_sort()
 		, m_r_aabb_idx()
 		, m_r_aabb_box()
+		, m_r_no_clamps()
 		, m_capacity()
 		, m_frame_force_capacity()
 	{
@@ -56,6 +63,8 @@ namespace pr::physics
 		{
 			auto sig = RootSig(ERootSigFlags::ComputeOnly)
 				.U32<cbIntegrate>(EReg::Params)
+				.SRV(EReg::ClampRanges)
+				.SRV(EReg::Clamps)
 				.UAV(EReg::Counters)
 				.UAV(EReg::Bodies)
 				.UAV(EReg::AABB_Idx)
@@ -93,6 +102,11 @@ namespace pr::physics
 		if (m_r_counters == nullptr)
 		{
 			m_r_counters = m_gpu.CreateResource(ResDesc::Buf<GpuCollisionCounters>(1, {}).usage(EUsage::UnorderedAccess), job, "Physics:CollisionCounters");
+		}
+		if (m_r_no_clamps == nullptr)
+		{
+			// Root descriptors cannot be null, so integration without drift clamps binds this unread placeholder to both clamp registers.
+			m_r_no_clamps = m_gpu.CreateResource(ResDesc::Buf<GpuDriftClampPlane>(1, {}), job, "Physics:NoDriftClamps");
 		}
 		if (m_r_bodies == nullptr || m_capacity < capacity)
 		{
@@ -214,13 +228,14 @@ namespace pr::physics
 	}
 
 	// Integrate bodies on GPU
-	void GpuIntegrator::Integrate(GpuJob& job, int body_count, float dt, int broadphase_sort_axis)
+	void GpuIntegrator::Integrate(GpuJob& job, int body_count, float dt, int broadphase_sort_axis, DriftClamps const& clamps)
 	{
 		if (body_count == 0)
 			return;
 
 		assert(m_r_counters != nullptr);
 		assert(m_r_bodies != nullptr && m_capacity >= body_count);
+		assert((clamps.m_body_count == 0) == (clamps.m_ranges == nullptr) && (clamps.m_ranges == nullptr) == (clamps.m_planes == nullptr));
 
 		pix::BeginEvent(job.m_cmd_list.get(), 0xFFbc45f2, "Physics::Integrate");
 
@@ -232,11 +247,19 @@ namespace pr::physics
 			.g_sleep_velocity_threshold_lin = m_config.sleep_velocity_threshold_lin,
 			.g_sleep_velocity_threshold_ang = m_config.sleep_velocity_threshold_ang,
 			.g_broadphase_sort_axis = broadphase_sort_axis,
+			.g_clamp_body_count = clamps.m_body_count,
+			.g_clamp_modes = clamps.m_modes,
+			.pad0 = 0,
+			.pad1 = 0,
 			.pad2 = 0,
 		};
+		auto* clamp_ranges = clamps.m_ranges != nullptr ? clamps.m_ranges : m_r_no_clamps.get();
+		auto* clamp_planes = clamps.m_planes != nullptr ? clamps.m_planes : m_r_no_clamps.get();
 
 		// Switch states for resources
 		{
+			job.m_barriers.Transition(clamp_ranges, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			job.m_barriers.Transition(clamp_planes, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 			job.m_barriers.Transition(m_r_counters.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			job.m_barriers.Transition(m_r_bodies.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			job.m_barriers.Transition(m_r_aabb_idx.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -250,6 +273,8 @@ namespace pr::physics
 			job.m_cmd_list.SetPipelineState(m_cs_integrate.m_pso.get());
 			job.m_cmd_list.SetComputeRootSignature(m_cs_integrate.m_sig.get());
 			job.m_cmd_list.AddComputeRoot32BitConstants(cb_integrate);
+			job.m_cmd_list.AddComputeRootShaderResourceView(clamp_ranges);
+			job.m_cmd_list.AddComputeRootShaderResourceView(clamp_planes);
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_counters);
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_bodies);
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_aabb_idx);
@@ -274,7 +299,7 @@ namespace pr::physics
 	void GpuIntegrator::Integrate(GpuJob& job, std::span<GpuRigidBody> bodies, float dt, std::span<BBox> aabbs)
 	{
 		Upload(job, bodies);
-		Integrate(job, static_cast<int>(bodies.size()), dt, 0);
+		Integrate(job, static_cast<int>(bodies.size()), dt, 0, {});
 		Readback(job, bodies, aabbs);
 	}
 

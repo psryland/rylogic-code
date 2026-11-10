@@ -25,6 +25,8 @@ namespace pr::physics
 			float m_spacing;
 			uint32_t m_stride;
 			uint32_t m_block_groups;
+			float m_dt;
+			uint32_t m_speculative_only;
 		};
 		static_assert(sizeof(GpuWorldContacts::Candidate) == 36, "Candidate must match the HLSL WorldCandidate stride");
 
@@ -88,7 +90,7 @@ namespace pr::physics
 		// Compile the sample and selection stages, which share one root layout, and the shared dispatch update against its own layout.
 		m_step.m_sig = RootSig(ERootSigFlags::ComputeOnly).U32<Constants>(ECBufReg::b0)
 			.SRV(ESRVReg::t0).SRV(ESRVReg::t1).SRV(ESRVReg::t2).SRV(ESRVReg::t3).SRV(ESRVReg::t4).SRV(ESRVReg::t5).SRV(ESRVReg::t6).SRV(ESRVReg::t7)
-			.UAV(EUAVReg::u0).UAV(EUAVReg::u1).UAV(EUAVReg::u2).UAV(EUAVReg::u3).Create(gpu, "WorldContacts:Signature");
+			.UAV(EUAVReg::u0).UAV(EUAVReg::u1).UAV(EUAVReg::u2).UAV(EUAVReg::u3).UAV(EUAVReg::u4).Create(gpu, "WorldContacts:Signature");
 		m_step.m_pso = ComputePSO(m_step.m_sig.get(), CompileWorldContactKernel(L"CSWorldContacts", shader_cache)).Cache(shader_cache).Create(gpu, "WorldContacts:Contacts");
 		m_samples.m_sig = m_step.m_sig;
 		m_samples.m_pso = ComputePSO(m_samples.m_sig.get(), CompileWorldContactKernel(L"CSWorldSamples", shader_cache)).Cache(shader_cache).Create(gpu, "WorldContacts:Samples");
@@ -188,8 +190,8 @@ namespace pr::physics
 		if (substeps < 1 || uint64_t(substeps) * 2 * sizeof(uint64_t) > INT_MAX)
 			throw std::runtime_error("World-contact timestamp substep range is not representable");
 
-		// Grow timestamp storage before recording any of the frame's world-contact work.
-		auto const query_count = m_surface ? 2u * s_cast<uint32_t>(substeps) : 0u;
+		// Grow timestamp storage before recording any of the frame's world-contact work. The extra pair times the frame's drift-clamp refresh.
+		auto const query_count = m_surface ? 2u * s_cast<uint32_t>(substeps + 1) : 0u;
 		if (m_query_capacity < query_count)
 		{
 			auto desc = D3D12_QUERY_HEAP_DESC{.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP, .Count = query_count};
@@ -266,10 +268,12 @@ namespace pr::physics
 
 		// Skip infinite-mass bodies and bodies whose collision filter rejects the world. Generate missing plans only when a shape first becomes dynamic.
 		m_instances.clear();
+		m_clamp_ranges.assign(bodies.size(), GpuDriftClampRange{});
 		m_max_samples[0] = m_max_samples[1] = 0;
 		for (uint32_t i = 0; i != bodies.size(); ++i)
 		{
 			auto const& body = bodies[i];
+			m_clamp_ranges[i].first = s_cast<uint32_t>(m_instances.size());
 			if (body.os_com_and_invmass.w == 0 || body.shape_id < 0)
 				continue;
 			if (!CollisionFilterPasses(body.collision_layer, body.collision_mask, world_layer, world_mask))
@@ -304,6 +308,7 @@ namespace pr::physics
 					m_max_samples[1] = std::max(m_max_samples[1], m_ranges[begin + child + m_boundary_plan_offset].m_sample_count);
 				}
 			}
+			m_clamp_ranges[i].count = s_cast<uint32_t>(m_instances.size()) - m_clamp_ranges[i].first;
 		}
 
 		// Every current dynamic shape has now been planned, so cached plans that no current body uses belong to retired geometry.
@@ -337,8 +342,17 @@ namespace pr::physics
 
 		// Upload the current instance list and reserve a status word shared by all internal substeps.
 		UploadStream(m_gpu, job, m_instance_buffer, std::span<Instance const>(m_instances), "WorldContacts:Instances");
+		UploadStream(m_gpu, job, m_clamp_range_buffer, std::span<GpuDriftClampRange const>(m_clamp_ranges), "WorldContacts:DriftClampRanges");
 		if (!m_status)
 			m_status = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(StatusWordCount, {}).usage(EUsage::UnorderedAccess), job, "WorldContacts:Status");
+
+		// Reserve drift-clamp slots for every instance. Their contents are undefined until the frame's first world-contact dispatch replaces them.
+		auto const clamp_count = std::max<size_t>(1, m_instances.size() * DriftClampSlotsPerInstance);
+		if (!m_clamps || m_clamps->GetDesc().Width < clamp_count * sizeof(GpuDriftClampPlane))
+		{
+			auto const capacity = m_clamps ? s_cast<int>(m_clamps->GetDesc().Width / sizeof(GpuDriftClampPlane)) : 0;
+			m_clamps = m_gpu.CreateResource(ResDesc::Buf<GpuDriftClampPlane>(GrowCapacity(s_cast<int>(clamp_count), capacity), {}).usage(EUsage::UnorderedAccess), job, "WorldContacts:DriftClamps");
+		}
 
 		// Clear status before the first world-contact dispatch can report a failure.
 		job.m_barriers.Transition(m_status.get(), D3D12_RESOURCE_STATE_COPY_DEST);
@@ -349,17 +363,54 @@ namespace pr::physics
 	}
 
 	// Append active world contacts and refresh the shared solver dispatch for one substep.
-	void GpuWorldContacts::Collide(GpuJob& job, int endpoint, int max_contacts, bool sleeping_enabled, int island_count, ID3D12Resource* sleep_islands,
+	void GpuWorldContacts::Collide(GpuJob& job, float dt, int endpoint, int max_contacts, bool sleeping_enabled, int island_count, ID3D12Resource* sleep_islands,
 		ID3D12Resource* bodies, ID3D12Resource* shapes, ID3D12Resource* contacts, ID3D12Resource* counters, ID3D12Resource* dispatch)
 	{
+		// A null 'dispatch' would select the clamp-only refresh, so the solver's dispatch arguments are required here.
+		assert(dispatch != nullptr);
 		if (m_surface)
-			Dispatch(job, 0, endpoint, max_contacts, sleeping_enabled, island_count, sleep_islands, bodies, shapes, contacts, counters, dispatch);
+			Dispatch(job, 0, dt, endpoint, max_contacts, sleeping_enabled, island_count, sleep_islands, bodies, shapes, contacts, counters, dispatch);
 		if (m_boundary)
-			Dispatch(job, 1, endpoint, max_contacts, sleeping_enabled, island_count, sleep_islands, bodies, shapes, contacts, counters, dispatch);
+			Dispatch(job, 1, dt, endpoint, max_contacts, sleeping_enabled, island_count, sleep_islands, bodies, shapes, contacts, counters, dispatch);
+	}
+
+	// Replace the drift clamps of every active surface without appending contacts or touching the solver dispatch.
+	void GpuWorldContacts::RefreshDriftClamps(GpuJob& job, float dt, int endpoint, int max_contacts, bool sleeping_enabled, int island_count, ID3D12Resource* sleep_islands,
+		ID3D12Resource* bodies, ID3D12Resource* shapes, ID3D12Resource* contacts, ID3D12Resource* counters)
+	{
+		// The contact stream and counters stay bound because both stages share one root layout, but the clamp-only kernel never writes them.
+		if (m_surface)
+			Dispatch(job, 0, dt, endpoint, max_contacts, sleeping_enabled, island_count, sleep_islands, bodies, shapes, contacts, counters, nullptr);
+		if (m_boundary)
+			Dispatch(job, 1, dt, endpoint, max_contacts, sleeping_enabled, island_count, sleep_islands, bodies, shapes, contacts, counters, nullptr);
+	}
+
+	// Drift-clamp planes, written by the most recent Collide or RefreshDriftClamps for each active surface mode.
+	ID3D12Resource* GpuWorldContacts::DriftClamps()
+	{
+		return m_clamps.get();
+	}
+
+	// Per-body instance ranges into the drift-clamp planes, uploaded with this frame's instances.
+	ID3D12Resource* GpuWorldContacts::DriftClampRanges()
+	{
+		return m_clamp_range_buffer.get();
+	}
+
+	// The number of bodies covered by DriftClampRanges.
+	int GpuWorldContacts::DriftClampBodyCount() const
+	{
+		return s_cast<int>(m_clamp_ranges.size());
+	}
+
+	// Bit 0 is set when the terrain writes clamp slots and bit 1 when the cylinder does. Slots of other modes are never written.
+	uint32_t GpuWorldContacts::DriftClampModes() const
+	{
+		return (m_surface ? 1u : 0u) | (m_boundary ? 2u : 0u);
 	}
 
 	// Share surface sampling, reduction, endpoint lifetime and solver append infrastructure between world surfaces.
-	void GpuWorldContacts::Dispatch(GpuJob& job, int mode, int endpoint, int max_contacts, bool sleeping_enabled, int island_count, ID3D12Resource* sleep_islands,
+	void GpuWorldContacts::Dispatch(GpuJob& job, int mode, float dt, int endpoint, int max_contacts, bool sleeping_enabled, int island_count, ID3D12Resource* sleep_islands,
 		ID3D12Resource* bodies, ID3D12Resource* shapes, ID3D12Resource* contacts, ID3D12Resource* counters, ID3D12Resource* dispatch)
 	{
 		if (m_instances.empty())
@@ -379,6 +430,7 @@ namespace pr::physics
 		job.m_barriers.Transition(contacts, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition(counters, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition(m_status.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		job.m_barriers.Transition(m_clamps.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Commit();
 		// Launch enough sample groups to fill the GPU, but no more. Each group strides over the leaf's 64-sample blocks, so a large population
 		// whose leaves mostly fail the eligibility test does not pay launch and eligibility costs once per block.
@@ -392,7 +444,8 @@ namespace pr::physics
 			.m_height_upper = m_height_upper, .m_sleeping_enabled = sleeping_enabled ? 1 : 0, .m_island_count = island_count,
 			.m_mode = s_cast<uint32_t>(mode), .m_material = s_cast<uint32_t>(boundary.m_material_id),
 			.m_centre_x = boundary.m_centre_x, .m_centre_y = boundary.m_centre_y, .m_radius = boundary.m_radius,
-			.m_spacing = boundary.m_surface_spacing, .m_stride = max_samples, .m_block_groups = block_groups};
+			.m_spacing = boundary.m_surface_spacing, .m_stride = max_samples, .m_block_groups = block_groups, .m_dt = dt,
+			.m_speculative_only = dispatch == nullptr ? 1u : 0u};
 
 		// Both stages bind the same constants and resources. The sample stage evaluates every sample in parallel; selection then
 		// reads the stored candidates after a UAV barrier, so results match a serial walk of each plan.
@@ -405,7 +458,7 @@ namespace pr::physics
 				job.m_cmd_list.AddComputeRootShaderResourceView(resource);
 
 			// Bind append destinations and candidate storage after the read-only streams in root-signature order.
-			for (auto resource : {counters, contacts, m_status.get(), m_candidates.get()})
+			for (auto resource : {counters, contacts, m_status.get(), m_candidates.get(), m_clamps.get()})
 				job.m_cmd_list.AddComputeRootUnorderedAccessView(resource);
 
 			// One group per leaf for selection; the sample stage adds 'block_groups' Y groups that share the leaf's 64-sample blocks.
@@ -413,22 +466,27 @@ namespace pr::physics
 			job.m_cmd_list.Dispatch(s_cast<int>(m_instances.size()), blocks, 1);
 			job.m_barriers.UAV(m_candidates.get());
 			job.m_barriers.UAV(m_status.get());
+			job.m_barriers.UAV(m_clamps.get());
 			job.m_barriers.Commit();
 		}
 
-		// Finish world-contact writes before deriving the solver's indirect dispatch from the combined count.
-		job.m_barriers.UAV(counters);
-		job.m_barriers.UAV(contacts);
-		job.m_barriers.Transition(dispatch, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-		job.m_barriers.Commit();
-		job.m_cmd_list.SetPipelineState(m_pipeline.m_dispatch.m_pso.get());
-		job.m_cmd_list.SetComputeRootSignature(m_pipeline.m_dispatch.m_sig.get());
-		job.m_cmd_list.AddComputeRoot32BitConstants(Constants{s_cast<uint32_t>(max_contacts), 0, 0, 0});
-		job.m_cmd_list.AddComputeRootUnorderedAccessView(counters);
-		job.m_cmd_list.AddComputeRootUnorderedAccessView(dispatch);
-		job.m_cmd_list.Dispatch(1, 1, 1);
-		job.m_barriers.UAV(dispatch);
-		job.m_barriers.Commit();
+		// A clamp-only refresh appends no contacts, so the solver's dispatch arguments are unchanged.
+		if (dispatch != nullptr)
+		{
+			// Finish world-contact writes before deriving the solver's indirect dispatch from the combined count.
+			job.m_barriers.UAV(counters);
+			job.m_barriers.UAV(contacts);
+			job.m_barriers.Transition(dispatch, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			job.m_barriers.Commit();
+			job.m_cmd_list.SetPipelineState(m_pipeline.m_dispatch.m_pso.get());
+			job.m_cmd_list.SetComputeRootSignature(m_pipeline.m_dispatch.m_sig.get());
+			job.m_cmd_list.AddComputeRoot32BitConstants(Constants{s_cast<uint32_t>(max_contacts), 0, 0, 0});
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(counters);
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(dispatch);
+			job.m_cmd_list.Dispatch(1, 1, 1);
+			job.m_barriers.UAV(dispatch);
+			job.m_barriers.Commit();
+		}
 		if (mode == 0)
 			job.m_cmd_list.get()->EndQuery(m_queries.get(), D3D12_QUERY_TYPE_TIMESTAMP, m_query_count++);
 	}
