@@ -1728,11 +1728,15 @@ namespace pr::physics
 			// Move the endpoint references to the accepted descriptors. Entries are applied in order, so a repeated constraint keeps its last descriptor.
 			for (std::uint32_t i = 0; i != count; ++i)
 			{
+				// Most updates keep their endpoints, so the reference counts only move when an endpoint changes
 				auto& constraint_record = *scratch.m_records[i];
-				ReleaseConstraintReferences(engine, constraint_record);
 				constraint_record.m_desc = descs[i];
 				constraint_record.m_desc.header = {sizeof(PhysicsD6Constraint), PHYSICS_STRUCT_VERSION};
 				constraint_record.m_desc.reserved = 0;
+				if (constraint_record.m_body_refs == scratch.m_body_refs[i] && constraint_record.m_articulation_refs == scratch.m_articulation_refs[i])
+					continue;
+
+				ReleaseConstraintReferences(engine, constraint_record);
 				constraint_record.m_body_refs = scratch.m_body_refs[i];
 				constraint_record.m_articulation_refs = scratch.m_articulation_refs[i];
 				RetainConstraintReferences(engine, constraint_record);
@@ -4208,7 +4212,6 @@ extern "C"
 				},
 				.submitted_step = record.m_submitted_step,
 				.completed_step = record.m_completed_step,
-				.state_checksum = pr::physics::StateChecksum(record),
 				.body_count = static_cast<std::int32_t>(body_count),
 				.shape_count = static_cast<std::int32_t>(shape_count),
 				.pair_count = collisions.m_pair_count,
@@ -4228,6 +4231,20 @@ extern "C"
 				.frame_output = pr::physics::ToAbi(features.m_frame_output),
 				.failure = pr::physics::ToAbi(features.m_failure),
 			};
+		});
+	}
+
+	PhysicsStatus __stdcall Physics_StateChecksumGet(PhysicsEngineHandle engine, std::uint64_t* checksum)
+	{
+		return pr::physics::ApiCall([&]
+		{
+			// Hash the completed state on request only, because the walk covers every body and articulation.
+			auto scope = pr::physics::EngineScope(engine);
+			auto& record = *scope;
+			if (checksum == nullptr)
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Checksum output pointer is null");
+
+			*checksum = pr::physics::StateChecksum(record);
 		});
 	}
 

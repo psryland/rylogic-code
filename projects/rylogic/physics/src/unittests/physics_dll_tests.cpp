@@ -81,6 +81,7 @@ namespace pr::unittests
 			decltype(&Physics_SnapshotCopy) SnapshotCopy;
 			decltype(&Physics_EventsCopy) EventsCopy;
 			decltype(&Physics_DiagnosticsGet) DiagnosticsGet;
+			decltype(&Physics_StateChecksumGet) StateChecksumGet;
 			decltype(&Physics_CheckpointSize) CheckpointSize;
 			decltype(&Physics_CheckpointWrite) CheckpointWrite;
 			decltype(&Physics_CheckpointRead) CheckpointRead;
@@ -162,6 +163,7 @@ namespace pr::unittests
 				, SnapshotCopy(m_module.Proc<decltype(SnapshotCopy)>("Physics_SnapshotCopy"))
 				, EventsCopy(m_module.Proc<decltype(EventsCopy)>("Physics_EventsCopy"))
 				, DiagnosticsGet(m_module.Proc<decltype(DiagnosticsGet)>("Physics_DiagnosticsGet"))
+				, StateChecksumGet(m_module.Proc<decltype(StateChecksumGet)>("Physics_StateChecksumGet"))
 				, CheckpointSize(m_module.Proc<decltype(CheckpointSize)>("Physics_CheckpointSize"))
 				, CheckpointWrite(m_module.Proc<decltype(CheckpointWrite)>("Physics_CheckpointWrite"))
 				, CheckpointRead(m_module.Proc<decltype(CheckpointRead)>("Physics_CheckpointRead"))
@@ -1885,8 +1887,8 @@ namespace pr::unittests
 			auto fix = PhysicsFixture{};
 			auto shape = MakeBox(fix.m_api, fix.m_engine, {0.25f, 0.25f, 0.25f, 0});
 			auto articulation = MakeArticulation(fix.m_api, fix.m_engine, shape);
-			auto diagnostics_before = Diagnostics{};
-			PR_EXPECT(fix.m_api.DiagnosticsGet(fix.m_engine, &diagnostics_before) == EStatus::Success);
+			auto checksum_before = std::uint64_t{};
+			PR_EXPECT(fix.m_api.StateChecksumGet(fix.m_engine, &checksum_before) == EStatus::Success);
 
 			// Link-owned shapes remain alive, while scalar state uses one deterministic topological stream.
 			PR_EXPECT(fix.m_api.ShapeDestroy(fix.m_engine, shape) == EStatus::InvalidArgument);
@@ -1908,9 +1910,10 @@ namespace pr::unittests
 			state.root_force.linear = {0, 0, -9.8f, 0};
 			state.flags = static_cast<EArticulationFlags>(static_cast<std::uint32_t>(state.flags) | static_cast<std::uint32_t>(EArticulationFlags::NeverSleep));
 			PR_EXPECT(fix.m_api.ArticulationStateSet(fix.m_engine, articulation, &state, positions.data(), velocities.data(), forces.data(), scalar_required) == EStatus::Success);
-			auto diagnostics_after = Diagnostics{};
-			PR_EXPECT(fix.m_api.DiagnosticsGet(fix.m_engine, &diagnostics_after) == EStatus::Success);
-			PR_EXPECT(diagnostics_after.state_checksum != diagnostics_before.state_checksum);
+			auto checksum_after = std::uint64_t{};
+			PR_EXPECT(fix.m_api.StateChecksumGet(fix.m_engine, &checksum_after) == EStatus::Success);
+			PR_EXPECT(checksum_after != checksum_before);
+			PR_EXPECT(fix.m_api.StateChecksumGet(fix.m_engine, nullptr) == EStatus::InvalidArgument);
 
 			// Persistent per-link fields round-trip independently of generalized state.
 			auto link_force = SpatialVector{.angular = {0, 1, 0, 0}, .linear = {1, 0, 0, 0}};

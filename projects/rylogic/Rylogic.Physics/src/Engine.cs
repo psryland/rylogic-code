@@ -618,12 +618,19 @@ public sealed class Engine :IDisposable
 		}
 	}
 
-	/// <summary>Read generic completion, capacity, timing, checksum, and device diagnostics.</summary>
+	/// <summary>Read generic completion, capacity, timing, and device diagnostics.</summary>
 	public unsafe Diagnostics GetDiagnostics()
 	{
 		var diagnostics = new Diagnostics();
 		Native.Check(Native.Physics_DiagnosticsGet(Handle, &diagnostics));
 		return diagnostics;
+	}
+
+	/// <summary>Hash the completed body and articulation state, for checking deterministic replay. The cost grows with the number of bodies.</summary>
+	public ulong StateChecksum()
+	{
+		Native.Check(Native.Physics_StateChecksumGet(Handle, out var checksum));
+		return checksum;
 	}
 
 	/// <summary>Return the exact byte count required for an opaque restart checkpoint.</summary>

@@ -10,6 +10,23 @@ namespace pr::physics
 {
 	namespace
 	{
+		// Sort an identity-to-index table by identity and reject a repeated identity.
+		void SortIdentities(std::vector<std::pair<uint64_t, int>>& indices, char const* duplicate_message)
+		{
+			// Equal identities are adjacent after sorting
+			std::ranges::sort(indices, {}, &std::pair<uint64_t, int>::first);
+			if (std::ranges::adjacent_find(indices, {}, &std::pair<uint64_t, int>::first) != indices.end())
+				throw std::invalid_argument(duplicate_message);
+		}
+
+		// Return the index stored for 'id' in a sorted identity table, or -1 when it is absent.
+		int FindIdentity(std::vector<std::pair<uint64_t, int>> const& indices, uint64_t id)
+		{
+			// The table is sorted by identity, so a binary search finds the only possible entry
+			auto const iter = std::ranges::lower_bound(indices, id, {}, &std::pair<uint64_t, int>::first);
+			return iter != indices.end() && iter->first == id ? iter->second : -1;
+		}
+
 		// Return an endpoint's constraint frame in world space.
 		m4x4 ConstraintToWorld(BodyFrame const& frame, CompiledConstraintEndpoint const& endpoint, BodyRemap const& remap)
 		{
@@ -176,12 +193,10 @@ namespace pr::physics
 			if (!body->Id())
 				throw std::invalid_argument("Body remap cannot contain an invalid rigid-body identity");
 
-			auto const [iter, inserted] = m_rigid_indices.emplace(body->Id().m_value, index);
-			if (!inserted)
-				throw std::invalid_argument("Body remap contains duplicate rigid-body identities");
-
+			m_rigid_indices.emplace_back(body->Id().m_value, index);
 			m_bodies.push_back(body);
 		}
+		SortIdentities(m_rigid_indices, "Body remap contains duplicate rigid-body identities");
 
 		// Articulation links follow the ordinary rigid prefix in packed topological order.
 		m_articulations.reserve(articulations.size());
@@ -196,14 +211,12 @@ namespace pr::physics
 			if (!articulation->Id())
 				throw std::invalid_argument("Body remap cannot contain an invalid articulation identity");
 
-			auto const [iter, inserted] = m_articulation_indices.emplace(articulation->Id().m_value, index);
-			if (!inserted)
-				throw std::invalid_argument("Body remap contains duplicate articulation identities");
-
+			m_articulation_indices.emplace_back(articulation->Id().m_value, index);
 			m_articulation_link_offsets.push_back(link_offset);
 			link_offset += articulation->LinkCount();
 			m_articulations.push_back(articulation);
 		}
+		SortIdentities(m_articulation_indices, "Body remap contains duplicate articulation identities");
 	}
 
 	// Resolve a stable endpoint to its current object owner and packed proxy index.
@@ -219,22 +232,21 @@ namespace pr::physics
 			}
 			case EConstraintBodyType::Rigid:
 			{
-				auto const iter = m_rigid_indices.find(body.m_body_id.m_value);
-				if (iter == m_rigid_indices.end())
+				auto const rigid_index = FindIdentity(m_rigid_indices, body.m_body_id.m_value);
+				if (rigid_index < 0)
 					throw std::invalid_argument("Constraint endpoint rigid body is missing from the current step");
 				return CompiledConstraintEndpoint{
 					.m_type = EConstraintBodyType::Rigid,
-					.m_rigid_index = iter->second,
-					.m_packed_body_index = iter->second,
+					.m_rigid_index = rigid_index,
+					.m_packed_body_index = rigid_index,
 				};
 			}
 			case EConstraintBodyType::ArticulationLink:
 			{
-				auto const iter = m_articulation_indices.find(body.m_articulation_id.m_value);
-				if (iter == m_articulation_indices.end())
+				auto const articulation_index = FindIdentity(m_articulation_indices, body.m_articulation_id.m_value);
+				if (articulation_index < 0)
 					throw std::invalid_argument("Constraint endpoint articulation is missing from the current step");
 
-				auto const articulation_index = iter->second;
 				auto const& articulation = *m_articulations[articulation_index];
 				(void)articulation.LinkDescription(body.m_link);
 				auto const link_index = s_cast<int>(body.m_link.m_index);

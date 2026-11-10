@@ -391,11 +391,15 @@ namespace pr::physics
 		}
 
 		// Dispatch the exact pair-type collision kernels. Empty bins have a zero-sized dispatch.
+		// Bins only read pair data and append contacts to atomically allocated slots, so they are independent and may overlap on the GPU.
 		for (int bin = 0; bin != COLLISION_BIN_COUNT; ++bin)
 		{
 			bind_collide(m_cs_collide_bins[bin]);
 			job.m_cmd_list.ExecuteIndirect(m_cmd_sig.get(), 1, m_r_bin_dispatch.get(), static_cast<UINT64>(bin) * sizeof(D3D12_DISPATCH_ARGUMENTS));
+		}
 
+		// Finish all contact appends before the dispatch size is derived from the final count.
+		{
 			job.m_barriers.UAV(counters.get());
 			job.m_barriers.UAV(contacts.get());
 			job.m_barriers.Commit();

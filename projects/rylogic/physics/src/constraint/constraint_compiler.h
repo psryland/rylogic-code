@@ -57,8 +57,9 @@ namespace pr::physics
 
 		std::vector<RigidBody*> m_bodies;
 		std::vector<Articulation*> m_articulations;
-		std::unordered_map<uint64_t, int> m_rigid_indices;
-		std::unordered_map<uint64_t, int> m_articulation_indices;
+		// Packed indices keyed by stable identity and sorted by identity. A remap is built every step, so sorted vectors avoid a heap allocation per object.
+		std::vector<std::pair<uint64_t, int>> m_rigid_indices;
+		std::vector<std::pair<uint64_t, int>> m_articulation_indices;
 		std::vector<int> m_articulation_link_offsets;
 
 	public:

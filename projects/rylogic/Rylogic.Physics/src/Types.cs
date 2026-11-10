@@ -713,7 +713,7 @@ public struct StepFailureDiagnostics
 	private uint m_reserved1;
 }
 
-/// <summary>Generic engine state, capacity, device, and deterministic replay diagnostics.</summary>
+/// <summary>Generic engine state, capacity, and device diagnostics.</summary>
 [StructLayout(LayoutKind.Sequential)]
 public struct Diagnostics
 {
@@ -721,7 +721,6 @@ public struct Diagnostics
 	public StepProfile m_profile;
 	public ulong m_submitted_step;
 	public ulong m_completed_step;
-	public ulong m_state_checksum;
 	public int m_body_count;
 	public int m_shape_count;
 	public int m_pair_count;

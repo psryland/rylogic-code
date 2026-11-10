@@ -1066,7 +1066,6 @@ namespace pr::physics
 		StepProfile profile;
 		std::uint64_t submitted_step;
 		std::uint64_t completed_step;
-		std::uint64_t state_checksum;
 		std::int32_t body_count;
 		std::int32_t shape_count;
 		std::int32_t pair_count;
@@ -1250,6 +1249,9 @@ extern "C"
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_SnapshotCopy(pr::physics::EngineHandle engine, pr::physics::BodySnapshot* snapshots, std::uint32_t capacity, std::uint32_t* required);
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_EventsCopy(pr::physics::EngineHandle engine, pr::physics::Event* events, std::uint32_t capacity, std::uint32_t* required);
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_DiagnosticsGet(pr::physics::EngineHandle engine, pr::physics::Diagnostics* diagnostics);
+
+	// Hash of the completed body and articulation state, for checking deterministic replay. The cost grows with the number of bodies.
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_StateChecksumGet(pr::physics::EngineHandle engine, std::uint64_t* checksum);
 
 	// Opaque versioned restart checkpoints.
 	// Size and write drain a pending step on the owner thread first, so a checkpoint always describes a
