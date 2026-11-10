@@ -56,7 +56,7 @@ namespace Rylogic.UnitTests
 		/// Fixtures run on a pool of 'threads' worker threads (zero means one per processor), with each fixture's tests running in order on one thread.
 		/// Fixtures with the 'Serial' flag run afterwards on the calling thread, with nothing else running. Everything runs on the calling thread
 		/// when a debugger is attached, so that exceptions break where they are thrown. Diagnostic output is written to 'outstream', and the
-		/// duration of each test is written to 'obj/unittests/(assembly name)/timings.csv' under the repository root.</summary>
+		/// duration of each test is written to 'obj/unittests/(assembly name)/(output folder)/timings.csv' under the repository root.</summary>
 		public static bool RunTests(Assembly ass, Stream? outstream = null, EUnitTestFlags flags = EUnitTestFlags.Quick, int threads = 0)
 		{
 			try
@@ -302,10 +302,12 @@ namespace Rylogic.UnitTests
 			}
 		}
 
-		/// <summary>The timing report for 'ass': 'obj/unittests/(assembly name)/timings.csv' under the repository root</summary>
+		/// <summary>The timing report for 'ass': 'obj/unittests/(assembly name)/(output folder)/timings.csv' under the repository root</summary>
 		private static string TimingReportPath(Assembly ass)
 		{
-			return Path_.CombinePath(RepoRoot, "obj", "unittests", ass.GetName().Name ?? "unknown", "timings.csv");
+			// Each target framework builds into its own output folder and may be tested concurrently, so the folder name keeps their reports separate.
+			var output_folder = Path.GetFileName(Path.GetDirectoryName(ass.Location)) is { Length: > 0 } folder ? folder : "unknown";
+			return Path_.CombinePath(RepoRoot, "obj", "unittests", ass.GetName().Name ?? "unknown", output_folder, "timings.csv");
 		}
 
 		/// <summary>Read the total duration of each fixture from a previous timing report. Returns an empty map when there is no report.</summary>

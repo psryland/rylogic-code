@@ -1507,130 +1507,6 @@ namespace pr::physics::tests
 			PR_EXPECT(stats.m_allocated_feature_bytes == expected_allocated_bytes);
 		}
 
-		// Measure end-to-end GPU solver scaling through at least one hundred thousand active scalar rows.
-		PRUnitTestMethod(HardwareHundredThousandRowScaling, Extended)
-		{
-			constexpr auto SmallSlotCount = 8334;
-			constexpr auto LargeSlotCount = 16667;
-			constexpr auto SampleCount = 5;
-			auto make_upload = [](int slot_count)
-			{
-				auto upload = GpuConstraintUpload{};
-				upload.m_endpoints.resize(slot_count);
-				upload.m_endpoint_identities.resize(slot_count);
-				upload.m_descriptors.resize(slot_count);
-				upload.m_rigid_active_count = slot_count;
-				for (int slot_idx = 0; slot_idx != slot_count; ++slot_idx)
-				{
-					auto& endpoint = upload.m_endpoints[slot_idx];
-					endpoint.body_idx_a = slot_idx;
-					endpoint.body_idx_b = -1;
-					endpoint.flags = GpuConstraintEndpointFlags_Enabled;
-					endpoint.generation = 1;
-
-					auto& descriptor = upload.m_descriptors[slot_idx];
-					descriptor.frame_a.rotation = float4{0, 0, 0, 1};
-					descriptor.frame_b.rotation = float4{0, 0, 0, 1};
-					for (int axis_idx = 0; axis_idx != GpuConstraintRowsPerBlock; ++axis_idx)
-					{
-						descriptor.axes[axis_idx].mode = GpuConstraintAxisMode_Locked;
-						descriptor.axes[axis_idx].max_force = 1000.0f;
-					}
-				}
-				return upload;
-			};
-			auto make_bodies = [](int body_count)
-			{
-				auto rigid_body = MakeConstraintGpuBody();
-				rigid_body.VelocityWS(v8motion{v4{0.1f, -0.2f, 0.3f, 0}, v4{0.4f, -0.5f, 0.6f, 0}});
-				auto packed = PackDynamics(rigid_body, 0);
-				return std::vector<GpuRigidBody>(body_count, packed);
-			};
-			auto const small_upload = make_upload(SmallSlotCount);
-			auto const large_upload = make_upload(LargeSlotCount);
-			auto config = EngineConfig{};
-			config.solver_iterations = 1;
-			config.push_out_iterations = 0;
-			config.constraint_warm_start_factor = 0.0f;
-			auto solver = GpuConstraintSolver{ConstraintTestGpu(), config};
-
-			// Allocate the maximum resources before timing so the comparison measures steady-state work rather than one-time growth.
-			auto warmup_bodies = make_bodies(LargeSlotCount);
-			solver.Solve(ConstraintTestGpu().m_job, 1.0f / 60.0f, large_upload, warmup_bodies);
-			auto const warmup_stats = solver.Stats();
-
-			// Load the smaller working set against retained maximum capacity so logical and allocated accounting must diverge correctly.
-			auto small_probe_bodies = make_bodies(SmallSlotCount);
-			solver.Solve(ConstraintTestGpu().m_job, 1.0f / 60.0f, small_upload, small_probe_bodies);
-			auto const small_stats = solver.Stats();
-			auto const slot_bytes =
-				sizeof(GpuConstraintEndpoint) +
-				sizeof(GpuD6ConstraintDesc) +
-				sizeof(GpuConstraintBlock) +
-				GpuConstraintRowsPerBlock * sizeof(GpuConstraintRow) +
-				sizeof(GpuConstraintSolveCache) +
-				sizeof(GpuConstraintColourTask) +
-				2 * sizeof(uint32_t);
-			auto const expected_small_logical_bytes =
-				static_cast<size_t>(SmallSlotCount) * slot_bytes +
-				sizeof(GpuConstraintSolverState) +
-				static_cast<size_t>(SmallSlotCount) * sizeof(GpuConstraintPseudoVelocity);
-			PR_EXPECT(small_stats.m_logical_bytes == expected_small_logical_bytes);
-			PR_EXPECT(small_stats.m_allocated_feature_bytes == warmup_stats.m_allocated_feature_bytes);
-			PR_EXPECT(small_stats.m_logical_bytes < small_stats.m_allocated_feature_bytes);
-
-			// Restore the larger workload immediately before timing so both measured sizes start from an active, saturated GPU.
-			warmup_bodies = make_bodies(LargeSlotCount);
-			solver.Solve(ConstraintTestGpu().m_job, 1.0f / 60.0f, large_upload, warmup_bodies);
-			auto measure = [&](GpuConstraintUpload const& upload)
-			{
-				auto bodies = make_bodies(isize(upload.m_endpoints));
-				auto const begin = std::chrono::steady_clock::now();
-				solver.Solve(ConstraintTestGpu().m_job, 1.0f / 60.0f, upload, bodies);
-				auto const elapsed = std::chrono::steady_clock::now() - begin;
-				for (auto const& body : bodies)
-					PR_EXPECT(ConstraintGpuBodyFinite(body));
-				return std::chrono::duration<double, std::milli>(elapsed).count();
-			};
-
-			// Interleaved medians reject transient GPU clock and queue noise without concealing persistent superlinear work.
-			auto small_samples = std::array<double, SampleCount>{};
-			auto large_samples = std::array<double, SampleCount>{};
-			for (int sample = 0; sample != SampleCount; ++sample)
-			{
-				small_samples[sample] = measure(small_upload);
-				large_samples[sample] = measure(large_upload);
-			}
-			std::ranges::sort(small_samples);
-			std::ranges::sort(large_samples);
-			auto const small_ms = small_samples[SampleCount / 2];
-			auto const large_ms = large_samples[SampleCount / 2];
-			auto const small_rows = SmallSlotCount * GpuConstraintRowsPerBlock;
-			auto const large_rows = LargeSlotCount * GpuConstraintRowsPerBlock;
-			log_stream() << std::format(
-				"  [benchmark] {} constraint rows: {:.3f} ms; {} rows: {:.3f} ms ({:.2f}x time for {:.2f}x rows)\n",
-				small_rows,
-				small_ms,
-				large_rows,
-				large_ms,
-				large_ms / small_ms,
-				static_cast<double>(large_rows) / small_rows);
-			PR_EXPECT(large_rows >= 100000);
-			PR_EXPECT(large_ms / small_ms < 2.2);
-
-			// Repeated smaller submissions must reuse the maximum allocation, whose accounting follows the capacity formula exactly.
-			auto const final_stats = solver.Stats();
-			auto const expected_allocated_bytes =
-				static_cast<size_t>(final_stats.m_slot_capacity) * slot_bytes +
-				sizeof(GpuConstraintSolverState) +
-				static_cast<size_t>(final_stats.m_body_capacity) * sizeof(GpuConstraintPseudoVelocity) +
-				static_cast<size_t>(final_stats.m_break_capacity) * sizeof(GpuConstraintBreakState);
-			PR_EXPECT(final_stats.m_slot_capacity == warmup_stats.m_slot_capacity);
-			PR_EXPECT(final_stats.m_body_capacity == warmup_stats.m_body_capacity);
-			PR_EXPECT(final_stats.m_allocated_feature_bytes == warmup_stats.m_allocated_feature_bytes);
-			PR_EXPECT(final_stats.m_allocated_feature_bytes == expected_allocated_bytes);
-		}
-
 		// Preserve coherent stable-slot execution when a real GPU hub requires one hundred edge colours.
 		PRUnitTestMethod(HardwareDegreeHundredUsesSerialFallback, Extended)
 		{
@@ -1989,6 +1865,134 @@ namespace pr::physics::tests
 
 			PR_EXPECT(run(false) == 0);
 			PR_EXPECT(run(true) != 0);
+		}
+	};
+
+	// Wall-clock scaling measurements need the GPU to themselves, so this class never runs at the same time as other test classes.
+	PRUnitTestClass(ConstraintGpuSolverScalingTests, Serial)
+	{
+		// Measure end-to-end GPU solver scaling through at least one hundred thousand active scalar rows.
+		PRUnitTestMethod(HardwareHundredThousandRowScaling, Extended)
+		{
+			constexpr auto SmallSlotCount = 8334;
+			constexpr auto LargeSlotCount = 16667;
+			constexpr auto SampleCount = 5;
+			auto make_upload = [](int slot_count)
+			{
+				auto upload = GpuConstraintUpload{};
+				upload.m_endpoints.resize(slot_count);
+				upload.m_endpoint_identities.resize(slot_count);
+				upload.m_descriptors.resize(slot_count);
+				upload.m_rigid_active_count = slot_count;
+				for (int slot_idx = 0; slot_idx != slot_count; ++slot_idx)
+				{
+					auto& endpoint = upload.m_endpoints[slot_idx];
+					endpoint.body_idx_a = slot_idx;
+					endpoint.body_idx_b = -1;
+					endpoint.flags = GpuConstraintEndpointFlags_Enabled;
+					endpoint.generation = 1;
+
+					auto& descriptor = upload.m_descriptors[slot_idx];
+					descriptor.frame_a.rotation = float4{0, 0, 0, 1};
+					descriptor.frame_b.rotation = float4{0, 0, 0, 1};
+					for (int axis_idx = 0; axis_idx != GpuConstraintRowsPerBlock; ++axis_idx)
+					{
+						descriptor.axes[axis_idx].mode = GpuConstraintAxisMode_Locked;
+						descriptor.axes[axis_idx].max_force = 1000.0f;
+					}
+				}
+				return upload;
+			};
+			auto make_bodies = [](int body_count)
+			{
+				auto rigid_body = MakeConstraintGpuBody();
+				rigid_body.VelocityWS(v8motion{v4{0.1f, -0.2f, 0.3f, 0}, v4{0.4f, -0.5f, 0.6f, 0}});
+				auto packed = PackDynamics(rigid_body, 0);
+				return std::vector<GpuRigidBody>(body_count, packed);
+			};
+			auto const small_upload = make_upload(SmallSlotCount);
+			auto const large_upload = make_upload(LargeSlotCount);
+			auto config = EngineConfig{};
+			config.solver_iterations = 1;
+			config.push_out_iterations = 0;
+			config.constraint_warm_start_factor = 0.0f;
+			auto solver = GpuConstraintSolver{ConstraintTestGpu(), config};
+
+			// Allocate the maximum resources before timing so the comparison measures steady-state work rather than one-time growth.
+			auto warmup_bodies = make_bodies(LargeSlotCount);
+			solver.Solve(ConstraintTestGpu().m_job, 1.0f / 60.0f, large_upload, warmup_bodies);
+			auto const warmup_stats = solver.Stats();
+
+			// Load the smaller working set against retained maximum capacity so logical and allocated accounting must diverge correctly.
+			auto small_probe_bodies = make_bodies(SmallSlotCount);
+			solver.Solve(ConstraintTestGpu().m_job, 1.0f / 60.0f, small_upload, small_probe_bodies);
+			auto const small_stats = solver.Stats();
+			auto const slot_bytes =
+				sizeof(GpuConstraintEndpoint) +
+				sizeof(GpuD6ConstraintDesc) +
+				sizeof(GpuConstraintBlock) +
+				GpuConstraintRowsPerBlock * sizeof(GpuConstraintRow) +
+				sizeof(GpuConstraintSolveCache) +
+				sizeof(GpuConstraintColourTask) +
+				2 * sizeof(uint32_t);
+			auto const expected_small_logical_bytes =
+				static_cast<size_t>(SmallSlotCount) * slot_bytes +
+				sizeof(GpuConstraintSolverState) +
+				static_cast<size_t>(SmallSlotCount) * sizeof(GpuConstraintPseudoVelocity);
+			PR_EXPECT(small_stats.m_logical_bytes == expected_small_logical_bytes);
+			PR_EXPECT(small_stats.m_allocated_feature_bytes == warmup_stats.m_allocated_feature_bytes);
+			PR_EXPECT(small_stats.m_logical_bytes < small_stats.m_allocated_feature_bytes);
+
+			// Restore the larger workload immediately before timing so both measured sizes start from an active, saturated GPU.
+			warmup_bodies = make_bodies(LargeSlotCount);
+			solver.Solve(ConstraintTestGpu().m_job, 1.0f / 60.0f, large_upload, warmup_bodies);
+			auto measure = [&](GpuConstraintUpload const& upload)
+			{
+				auto bodies = make_bodies(isize(upload.m_endpoints));
+				auto const begin = std::chrono::steady_clock::now();
+				solver.Solve(ConstraintTestGpu().m_job, 1.0f / 60.0f, upload, bodies);
+				auto const elapsed = std::chrono::steady_clock::now() - begin;
+				for (auto const& body : bodies)
+					PR_EXPECT(ConstraintGpuBodyFinite(body));
+				return std::chrono::duration<double, std::milli>(elapsed).count();
+			};
+
+			// Interleaved medians reject transient GPU clock and queue noise without concealing persistent superlinear work.
+			auto small_samples = std::array<double, SampleCount>{};
+			auto large_samples = std::array<double, SampleCount>{};
+			for (int sample = 0; sample != SampleCount; ++sample)
+			{
+				small_samples[sample] = measure(small_upload);
+				large_samples[sample] = measure(large_upload);
+			}
+			std::ranges::sort(small_samples);
+			std::ranges::sort(large_samples);
+			auto const small_ms = small_samples[SampleCount / 2];
+			auto const large_ms = large_samples[SampleCount / 2];
+			auto const small_rows = SmallSlotCount * GpuConstraintRowsPerBlock;
+			auto const large_rows = LargeSlotCount * GpuConstraintRowsPerBlock;
+			log_stream() << std::format(
+				"  [benchmark] {} constraint rows: {:.3f} ms; {} rows: {:.3f} ms ({:.2f}x time for {:.2f}x rows)\n",
+				small_rows,
+				small_ms,
+				large_rows,
+				large_ms,
+				large_ms / small_ms,
+				static_cast<double>(large_rows) / small_rows);
+			PR_EXPECT(large_rows >= 100000);
+			PR_EXPECT(large_ms / small_ms < 2.2);
+
+			// Repeated smaller submissions must reuse the maximum allocation, whose accounting follows the capacity formula exactly.
+			auto const final_stats = solver.Stats();
+			auto const expected_allocated_bytes =
+				static_cast<size_t>(final_stats.m_slot_capacity) * slot_bytes +
+				sizeof(GpuConstraintSolverState) +
+				static_cast<size_t>(final_stats.m_body_capacity) * sizeof(GpuConstraintPseudoVelocity) +
+				static_cast<size_t>(final_stats.m_break_capacity) * sizeof(GpuConstraintBreakState);
+			PR_EXPECT(final_stats.m_slot_capacity == warmup_stats.m_slot_capacity);
+			PR_EXPECT(final_stats.m_body_capacity == warmup_stats.m_body_capacity);
+			PR_EXPECT(final_stats.m_allocated_feature_bytes == warmup_stats.m_allocated_feature_bytes);
+			PR_EXPECT(final_stats.m_allocated_feature_bytes == expected_allocated_bytes);
 		}
 	};
 }
