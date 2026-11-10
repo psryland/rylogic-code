@@ -51,7 +51,7 @@ namespace pr::physics
 			double m_gpu_run_ms = 0;
 			double m_gpu_prepare_ms = 0;
 			double m_gpu_execute_ms = 0;
-			double m_gpu_wait_ms = 0;
+			double m_gpu_wait_ms = 0; // Host time blocked on the step's GPU work. Measured in every build; the other timings need PR_PHYSICS_PROFILE.
 			double m_gpu_reset_ms = 0;
 			double m_unpack_ms = 0;
 			double m_readback_access_ms = 0;

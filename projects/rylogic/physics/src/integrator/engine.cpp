@@ -96,22 +96,20 @@ namespace pr::physics
 		}
 		void CompleteGpuJob(GpuJob& job, GpuJob::RunHandle& run, Engine::StepProfile& profile)
 		{
+			// The host wait for the GPU is timed in every build, so callers can separate GPU-bound step time from CPU work.
 			++profile.m_wait_count;
+			auto run_profile = GpuJob::RunProfile{};
+			job.Complete(run, &run_profile);
+			profile.m_gpu_wait_ms = run_profile.m_wait_ms;
 			if constexpr (PR_PHYSICS_PROFILE != 0)
 			{
-				auto run_profile = GpuJob::RunProfile{};
-				job.Complete(run, &run_profile);
-				profile.m_gpu_wait_ms = run_profile.m_wait_ms;
+				// The remaining job phases are profiled only in profiling builds.
 				profile.m_gpu_reset_ms = run_profile.m_reset_ms;
 				profile.m_gpu_run_ms =
 					profile.m_gpu_prepare_ms +
 					profile.m_gpu_execute_ms +
 					profile.m_gpu_wait_ms +
 					profile.m_gpu_reset_ms;
-			}
-			else
-			{
-				job.Complete(run);
 			}
 		}
 		void RunGpuJob(GpuJob& job, Engine::StepProfile& profile)
