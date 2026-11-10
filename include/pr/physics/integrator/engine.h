@@ -51,7 +51,7 @@ namespace pr::physics
 			double m_gpu_run_ms = 0;
 			double m_gpu_prepare_ms = 0;
 			double m_gpu_execute_ms = 0;
-			double m_gpu_wait_ms = 0;
+			double m_gpu_wait_ms = 0; // Host time blocked on the step's GPU work. Measured in every build; the other timings need PR_PHYSICS_PROFILE.
 			double m_gpu_reset_ms = 0;
 			double m_unpack_ms = 0;
 			double m_readback_access_ms = 0;
@@ -470,7 +470,8 @@ namespace pr::physics
 		void Upload(bool retain_frame_forces);
 
 		// Apply forces, evolve body dynamics forward in time, and generate AABBs for broadphase.
-		void Integrate(float dt);
+		// 'drift_clamped' applies the world-contact drift clamps, which must have been written for this 'dt' from the current poses.
+		void Integrate(float dt, bool drift_clamped);
 		
 		// Apply user-supplied GPU forces before integration.
 		void ApplyExternalForces(float dt, double time_s, int substep_index, int substep_count);
@@ -481,8 +482,11 @@ namespace pr::physics
 		// Broadphase collision detection with optional connected-body pair suppression.
 		void BroadPhase(bool sleeping_enabled, std::span<GpuCollisionExclusion const> collision_exclusions = {});
 
-		// Narrow phase collision detection to generate contact points.
-		void Collide();
+		// Narrow phase collision detection to generate contact points. 'dt' is the duration of the next integration drift, used for world-contact drift clamps.
+		void Collide(float dt);
+
+		// Write world-contact drift clamps for an integration drift of 'dt' seconds from the current poses, without generating contacts.
+		void RefreshDriftClamps(float dt);
 
 		// Apply impulses to resolve collisions and update body dynamics.
 		void Resolve(float dt, int substep_index);

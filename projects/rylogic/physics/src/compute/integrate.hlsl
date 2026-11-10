@@ -8,6 +8,8 @@
 //
 // Buffer layout:
 //   t0: StructuredBuffer<GpuFrameForce>       — frame-constant force seed
+//   t1: StructuredBuffer<GpuDriftClampRange>  — per-body drift-clamp instance range (CSIntegrate only)
+//   t2: StructuredBuffer<GpuDriftClampPlane>  — drift-clamp planes, 'DriftClampSlotsPerInstance' per instance (CSIntegrate only)
 //   u0: RWStructuredBuffer<GpuCollisionCounters> - shared step counters
 //   u1: RWStructuredBuffer<GpuRigidBody>      — per-body dynamic state (read/write)
 //   u2: RWStructuredBuffer<int>               — per-body encoded BodyIndex (write)
@@ -43,12 +45,18 @@ struct cbIntegrate
 	float sleep_velocity_threshold_lin;
 	float sleep_velocity_threshold_ang;
 	int broadphase_sort_axis;
+	int clamp_body_count; // Bodies [0, clamp_body_count) have drift-clamp ranges in t1. Zero disables drift clamps.
+	uint clamp_modes;     // Bit 'm' set when the slots of world-contact mode 'm' hold current clamps.
+	float pad0;
+	float pad1;
 	float pad2;
 };
 
 // Shader resources
 ConstantBuffer<cbIntegrate> resource(g, b0);
 StructuredBuffer<GpuFrameForce> resource(g_frame_forces, t0);
+StructuredBuffer<GpuDriftClampRange> resource(g_clamp_ranges, t1);
+StructuredBuffer<GpuDriftClampPlane> resource(g_clamps, t2);
 RWStructuredBuffer<GpuCollisionCounters> resource(g_counters, u0);
 RWStructuredBuffer<GpuRigidBody> resource(g_bodies, u1);
 RWStructuredBuffer<int> resource(g_aabb_idx, u2);
@@ -58,6 +66,46 @@ RWStructuredBuffer<BBox> resource(g_aabb_box, u4);
 static const int AngularDriftSubstepMax = 32;
 static const float AngularDriftMaxRadians = 0.25f;
 static const int AngularDriftIterationCount = 8;
+static const int DriftClampPassCount = 4;
+
+// Keep the drifted body on the permitted side of its drift-clamp planes by translating the end-of-drift centre of mass. Only the integrated
+// position changes; momentum is untouched, so the following collision pass sees the body touching the surface with its full approach velocity
+// and the contact solver applies the real impact, including restitution and friction. Rotation is kept, and each plane pushes the body along
+// its own normal, so a few passes are used to settle several planes that push in different directions.
+void ApplyDriftClamps(inout float3 new_com_pos, float3x3 new_rot, float3 os_com, int idx)
+{
+	// Bodies without ranges, and integrations that are not followed by a collision pass, have no current clamps.
+	if (idx >= g.clamp_body_count || g.clamp_modes == 0)
+		return;
+
+	GpuDriftClampRange range = g_clamp_ranges[idx];
+	for (int pass = 0; pass != DriftClampPassCount; ++pass)
+	{
+		// Visit the valid slots of each active mode. Slots of inactive modes are never written, so they must not be read as empty.
+		for (uint i = 0; i != range.count; ++i)
+		{
+			for (uint mode = 0; mode != 2; ++mode)
+			{
+				if ((g.clamp_modes & (1u << mode)) == 0)
+					continue;
+
+				for (uint quadrant = 0; quadrant != DriftClampSlotsPerMode; ++quadrant)
+				{
+					// Measure the clamped point at the drifted pose and move the body back onto the plane if the point crossed it.
+					GpuDriftClampPlane clamp = g_clamps[(range.first + i) * DriftClampSlotsPerInstance + mode * DriftClampSlotsPerMode + quadrant];
+					if (clamp.point_bs.w == 0)
+						continue;
+
+					float3 new_pos = new_com_pos - mul(os_com, new_rot);
+					float3 point_ws = mul(clamp.point_bs.xyz, new_rot) + new_pos;
+					float separation = dot(clamp.plane_ws.xyz, point_ws) - clamp.plane_ws.w;
+					if (separation < 0)
+						new_com_pos -= clamp.plane_ws.xyz * separation;
+				}
+			}
+		}
+	}
+}
 
 // Restore frame-constant forces before per-substep GPU force modules add state-dependent contributions.
 numthreads(CSSeedWorkingForces, IntegrateThreadCount, 1, 1)
@@ -345,6 +393,7 @@ void CSIntegrate(int3 DTID(dtid))
 	float3 com_ws = mul(os_com, rot);          // world-space CoM offset
 	float3 com_pos = body.o2w[3].xyz + com_ws; // world-space CoM position
 	float3 new_com_pos = com_pos + vel_lin * g.dt;
+	ApplyDriftClamps(new_com_pos, new_rot, os_com, idx);
 	float3 new_pos = new_com_pos - mul(os_com, new_rot);
 
 	// Write back the updated transform

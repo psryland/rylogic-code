@@ -24,6 +24,9 @@ static const int MaxColours = 32;
 static const int GpuContactMaxPoints = 4;
 static const int GpuConstraintRowsPerBlock = 6;
 
+// World-surface drift clamps: four spatial quadrants for each of the two world surface modes (terrain, cylinder) per sampled leaf instance.
+static const int DriftClampSlotsPerMode = 4;
+static const int DriftClampSlotsPerInstance = 8;
 #ifdef __cplusplus
 // Collision-event gathering reuses resolver-generated indirect dispatch arguments and therefore requires identical group widths.
 static_assert(FrameOutputThreadCount == ResolveThreadCount, "Frame-output and resolver thread counts must remain identical");
@@ -606,6 +609,22 @@ struct GpuFrameForce
 {
 	float4 force_ang;
 	float4 force_lin;
+};
+
+// A one-sided static plane that limits how far one body point may move during the next integration drift. It changes position only, never momentum.
+// 'plane_ws.xyz' is the unit world normal toward the permitted side and 'plane_ws.w' is dot(normal, any point on the plane).
+// 'point_bs.xyz' is the constrained point in body space (the frame of GpuRigidBody::o2w). 'point_bs.w' is 1 for a valid plane and 0 for an empty slot.
+struct GpuDriftClampPlane
+{
+	float4 plane_ws;
+	float4 point_bs;
+};
+
+// The contiguous range of drift-clamp instances that belong to one body. Each instance owns 'DriftClampSlotsPerInstance' planes.
+struct GpuDriftClampRange
+{
+	uint first;
+	uint count;
 };
 
 // One reduced-coordinate tree and its contiguous ranges in the packed articulation buffers.

@@ -304,6 +304,7 @@ namespace pr::rdr12
 	{
 		auto inst_has_alpha = HasAlpha(inst);
 		auto material_override = FindMaterial(inst);
+		auto const* sort_key_override = inst.find<SKOverride>(EInstComp::SortkeyOverride);
 
 		// Add a draw list element for each nugget in the instance's model
 		for (auto& nugget : Enumerate(nuggets))
@@ -332,8 +333,8 @@ namespace pr::rdr12
 
 				// Create the combined sort key for this nugget
 				auto sk = nug.m_sort_key;
-				if (auto* sko = inst.find<SKOverride>(EInstComp::SortkeyOverride))
-					sk = sko->Combine(sk);
+				if (sort_key_override != nullptr)
+					sk = sort_key_override->Combine(sk);
 
 				// Let the material add pass-specific sort key information.
 				sk = pass->AddSortKey(m_step_id, inst, material, nug, sk);
@@ -1348,9 +1349,9 @@ namespace pr::rdr12
 			auto const& instance = *dle.m_instance;
 			auto desc = default_pipe_state;
 			
-			// If the instance is skinned, get the post-skinned vertex buffer for this instance's pose
+			// If the instance is skinned, get the post-skinned vertex buffer for this instance's pose. Only skinned models look up a pose.
 			auto const* vb_view = &nugget.m_model->m_vb_view;
-			if (PosePtr pose = FindPose(instance); pose && nugget.m_model->m_skin)
+			if (PosePtr pose = nugget.m_model->m_skin ? FindPose(instance) : PosePtr{}; pose)
 			{
 				vb_view = &rdr().SkinnedGeometry().VBufView(cmd_list, m_upload_buffer, *nugget.m_model, pose);
 

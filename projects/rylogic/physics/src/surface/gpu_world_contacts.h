@@ -69,6 +69,7 @@ namespace pr::physics
 		std::vector<surface::SurfacePatch> m_patches;
 		std::vector<Range> m_ranges;
 		std::vector<Instance> m_instances;
+		std::vector<GpuDriftClampRange> m_clamp_ranges; // Instance range of every uploaded body, indexed by body. Instances are pushed in body order.
 		std::vector<Shape const*> m_sources;
 		std::vector<bool> m_planned;
 		std::unordered_map<std::string, CachedPlan> m_plan_cache; // Primitive plans keyed by plan-relevant shape content and spacing (see PlanFor).
@@ -77,6 +78,8 @@ namespace pr::physics
 		uint32_t m_max_samples[2] = {}; // Largest per-instance sample count for terrain (0) and cylinder (1) plans in this frame.
 		terrain::landscape::shared::BaselineLocalRecipe m_local_recipe_host; // Single-precision terrain recipe, prepared at construction and uploaded on first use.
 		D3DPtr<ID3D12Resource> m_recipe, m_local_recipe, m_plans, m_patch_buffer, m_instance_buffer, m_status, m_candidates;
+		D3DPtr<ID3D12Resource> m_clamp_range_buffer; // StructuredBuffer<GpuDriftClampRange>, one per uploaded body.
+		D3DPtr<ID3D12Resource> m_clamps;             // RWStructuredBuffer<GpuDriftClampPlane>, 'DriftClampSlotsPerInstance' per instance.
 		D3DPtr<ID3D12QueryHeap> m_queries;
 		D3DPtr<ID3D12Resource> m_query_readback;
 		uint32_t m_query_capacity = 0, m_query_count = 0;
@@ -95,8 +98,24 @@ namespace pr::physics
 		void Upload(GpuJob& job, ShapeCache const& shapes, std::span<GpuRigidBody const> bodies, int substeps, uint32_t world_layer, uint32_t world_mask);
 
 		// Append world constraints for awake or disturbed bodies and update the ordinary contact stream's indirect dispatch.
-		void Collide(GpuJob& job, int endpoint, int max_contacts, bool sleeping_enabled, int island_count, ID3D12Resource* sleep_islands,
+		// Also replace every instance's drift clamps (see DriftClamps). 'dt' is the duration (seconds) of the next integration drift;
+		// clear samples that can cross the surface within it produce drift clamps. Zero 'dt' clears every drift clamp.
+		void Collide(GpuJob& job, float dt, int endpoint, int max_contacts, bool sleeping_enabled, int island_count, ID3D12Resource* sleep_islands,
 			ID3D12Resource* bodies, ID3D12Resource* shapes, ID3D12Resource* contacts, ID3D12Resource* counters, ID3D12Resource* dispatch);
+
+		// Replace every instance's drift clamps for an integration drift of 'dt' seconds from the current poses, without appending contacts.
+		// Use this when the next integration is not preceded by Collide, such as the first substep of a frame.
+		void RefreshDriftClamps(GpuJob& job, float dt, int endpoint, int max_contacts, bool sleeping_enabled, int island_count, ID3D12Resource* sleep_islands,
+			ID3D12Resource* bodies, ID3D12Resource* shapes, ID3D12Resource* contacts, ID3D12Resource* counters);
+
+		// Drift-clamp planes and per-body instance ranges for integration. Valid after Upload and a later Collide or RefreshDriftClamps
+		// in the same frame; the ranges cover the first 'DriftClampBodyCount' bodies.
+		ID3D12Resource* DriftClamps();
+		ID3D12Resource* DriftClampRanges();
+		int DriftClampBodyCount() const;
+
+		// Bit 0 is set when the terrain writes drift clamps and bit 1 when the cylinder does. Integration must ignore the slots of other modes.
+		uint32_t DriftClampModes() const;
 
 		// Record status and timestamp readbacks without submitting or waiting.
 		ReadbackAlloc Readback(GpuJob& job);
@@ -107,8 +126,8 @@ namespace pr::physics
 		// Return the plan for a primitive leaf at 'spacing', building it only when no leaf with the same geometry has one.
 		surface::Plan const& PlanFor(Shape const& shape, float spacing);
 
-		// Record one surface-contact dispatch using the current poses and cached sampled streams.
-		void Dispatch(GpuJob& job, int mode, int endpoint, int max_contacts, bool sleeping_enabled, int island_count, ID3D12Resource* sleep_islands,
+		// Record one surface-contact dispatch using the current poses and cached sampled streams. A null 'dispatch' refreshes only the drift clamps.
+		void Dispatch(GpuJob& job, int mode, float dt, int endpoint, int max_contacts, bool sleeping_enabled, int island_count, ID3D12Resource* sleep_islands,
 			ID3D12Resource* bodies, ID3D12Resource* shapes, ID3D12Resource* contacts, ID3D12Resource* counters, ID3D12Resource* dispatch);
 	};
 }

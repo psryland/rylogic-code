@@ -5,6 +5,7 @@
 #pragma once
 #include <type_traits>
 #include <filesystem>
+#include "pr/compute/utility/gpu_stamps.h"
 
 // Defined in '/build/targets/WinPixEventRuntime.targets'
 #ifndef PR_PIX_ENABLED
@@ -88,6 +89,8 @@ namespace pr::compute::pix
 	template<typename CONTEXT, typename... ARGS>
 	inline void BeginEvent(CONTEXT* context, unsigned long colour, char const* format_string, ARGS... args)
 	{
+		// GPU timestamp regions follow the PIX regions, see 'gpu_stamps.h'.
+		gpu_stamps::Begin(context, format_string, args...);
 		#if PR_PIX_ENABLED
 		PIXBeginEvent(context, colour, format_string, std::forward<ARGS>(args)...);
 		#else
@@ -98,6 +101,8 @@ namespace pr::compute::pix
 	template<typename CONTEXT>
 	inline void EndEvent(CONTEXT* context)
 	{
+		// Close the matching GPU timestamp region.
+		gpu_stamps::End(context);
 		#if PR_PIX_ENABLED
 		PIXEndEvent(context);
 		#else
@@ -106,18 +111,16 @@ namespace pr::compute::pix
 	}
 
 	// Detailed profiling is off by default. Set PR_PIX_DETAIL=1 before startup; the setting is cached on first use.
+	// Detail regions are recorded when PIX events or GPU timestamps (see 'gpu_stamps.h') are enabled.
 	inline bool DetailEnabled()
 	{
-		#if PR_PIX_ENABLED
 		static bool const enabled = []
 		{
 			char value[2] = {};
-			return GetEnvironmentVariableA("PR_PIX_DETAIL", value, sizeof(value)) == 1 && value[0] == '1';
+			auto requested = GetEnvironmentVariableA("PR_PIX_DETAIL", value, sizeof(value)) == 1 && value[0] == '1';
+			return requested && (PR_PIX_ENABLED || gpu_stamps::Enabled());
 		}();
 		return enabled;
-		#else
-		return false;
-		#endif
 	}
 
 	// Attach changing diagnostic values without splitting stable GPU region names used for aggregation.

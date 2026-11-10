@@ -492,6 +492,7 @@ internal static unsafe partial class Native
 	[DllImport(Dll)] internal static extern EStatus Physics_SnapshotCopy(ulong engine, BodySnapshot* snapshots, uint capacity, out uint required);
 	[DllImport(Dll)] internal static extern EStatus Physics_EventsCopy(ulong engine, PhysicsEvent* events, uint capacity, out uint required);
 	[DllImport(Dll)] internal static extern EStatus Physics_DiagnosticsGet(ulong engine, Diagnostics* diagnostics);
+	[DllImport(Dll)] internal static extern EStatus Physics_StateChecksumGet(ulong engine, out ulong checksum);
 	[DllImport(Dll)] internal static extern EStatus Physics_CheckpointSize(ulong engine, out ulong required);
 	[DllImport(Dll)] internal static extern EStatus Physics_CheckpointWrite(ulong engine, void* buffer, ulong capacity, out ulong written);
 	[DllImport(Dll)] internal static extern EStatus Physics_CheckpointRead(ulong engine, void* buffer, ulong size);
