@@ -694,7 +694,7 @@ namespace pr::rdr12
 
 				// If the instance is skinned, get the post-skinned vertex buffer for this instance's pose
 				auto const* vb_view = &nugget.m_model->m_vb_view;
-				if (PosePtr pose = FindPose(instance); pose && nugget.m_model->m_skin)
+				if (PosePtr pose = nugget.m_model->m_skin ? FindPose(instance) : PosePtr{}; pose)
 					vb_view = &rdr().SkinnedGeometry().VBufView(m_cmd_list, m_upload_buffer, *nugget.m_model, pose);
 
 				// Set the pipeline state and geometry
