@@ -1,0 +1,12 @@
+{
+  "profiles": {
+    "Rylogic.Audio.Authoring.App": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      "applicationUrl": "https://localhost:51906;http://localhost:51907"
+    }
+  }
+}
