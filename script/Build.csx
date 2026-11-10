@@ -33,6 +33,7 @@ public enum EProjects
 	View3dUI,           // = "View3dUI";
 	P3d,                // = "P3d";
 	RylogicAudio,       // = "Rylogic.Audio";
+	RylogicAudioAuthoring, // = "Rylogic.Audio.Authoring";
 	RylogicCore,        // = "Rylogic.Core";
 	RylogicD3D12,       // = "Rylogic.D3D12";
 	RylogicDB,          // = "Rylogic.DB";
@@ -764,6 +765,20 @@ public class RylogicAudio : RylogicAssembly
 		package.Deps.Add(new Nuget.Dep("Rylogic.Core", $"[{RylogicLibraryVersion},)"));
 		package.Deps.Add(new Nuget.Dep("Rylogic.Native", $"[{RylogicLibraryVersion},)"));
 		package.Deps.Add(new Nuget.Dep("System.Memory", "[4.6.0,)", "net481"));
+	}
+}
+// Authoring runs only on development machines, so the package targets the primary framework only.
+public class RylogicAudioAuthoring : RylogicAssembly
+{
+	public RylogicAudioAuthoring(string workspace, List<string>? platforms = null, List<string>? configs = null)
+		:base("Rylogic.Audio.Authoring", ["net10.0-windows"], workspace, platforms, configs)
+	{}
+	protected override void Populate(Nuget package)
+	{
+		base.Populate(package);
+		package.Description = "Non-destructive game audio preparation: sources, variants, processing recipes, a deterministic renderer and a render cache.";
+		package.Tags += " audio authoring sound preparation recipe";
+		package.Deps.Add(new Nuget.Dep("Rylogic.Core", $"[{RylogicLibraryVersion},)"));
 	}
 }
 public class RylogicCore : RylogicAssembly

@@ -77,7 +77,7 @@ dotnet build projects/rylogic/Rylogic.Core/Rylogic.Core.csproj -c Debug
 ```
 Individual test filtering is not supported — tests run as a batch per assembly. Fixtures run in parallel (one fixture per worker thread);
 `UnitTest.RunTests(assembly, threads: N)` controls the thread count, and a fixture flagged `EUnitTestFlags.Serial` runs alone after the parallel
-fixtures. Each run writes per-test durations to `obj/unittests/<assembly>/timings.csv`.
+fixtures. Each run writes per-test durations to `obj/unittests/<assembly>/<output folder>/timings.csv`.
 
 ### C++ Unit Tests
 Tests use a lightweight custom framework (`include/pr/common/unittests.h`), also inline:
