@@ -90,8 +90,14 @@ jobs:
 
           "version=$project_version" >> $env:GITHUB_OUTPUT
 
-      # Azure CLI cannot refresh a GitHub OIDC login, so log in before each signing build step to keep the token fresh.
+      # The GitHub OIDC assertion behind an Azure login expires five minutes after the login, and Azure CLI cannot refresh it. Builds take much
+      # longer than that, so they run without signing, and each login immediately precedes a deploy-only step that signs as soon as it starts.
+      # The first signing request caches an access token that outlives the rest of the step.
       # The identity can only sign with the Artifact Signing account, so it needs no subscription access.
+      - name: Build native libraries
+        shell: pwsh
+        run: dotnet-script .\script\Build.csx -project AllNative -build -configs Debug Release -notests -nopack
+
       - name: Azure login for code signing (native)
         uses: azure/login@v2
         with:
@@ -101,7 +107,11 @@ jobs:
 
       - name: Bootstrap native package
         shell: pwsh
-        run: dotnet-script .\script\Build.csx -project AllNative -build -deploy -configs Debug Release -notests -nopack
+        run: dotnet-script .\script\Build.csx -project AllNative -deploy -configs Debug Release -norestore
+
+      - name: Build public package set
+        shell: pwsh
+        run: dotnet-script .\script\Build.csx -project AllRylogic -build -configs Debug Release -notests -nopack
 
       - name: Azure login for code signing (managed)
         uses: azure/login@v2
@@ -110,9 +120,9 @@ jobs:
           tenant-id: ${{ vars.AZURE_CODESIGN_TENANT_ID }}
           allow-no-subscriptions: true
 
-      - name: Build public package set
+      - name: Package public package set
         shell: pwsh
-        run: dotnet-script .\script\Build.csx -project AllRylogic -build -deploy -configs Debug Release -notests -nopack
+        run: dotnet-script .\script\Build.csx -project AllRylogic -deploy -configs Debug Release -norestore
 
       - name: Restore representative consumers
         shell: pwsh
