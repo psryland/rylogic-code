@@ -301,7 +301,9 @@ public sealed class EngineOptions
 	public uint SampleRate { get; set; }
 	public uint ChannelCount { get; set; }
 	public float SpeedOfSound { get; set; } = 343.0f;
-	public float MaxEngineBufferMs { get; set; } = 40.0f;
+
+	/// <summary>Decoded audio each stream keeps queued ahead of playback, in milliseconds. Streams underrun only when not refilled within this time.</summary>
+	public float StreamLookaheadMs { get; set; } = 250.0f;
 }
 
 /// <summary>
@@ -521,7 +523,7 @@ public unsafe struct Diagnostics
 	public uint m_device_reset_count;
 	public uint m_output_channel_count;
 	public uint m_output_sample_rate;
-	public float m_engine_buffer_ms;
+	public float m_stream_lookahead_ms;
 
 	/// <summary>The number of valid master meter channels.</summary>
 	public uint m_meter_channel_count;
