@@ -158,6 +158,27 @@ namespace pr::rdr12
 		}
 	}
 
+	// Apply the primitive topology of 'nugget' to 'desc'.
+	void RenderStep::ApplyGeometryPipeline(PipeStateDesc& desc, Nugget const& nugget)
+	{
+		// Strip topologies restart at the cut value that matches the index format.
+		desc.Apply(PSO<EPipeState::TopologyType>(To<D3D12_PRIMITIVE_TOPOLOGY_TYPE>(nugget.m_topo)));
+		if (IsStripTopo(nugget.m_topo))
+			desc.Apply(PSO<EPipeState::IBStripCutValue>(StripCutValue(nugget.m_model->m_ib_view.Format)));
+	}
+
+	// Apply the caller-owned pipeline overrides to 'desc'.
+	void RenderStep::ApplyPipeStateOverrides(PipeStateDesc& desc, Nugget const& nugget, BaseInstance const& instance) const
+	{
+		// Later overrides win, so the most specific owner is applied last.
+		for (auto const& ps : scn().m_pso)
+			desc.Apply(ps);
+		for (auto const& ps : nugget.m_pso)
+			desc.Apply(ps);
+		for (auto const& ps : GetPipeStates(instance))
+			desc.Apply(ps);
+	}
+
 	// Notification of a model being destroyed
 	void RenderStep::OnModelDeleted(Model& model, EmptyArgs const&) const // any thread
 	{

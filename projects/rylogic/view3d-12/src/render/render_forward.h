@@ -75,8 +75,9 @@ namespace pr::rdr12
 
 	private:
 
-		// Reject a draw whose material cannot select its forward pixel shaders, such as a mismatched procedural pixel family.
-		void ValidateMaterial(DrawListElement const& dle) const;
+		// Compose the pipeline state for drawing 'nugget' of 'instance' with 'pass' of 'material', starting from the sub-pass default in 'desc'.
+		// 'population' selects the population vertex shaders. Issues no commands. Throws if the material cannot be drawn in the sub-pass.
+		void ComposePipeline(PipeStateDesc& desc, Nugget const& nugget, BaseInstance const& instance, Material const& material, MaterialPass const& pass, bool population) const;
 
 		// Perform the render step
 		void Execute(Frame& frame) override;

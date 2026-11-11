@@ -22,7 +22,7 @@ namespace pr::rdr12
 	void MaterialPass::Bind(MaterialPassContext&) const
 	{}
 
-	// Apply material pipeline state once caller-owned PSO overrides have been applied.
-	void MaterialPass::ApplyPipeline(MaterialPassContext&) const
+	// Apply the material's pipeline state after caller-owned pipeline overrides.
+	void MaterialPass::SelectPipeline(MaterialPipelineContext const&, PipeStateDesc&) const
 	{}
 }

@@ -226,6 +226,7 @@ namespace pr::rdr12
 	struct Material;
 	struct MaterialPass;
 	struct MaterialPassContext;
+	struct MaterialPipelineContext;
 	struct MaterialPBR;
 	struct MaterialSimple;
 	using MaterialPtr = RefPtr<Material const>;

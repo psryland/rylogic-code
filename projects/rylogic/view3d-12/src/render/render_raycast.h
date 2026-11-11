@@ -89,6 +89,10 @@ namespace pr::rdr12
 
 		// Step up the GPU call for the ray cast
 		GpuTransferAllocation ExecuteCore();
+
+		// Compose the pipeline state for ray casting against 'nugget' of 'instance' with 'pass' of 'material'. Issues no commands.
+		// Throws if the nugget's topology cannot be ray cast.
+		void ComposePipeline(PipeStateDesc& desc, Nugget const& nugget, BaseInstance const& instance, Material const& material, MaterialPass const& pass) const;
 	
 		// Draw a single nugget
 		void DrawNugget(Nugget const& nugget, PipeStateDesc& desc);

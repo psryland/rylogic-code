@@ -96,6 +96,12 @@ namespace pr::rdr12
 		// nugget's shader collection contains the appropriate shaders.
 		virtual void AddNuggets(BaseInstance const& inst, NuggetPtr nuggets, drawlist_t& drawlist) = 0;
 
+		// Apply the primitive topology of 'nugget' to 'desc', including the strip cut value of strip topologies.
+		static void ApplyGeometryPipeline(PipeStateDesc& desc, Nugget const& nugget);
+
+		// Apply the caller-owned pipeline overrides to 'desc' in increasing precedence: the scene, then 'nugget', then 'instance'.
+		void ApplyPipeStateOverrides(PipeStateDesc& desc, Nugget const& nugget, BaseInstance const& instance) const;
+
 	private:
 
 		// Notification of a model being destroyed

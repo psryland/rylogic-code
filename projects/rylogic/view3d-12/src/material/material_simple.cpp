@@ -22,45 +22,70 @@
 
 namespace pr::rdr12
 {
-	// Apply shader overlays supported by the active material render step.
-	void materials::ApplyShaderOverlays(MaterialPassContext& ctx, bool procedural_only)
+	namespace
 	{
-		// Preserve broad legacy overlays for Forward while restricting secondary raster passes to the public procedural contract.
-		auto const* overlays = ctx.m_material.Component<ShaderOverlays>();
-		if (overlays == nullptr)
-			return;
-
-		for (auto& shdr_overlay : overlays->m_overlays)
+		// Call 'fn(overlay, procedural)' for each overlay of 'material' that applies to 'step', in application order.
+		// Forward accepts broad legacy overlays, while secondary raster passes pass 'procedural_only' to accept only the public procedural contract.
+		template <typename Fn>
+		void ForEachShaderOverlay(Material const& material, ERenderStep step, bool procedural_only, Fn fn)
 		{
-			// Apply only overlays explicitly assigned to this pass.
-			if (shdr_overlay.m_rdr_step != ctx.m_step_id)
-				continue;
+			// Materials without overlays use the stock pipeline.
+			auto const* overlays = material.Component<materials::ShaderOverlays>();
+			if (overlays == nullptr)
+				return;
 
-			auto& overlay = *shdr_overlay.m_overlay.get();
-			auto* procedural = dynamic_cast<ProceduralShader*>(&overlay);
-			if (procedural_only && procedural == nullptr)
-				continue;
-			if (procedural != nullptr && procedural->m_rdr_step != ctx.m_step_id)
-				throw std::runtime_error("Procedural shader render-step contract mismatch");
+			for (auto& shdr_overlay : overlays->m_overlays)
+			{
+				// Apply only overlays explicitly assigned to this pass, and reject procedural overlays written for another pass.
+				if (shdr_overlay.m_rdr_step != step)
+					continue;
+
+				auto& overlay = *shdr_overlay.m_overlay.get();
+				auto* procedural = dynamic_cast<ProceduralShader*>(&overlay);
+				if (procedural_only && procedural == nullptr)
+					continue;
+				if (procedural != nullptr && procedural->m_rdr_step != step)
+					throw std::runtime_error("Procedural shader render-step contract mismatch");
+
+				fn(overlay, procedural);
+			}
+		}
+	}
+
+	// Apply the pipeline state of the shader overlays supported by the active material render step.
+	void materials::SelectShaderOverlays(MaterialPipelineContext const& ctx, PipeStateDesc& desc, bool procedural_only)
+	{
+		ForEachShaderOverlay(ctx.m_material, ctx.m_step_id, procedural_only, [&](Shader& overlay, ProceduralShader* procedural)
+		{
+			// A complete legacy overlay owns its signature as well as its shader stages.
+			if (overlay.m_signature)
+				desc.Apply(PSO<EPipeState::RootSignature>(overlay.m_signature.get()));
+			if (overlay.m_code.VS) desc.Apply(PSO<EPipeState::VS>(overlay.m_code.VS));
+			if (overlay.m_code.PS) desc.Apply(PSO<EPipeState::PS>(overlay.m_code.PS));
+			if (overlay.m_code.DS) desc.Apply(PSO<EPipeState::DS>(overlay.m_code.DS));
+			if (overlay.m_code.HS) desc.Apply(PSO<EPipeState::HS>(overlay.m_code.HS));
+			if (overlay.m_code.GS) desc.Apply(PSO<EPipeState::GS>(overlay.m_code.GS));
+			if (procedural != nullptr && procedural->HasPixelFamily())
+				ApplyForwardPixelFamily(desc, procedural->m_pixel_family);
+		});
+	}
+
+	// Bind the root signatures and resources of the shader overlays supported by the active material render step.
+	void materials::BindShaderOverlays(MaterialPassContext& ctx, bool procedural_only)
+	{
+		ForEachShaderOverlay(ctx.m_material, ctx.m_step_id, procedural_only, [&](Shader& overlay, ProceduralShader*)
+		{
+			// An overlay signature replaces the stock root contract, so the caller must rebind its frame resources.
 			if (overlay.m_signature)
 			{
-				// A complete legacy overlay owns its signature as well as its shader stages.
-				ctx.m_pipe_state.Apply(PSO<EPipeState::RootSignature>(overlay.m_signature.get()));
 				ctx.m_cmd_list.SetGraphicsRootSignature(overlay.m_signature.get());
 				ctx.m_root_signature_changed = true;
 			}
-			if (overlay.m_code.VS) ctx.m_pipe_state.Apply(PSO<EPipeState::VS>(overlay.m_code.VS));
-			if (overlay.m_code.PS) ctx.m_pipe_state.Apply(PSO<EPipeState::PS>(overlay.m_code.PS));
-			if (overlay.m_code.DS) ctx.m_pipe_state.Apply(PSO<EPipeState::DS>(overlay.m_code.DS));
-			if (overlay.m_code.HS) ctx.m_pipe_state.Apply(PSO<EPipeState::HS>(overlay.m_code.HS));
-			if (overlay.m_code.GS) ctx.m_pipe_state.Apply(PSO<EPipeState::GS>(overlay.m_code.GS));
-			if (procedural != nullptr && procedural->HasPixelFamily())
-				ApplyForwardPixelFamily(ctx.m_pipe_state, procedural->m_pixel_family);
 
 			// Bind overlay-owned resources after the base material has established its stock root contract.
 			overlay.SetupFrame(ctx.m_cmd_list.get(), ctx.m_upload, ctx.m_scene);
 			overlay.SetupElement(ctx.m_cmd_list.get(), ctx.m_upload, ctx.m_scene, ctx.m_camera, &ctx.m_dle);
-		}
+		});
 	}
 
 	// Replace the layers in use and the base slope variance. 'layers' must contain at most MaxLayers valid entries.
@@ -266,7 +291,7 @@ namespace pr::rdr12
 				}
 			}
 
-			// Bind resources and constants for the simple material pass.
+			// Bind resources and constants for the simple material pass, followed by those of its shader overlays.
 			void Bind(MaterialPassContext& ctx) const override
 			{
 				switch (ctx.m_step_id)
@@ -274,16 +299,19 @@ namespace pr::rdr12
 					case ERenderStep::RenderForward:
 					{
 						BindForward(ctx);
+						materials::BindShaderOverlays(ctx, false);
 						return;
 					}
 					case ERenderStep::ShadowMap:
 					{
 						BindShadowMap(ctx);
+						materials::BindShaderOverlays(ctx, true);
 						return;
 					}
 					case ERenderStep::RayCast:
 					{
 						BindRayCast(ctx);
+						materials::BindShaderOverlays(ctx, true);
 						return;
 					}
 					case ERenderStep::RayTracing:
@@ -298,21 +326,21 @@ namespace pr::rdr12
 				}
 			}
 
-			// Apply pipeline changes for the simple material pass.
-			void ApplyPipeline(MaterialPassContext& ctx) const override
+			// Apply the pipeline state of the simple material pass.
+			void SelectPipeline(MaterialPipelineContext const& ctx, PipeStateDesc& desc) const override
 			{
 				// Force two-sided rasterisation for materials that need normal flipping on back faces.
-				static auto ApplyTwoSidedPipeline = [](MaterialPassContext& ctx)
+				static auto ApplyTwoSidedPipeline = [](MaterialPipelineContext const& ctx, PipeStateDesc& desc)
 				{
 					auto const* two_sided = ctx.m_material.Component<materials::TwoSided>();
 					if (two_sided == nullptr || !two_sided->m_enabled)
 						return;
 
 					// Alpha variants already render front/back faces separately for sorting, so overriding their cull mode would double-submit both sides.
-					if (ctx.m_dle.m_nugget->m_variant == AlphaNugget)
+					if (ctx.m_nugget.m_variant == AlphaNugget)
 						return;
 
-					ctx.m_pipe_state.Apply(PSO<EPipeState::CullMode>(D3D12_CULL_MODE_NONE));
+					desc.Apply(PSO<EPipeState::CullMode>(D3D12_CULL_MODE_NONE));
 				};
 
 				switch (ctx.m_step_id)
@@ -322,18 +350,18 @@ namespace pr::rdr12
 						// Detail normals swap in their variant of the stock pixel shader first, so a procedural family written for detail-normal
 						// materials can replace that variant. Overlays then apply as for other simple materials.
 						if (ctx.m_material.Component<materials::DetailNormals>() != nullptr)
-							materials::ApplyForwardPixelFamily(ctx.m_pipe_state, shader_code::forward_detail_family);
+							materials::ApplyForwardPixelFamily(desc, shader_code::forward_detail_family);
 
-						materials::ApplyShaderOverlays(ctx, false);
-						ApplyTwoSidedPipeline(ctx);
+						materials::SelectShaderOverlays(ctx, desc, false);
+						ApplyTwoSidedPipeline(ctx, desc);
 						return;
 					}
 					case ERenderStep::ShadowMap:
 					case ERenderStep::RayCast:
 					{
 						// Secondary raster passes accept only the bounded procedural VS overlay.
-						materials::ApplyShaderOverlays(ctx, true);
-						ApplyTwoSidedPipeline(ctx);
+						materials::SelectShaderOverlays(ctx, desc, true);
+						ApplyTwoSidedPipeline(ctx, desc);
 						return;
 					}
 					case ERenderStep::RayTracing:

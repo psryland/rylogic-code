@@ -340,78 +340,46 @@ namespace pr::rdr12
 				sk = pass->AddSortKey(m_step_id, inst, material, nug, sk);
 
 				// Reject unsupported materials before a window starts recording a frame, because a frame abandoned during recording cannot be retired.
-				auto element = DrawListElement{ .m_sort_key = sk, .m_nugget = &nug, .m_instance = &inst };
-				ValidateMaterial(element);
+				// Only procedural pixel families can make the pixel shader selection fail, so other draws skip the composition.
+				if (materials::ProceduralPixelFamily(material, m_step_id) != nullptr)
+				{
+					auto desc = m_default_pipe_state;
+					ComposePipeline(desc, nug, inst, material, *pass, false);
+				}
 
 				// Add an element to the draw list
-				drawlist.push_back(element);
+				drawlist.push_back(DrawListElement{ .m_sort_key = sk, .m_nugget = &nug, .m_instance = &inst });
 				m_sort_needed = true;
 			}
 		}
 	}
 
-	// Evaluate the known material pipeline contract without issuing commands or allocating frame resources.
-	void RenderForward::ValidateMaterial(DrawListElement const& dle) const
+	// Compose the pipeline state for one forward draw.
+	void RenderForward::ComposePipeline(PipeStateDesc& desc, Nugget const& nugget, BaseInstance const& instance, Material const& material, MaterialPass const& pass, bool population) const
 	{
-		// Only procedural pixel families change the pixel shader selection, so other draws need no evaluation.
-		auto const& nugget = *dle.m_nugget;
-		auto const& instance = *dle.m_instance;
-		auto material_override = FindMaterial(instance);
-		auto const& material = material_override != nullptr ? *material_override.get() : nugget.mat();
-		auto const* procedural_family = materials::ProceduralPixelFamily(material, m_step_id);
-		if (procedural_family == nullptr)
+		// The material selects its shaders after the geometry and caller-owned overrides, so it can validate and replace the final stock state.
+		ApplyGeometryPipeline(desc, nugget);
+		ApplyPipeStateOverrides(desc, nugget, instance);
+		pass.SelectPipeline(MaterialPipelineContext{ .m_step_id = m_step_id, .m_material = material, .m_nugget = nugget }, desc);
+		if (!population)
 			return;
 
-		// Material passes are immutable; apply their documented shader selection after caller-owned overrides.
-		auto desc = m_default_pipe_state;
-		for (auto const& state : scn().m_pso)
-			desc.Apply(state);
-		for (auto const& state : nugget.m_pso)
-			desc.Apply(state);
-		for (auto const& state : GetPipeStates(instance))
-			desc.Apply(state);
+		// Population draws place vertices with the population vertex shaders. Procedural vertex shader overlays (accepted by population admission)
+		// place population vertices themselves, so they are kept. Stock vertex shaders are swapped for their population variants. Skinned LOD models
+		// use the variants that pose each instance from the payload.
+		auto vs = desc.Get<EPipeState::VS>().pShaderBytecode;
+		auto const* overlay = PopulationVertexOverlay(material, m_step_id);
+		auto skinned = static_cast<bool>(nugget.m_model->m_skin);
+		if (overlay != nullptr && vs == overlay->m_code.VS.pShaderBytecode)
+			return;
 
-		// Stock PBR chooses its own pixel variant, which a PBR procedural family may replace; simple materials apply shader overlays in order.
-		switch (material.TypeId())
-		{
-			case MaterialPBR::MaterialTypeId:
-			{
-				desc.Apply(PSO<EPipeState::PS>(MaterialPBR::UsesExtraTexCoords(material, &nugget) ? shader_code::forward_texn_pbr_ps : shader_code::forward_pbr_ps));
-				if (procedural_family != nullptr)
-					materials::ApplyForwardPixelFamily(desc, *procedural_family);
-
-				break;
-			}
-			case MaterialSimple::MaterialTypeId:
-			{
-				if (material.Component<materials::DetailNormals>() != nullptr)
-					materials::ApplyForwardPixelFamily(desc, shader_code::forward_detail_family);
-
-				if (auto const* overlays = material.Component<materials::ShaderOverlays>())
-				{
-					for (auto const& entry : overlays->m_overlays)
-					{
-						if (entry.m_rdr_step != m_step_id)
-							continue;
-
-						auto& overlay = *entry.m_overlay.get();
-						if (overlay.m_signature)
-							desc.Apply(PSO<EPipeState::RootSignature>(overlay.m_signature.get()));
-						if (overlay.m_code.PS)
-							desc.Apply(PSO<EPipeState::PS>(overlay.m_code.PS));
-					}
-				}
-				if (procedural_family != nullptr)
-					materials::ApplyForwardPixelFamily(desc, *procedural_family);
-
-				break;
-			}
-			default:
-			{
-				// Other material types own their pixel shaders.
-				return;
-			}
-		}
+		// Only stock vertex shaders have population variants
+		if (vs == shader_code::forward_vs.pShaderBytecode)
+			desc.Apply(PSO<EPipeState::VS>(skinned ? shader_code::forward_skinned_population_vs : shader_code::forward_population_vs));
+		else if (vs == shader_code::forward_texn_pbr_vs.pShaderBytecode)
+			desc.Apply(PSO<EPipeState::VS>(skinned ? shader_code::forward_texn_skinned_population_vs : shader_code::forward_texn_population_vs));
+		else
+			throw std::logic_error("Population draw has a vertex shader without a population variant");
 	}
 
 	// Perform the render step
@@ -1359,20 +1327,20 @@ namespace pr::rdr12
 				pipe_state_bound = false;
 			}
 
-			// Set pipeline state
-			desc.Apply(PSO<EPipeState::TopologyType>(To<D3D12_PRIMITIVE_TOPOLOGY_TYPE>(nugget.m_topo)));
-			if (IsStripTopo(nugget.m_topo))
-				desc.Apply(PSO<EPipeState::IBStripCutValue>(StripCutValue(nugget.m_model->m_ib_view.Format)));
+			// Set the input geometry
 			cmd_list.IASetPrimitiveTopology(nugget.m_topo);
 			cmd_list.IASetVertexBuffers(0U, { vb_view, 1 });
 			cmd_list.IASetIndexBuffer(&nugget.m_model->m_ib_view);
 
-			// Let the material bind per-draw resources and constants.
+			// Compose the pipeline state, then let the material bind per-draw resources and constants.
 			auto material_override = FindMaterial(instance);
 			auto const& material = material_override != nullptr ? *material_override.get() : nugget.mat();
 			auto const* pass = material.Pass(m_step_id);
 			if (pass == nullptr)
 				continue;
+
+			auto const* population = populations.empty() ? nullptr : &populations[s_cast<size_t>(&dle - drawlist.data())];
+			ComposePipeline(desc, nugget, instance, material, *pass, population != nullptr);
 
 			if (!frame_resources_bound)
 				bind_frame_resources();
@@ -1389,7 +1357,6 @@ namespace pr::rdr12
 				.m_material = material,
 				.m_cmd_list = cmd_list,
 				.m_upload = m_upload_buffer,
-				.m_pipe_state = desc,
 				.m_shader = &m_shader,
 				.m_default_tex = m_default_tex.get(),
 				.m_default_sam = m_default_sam.get(),
@@ -1397,46 +1364,17 @@ namespace pr::rdr12
 			};
 			pass->Bind(ctx);
 
-			// Apply scene pipe state overrides
-			{
-				for (auto& ps : scn().m_pso)
-					desc.Apply(ps);
-				for (auto& ps : nugget.m_pso)
-					desc.Apply(ps);
-				for (auto& ps : GetPipeStates(instance))
-					desc.Apply(ps);
-			}
-
-			// Let the material apply shader or PSO changes after caller-owned overrides.
-			pass->ApplyPipeline(ctx);
-
 			// Even a bounds-rejected draw can have changed the material's root bindings.
 			if (ctx.m_root_signature_changed)
 				frame_resources_bound = false;
 
-			// Population draws place vertices with the population vertex shaders, and read the instance records and visible lists.
-			auto const* population = populations.empty() ? nullptr : &populations[s_cast<size_t>(&dle - drawlist.data())];
+			// Population draws read the instance records and visible lists.
 			if (population != nullptr)
 			{
-				// Procedural vertex shader overlays (accepted by population admission) place population vertices themselves, so they are kept.
-				// Stock vertex shaders are swapped for their population variants. Skinned LOD models use the variants that pose each instance from the payload.
-				auto vs = desc.Get<EPipeState::VS>().pShaderBytecode;
-				auto const* overlay = PopulationVertexOverlay(material, m_step_id);
-				auto skinned = static_cast<bool>(nugget.m_model->m_skin);
-				if (overlay == nullptr || vs != overlay->m_code.VS.pShaderBytecode)
-				{
-					// Only stock vertex shaders have population variants
-					if (vs == shader_code::forward_vs.pShaderBytecode)
-						desc.Apply(PSO<EPipeState::VS>(skinned ? shader_code::forward_skinned_population_vs : shader_code::forward_population_vs));
-					else if (vs == shader_code::forward_texn_pbr_vs.pShaderBytecode)
-						desc.Apply(PSO<EPipeState::VS>(skinned ? shader_code::forward_texn_skinned_population_vs : shader_code::forward_texn_population_vs));
-					else
-						throw std::logic_error("Population draw has a vertex shader without a population variant");
-				}
-
 				// The payload and skin slots need valid addresses even when unused, so they alias the instance records.
 				auto const& lists = *population->m_lists;
 				auto const& pop = *lists.m_population;
+				auto skinned = static_cast<bool>(nugget.m_model->m_skin);
 				auto draw = PopulationDraw{ .list = s_cast<uint32_t>(population->m_draw->m_list), .list_base = lists.m_list_base, .offsets = lists.m_offsets, .pad = 0 };
 				cmd_list.SetGraphicsRootShaderResourceView(shaders::fwd::ERootParam::PopulationInstances, GpuAddress(pop.m_instances));
 				cmd_list.SetGraphicsRootShaderResourceView(shaders::fwd::ERootParam::PopulationView, GpuAddress(lists.m_scratch));

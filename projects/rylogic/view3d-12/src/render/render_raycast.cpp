@@ -375,59 +375,28 @@ namespace pr::rdr12
 		{
 			auto const& nugget = *dle.m_nugget;
 			auto const& instance = *dle.m_instance;
-			auto desc = m_default_pipe_state;
 
-			// Select the appropriate geometry shader based on topology
-			switch (nugget.m_topo)
-			{
-				case ETopo::PointList:
-				{
-					desc.Apply(PSO<EPipeState::VS>(shader_code::ray_cast_vs));
-					desc.Apply(PSO<EPipeState::GS>(shader_code::ray_cast_vert_gs));
-					break;
-				}
-				case ETopo::LineList:
-				case ETopo::LineListAdj:
-				case ETopo::LineStrip:
-				case ETopo::LineStripAdj:
-				{
-					desc.Apply(PSO<EPipeState::VS>(shader_code::ray_cast_vs));
-					desc.Apply(PSO<EPipeState::GS>(shader_code::ray_cast_edge_gs));
-					break;
-				}
-				case ETopo::TriList:
-				case ETopo::TriStrip:
-				{
-					desc.Apply(PSO<EPipeState::VS>(shader_code::ray_cast_vs));
-					desc.Apply(PSO<EPipeState::GS>(shader_code::ray_cast_face_gs));
-					break;
-				}
-				default:
-				{
-					throw std::runtime_error("Unsupported primitive type");
-				}
-			}
-
-			// If the instance is skinned, get the post-skinned vertex buffer for this instance's pose
-			auto const* vb_view = &nugget.m_model->m_vb_view;
-			if (PosePtr pose = nugget.m_model->m_skin ? FindPose(instance) : PosePtr{}; pose)
-				vb_view = &rdr().SkinnedGeometry().VBufView(m_cmd_list, m_upload_buffer, *nugget.m_model, pose);
-
-			// Set pipeline state
-			desc.Apply(PSO<EPipeState::TopologyType>(To<D3D12_PRIMITIVE_TOPOLOGY_TYPE>(nugget.m_topo)));
-			if (IsStripTopo(nugget.m_topo))
-				desc.Apply(PSO<EPipeState::IBStripCutValue>(StripCutValue(nugget.m_model->m_ib_view.Format)));
-			m_cmd_list.IASetPrimitiveTopology(nugget.m_topo);
-			m_cmd_list.IASetVertexBuffers(0U, { vb_view, 1 });
-			m_cmd_list.IASetIndexBuffer(&nugget.m_model->m_ib_view);
-
-			// Let the material configure this element for ray casting.
+			// Find the material pass for this step
 			auto material_override = FindMaterial(instance);
 			auto const& material = material_override != nullptr ? *material_override.get() : nugget.mat();
 			auto const* pass = material.Pass(m_step_id);
 			if (pass == nullptr)
 				continue;
 
+			auto desc = m_default_pipe_state;
+			ComposePipeline(desc, nugget, instance, material, *pass);
+
+			// If the instance is skinned, get the post-skinned vertex buffer for this instance's pose
+			auto const* vb_view = &nugget.m_model->m_vb_view;
+			if (PosePtr pose = nugget.m_model->m_skin ? FindPose(instance) : PosePtr{}; pose)
+				vb_view = &rdr().SkinnedGeometry().VBufView(m_cmd_list, m_upload_buffer, *nugget.m_model, pose);
+
+			// Set the input geometry
+			m_cmd_list.IASetPrimitiveTopology(nugget.m_topo);
+			m_cmd_list.IASetVertexBuffers(0U, { vb_view, 1 });
+			m_cmd_list.IASetIndexBuffer(&nugget.m_model->m_ib_view);
+
+			// Let the material configure this element for ray casting.
 			auto ctx = MaterialPassContext{
 				.m_step_id = m_step_id,
 				.m_wnd = wnd(),
@@ -437,24 +406,12 @@ namespace pr::rdr12
 				.m_material = material,
 				.m_cmd_list = m_cmd_list,
 				.m_upload = m_upload_buffer,
-				.m_pipe_state = desc,
 				.m_shader = &m_shader,
 				.m_default_tex = nullptr,
 				.m_default_sam = nullptr,
 				.m_bound = nullptr,
 			};
 			pass->Bind(ctx);
-
-			// Apply scene pipe state overrides
-			{
-				for (auto& ps : scn().m_pso)
-					desc.Apply(ps);
-				for (auto& ps : nugget.m_pso)
-					desc.Apply(ps);
-				for (auto& ps : GetPipeStates(instance))
-					desc.Apply(ps);
-			}
-			pass->ApplyPipeline(ctx);
 
 			// Draw the nugget **** 
 			DrawNugget(nugget, desc);
@@ -473,6 +430,46 @@ namespace pr::rdr12
 		}
 
 		return output;
+	}
+
+	// Compose the pipeline state for one ray cast draw.
+	void RenderRayCast::ComposePipeline(PipeStateDesc& desc, Nugget const& nugget, BaseInstance const& instance, Material const& material, MaterialPass const& pass) const
+	{
+		// The geometry shader intersects the ray with the nugget's primitive type
+		switch (nugget.m_topo)
+		{
+			case ETopo::PointList:
+			{
+				desc.Apply(PSO<EPipeState::VS>(shader_code::ray_cast_vs));
+				desc.Apply(PSO<EPipeState::GS>(shader_code::ray_cast_vert_gs));
+				break;
+			}
+			case ETopo::LineList:
+			case ETopo::LineListAdj:
+			case ETopo::LineStrip:
+			case ETopo::LineStripAdj:
+			{
+				desc.Apply(PSO<EPipeState::VS>(shader_code::ray_cast_vs));
+				desc.Apply(PSO<EPipeState::GS>(shader_code::ray_cast_edge_gs));
+				break;
+			}
+			case ETopo::TriList:
+			case ETopo::TriStrip:
+			{
+				desc.Apply(PSO<EPipeState::VS>(shader_code::ray_cast_vs));
+				desc.Apply(PSO<EPipeState::GS>(shader_code::ray_cast_face_gs));
+				break;
+			}
+			default:
+			{
+				throw std::runtime_error("Unsupported primitive type");
+			}
+		}
+
+		// The material selects its shaders after the geometry and caller-owned overrides
+		ApplyGeometryPipeline(desc, nugget);
+		ApplyPipeStateOverrides(desc, nugget, instance);
+		pass.SelectPipeline(MaterialPipelineContext{ .m_step_id = m_step_id, .m_material = material, .m_nugget = nugget }, desc);
 	}
 
 	// Draw a single nugget

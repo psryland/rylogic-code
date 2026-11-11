@@ -23,7 +23,16 @@ namespace pr::rdr12
 		}
 	};
 
-	// Per-draw context passed to material passes by render steps.
+	// The draw inputs that select a material pass's pipeline state. Selection reads only these inputs and issues no commands, so render steps can
+	// compose the same pipeline for drawing, validation, and prewarming.
+	struct MaterialPipelineContext
+	{
+		ERenderStep m_step_id;                         // The render step whose pipeline is being composed.
+		Material const& m_material;                    // The material supplying this pass.
+		Nugget const& m_nugget;                        // The nugget being drawn.
+	};
+
+	// Per-draw context passed to material passes by render steps for binding resources.
 	struct MaterialPassContext
 	{
 		using GfxCmdList = ::pr::compute::GfxCmdList;
@@ -37,7 +46,6 @@ namespace pr::rdr12
 		Material const& m_material;                    // The material supplying this pass.
 		GfxCmdList& m_cmd_list;                        // The command list to bind resources to.
 		GpuUploadBuffer& m_upload;                     // Upload buffer for per-material constants.
-		PipeStateDesc& m_pipe_state;                   // Mutable pipeline state description for this draw.
 		Shader* m_shader;                              // The render step's default shader, if the material wants to use it.
 		Texture2D* m_default_tex;                      // Fallback diffuse texture for fixed-function style passes.
 		Sampler* m_default_sam;                        // Fallback sampler for fixed-function style passes.
@@ -56,11 +64,13 @@ namespace pr::rdr12
 		// Contribute material state to the draw sort key.
 		virtual SortKey AddSortKey(ERenderStep step, BaseInstance const& inst, Material const& material, Nugget const& nugget, SortKey key) const;
 
-		// Bind resources and constants needed before the draw call.
+		// Bind resources and constants needed before the draw call. A pass that changes the command-list graphics root signature sets
+		// 'ctx.m_root_signature_changed'.
 		virtual void Bind(MaterialPassContext& ctx) const;
 
-		// Apply material pipeline state once caller-owned PSO overrides have been applied.
-		virtual void ApplyPipeline(MaterialPassContext& ctx) const;
+		// Apply the material's pipeline state to 'desc', after caller-owned pipeline overrides have been applied. The result must depend only on
+		// 'ctx' and 'desc'. Throws if the material cannot be drawn with the pipeline state in 'desc'.
+		virtual void SelectPipeline(MaterialPipelineContext const& ctx, PipeStateDesc& desc) const;
 	};
 
 	// Bind one material descriptor, returning whether a binding was issued. 'bound' is optional; when given, every binding of the root signature's

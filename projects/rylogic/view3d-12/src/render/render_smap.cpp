@@ -202,6 +202,31 @@ namespace pr::rdr12
 		}
 	}
 
+	// Compose the pipeline state for one shadow draw.
+	void RenderSmap::ComposePipeline(PipeStateDesc& desc, Nugget const& nugget, Material const& material, MaterialPass const& pass, bool clamp_depth, bool population) const
+	{
+		// The material selects its shaders for the nugget's geometry. Clamped views keep casters in front of the near plane, at depth 0.
+		ApplyGeometryPipeline(desc, nugget);
+		pass.SelectPipeline(MaterialPipelineContext{ .m_step_id = m_step_id, .m_material = material, .m_nugget = nugget }, desc);
+		desc.Apply(PSO<EPipeState::DepthClipEnable>(clamp_depth ? FALSE : TRUE));
+		if (!population)
+			return;
+
+		// Procedural vertex shader overlays (accepted by population admission) place population vertices themselves, so they are kept.
+		// The stock shadow vertex shader is swapped for its population variant. Skinned LOD models use the variant that poses each instance.
+		auto vs = desc.Get<EPipeState::VS>().pShaderBytecode;
+		auto const* overlay = PopulationVertexOverlay(material, m_step_id);
+		if (overlay != nullptr && vs == overlay->m_code.VS.pShaderBytecode)
+			return;
+
+		// Only the stock shadow vertex shader has a population variant
+		if (vs != shader_code::shadow_map_vs.pShaderBytecode)
+			throw std::logic_error("Population shadow draw has a vertex shader without a population variant");
+
+		auto skinned = static_cast<bool>(nugget.m_model->m_skin);
+		desc.Apply(PSO<EPipeState::VS>(skinned ? shader_code::shadow_map_skinned_population_vs : shader_code::shadow_map_population_vs));
+	}
+
 	// Choose the shadow views for the frame
 	void RenderSmap::Prepare(Frame& frame)
 	{
@@ -699,15 +724,13 @@ namespace pr::rdr12
 
 				// Set the pipeline state and geometry
 				auto desc = m_default_pipe_state;
-				desc.Apply(PSO<EPipeState::TopologyType>(To<D3D12_PRIMITIVE_TOPOLOGY_TYPE>(nugget.m_topo)));
-				if (IsStripTopo(nugget.m_topo))
-					desc.Apply(PSO<EPipeState::IBStripCutValue>(StripCutValue(nugget.m_model->m_ib_view.Format)));
+				ComposePipeline(desc, nugget, material, *pass, clamp_depth, false);
 
 				m_cmd_list.IASetPrimitiveTopology(nugget.m_topo);
 				m_cmd_list.IASetVertexBuffers(0U, { vb_view, 1 });
 				m_cmd_list.IASetIndexBuffer(&nugget.m_model->m_ib_view);
 
-				// Select this element's entry in the uploaded element constants table, then let the material bind per-draw resources and pipeline overrides
+				// Select this element's entry in the uploaded element constants table, then let the material bind per-draw resources
 				shaders::ShadowMap::SetupElement(m_cmd_list.get(), e);
 				auto ctx = MaterialPassContext{
 					.m_step_id = m_step_id,
@@ -718,14 +741,12 @@ namespace pr::rdr12
 					.m_material = material,
 					.m_cmd_list = m_cmd_list,
 					.m_upload = m_upload_buffer,
-					.m_pipe_state = desc,
 					.m_shader = &m_shader,
 					.m_default_tex = m_default_tex.get(),
 					.m_default_sam = m_default_sam.get(),
 					.m_bound = &bound,
 				};
 				pass->Bind(ctx);
-				pass->ApplyPipeline(ctx);
 
 				// A root signature change invalidates the bound descriptor tables
 				if (ctx.m_root_signature_changed)
@@ -736,9 +757,6 @@ namespace pr::rdr12
 				// Remember nuggets drawn with a custom vertex shader, because the view content hash cannot detect changes to their geometry
 				if (desc.Get<EPipeState::VS>().pShaderBytecode != m_shader.m_code.VS.pShaderBytecode)
 					m_volatile.insert(&nugget);
-
-				// Clamped views keep casters in front of the near plane, at depth 0
-				desc.Apply(PSO<EPipeState::DepthClipEnable>(clamp_depth ? FALSE : TRUE));
 
 				// Bind the views and draw one instance per view
 				auto pix_draw = pix::DetailScope<ID3D12GraphicsCommandList>(m_cmd_list.get(), nugget.m_model->m_name.c_str());
@@ -792,15 +810,13 @@ namespace pr::rdr12
 
 						// Set the pipeline state and geometry
 						auto desc = m_default_pipe_state;
-						desc.Apply(PSO<EPipeState::TopologyType>(To<D3D12_PRIMITIVE_TOPOLOGY_TYPE>(nugget.m_topo)));
-						if (IsStripTopo(nugget.m_topo))
-							desc.Apply(PSO<EPipeState::IBStripCutValue>(StripCutValue(nugget.m_model->m_ib_view.Format)));
+						ComposePipeline(desc, nugget, material, *pass, clamp_depth, true);
 
 						m_cmd_list.IASetPrimitiveTopology(nugget.m_topo);
 						m_cmd_list.IASetVertexBuffers(0U, { &nugget.m_model->m_vb_view, 1 });
 						m_cmd_list.IASetIndexBuffer(&nugget.m_model->m_ib_view);
 
-						// Select the draw's element constants, then let the material bind per-draw resources and pipeline overrides
+						// Select the draw's element constants, then let the material bind per-draw resources
 						shaders::ShadowMap::SetupElement(m_cmd_list.get(), first.m_first_element + d);
 						auto ctx = MaterialPassContext{
 							.m_step_id = m_step_id,
@@ -811,36 +827,20 @@ namespace pr::rdr12
 							.m_material = material,
 							.m_cmd_list = m_cmd_list,
 							.m_upload = m_upload_buffer,
-							.m_pipe_state = desc,
 							.m_shader = &m_shader,
 							.m_default_tex = m_default_tex.get(),
 							.m_default_sam = m_default_sam.get(),
 							.m_bound = &bound,
 						};
 						pass->Bind(ctx);
-						pass->ApplyPipeline(ctx);
 						if (ctx.m_root_signature_changed)
 						{
 							bound.Reset();
 						}
-
-						// Procedural vertex shader overlays (accepted by population admission) place population vertices themselves, so they are kept.
-						// The stock shadow vertex shader is swapped for its population variant. Skinned LOD models use the variant that poses each instance.
-						auto vs = desc.Get<EPipeState::VS>().pShaderBytecode;
-						auto const* overlay = PopulationVertexOverlay(material, m_step_id);
-						auto skinned = static_cast<bool>(nugget.m_model->m_skin);
-						if (overlay == nullptr || vs != overlay->m_code.VS.pShaderBytecode)
-						{
-							// Only the stock shadow vertex shader has a population variant
-							if (vs != shader_code::shadow_map_vs.pShaderBytecode)
-								throw std::logic_error("Population shadow draw has a vertex shader without a population variant");
-
-							desc.Apply(PSO<EPipeState::VS>(skinned ? shader_code::shadow_map_skinned_population_vs : shader_code::shadow_map_population_vs));
-						}
-						desc.Apply(PSO<EPipeState::DepthClipEnable>(clamp_depth ? FALSE : TRUE));
 						m_cmd_list.SetPipelineState(m_pipe_state_pool.Get(desc));
 
 						// Bind the instance records. The payload and skin slots need valid addresses even when unused, so they alias the instance records.
+						auto skinned = static_cast<bool>(nugget.m_model->m_skin);
 						m_cmd_list.SetGraphicsRootShaderResourceView(shaders::smap::ERootParam::PopulationInstances, GpuAddress(pop.m_instances));
 						m_cmd_list.SetGraphicsRootShaderResourceView(shaders::smap::ERootParam::PopulationPayload, pop.m_payload != nullptr ? GpuAddress(pop.m_payload) : GpuAddress(pop.m_instances));
 						m_cmd_list.SetGraphicsRootShaderResourceView(shaders::smap::ERootParam::PopulationSkin, skinned ? GpuAddress(nugget.m_model->m_skin.m_res) : GpuAddress(pop.m_instances));
