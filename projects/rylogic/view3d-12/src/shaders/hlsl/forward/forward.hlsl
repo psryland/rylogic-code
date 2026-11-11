@@ -215,7 +215,11 @@ float4 ResolveWorldNormal(PSIn In, bool is_front_face)
 // Apply the material normal-map sample to a world-space geometric normal.
 float3 PerturbWorldNormal(PSIn In, float3 normal, float2 normal_uv)
 {
+	// The bitangent below follows increasing V (down the image), so a map whose +Y points up the image has its Y negated.
 	float2 map_xy = g_normal_texture.Sample(g_normal_sampler, normal_uv).xy * 2.0f - 1.0f;
+	if (AnySet(g_pbr.texture_flags, PbrTextureFlag_NormalMapGreenUp))
+		map_xy.y = -map_xy.y;
+
 	map_xy *= g_pbr.normal_scale;
 	float3 map_normal = normalize(float3(map_xy, sqrt(saturate(1.0f - dot(map_xy, map_xy)))));
 

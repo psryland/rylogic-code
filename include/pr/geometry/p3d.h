@@ -391,6 +391,9 @@ namespace pr::geometry::p3d
 		{
 			None = 0,
 			Alpha = 1 << 0,
+
+			// A tangent-space normal map whose +Y points up the image (OpenGL/glTF convention). Without it, +Y points down the image (DirectX).
+			NormalGreenUp = 1 << 1,
 			_flags_enum = 0,
 		};
 

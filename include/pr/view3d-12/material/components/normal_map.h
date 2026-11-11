@@ -19,6 +19,16 @@ namespace pr::rdr12::materials
 		Model,
 	};
 
+	// Which way a tangent-space normal map's Y (green) component points on the image. Model-space maps ignore this.
+	enum class ENormalMapConvention
+	{
+		// +Y points down the image, toward increasing V.
+		DirectX,
+
+		// +Y points up the image, toward decreasing V. glTF and Blender use this convention.
+		OpenGL,
+	};
+
 	// Normal-map state for a physically-based material.
 	struct NormalMap
 	{
@@ -26,6 +36,7 @@ namespace pr::rdr12::materials
 		TextureSlot m_tex = { {}, {}, {}, ETextureColourSpace::Linear, {} }; // Normal map texture.
 		float m_scale = 1.0f;                                                // Multiplier for the X/Y components.
 		ENormalMapSpace m_space = ENormalMapSpace::Tangent;                  // How the map's samples are interpreted.
+		ENormalMapConvention m_convention = ENormalMapConvention::DirectX;   // Direction of a tangent-space map's Y component.
 	};
 	static_assert(ComponentType<NormalMap>);
 }

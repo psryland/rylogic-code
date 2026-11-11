@@ -31,6 +31,7 @@ static const int PbrTextureFlag_HasEmissiveMap    = (1 << 5);
 static const int PbrTextureFlag_HasNormalMap      = (1 << 6);
 static const int PbrTextureFlag_NormalMapModel    = (1 << 7); // The normal map stores model-space normals rather than tangent-space perturbations.
 static const int PbrTextureFlag_HasTintMask       = (1 << 8); // The tint mask limits where the appearance tint colours the base colour.
+static const int PbrTextureFlag_NormalMapGreenUp  = (1 << 9); // The tangent-space normal map's +Y points up the image (OpenGL convention) rather than down.
 
 // Row major matrix for use in structured buffers
 struct Mat4x4

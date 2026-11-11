@@ -79,7 +79,7 @@ namespace pr::rdr12
 		MaterialPBR& emissive_texture(materials::TextureSlot slot);
 
 		// Set the normal-map texture and how its samples are interpreted.
-		MaterialPBR& normal_texture(materials::TextureSlot slot, float scale = 1.0f, materials::ENormalMapSpace space = materials::ENormalMapSpace::Tangent);
+		MaterialPBR& normal_texture(materials::TextureSlot slot, float scale = 1.0f, materials::ENormalMapSpace space = materials::ENormalMapSpace::Tangent, materials::ENormalMapConvention convention = materials::ENormalMapConvention::DirectX);
 
 		// Set the tint-mask texture. The R channel limits where the appearance tint colours the base colour. Pass an empty slot to clear it.
 		MaterialPBR& tint_mask_texture(materials::TextureSlot slot);

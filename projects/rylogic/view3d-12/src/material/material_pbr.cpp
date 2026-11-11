@@ -470,6 +470,23 @@ namespace pr::rdr12
 					{
 						case materials::ENormalMapSpace::Tangent:
 						{
+							// The shader's tangent frame expects +Y toward increasing V, so an OpenGL map has its Y negated when sampled.
+							switch (normal_map.m_convention)
+							{
+								case materials::ENormalMapConvention::DirectX:
+								{
+									break;
+								}
+								case materials::ENormalMapConvention::OpenGL:
+								{
+									texture_flags |= shaders::PbrTextureFlag_NormalMapGreenUp;
+									break;
+								}
+								default:
+								{
+									throw std::runtime_error("Unknown normal map convention");
+								}
+							}
 							break;
 						}
 						case materials::ENormalMapSpace::Model:
@@ -783,11 +800,12 @@ namespace pr::rdr12
 	}
 
 	// Set the normal-map texture and how its samples are interpreted.
-	MaterialPBR& MaterialPBR::normal_texture(materials::TextureSlot slot, float scale, materials::ENormalMapSpace space)
+	MaterialPBR& MaterialPBR::normal_texture(materials::TextureSlot slot, float scale, materials::ENormalMapSpace space, materials::ENormalMapConvention convention)
 	{
 		m_normal_map.m_tex = slot;
 		m_normal_map.m_scale = scale;
 		m_normal_map.m_space = space;
+		m_normal_map.m_convention = convention;
 		return *this;
 	}
 
