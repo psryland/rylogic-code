@@ -81,6 +81,8 @@ namespace pr::rdr12
 		// The other is to NOT clear the draw sets and add/remove instances between frames.
 		void ClearDrawlists();
 
+		// Add the pipeline states that each render step would use to draw the current draw lists to 'descs'. Duplicates are allowed.
+		void CollectPipelines(std::vector<PipeStateDesc>& descs) const;
 		// Add an instance. The instance must be resident for the entire time that it is
 		// in the scene, i.e. until 'RemoveInstance' or 'ClearDrawlist' is called.
 		// This method will add the instance to all render steps for which the model has appropriate nuggets.

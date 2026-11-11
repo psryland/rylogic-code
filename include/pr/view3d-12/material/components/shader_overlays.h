@@ -32,8 +32,13 @@ namespace pr::rdr12::materials
 	};
 	static_assert(ComponentType<ShaderOverlays>);
 
-	// Apply overlays for the active material render step, optionally accepting only the public procedural contract.
-	void ApplyShaderOverlays(MaterialPassContext& ctx, bool procedural_only);
+	// Apply the pipeline state of the overlays for the active render step, optionally accepting only the public procedural contract.
+	// Throws if a procedural overlay is assigned to a different render step than it was written for.
+	void SelectShaderOverlays(MaterialPipelineContext const& ctx, PipeStateDesc& desc, bool procedural_only);
+
+	// Bind the root signatures and resources of the overlays that 'SelectShaderOverlays' applies for the same material and render step.
+	// Call after the base material has bound its resources.
+	void BindShaderOverlays(MaterialPassContext& ctx, bool procedural_only);
 
 	// Replace a stock forward pixel shader in 'desc' with the entry point of 'family' that has the same output contract.
 	// Throws if the current pixel shader is not an entry point of the stock family that 'family' replaces (see ForwardPixelFamily::m_replaces).

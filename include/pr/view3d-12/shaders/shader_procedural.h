@@ -21,8 +21,6 @@ namespace pr::rdr12
 		static constexpr int BufferSlotCount = 2;
 
 		ERenderStep m_rdr_step;
-		std::vector<BYTE> m_vs_bytecode;
-		std::array<std::vector<BYTE>, ForwardPixelFamily::SlotCount> m_ps_bytecode;
 		ForwardPixelFamily m_pixel_family;
 		std::array<std::byte, ConstantsSize> m_constants;
 		std::array<D3DPtr<ID3D12Resource>, BufferSlotCount> m_buffers;

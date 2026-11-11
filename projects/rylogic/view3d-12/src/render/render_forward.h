@@ -75,11 +75,15 @@ namespace pr::rdr12
 
 	private:
 
-		// Reject a draw whose material cannot select its forward pixel shaders, such as a mismatched procedural pixel family.
-		void ValidateMaterial(DrawListElement const& dle) const;
+		// Compose the pipeline state for drawing 'nugget' of 'instance' with 'pass' of 'material', starting from the sub-pass default in 'desc'.
+		// 'population' selects the population vertex shaders. Issues no commands. Throws if the material cannot be drawn in the sub-pass.
+		void ComposePipeline(PipeStateDesc& desc, Nugget const& nugget, BaseInstance const& instance, Material const& material, MaterialPass const& pass, bool population) const;
 
 		// Perform the render step
 		void Execute(Frame& frame) override;
+
+		// Add the pipeline states of the draw list and the scene's populations, for each sub-pass that can draw them
+		void CollectPipelines(std::vector<PipeStateDesc>& descs) const override;
 
 		// Prepare the sky's low cloud history for this frame: size, swap, and clear the history textures, and set the shader's history constants.
 		void PrepareSkyHistory();
@@ -123,6 +127,7 @@ namespace pr::rdr12
 		void DrawNuggets(Frame& frame, GfxCmdList& cmd_list, PipeStateDesc const& default_pipe_state, std::span<DrawListElement const> drawlist, int first_index, ESubPass sub_pass, std::span<PopulationDrawRef const> populations = {});
 
 		// Draw a single nugget. 'population' is null for an ordinary draw, otherwise the nugget is drawn indirectly for each classified population instance.
-		void DrawNugget(GfxCmdList& cmd_list, Nugget const& nugget, PipeStateDesc& desc, bool& pipe_state_bound, int& pipe_state_hash, PopulationDrawRef const* population);
+		// 'bound_pipe_state' is the state bound to 'cmd_list' while 'pipe_state_bound' is true. Both are updated when the bound state changes.
+		void DrawNugget(GfxCmdList& cmd_list, Nugget const& nugget, PipeStateDesc& desc, bool& pipe_state_bound, PipeStateDesc& bound_pipe_state, PopulationDrawRef const* population);
 	};
 }

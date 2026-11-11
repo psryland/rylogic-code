@@ -537,7 +537,7 @@ control bounds with DIP margins (scaled with the root):
 |---|---|---|
 | `Background` | every type | Replaces the control's own style box. |
 | `Track` | Slider, ProgressBar | The value track. Without it the track fills the control. |
-| `Indicator` | Slider, ProgressBar | Inset within the track, cut from the minimum end to the value (or the moving indeterminate span). |
+| `Indicator` | Slider, ProgressBar | Inset within the track, cut from the minimum end to the value. An indeterminate span is a quarter of the part whose centre sweeps from end to end; it is drawn whole and cropped at the part's ends, so an image brush is clipped rather than squashed. |
 | `Thumb` | Slider | A `width` x `height` DIP box centred on the value position. Values travel the track inset by half the thumb length. |
 | `Ticks` | Slider, ProgressBar | Generated ticks in a band (see below). Several `Ticks` parts are allowed. |
 | `Text` | Text, Button, TextBox, ComboBox | Places the text, and a TextBox clips to it. With its own style it also draws a box behind the text. |

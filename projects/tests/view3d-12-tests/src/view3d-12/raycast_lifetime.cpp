@@ -51,9 +51,9 @@ namespace render_tests
 		}
 
 		// Preserve the real shader and pipeline setup on successful casts.
-		void ApplyPipeline(rdr::MaterialPassContext& ctx) const override
+		void SelectPipeline(rdr::MaterialPipelineContext const& ctx, rdr::PipeStateDesc& desc) const override
 		{
-			MaterialSimple::Pass(ctx.m_step_id)->ApplyPipeline(ctx);
+			MaterialSimple::Pass(ctx.m_step_id)->SelectPipeline(ctx, desc);
 		}
 
 		// Match the fixture's ordinary new allocation rather than a renderer allocator.

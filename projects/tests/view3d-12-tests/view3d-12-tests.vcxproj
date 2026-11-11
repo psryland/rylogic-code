@@ -106,6 +106,7 @@
 		<ClCompile Include="src\view3d-12\render_tests_surface_normals.cpp" />
 		<ClCompile Include="src\view3d-12\render_tests_env_map.cpp" />
 		<ClCompile Include="src\view3d-12\render_tests_ui.cpp" />
+		<ClCompile Include="src\view3d-12\pipe_state_cache_tests.cpp" />
 		<ClCompile Include="src\view3d-12\raycast_lifetime.cpp" />
 		<ShaderBuild Include="src\view3d-12\shaders\hlsl\fade_vertex.hlsl" VertexEntryPoints="fade_vertex=VSMain" PixelEntryPoints="unsupported_pixel=PSMain" />
 		<ShaderBuild Include="src\view3d-12\shaders\hlsl\procedural_vertex_forward.hlsl" VertexEntryPoints="procedural_vertex_forward=VSMain" />

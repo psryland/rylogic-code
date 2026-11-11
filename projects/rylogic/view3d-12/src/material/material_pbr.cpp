@@ -183,7 +183,7 @@ namespace pr::rdr12
 				}
 			}
 
-			// Bind resources and constants for the PBR material pass.
+			// Bind resources and constants for the PBR material pass, followed by those of its shader overlays.
 			void Bind(MaterialPassContext& ctx) const override
 			{
 				switch (ctx.m_step_id)
@@ -191,16 +191,19 @@ namespace pr::rdr12
 					case ERenderStep::RenderForward:
 					{
 						BindForward(ctx);
+						materials::BindShaderOverlays(ctx, false);
 						return;
 					}
 					case ERenderStep::ShadowMap:
 					{
 						BindShadowMap(ctx);
+						materials::BindShaderOverlays(ctx, true);
 						return;
 					}
 					case ERenderStep::RayCast:
 					{
 						BindRayCast(ctx);
+						materials::BindShaderOverlays(ctx, true);
 						return;
 					}
 					case ERenderStep::RayTracing:
@@ -215,22 +218,22 @@ namespace pr::rdr12
 				}
 			}
 
-			// Apply pipeline changes for the PBR material pass.
-			void ApplyPipeline(MaterialPassContext& ctx) const override
+			// Apply the pipeline state of the PBR material pass.
+			void SelectPipeline(MaterialPipelineContext const& ctx, PipeStateDesc& desc) const override
 			{
 				switch (ctx.m_step_id)
 				{
 					case ERenderStep::RenderForward:
 					{
-						ApplyForwardPipeline(ctx);
-						materials::ApplyShaderOverlays(ctx, false);
+						ApplyForwardPipeline(ctx, desc);
+						materials::SelectShaderOverlays(ctx, desc, false);
 						return;
 					}
 					case ERenderStep::ShadowMap:
 					case ERenderStep::RayCast:
 					{
-						materials::ApplyShaderOverlays(ctx, true);
-						ApplyTwoSidedPipeline(ctx);
+						materials::SelectShaderOverlays(ctx, desc, true);
+						ApplyTwoSidedPipeline(ctx, desc);
 						return;
 					}
 					case ERenderStep::RayTracing:
@@ -582,41 +585,41 @@ namespace pr::rdr12
 			}
 
 			// Force two-sided rasterisation for PBR surfaces that need normal flipping on back faces.
-			static void ApplyTwoSidedPipeline(MaterialPassContext& ctx)
+			static void ApplyTwoSidedPipeline(MaterialPipelineContext const& ctx, PipeStateDesc& desc)
 			{
 				auto const* two_sided = ctx.m_material.Component<materials::TwoSided>();
 				if (two_sided == nullptr || !two_sided->m_enabled)
 					return;
 
-				if (ctx.m_dle.m_nugget->m_variant == AlphaNugget)
+				if (ctx.m_nugget.m_variant == AlphaNugget)
 					return;
 
-				ctx.m_pipe_state.Apply(PSO<EPipeState::CullMode>(D3D12_CULL_MODE_NONE));
+				desc.Apply(PSO<EPipeState::CullMode>(D3D12_CULL_MODE_NONE));
 			}
 
 			// Apply the PBR forward shader variant for the active forward sub-pass.
-			static void ApplyForwardPipeline(MaterialPassContext& ctx)
+			static void ApplyForwardPipeline(MaterialPipelineContext const& ctx, PipeStateDesc& pipe_state)
 			{
-				auto const* desc = static_cast<D3D12_GRAPHICS_PIPELINE_STATE_DESC const*>(ctx.m_pipe_state);
+				auto const* desc = static_cast<D3D12_GRAPHICS_PIPELINE_STATE_DESC const*>(pipe_state);
 				
 				// If the pass uses extra texture coordinate streams, select a shader variant that samples them
-				if (MaterialPBR::UsesExtraTexCoords(ctx.m_material, ctx.m_dle.m_nugget))
+				if (MaterialPBR::UsesExtraTexCoords(ctx.m_material, &ctx.m_nugget))
 				{
-					ctx.m_pipe_state.Apply(PSO<EPipeState::VS>(shader_code::forward_texn_pbr_vs));
-					ctx.m_pipe_state.Apply(PSO<EPipeState::PS>(
+					pipe_state.Apply(PSO<EPipeState::VS>(shader_code::forward_texn_pbr_vs));
+					pipe_state.Apply(PSO<EPipeState::PS>(
 						desc->NumRenderTargets == 0U ? shader_code::forward_alpha_collect_texn_pbr_ps :
 						desc->NumRenderTargets > 1U ? shader_code::forward_reflection_attrs_texn_pbr_ps :
 						shader_code::forward_texn_pbr_ps));
 				}
 				else
 				{
-					ctx.m_pipe_state.Apply(PSO<EPipeState::VS>(shader_code::forward_vs));
-					ctx.m_pipe_state.Apply(PSO<EPipeState::PS>(
+					pipe_state.Apply(PSO<EPipeState::VS>(shader_code::forward_vs));
+					pipe_state.Apply(PSO<EPipeState::PS>(
 						desc->NumRenderTargets == 0U ? shader_code::forward_alpha_collect_pbr_ps :
 						desc->NumRenderTargets > 1U ? shader_code::forward_reflection_attrs_pbr_ps :
 						shader_code::forward_pbr_ps));
 				}
-				ApplyTwoSidedPipeline(ctx);
+				ApplyTwoSidedPipeline(ctx, pipe_state);
 			}
 		};
 	}

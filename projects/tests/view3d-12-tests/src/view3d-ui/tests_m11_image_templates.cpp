@@ -284,6 +284,41 @@ namespace pr::view3d::ui::tests
 		PR_EXPECT(ItemsOf(engine, 2, EVisualPrimitive::Image).at(0).fill.r == 0);
 	}
 
+	// An indeterminate progress indicator with an image brush is cropped at the ends of its rect, with matching UVs, rather than squashed.
+	PRUnitTest(IndeterminateImageIndicatorIsClippedAtTheEnds, Quick)
+	{
+		// A 100 x 20 bar whose indicator part fills the control and draws a whole, unsliced image.
+		auto engine = UiEngine(MakeConfig());
+		auto txn = TxnBuilder{};
+		txn.AddResource(MakeImage(5, 32, 8));
+		auto image_style = MakeStyle(11);
+		for (auto& visual : image_style.visuals)
+			visual.image = ImageBrush{ .image_id = 5, .tint = Colour{ 1, 1, 1, 1 } };
+
+		auto parts = MakeTemplate(20, EControlType::ProgressBar);
+		txn.AddTemplatePart(parts, TemplatePart{ .role = ETemplatePart::Indicator, .style_id = 11 });
+		txn.AddTemplate(parts);
+		txn.AddStyle(image_style);
+		txn.Upsert(MakeControl(1, 0, EControlType::Root, ELayoutMode::Overlay, Lp(200, 200)));
+		auto progress = MakeControl(2, 1, EControlType::ProgressBar, ELayoutMode::Overlay, Lp(100, 20));
+		progress.template_id = 20;
+		progress.is_indeterminate = 1;
+		txn.Upsert(progress);
+		engine.TransactionApply(txn.Build(0, 1));
+
+		// The 25-wide span is centred on each end at 0 ms and 1200 ms, so only its inner half shows; at 600 ms it is whole.
+		struct Expect { double time_ms; Rect bounds; Rect uv; };
+		for (auto const& e : { Expect{ 0, Rect{ 0, 0, 12.5f, 20 }, Rect{ 0.5f, 0, 0.5f, 1 } }, Expect{ 600, Rect{ 37.5f, 0, 25, 20 }, Rect{ 0, 0, 1, 1 } }, Expect{ 1200, Rect{ 87.5f, 0, 12.5f, 20 }, Rect{ 0, 0, 0.5f, 1 } } })
+		{
+			// One image item, inside the bar, showing the matching part of the image.
+			engine.Update(Viewport(200, 200, 96, e.time_ms));
+			auto const cells = ItemsOf(engine, 2, EVisualPrimitive::Image);
+			PR_EXPECT(cells.size() == 1);
+			PR_EXPECT(Near(cells[0].bounds, e.bounds));
+			PR_EXPECT(Near(cells[0].uv, e.uv));
+		}
+	}
+
 	// An unknown orientation is rejected.
 	PRUnitTest(ControlOrientationIsValidated, Quick)
 	{

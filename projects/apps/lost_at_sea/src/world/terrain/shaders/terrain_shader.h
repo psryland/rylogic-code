@@ -39,11 +39,6 @@ namespace las
 
 	struct TerrainShader : rdr12::Shader
 	{
-		// Compiled shader bytecodes (populated at construction from runtime compilation).
-		// The ByteCode wrappers in m_code point into these vectors, so they must outlive the shader.
-		std::vector<uint8_t> m_vs_bytecode;
-		std::vector<uint8_t> m_ps_bytecode;
-
 		// Terrain constant buffer data. Shared parameters set in SetupFrame,
 		// per-patch morph range overridden in SetupElement.
 		alignas(16) std::byte m_cbuf[128];

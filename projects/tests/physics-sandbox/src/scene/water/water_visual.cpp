@@ -19,13 +19,11 @@ namespace physics_sandbox
 		// Vertex-shader overlay that keeps immutable wave parameters and takes time from the water instance.
 		struct WaterShader : rdr12::Shader
 		{
-			std::vector<uint8_t> m_vs_bytecode;
 			CBufWaterVisual m_cbuf;
 
 			// Compile the sandbox-local shader and pack the physics water field once.
 			WaterShader(rdr12::Renderer& rdr, physics::terrain::water::WaterField const& surface)
 				: Shader(rdr)
-				, m_vs_bytecode()
 				, m_cbuf()
 			{
 				static_assert((sizeof(CBufWaterVisual) % 16) == 0);
@@ -42,8 +40,7 @@ namespace physics_sandbox
 					.Define(L"SHADER_BUILD")
 					.Optimise(true);
 
-				m_vs_bytecode = compiler.ShaderModel(L"vs_6_0").EntryPoint(L"VSWater").Compile();
-				m_code.VS = { m_vs_bytecode };
+				m_code.VS = OwnByteCode(compiler.ShaderModel(L"vs_6_0").EntryPoint(L"VSWater").Compile());
 			}
 
 			// Bind one per-draw constant buffer; only the simulation time changes after scene loading.
@@ -157,7 +154,7 @@ namespace physics_sandbox
 			// A renderer provides the shader overlay with the same runtime resource module as scene loading.
 			auto renderer = rdr12::Renderer(rdr12::RdrSettings(GetModuleHandle(nullptr)));
 			auto shader = WaterShader(renderer, physics::terrain::water::WaterField{});
-			PR_EXPECT(!shader.m_vs_bytecode.empty());
+			PR_EXPECT(static_cast<bool>(shader.m_code.VS));
 		}
 	};
 	#endif

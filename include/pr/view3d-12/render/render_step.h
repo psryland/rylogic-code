@@ -32,7 +32,6 @@ namespace pr::rdr12
 		GpuSync&                m_gsync;              // Actual submission timeline; must outlive complete step destruction
 		GpuUploadBuffer          m_upload_buffer;      // Shared upload buffer for shaders to use to upload parameters
 		PipeStateDesc            m_default_pipe_state; // Default settings for the pipeline state
-		PipeStatePool            m_pipe_state_pool;    // Pool of pipeline state objects
 		AutoSub                  m_evt_model_delete;   // Event subscription for model deleted notification
 
 		// The supplied fence must track this step's actual submissions and outlive its complete destruction, including upload cleanup.
@@ -78,6 +77,10 @@ namespace pr::rdr12
 		// Prepare resources or command work that must happen before any render step executes.
 		virtual void Prepare(Frame& frame);
 
+		// Add the pipeline states that drawing the current draw list would use to 'descs', so they can be created before they are drawn.
+		// Steps that do not draw with cached pipelines add nothing. Duplicates are allowed.
+		virtual void CollectPipelines(std::vector<PipeStateDesc>& descs) const;
+
 		// Perform the render step
 		virtual void Execute(Frame& frame) = 0;
 
@@ -95,6 +98,12 @@ namespace pr::rdr12
 		// as projection texture, line width, etc). This method needs to ensure the
 		// nugget's shader collection contains the appropriate shaders.
 		virtual void AddNuggets(BaseInstance const& inst, NuggetPtr nuggets, drawlist_t& drawlist) = 0;
+
+		// Apply the primitive topology of 'nugget' to 'desc', including the strip cut value of strip topologies.
+		static void ApplyGeometryPipeline(PipeStateDesc& desc, Nugget const& nugget);
+
+		// Apply the caller-owned pipeline overrides to 'desc' in increasing precedence: the scene, then 'nugget', then 'instance'.
+		void ApplyPipeStateOverrides(PipeStateDesc& desc, Nugget const& nugget, BaseInstance const& instance) const;
 
 	private:
 

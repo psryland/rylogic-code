@@ -18,8 +18,6 @@ namespace las
 
 	DistantOceanShader::DistantOceanShader(Renderer& rdr)
 		: Shader(rdr)
-		, m_vs_bytecode()
-		, m_ps_bytecode()
 		, m_cbuf()
 	{
 		static_assert((sizeof(CBufDistantOcean) % 16) == 0);
@@ -32,10 +30,8 @@ namespace las
 			.Define(L"SHADER_BUILD")
 			.Optimise(true);
 
-		m_vs_bytecode = compiler.ShaderModel(L"vs_6_0").EntryPoint(L"VSDistantOcean").Compile();
-		m_ps_bytecode = compiler.ShaderModel(L"ps_6_0").EntryPoint(L"PSDistantOcean").Compile();
-		m_code.VS = { m_vs_bytecode };
-		m_code.PS = { m_ps_bytecode };
+		m_code.VS = OwnByteCode(compiler.ShaderModel(L"vs_6_0").EntryPoint(L"VSDistantOcean").Compile());
+		m_code.PS = OwnByteCode(compiler.ShaderModel(L"ps_6_0").EntryPoint(L"PSDistantOcean").Compile());
 
 		// Default parameters
 		auto& cbuf = storage_cast<CBufDistantOcean>(m_cbuf);

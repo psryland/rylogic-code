@@ -23,7 +23,6 @@ namespace pr::rdr12
 		, m_gsync(gsync)
 		, m_upload_buffer(m_gsync, 1ULL * 1024 * 1024)
 		, m_default_pipe_state()
-		, m_pipe_state_pool(wnd())
 		, m_evt_model_delete(rdr().store().ModelDeleted += std::bind(&RenderStep::OnModelDeleted, this, _1, _2))
 	{}
 
@@ -94,6 +93,10 @@ namespace pr::rdr12
 	void RenderStep::Prepare(Frame&)
 	{}
 
+	// Add the pipeline states that drawing the current draw list would use
+	void RenderStep::CollectPipelines(std::vector<PipeStateDesc>&) const
+	{}
+
 	// Add an instance. The instance, model, and nuggets must be resident for the entire time
 	// that the instance is in the draw list, i.e. until 'RemoveInstance' or 'ClearDrawlist' is called.
 	void RenderStep::AddInstance(BaseInstance const& inst)
@@ -156,6 +159,27 @@ namespace pr::rdr12
 			if (removed != 0)
 				m_sort_needed = true;
 		}
+	}
+
+	// Apply the primitive topology of 'nugget' to 'desc'.
+	void RenderStep::ApplyGeometryPipeline(PipeStateDesc& desc, Nugget const& nugget)
+	{
+		// Strip topologies restart at the cut value that matches the index format.
+		desc.Apply(PSO<EPipeState::TopologyType>(To<D3D12_PRIMITIVE_TOPOLOGY_TYPE>(nugget.m_topo)));
+		if (IsStripTopo(nugget.m_topo))
+			desc.Apply(PSO<EPipeState::IBStripCutValue>(StripCutValue(nugget.m_model->m_ib_view.Format)));
+	}
+
+	// Apply the caller-owned pipeline overrides to 'desc'.
+	void RenderStep::ApplyPipeStateOverrides(PipeStateDesc& desc, Nugget const& nugget, BaseInstance const& instance) const
+	{
+		// Later overrides win, so the most specific owner is applied last.
+		for (auto const& ps : scn().m_pso)
+			desc.Apply(ps);
+		for (auto const& ps : nugget.m_pso)
+			desc.Apply(ps);
+		for (auto const& ps : GetPipeStates(instance))
+			desc.Apply(ps);
 	}
 
 	// Notification of a model being destroyed

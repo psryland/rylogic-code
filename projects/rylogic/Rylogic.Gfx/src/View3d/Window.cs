@@ -17,6 +17,38 @@ namespace Rylogic.Gfx
 {
 	public sealed partial class View3d
 	{
+		/// <summary>
+		/// Counters of a renderer's pipeline state cache, shared by all windows of the renderer. Matches 'view3d::PipelineStats'.
+		/// Pipelines created while recording draws can stall the frame that draws them; prewarming creates them ahead of use instead.
+		/// </summary>
+		[StructLayout(LayoutKind.Sequential)]
+		public struct PipelineStats
+		{
+			/// <summary>Pipelines created while recording draws.</summary>
+			public long Created;
+
+			/// <summary>The total time spent creating pipelines while recording draws, in milliseconds.</summary>
+			public double CreatedMs;
+
+			/// <summary>The longest single creation while recording draws, in milliseconds.</summary>
+			public double CreatedMaxMs;
+
+			/// <summary>Pipelines created ahead of use by 'Window.PrewarmPipelines'.</summary>
+			public long Prewarmed;
+
+			/// <summary>The total worker time spent creating prewarmed pipelines, in milliseconds.</summary>
+			public double PrewarmedMs;
+
+			/// <summary>Prewarm creations that failed. The failure is reported again if the state is drawn.</summary>
+			public long Failed;
+
+			/// <summary>Prewarm requests that are queued or being created.</summary>
+			public long Pending;
+
+			/// <summary>The number of cached pipelines.</summary>
+			public long Count;
+		}
+
 		/// <summary>Binds a 3D scene to a window</summary>
 		public sealed class Window :IDisposable
 		{
@@ -877,6 +909,31 @@ namespace Rylogic.Gfx
 			public void RenderHidden()
 			{
 				View3D_WindowRenderHidden(Handle);
+			}
+
+			/// <summary>
+			/// Start creating the pipeline states that drawing the window's objects would use, including hidden objects, on worker threads.
+			/// Returns the number of states requested, excluding those already created or requested. Poll 'PipelineStats' until 'Pending' is zero.
+			/// </summary>
+			public int PrewarmPipelines()
+			{
+				var count = View3D_WindowPrewarmPipelines(Handle);
+				if (count < 0)
+					throw new InvalidOperationException("Failed to prewarm the window's pipeline states.");
+
+				return count;
+			}
+
+			/// <summary>The counters of the pipeline state cache of the window's renderer. Safe to read from any thread.</summary>
+			public PipelineStats PipelineStats
+			{
+				get
+				{
+					if (!View3D_WindowPipelineStats(Handle, out var stats))
+						throw new InvalidOperationException("Failed to read the pipeline cache counters.");
+
+					return stats;
+				}
 			}
 
 			/// <summary>Wait for submitted commands to complete on the GPU</summary>

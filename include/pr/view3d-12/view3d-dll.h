@@ -802,6 +802,19 @@ namespace pr
 			float m_width; // The width of the band. Zero is an abrupt switch at 'm_start'.
 		};
 
+		// Counters of a renderer's pipeline state cache. See View3D_WindowPipelineStats.
+		struct PipelineStats
+		{
+			int64_t m_created;        // Pipelines created while recording draws. Each creation can stall the frame that draws it.
+			double m_created_ms;      // The total time spent creating pipelines while recording draws.
+			double m_created_max_ms;  // The longest single creation while recording draws.
+			int64_t m_prewarmed;      // Pipelines created ahead of use by View3D_WindowPrewarmPipelines.
+			double m_prewarmed_ms;    // The total worker time spent creating prewarmed pipelines.
+			int64_t m_failed;         // Prewarm creations that failed. The failure is reported again if the state is drawn.
+			int64_t m_pending;        // Prewarm requests that are queued or being created.
+			int64_t m_count;          // The number of cached pipelines.
+		};
+
 		// Diagnostics of a population. See View3D_PopulationStats.
 		struct PopulationStats
 		{
@@ -1397,6 +1410,14 @@ extern "C"
 	// Use it to pay the first-use costs of new content (pipeline states, driver work) before the frames that show it.
 	VIEW3D_API void __stdcall View3D_WindowRenderHidden(pr::view3d::Window window);
 
+	// Start creating the pipeline states that drawing the window's objects would use, including hidden objects, on worker threads.
+	// Returns the number of states requested, excluding those already created or requested. Poll View3D_WindowPipelineStats until 'm_pending' is zero
+	// to find when they are ready. Returns -1 on error.
+	VIEW3D_API int __stdcall View3D_WindowPrewarmPipelines(pr::view3d::Window window);
+
+	// Get the counters of the pipeline state cache of the window's renderer, shared by all windows of the renderer
+	VIEW3D_API BOOL __stdcall View3D_WindowPipelineStats(pr::view3d::Window window, pr::view3d::PipelineStats& stats);
+
 	// Wait for any previous frames to complete rendering within the GPU
 	VIEW3D_API void __stdcall View3D_WindowGSyncWait(pr::view3d::Window window);
 
@@ -1687,7 +1708,8 @@ extern "C"
 	VIEW3D_API pr::view3d::Object __stdcall View3D_ObjectCreateU32(char const* name, pr::view3d::Colour colour, int vcount, int icount, int ncount, pr::view3d::Vertex const* verts, UINT32 const* indices, pr::view3d::Nugget const* nuggets, pr::view3d::ObjectCreateOptions const& options, GUID const& context_id);
 
 	// Re-run a compute vertex generator over the vertex buffer of an object created with EVertexSource::GpuGeneratedBuffer (the object's own model only).
-	// Uses the same b0/u0 contract as creation. u0 holds the current vertices, so the shader may update records in place. Blocks until the GPU work completes.
+	// Uses the same b0/u0 contract as creation. u0 holds the current vertices, so the shader may update records in place.
+	// The work is submitted to the graphics queue without waiting, so later rendering and readbacks on that queue see the new vertices.
 	VIEW3D_API void __stdcall View3D_ObjectGpuGenerate(pr::view3d::Object object, void const* compute_bytecode, size_t compute_bytecode_size, void const* constants, size_t constants_size, int thread_group_size_x);
 
 	// Replace the ProceduralBinding::ConstantsSize constants of every procedural shader on the object's own nuggets. Later frames use the new values.

@@ -98,8 +98,15 @@ namespace pr::rdr12
 		// Perform the render step
 		void Execute(Frame& frame) override;
 
+		// Add the pipeline states of the draw list and the scene's populations, for both depth clip modes
+		void CollectPipelines(std::vector<PipeStateDesc>& descs) const override;
+
 		// Add model nuggets to the draw list for this render step
 		void AddNuggets(BaseInstance const& inst, NuggetPtr nuggets, drawlist_t& drawlist) override;
+
+		// Compose the pipeline state for drawing 'nugget' with 'pass' of 'material' into views whose depth is clamped when 'clamp_depth' is true.
+		// 'population' selects the population vertex shaders. Shadow draws ignore caller-owned pipeline overrides. Issues no commands.
+		void ComposePipeline(PipeStateDesc& desc, Nugget const& nugget, Material const& material, MaterialPass const& pass, bool clamp_depth, bool population) const;
 
 		// Create the atlas texture and the pipeline state description for the current shadow settings
 		void CreateAtlas(ShadowSettings const& settings);

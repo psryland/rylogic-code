@@ -11,6 +11,7 @@
 #include "pr/view3d-12/resource/resource_store.h"
 #include "pr/view3d-12/utility/features.h"
 #include "pr/view3d-12/utility/eventargs.h"
+#include "pr/view3d-12/utility/pipe_state.h"
 
 namespace pr::rdr12
 {
@@ -85,6 +86,9 @@ namespace pr::rdr12
 		AllocationsTracker   m_mem_tracker;
 		GpuSync              m_gsync;
 		KeepAlive            m_keep_alive;
+
+		// Pipeline state objects shared by all windows. Declared before the stores so shaders released by them can still forget their pipelines.
+		PipeStateCache m_pipe_states;
 
 		// Storage of resources
 		ResourceStore m_res_store;
@@ -221,6 +225,9 @@ namespace pr::rdr12
 
 		// Access the shared population classification pipeline.
 		PopulationCuller& PopulationCulling();
+
+		// Access the graphics pipeline state objects shared by all windows.
+		PipeStateCache& PipeStates();
 
 		// Return the current-pose object/root-space bounding box for a skinned model/pose pair.
 		std::optional<BBox> SkinnedModelBBox(Model const& model, Pose const& pose) const;

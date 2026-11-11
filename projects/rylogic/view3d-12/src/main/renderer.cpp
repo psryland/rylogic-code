@@ -274,6 +274,7 @@ namespace pr::rdr12
 		,m_id32_src()
 		,m_gsync(d3d())
 		,m_keep_alive(m_gsync)
+		,m_pipe_states(rdr())
 		,m_res_store(rdr())
 		,m_skinned_geometry(rdr())
 		,m_population_culler(rdr())
@@ -396,6 +397,12 @@ namespace pr::rdr12
 	PopulationCuller& Renderer::PopulationCulling()
 	{
 		return m_population_culler;
+	}
+
+	// Access the graphics pipeline state objects shared by all windows.
+	PipeStateCache& Renderer::PipeStates()
+	{
+		return m_pipe_states;
 	}
 
 	// Return the current-pose object/root-space bounding box for a skinned model/pose pair.

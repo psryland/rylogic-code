@@ -40,8 +40,11 @@
 #include <type_traits>
 #include <variant>
 #include <mutex>
+#include <shared_mutex>
 #include <condition_variable>
 #include <thread>
+#include <stop_token>
+#include <deque>
 #include <latch>
 #include <future>
 #include <cwctype>
@@ -226,6 +229,7 @@ namespace pr::rdr12
 	struct Material;
 	struct MaterialPass;
 	struct MaterialPassContext;
+	struct MaterialPipelineContext;
 	struct MaterialPBR;
 	struct MaterialSimple;
 	using MaterialPtr = RefPtr<Material const>;

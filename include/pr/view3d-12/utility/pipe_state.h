@@ -214,35 +214,34 @@ namespace pr::rdr12
 		}
 	};
 
-	// Pipe state object description
+	// Pipe state object description. Two descriptions are equal when their final states are equal, whatever order changes were applied in.
+	// Shader stages and the input layout are identified by address and length, so their data must outlive any pipeline created from them.
 	struct PipeStateDesc
 	{
 	private:
 
-		// Note:
-		//  - Don't set members of 'm_desc' directly otherwise
-		//    the hash won't be updated and pooling won't work.
 		D3D12_GRAPHICS_PIPELINE_STATE_DESC m_desc;
 		int m_view_count;
-		int m_hash;
 
 	public:
 
 		PipeStateDesc()
 			:m_desc()
 			,m_view_count()
-			,m_hash(hash::HashBytes32(&m_desc, &m_desc + 1))
 		{}
 		PipeStateDesc(D3D12_GRAPHICS_PIPELINE_STATE_DESC const& rhs)
 			:m_desc(rhs)
 			,m_view_count()
-			,m_hash(hash::HashBytes32(&m_desc, &m_desc + 1))
 		{}
 
-		// The current hash value for this pipe state description
-		int hash() const
+		// Return a hash of the final state, for lookup only. Equal descriptions have equal hashes.
+		uint64_t Hash() const;
+
+		// True if the final states are identical
+		friend bool operator == (PipeStateDesc const& lhs, PipeStateDesc const& rhs)
 		{
-			return m_hash;
+			// Compare the bytes, because the description is plain data with no owned pointers
+			return lhs.m_view_count == rhs.m_view_count && memcmp(&lhs.m_desc, &rhs.m_desc, sizeof(lhs.m_desc)) == 0;
 		}
 
 		// The number of view instances. Zero disables view instancing. Otherwise each draw is rasterised once per view, and view 'i' goes to
@@ -253,18 +252,14 @@ namespace pr::rdr12
 		}
 		void ViewCount(int count)
 		{
-			// Record the change in the hash
+			// View instancing has a device limit on the number of views
 			assert(count >= 0 && count <= D3D12_MAX_VIEW_INSTANCE_COUNT);
-			m_hash = hash::HashBytes32(&count, &count + 1, m_hash);
 			m_view_count = count;
 		}
 
 		// Apply changes to the pipeline state description
 		void Apply(PipeState const& ps)
 		{
-			// Record the change in the hash
-			m_hash = hash::HashBytes32(byte_ptr(ps.value()), byte_ptr(ps.value()) + ps.size(), m_hash);
-
 			// Set the value of a pipeline state description field
 			memcpy(ps.ptr(m_desc), ps.value(), ps.size());
 		}
@@ -284,54 +279,94 @@ namespace pr::rdr12
 		}
 	};
 
-	// A pipe state object instance
-	struct PipeStateObject
+	// The graphics pipeline state objects of one renderer, shared by all of its windows and render steps.
+	// Pipelines are found by their final description, so equal states share one pipeline. Pipelines that have not been used for 'MaxIdleTime' are
+	// released when the cache grows beyond 'TrimCount'. Pipelines can also be created ahead of use on worker threads, see 'Prewarm'.
+	// The cache is thread safe.
+	struct PipeStateCache
 	{
-		D3DPtr<ID3D12PipelineState> m_pso; // The pipeline state object
-		int64_t m_frame_number;            // The frame number when last used
-		int m_hash;                        // Hash of the pipeline state data used to create 'm_pso'
+		using clock_t = std::chrono::steady_clock;
+		static constexpr size_t TrimCount = 256;
+		static constexpr auto MaxIdleTime = std::chrono::seconds(10);
 
-		PipeStateObject(D3DPtr<ID3D12PipelineState> pso, int64_t frame_number, int hash)
-			: m_pso(pso)
-			, m_frame_number(frame_number)
-			, m_hash(hash)
-		{}
-
-		// Access the allocator
-		ID3D12PipelineState const* operator ->() const
+		// Counters of pipeline creation, for measuring how much creation happens while drawing
+		struct Stats
 		{
-			return m_pso.get();
-		}
-		ID3D12PipelineState* operator ->()
+			int64_t m_created;        // Pipelines created by 'Get', i.e. while recording draws
+			double m_created_ms;      // The total time 'Get' spent creating pipelines
+			double m_created_max_ms;  // The longest single creation by 'Get'
+			int64_t m_prewarmed;      // Pipelines created by the prewarm workers
+			double m_prewarmed_ms;    // The total worker time spent creating pipelines
+			int64_t m_failed;         // Prewarm creations that failed. 'Get' reports the same failure if the state is drawn.
+			int64_t m_pending;        // Prewarm requests that are queued or being created
+			int64_t m_count;          // The number of cached pipelines
+		};
+
+	private:
+
+		struct Entry
 		{
-			return m_pso.get();
-		}
-
-		// Convert to the allocator pointer
-		operator ID3D12PipelineState const* () const
+			PipeStateDesc m_desc;                    // The description that 'm_pso' was created from
+			D3DPtr<ID3D12RootSignature> m_signature; // Holds the root signature, so its address cannot be reused while it identifies this entry
+			D3DPtr<ID3D12PipelineState> m_pso;       // The pipeline state object
+			clock_t::time_point m_last_used;         // When 'Get' last returned this entry
+			bool m_pinned;                           // Prewarmed and not yet used. Trimming keeps pinned entries, so prewarmed states survive until drawn.
+		};
+		struct Request
 		{
-			return m_pso.get();
-		}
-		operator ID3D12PipelineState* ()
-		{
-			return m_pso.get();
-		}
-	};
+			PipeStateDesc m_desc;                    // The description to create a pipeline for
+			D3DPtr<ID3D12RootSignature> m_signature; // Holds the root signature until the pipeline is created
+			uint64_t m_hash;                         // 'm_desc.Hash()'
+		};
 
-	// A pool of pipe states
-	struct PipeStatePool
-	{
-		using pool_t = pr::vector<PipeStateObject, 16, false>;
-		Window* m_wnd;
-		pool_t m_pool;
+		Renderer* m_rdr;
+		std::unordered_multimap<uint64_t, Entry> m_entries;
+		std::deque<Request> m_requests;
+		int m_in_flight;
+		Stats m_stats;
+		mutable std::mutex m_mutex;
+		std::condition_variable_any m_cv;
 
-		explicit PipeStatePool(Window& wnd);
-		PipeStatePool(PipeStatePool&&) = default;
-		PipeStatePool(PipeStatePool const&) = delete;
-		PipeStatePool& operator=(PipeStatePool&&) = default;
-		PipeStatePool& operator=(PipeStatePool const&) = delete;
+		// Held shared by a worker while it creates a pipeline, and exclusively by 'Forget'. Lock order: 'm_create_lock' then 'm_mutex'.
+		std::shared_mutex m_create_lock;
 
-		// Return a pipeline state instance for the given description
+		// Declared last so the workers stop before any other member is destroyed
+		std::vector<std::jthread> m_workers;
+
+		// Find the entry for 'desc'. Requires 'm_mutex' to be held.
+		Entry* Find(PipeStateDesc const& desc, uint64_t hash);
+
+		// Create prewarm requests until stopped
+		void Worker(std::stop_token stop);
+
+		// Release entries that have been idle for too long. Requires 'm_mutex' to be held.
+		void Trim(clock_t::time_point now);
+
+		// Release one entry's pipeline once the GPU is no longer using it. Requires 'm_mutex' to be held.
+		void Release(Entry& entry);
+
+	public:
+
+		explicit PipeStateCache(Renderer& rdr);
+		PipeStateCache(PipeStateCache const&) = delete;
+		PipeStateCache& operator=(PipeStateCache const&) = delete;
+
+		// Return the pipeline state object for 'desc', creating it if needed. The returned pointer is valid until the GPU finishes the work submitted
+		// after the next 'Forget' or trim that removes it, so it is safe to record into a command list that is submitted as usual.
 		ID3D12PipelineState* Get(PipeStateDesc const& desc);
+
+		// Create pipelines for 'descs' on worker threads, so that later 'Get' calls find them. States that are cached or already requested are ignored.
+		// The root signatures and shader bytecode of 'descs' must remain valid until created or forgotten (see 'Forget'). Returns the number of new requests.
+		int Prewarm(std::span<PipeStateDesc const> descs);
+
+		// Release every pipeline that uses 'signature' or any shader stage whose bytecode starts at an address in 'bytecode', and drop matching prewarm requests.
+		// Call this before the storage of the bytecode or the signature is released, so that a later allocation at the same address cannot match.
+		void Forget(ID3D12RootSignature const* signature, std::span<void const* const> bytecode);
+
+		// The number of cached pipeline state objects
+		size_t Count() const;
+
+		// The creation counters, and the number of prewarm requests not yet complete
+		Stats GetStats() const;
 	};
 }

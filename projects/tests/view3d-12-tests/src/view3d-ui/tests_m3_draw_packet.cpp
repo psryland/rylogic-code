@@ -54,7 +54,8 @@ namespace pr::view3d::ui::tests
 			PR_EXPECT(item.corner_radius == 4 && item.border_thickness == 0);
 		}
 
-		// The same descriptor moves without transactions and loops continuously in host time.
+		// The same descriptor moves without transactions and loops continuously in host time. The span's centre sweeps the whole
+		// track interior (x in [2, 98]), so the span is cropped to half its length at either end.
 		progress.is_indeterminate = 1;
 		auto change = TxnBuilder{};
 		change.Upsert(progress);
@@ -64,9 +65,10 @@ namespace pr::view3d::ui::tests
 		{
 			engine.Update(Viewport(300, 100, 96, time_ms));
 			auto const& item = engine.DrawPackets().items.back();
-			auto const expected_x = time_ms == 1200 ? 74.0f : time_ms == 600 || time_ms == 1800 ? 38.0f : 2.0f;
+			auto const expected_x = time_ms == 1200 ? 86.0f : time_ms == 600 || time_ms == 1800 ? 38.0f : 2.0f;
+			auto const expected_w = time_ms == 600 || time_ms == 1800 ? 24.0f : 12.0f;
 			PR_EXPECT(std::abs(item.bounds.x - expected_x) < 0.001f);
-			PR_EXPECT(item.bounds.w == 24 && item.bounds.x + item.bounds.w <= 98);
+			PR_EXPECT(std::abs(item.bounds.w - expected_w) < 0.001f);
 			PR_EXPECT(engine.DrawPackets().accepted_revision == revision);
 			PR_EXPECT(engine.EventCount() == 0);
 		}

@@ -19,8 +19,6 @@ namespace las
 
 	OceanShader::OceanShader(Renderer& rdr)
 		: Shader(rdr)
-		, m_vs_bytecode()
-		, m_ps_bytecode()
 		, m_cbuf()
 	{
 		static_assert(sizeof(WaterFieldElement) == 64);
@@ -40,10 +38,8 @@ namespace las
 			.Define(L"SHADER_BUILD")
 			.Optimise(true);
 
-		m_vs_bytecode = compiler.ShaderModel(L"vs_6_0").EntryPoint(L"VSOcean").Compile();
-		m_ps_bytecode = compiler.ShaderModel(L"ps_6_0").EntryPoint(L"PSOcean").Compile();
-		m_code.VS = { m_vs_bytecode };
-		m_code.PS = { m_ps_bytecode };
+		m_code.VS = OwnByteCode(compiler.ShaderModel(L"vs_6_0").EntryPoint(L"VSOcean").Compile());
+		m_code.PS = OwnByteCode(compiler.ShaderModel(L"ps_6_0").EntryPoint(L"PSOcean").Compile());
 
 		// Initialise default PBR parameters
 		m_cbuf = CBufOcean{

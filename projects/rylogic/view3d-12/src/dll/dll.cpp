@@ -1060,6 +1060,44 @@ VIEW3D_API void __stdcall View3D_WindowRenderHidden(view3d::Window window)
 	CatchAndReport(View3D_WindowRenderHidden, window,);
 }
 
+// Start creating the pipeline states that drawing the window's objects would use, on worker threads
+VIEW3D_API int __stdcall View3D_WindowPrewarmPipelines(view3d::Window window)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		return window->PrewarmPipelines();
+	}
+	CatchAndReport(View3D_WindowPrewarmPipelines, window, -1);
+}
+
+// Get the counters of the pipeline state cache of the window's renderer
+VIEW3D_API BOOL __stdcall View3D_WindowPipelineStats(view3d::Window window, view3d::PipelineStats& stats)
+{
+	try
+	{
+		Validate(window);
+
+		// The cache locks itself, so the DLL lock is not needed. This lets callers poll while another thread holds the DLL lock.
+		auto s = window->rdr().PipeStates().GetStats();
+		stats = view3d::PipelineStats{
+			.m_created = s.m_created,
+			.m_created_ms = s.m_created_ms,
+			.m_created_max_ms = s.m_created_max_ms,
+			.m_prewarmed = s.m_prewarmed,
+			.m_prewarmed_ms = s.m_prewarmed_ms,
+			.m_failed = s.m_failed,
+			.m_pending = s.m_pending,
+			.m_count = s.m_count,
+		};
+		static_assert(sizeof(view3d::PipelineStats) == 8 * 8, "Must match 'View3d.PipelineStats' in Rylogic.Gfx");
+		return TRUE;
+	}
+	CatchAndReport(View3D_WindowPipelineStats, window, FALSE);
+}
+
 // Wait for any previous frames to complete rendering within the GPU
 VIEW3D_API void __stdcall View3D_WindowGSyncWait(view3d::Window window)
 {
