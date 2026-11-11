@@ -619,11 +619,16 @@ float3 GridSample(float3 pos)
 // Return a trilinear interpolation of temperature offsets from eight clamped cell samples. See LoadTemperatureOffset.
 float TrilinearTemperatureOffset(int3 c0, int3 c1, float3 f)
 {
-	float c00 = lerp(LoadTemperatureOffset(int3(c0.x, c0.y, c0.z)), LoadTemperatureOffset(int3(c1.x, c0.y, c0.z)), f.x);
-	float c10 = lerp(LoadTemperatureOffset(int3(c0.x, c1.y, c0.z)), LoadTemperatureOffset(int3(c1.x, c1.y, c0.z)), f.x);
-	float c01 = lerp(LoadTemperatureOffset(int3(c0.x, c0.y, c1.z)), LoadTemperatureOffset(int3(c1.x, c0.y, c1.z)), f.x);
-	float c11 = lerp(LoadTemperatureOffset(int3(c0.x, c1.y, c1.z)), LoadTemperatureOffset(int3(c1.x, c1.y, c1.z)), f.x);
-	return lerp(lerp(c00, c10, f.y), lerp(c01, c11, f.y), f.z);
+	// Visit the corners in a real loop so each temperature sample inlines one cell load rather than eight. See TrilinearFace.
+	float sum = 0.0f;
+	[loop] for (int i = 0; i != 8; ++i)
+	{
+		// Bit 0 selects the X corner, bit 1 the Y corner, and bit 2 the Z corner.
+		bool3 hi = bool3((i & 1) != 0, (i & 2) != 0, (i & 4) != 0);
+		float3 w = select(hi, f, 1.0f - f);
+		sum += w.x * w.y * w.z * LoadTemperatureOffset(select(hi, c1, c0));
+	}
+	return sum;
 }
 
 // Sample temperature at a world-space position with clamped trilinear lookup.
@@ -660,11 +665,17 @@ float TrilinearFace(int axis, float3 grid, int3 max_index)
 	float3 f = saturate(grid - base_f);
 	int3 c0 = clamp((int3)base_f, int3(0, 0, 0), max_index);
 	int3 c1 = clamp((int3)base_f + int3(1, 1, 1), int3(0, 0, 0), max_index);
-	float c00 = lerp(LoadFace(axis, int3(c0.x, c0.y, c0.z)), LoadFace(axis, int3(c1.x, c0.y, c0.z)), f.x);
-	float c10 = lerp(LoadFace(axis, int3(c0.x, c1.y, c0.z)), LoadFace(axis, int3(c1.x, c1.y, c0.z)), f.x);
-	float c01 = lerp(LoadFace(axis, int3(c0.x, c0.y, c1.z)), LoadFace(axis, int3(c1.x, c0.y, c1.z)), f.x);
-	float c11 = lerp(LoadFace(axis, int3(c0.x, c1.y, c1.z)), LoadFace(axis, int3(c1.x, c1.y, c1.z)), f.x);
-	return lerp(lerp(c00, c10, f.y), lerp(c01, c11, f.y), f.z);
+
+	// Visit the corners in a real loop. Face loads inline a lot of boundary logic, and eight inlined copies per sample make the kernels slow to compile.
+	float sum = 0.0f;
+	[loop] for (int i = 0; i != 8; ++i)
+	{
+		// Bit 0 selects the X corner, bit 1 the Y corner, and bit 2 the Z corner.
+		bool3 hi = bool3((i & 1) != 0, (i & 2) != 0, (i & 4) != 0);
+		float3 w = select(hi, f, 1.0f - f);
+		sum += w.x * w.y * w.z * LoadFace(axis, select(hi, c1, c0));
+	}
+	return sum;
 }
 
 // Sample U velocity at a world-space position by interpolating the surrounding U faces.
@@ -896,7 +907,14 @@ float3 CellVelocity(int3 c)
 {
 	// Clamping lets neighbour lookups at the domain edges reuse the edge cell.
 	c = clamp(c, int3(0, 0, 0), g.cell_count - 1);
-	return 0.5f * float3(LoadU(c) + LoadU(c + int3(1, 0, 0)), LoadV(c) + LoadV(c + int3(0, 1, 0)), LoadW(c) + LoadW(c + int3(0, 0, 1)));
+
+	// Visit the low and high faces in a real loop, because face loads inline a lot of boundary logic. See TrilinearFace.
+	float3 sum = float3(0.0f, 0.0f, 0.0f);
+	[loop] for (int i = 0; i != 2; ++i)
+	{
+		sum += float3(LoadU(c + int3(i, 0, 0)), LoadV(c + int3(0, i, 0)), LoadW(c + int3(0, 0, i)));
+	}
+	return 0.5f * sum;
 }
 
 // Return the swirl (curl of the velocity) at the centre of cell 'c', 1/s.
@@ -906,13 +924,20 @@ float3 CellVorticity(int3 c)
 	// Use central differences, or one-sided differences at the domain edges. An axis with one cell has no derivative.
 	int3 lo = max(c - 1, int3(0, 0, 0));
 	int3 hi = min(c + 1, g.cell_count - 1);
-	float span_x = (float)max(hi.x - lo.x, 1) * g.dx;
-	float span_y = (float)max(hi.y - lo.y, 1) * g.dx;
 	float span_z = max(CellZ(c.xy, hi.z) - CellZ(c.xy, lo.z), AtmosphereMinCellHeight);
-	float3 d_dx = (CellVelocity(int3(hi.x, c.y, c.z)) - CellVelocity(int3(lo.x, c.y, c.z))) / span_x;
-	float3 d_dy = (CellVelocity(int3(c.x, hi.y, c.z)) - CellVelocity(int3(c.x, lo.y, c.z))) / span_y;
-	float3 d_dz = (CellVelocity(int3(c.x, c.y, hi.z)) - CellVelocity(int3(c.x, c.y, lo.z))) / span_z;
-	return float3(d_dy.z - d_dz.y, d_dz.x - d_dx.z, d_dx.y - d_dy.x);
+
+	// The curl is the sum over the axes of 'axis x d(velocity)/d(axis)'. Visit the axes in a real loop: each derivative inlines two
+	// cell velocities with a lot of face logic, and unrolled copies make the kernels that use this slow to compile.
+	float3 curl = float3(0.0f, 0.0f, 0.0f);
+	[loop] for (int a = 0; a != 3; ++a)
+	{
+		// Step only along axis 'a' to its neighbouring cells.
+		bool3 along = bool3(a == 0, a == 1, a == 2);
+		float span = a == 2 ? span_z : (float)max(hi[a] - lo[a], 1) * g.dx;
+		float3 d = (CellVelocity(select(along, hi, c)) - CellVelocity(select(along, lo, c))) / span;
+		curl += cross(select(along, 1.0f, 0.0f), d);
+	}
+	return curl;
 }
 
 // Return the swirl magnitude stored by CSVorticity for cell 'c', 1/s. 'c' is clamped into the grid.
@@ -943,6 +968,30 @@ float3 ConfinementAcceleration(int3 c)
 	// Push at right angles to both that direction and the swirl axis. The smallest cell dimension keeps the force consistent as the grid is
 	// refined; thin layers have strong vertical shear, and scaling that shear by the wider horizontal cell size would pump energy into it.
 	return g.vorticity_confinement * min(g.dx, CellDz(c.xy, c.z)) * cross(gradient / len, CellVorticity(c));
+}
+
+// Return the mean of the cell-centre velocities of cells 'c0' and 'c1'. See CellVelocity.
+float3 CellPairVelocity(int3 c0, int3 c1)
+{
+	// Visit the two cells in a real loop so callers inline one velocity body rather than two. See TrilinearFace.
+	float3 sum = float3(0.0f, 0.0f, 0.0f);
+	[loop] for (int i = 0; i != 2; ++i)
+	{
+		sum += CellVelocity(i == 0 ? c0 : c1);
+	}
+	return 0.5f * sum;
+}
+
+// Return the mean of the confinement accelerations of cells 'c0' and 'c1', m/s^2. See ConfinementAcceleration.
+float3 CellPairConfinementAcceleration(int3 c0, int3 c1)
+{
+	// Visit the two cells in a real loop so callers inline one confinement body rather than two. See TrilinearFace.
+	float3 sum = float3(0.0f, 0.0f, 0.0f);
+	[loop] for (int i = 0; i != 2; ++i)
+	{
+		sum += ConfinementAcceleration(i == 0 ? c0 : c1);
+	}
+	return 0.5f * sum;
 }
 
 // Return the wall drag of the bottom or top cell layer of column 'col' at layer 'z', 1/m. This is the drag coefficient divided by
@@ -1484,7 +1533,7 @@ void CSForcesHeat(uint3 dtid : SV_DispatchThreadID)
 			if (g.vertical_viscosity != 0.0f)
 				value = MixVertical(value, g_u_in[UIndex(int3(p.xy, max(p.z - 1, 0)))], g_u_in[UIndex(int3(p.xy, min(p.z + 1, g.cell_count.z - 1)))], col, p.z);
 			if (confine && p.x > 0 && p.x < g.cell_count.x && ColumnAir(int2(p.x - 1, p.y)) && ColumnAir(int2(p.x, p.y)))
-				value += 0.5f * (ConfinementAcceleration(p - int3(1, 0, 0)).x + ConfinementAcceleration(p).x) * g.dt;
+				value += CellPairConfinementAcceleration(p - int3(1, 0, 0), p).x * g.dt;
 
 			// Nudge the face toward the outside wind inside the open-edge sponge.
 			float2 wind;
@@ -1495,7 +1544,7 @@ void CSForcesHeat(uint3 dtid : SV_DispatchThreadID)
 			// Slow faces that run along a dragged wall, using the air speed averaged over the two cells that share the face.
 			float drag = WallDragU(p);
 			if (drag > 0.0f)
-				value = ApplyWallDrag(value, drag, 0.5f * length(CellVelocity(p - int3(1, 0, 0)) + CellVelocity(p)));
+				value = ApplyWallDrag(value, drag, length(CellPairVelocity(p - int3(1, 0, 0), p)));
 		}
 
 		g_u_out[UIndex(p)] = UFaceActive(p) ? value : 0.0f;
@@ -1511,7 +1560,7 @@ void CSForcesHeat(uint3 dtid : SV_DispatchThreadID)
 			if (g.vertical_viscosity != 0.0f)
 				value = MixVertical(value, g_v_in[VIndex(int3(p.xy, max(p.z - 1, 0)))], g_v_in[VIndex(int3(p.xy, min(p.z + 1, g.cell_count.z - 1)))], col, p.z);
 			if (confine && p.y > 0 && p.y < g.cell_count.y && ColumnAir(int2(p.x, p.y - 1)) && ColumnAir(int2(p.x, p.y)))
-				value += 0.5f * (ConfinementAcceleration(p - int3(0, 1, 0)).y + ConfinementAcceleration(p).y) * g.dt;
+				value += CellPairConfinementAcceleration(p - int3(0, 1, 0), p).y * g.dt;
 
 			// Nudge the face toward the outside wind inside the open-edge sponge.
 			float2 wind;
@@ -1522,7 +1571,7 @@ void CSForcesHeat(uint3 dtid : SV_DispatchThreadID)
 			// Slow faces that run along a dragged wall, using the air speed averaged over the two cells that share the face.
 			float drag = WallDragV(p);
 			if (drag > 0.0f)
-				value = ApplyWallDrag(value, drag, 0.5f * length(CellVelocity(p - int3(0, 1, 0)) + CellVelocity(p)));
+				value = ApplyWallDrag(value, drag, length(CellPairVelocity(p - int3(0, 1, 0), p)));
 		}
 
 		g_v_out[VIndex(p)] = VFaceActive(p) ? value : 0.0f;
@@ -1542,14 +1591,14 @@ void CSForcesHeat(uint3 dtid : SV_DispatchThreadID)
 			float ref_temp = 0.5f * (ReferenceTemperature(CellZ(p.xy, z0)) + ReferenceTemperature(CellZ(p.xy, z1)));
 			accel = g.gravity * (temp - ref_temp) / max(ref_temp, 1.0f);
 			if (confine)
-				accel += 0.5f * (ConfinementAcceleration(int3(p.x, p.y, z0)).z + ConfinementAcceleration(int3(p.x, p.y, z1)).z);
+				accel += CellPairConfinementAcceleration(int3(p.x, p.y, z0), int3(p.x, p.y, z1)).z;
 		}
 		float value = g_w_in[WIndex(p)] + accel * g.dt;
 
 		// Slow faces that run along a dragged side wall, using the air speed averaged over the two cells that share the face.
 		float drag = WallDragW(p);
 		if (drag > 0.0f)
-			value = ApplyWallDrag(value, drag, 0.5f * length(CellVelocity(p - int3(0, 0, 1)) + CellVelocity(p)));
+			value = ApplyWallDrag(value, drag, length(CellPairVelocity(p - int3(0, 0, 1), p)));
 
 		g_w_out[WIndex(p)] = WFaceActive(p) ? value : 0.0f;
 	}

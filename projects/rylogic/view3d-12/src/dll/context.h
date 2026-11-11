@@ -6,12 +6,30 @@
 #include "pr/view3d-12/forward.h"
 #include "pr/view3d-12/view3d-dll.h"
 #include "pr/view3d-12/main/renderer.h"
+#include "pr/view3d-12/resource/resource_factory.h"
 #include "pr/view3d-12/ldraw/ldraw_parsing.h"
 #include "view3d-12/src/ldraw/sources/ldraw_sources.h"
 #include "view3d-12/src/dll/dll_forward.h"
 
 namespace pr::rdr12
 {
+	// The compiled pipeline for one vertex generator shader.
+	struct VertexGeneratorPipeline
+	{
+		D3DPtr<ID3D12RootSignature> m_root_signature;
+		D3DPtr<ID3D12PipelineState> m_pipeline;
+	};
+
+	// Retained state for re-running vertex generators without waiting for the GPU.
+	struct VertexGenerators
+	{
+		// Pipelines keyed on the shader bytecode plus a trailing byte that is 1 when the root signature has the t0 input.
+		std::unordered_map<std::string, VertexGeneratorPipeline> m_pipelines;
+
+		// Records regeneration work. It is retained so that its upload memory and command allocators stay alive until the GPU has used them.
+		std::unique_ptr<ResourceFactory> m_factory;
+	};
+
 	struct Context : ldraw::ISourceEvents
 	{
 		using InitMap = std::unordered_map<view3d::DllHandle, Sub>;
@@ -24,6 +42,7 @@ namespace pr::rdr12
 		WindowCont           m_windows;  // The created windows
 		ScriptSources        m_sources;  // A container of Ldr objects and a file watcher
 		InitMap              m_inits;    // The unique id of each Initialise call, mapped to that caller's 'ReportError' subscription
+		VertexGenerators     m_vertex_generators; // Cached vertex generator pipelines and the factory for in-place regeneration. Destroyed before 'm_rdr'.
 		std::recursive_mutex m_mutex;
 		std::thread::id      m_main_thread_id; // The thread that created the context. Initialise and Shutdown calls must be made on this thread.
 
@@ -75,7 +94,8 @@ namespace pr::rdr12
 		ldraw::LdrObject* ObjectCreate(char const* name, Colour32 colour, std::span<view3d::Vertex const> verts, std::span<uint16_t const> indices, std::span<view3d::Nugget const> nuggets, Guid const& context_id);
 		ldraw::LdrObject* ObjectCreate(char const* name, Colour32 colour, int vertex_count, std::span<view3d::Vertex const> verts, std::span<uint32_t const> indices, std::span<view3d::Nugget const> nuggets, view3d::ObjectCreateOptions const& options, Guid const& context_id);
 
-		// Re-run a compute vertex generator in place over the generated vertex buffer of 'object'. Blocks until the GPU work completes.
+		// Re-run a compute vertex generator in place over the generated vertex buffer of 'object'.
+		// The work is submitted without waiting. Later rendering on the graphics queue sees the new vertices.
 		void ObjectGpuGenerate(ldraw::LdrObject* object, std::span<uint8_t const> bytecode, std::span<std::byte const> constants, int thread_group_size_x);
 
 		// Replace the constants of every procedural vertex shader on the nuggets of 'object'.

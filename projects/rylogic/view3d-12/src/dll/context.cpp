@@ -30,11 +30,32 @@ namespace pr::rdr12
 {
 	namespace
 	{
-		// Run a caller-compiled vertex generator over every record of a UAV-capable canonical vertex buffer, then block until it completes.
+		// Return the cached pipeline for a vertex generator shader, creating it on first use.
+		// Creating a pipeline can take the driver many milliseconds, so regenerating every frame must not create one each time.
+		VertexGeneratorPipeline& GetVertexGeneratorPipeline(VertexGenerators& generators, ID3D12Device* device, std::span<uint8_t const> bytecode, bool has_input)
+		{
+			// Key on the exact bytecode so that different shaders never share a pipeline.
+			auto key = std::string(reinterpret_cast<char const*>(bytecode.data()), bytecode.size());
+			key.push_back(has_input ? '\1' : '\0');
+			if (auto iter = generators.m_pipelines.find(key); iter != generators.m_pipelines.end())
+				return iter->second;
+
+			// Bind the fixed b0/u0 contract, plus t0 for input.
+			auto root_signature_desc = compute::RootSig(compute::ERootSigFlags::ComputeOnly)
+				.CBuf(hlsl::ECBufReg::b0)
+				.UAV(hlsl::EUAVReg::u0);
+			if (has_input)
+				root_signature_desc.SRV(hlsl::ESRVReg::t0);
+			auto root_signature = root_signature_desc.Create(device, "Vertex generator root signature");
+			auto pipeline = compute::ComputePSO(root_signature.get(), bytecode).Create(device, "Vertex generator pipeline");
+			return generators.m_pipelines.emplace(std::move(key), VertexGeneratorPipeline{ .m_root_signature = std::move(root_signature), .m_pipeline = std::move(pipeline) }).first->second;
+		}
+
+		// Record a caller-compiled vertex generator over every record of a UAV-capable canonical vertex buffer. The caller submits the work.
 		// The b0 constants are copied for the dispatch, and the u0 RWStructuredBuffer<View3DVertex> retains its previous contents, so shaders may update records in place.
 		// When 'input' is nonempty it is copied to a GPU buffer and bound as a root SRV at t0; otherwise the root signature has no t0.
-		// The buffer rests in the vertex-buffer state afterwards.
-		void DispatchVertexGenerator(ResourceFactory& factory, ID3D12Resource* vertex_buffer, int64_t vertex_count, std::span<uint8_t const> bytecode, std::span<std::byte const> constants, std::span<std::byte const> input, int thread_group_size_x)
+		// The returned input buffer must be kept alive until the GPU has completed the work. The buffer rests in the vertex-buffer state afterwards.
+		D3DPtr<ID3D12Resource> DispatchVertexGenerator(ResourceFactory& factory, VertexGenerators& generators, ID3D12Resource* vertex_buffer, int64_t vertex_count, std::span<uint8_t const> bytecode, std::span<std::byte const> constants, std::span<std::byte const> input, int thread_group_size_x)
 		{
 			// Validate the dispatch contract before recording GPU work.
 			if (bytecode.empty())
@@ -53,18 +74,12 @@ namespace pr::rdr12
 			if (!AllSet(vertex_buffer->GetDesc().Flags, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS))
 				throw std::invalid_argument("Vertex generator requires a GPU-generated vertex buffer");
 
-			// Bind the fixed b0/u0 contract, plus t0 for input. The pipeline is not retained because generation is rare compared to drawing.
-			auto root_signature_desc = compute::RootSig(compute::ERootSigFlags::ComputeOnly)
-				.CBuf(hlsl::ECBufReg::b0)
-				.UAV(hlsl::EUAVReg::u0);
-			if (!input.empty())
-				root_signature_desc.SRV(hlsl::ESRVReg::t0);
-			auto root_signature = root_signature_desc.Create(factory.d3d(), "Vertex generator root signature");
-			auto pipeline = compute::ComputePSO(root_signature.get(), bytecode).Create(factory.d3d(), "Vertex generator pipeline");
+			// Use the cached pipeline. The constants live in the factory's upload memory, which is recycled only after the GPU passes this work.
+			auto& pipeline = GetVertexGeneratorPipeline(generators, factory.d3d(), bytecode, !input.empty());
 			auto cbuf = factory.UploadBuffer().Alloc(s_cast<int>(constants.size()), D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
 			std::memcpy(cbuf.m_mem + cbuf.m_ofs, constants.data(), constants.size());
 
-			// Copy the input into a default-heap buffer. The blocking flush below keeps it alive until the dispatch completes.
+			// Copy the input into a default-heap buffer. The caller keeps it alive until the dispatch completes.
 			D3DPtr<ID3D12Resource> input_buffer;
 			if (!input.empty())
 			{
@@ -79,8 +94,8 @@ namespace pr::rdr12
 			barriers.Transition(vertex_buffer, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			barriers.Commit();
 
-			command_list.SetPipelineState(pipeline.get());
-			command_list.SetComputeRootSignature(root_signature.get());
+			command_list.SetPipelineState(pipeline.m_pipeline.get());
+			command_list.SetComputeRootSignature(pipeline.m_root_signature.get());
 			command_list.SetComputeRootConstantBufferView(0, cbuf);
 			command_list.SetComputeRootUnorderedAccessView(1, vertex_buffer);
 			if (input_buffer != nullptr)
@@ -91,7 +106,7 @@ namespace pr::rdr12
 			barriers.Transition(vertex_buffer, D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER);
 			barriers.Commit();
 			compute::DefaultResState(vertex_buffer, D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER);
-			factory.FlushToGpu(EGpuFlush::Block);
+			return input_buffer;
 		}
 
 		// Temporarily detach an object from exactly the windows that currently contain it.
@@ -148,6 +163,7 @@ namespace pr::rdr12
 		, m_windows()
 		, m_sources(m_rdr, *this)
 		, m_inits()
+		, m_vertex_generators()
 		, m_mutex()
 		, m_main_thread_id(std::this_thread::get_id())
 		, ReportError()
@@ -158,6 +174,10 @@ namespace pr::rdr12
 	{
 		for (auto& wnd : m_windows)
 			delete wnd;
+
+		// Regeneration work is submitted without waiting, so its pipelines and upload memory must outlive it.
+		if (auto& factory = m_vertex_generators.m_factory; factory != nullptr)
+			factory->Wait(factory->FlushToGpu(EGpuFlush::DontFlush));
 	}
 
 	// Report an error handled at the DLL API layer
@@ -562,11 +582,12 @@ namespace pr::rdr12
 			model->CreateNugget(factory, nugget);
 		}
 
-		// Fill every canonical vertex exactly once before publishing the model.
+		// Fill every canonical vertex exactly once before publishing the model. Waiting here keeps the input buffer alive until the GPU has read it.
 		auto const bytecode = std::span(static_cast<uint8_t const*>(options.m_compute_bytecode), options.m_compute_bytecode_size);
 		auto const constants = std::span(static_cast<std::byte const*>(options.m_constants), options.m_constants_size);
 		auto const input = std::span(static_cast<std::byte const*>(options.m_input), options.m_input_size);
-		DispatchVertexGenerator(factory, vertex_buffer.get(), vertex_count, bytecode, constants, input, options.m_thread_group_size_x);
+		auto input_buffer = DispatchVertexGenerator(factory, m_vertex_generators, vertex_buffer.get(), vertex_count, bytecode, constants, input, options.m_thread_group_size_x);
+		factory.Wait(factory.FlushToGpu(EGpuFlush::Async));
 
 		// Publish an ordinary object only after the generated buffer is complete.
 		auto object = ldraw::LdrObjectPtr(new ldraw::LdrObject(ldraw::ELdrObject::Custom, nullptr, context_id), true);
@@ -585,8 +606,14 @@ namespace pr::rdr12
 		if (model == nullptr)
 			throw std::invalid_argument("Object has no model to regenerate");
 
-		ResourceFactory factory(m_rdr);
-		DispatchVertexGenerator(factory, model->m_vb.get(), model->m_vcount, bytecode, constants, {}, thread_group_size_x);
+		// Record into the retained factory and submit without waiting. Graphics queue order makes earlier frames finish reading the
+		// buffer before the dispatch writes it, and later frames draw the new vertices. The factory recycles the constants memory once the GPU passes it.
+		auto& generators = m_vertex_generators;
+		if (generators.m_factory == nullptr)
+			generators.m_factory = std::make_unique<ResourceFactory>(m_rdr, EResourceFactoryLifetime::Retained);
+
+		DispatchVertexGenerator(*generators.m_factory, generators, model->m_vb.get(), model->m_vcount, bytecode, constants, {}, thread_group_size_x);
+		generators.m_factory->FlushToGpu(EGpuFlush::Async);
 
 		// Caches keyed on the model revision (e.g. shadow maps) and structures built from the previous vertex contents are now stale.
 		++model->m_revision;

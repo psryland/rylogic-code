@@ -1708,7 +1708,8 @@ extern "C"
 	VIEW3D_API pr::view3d::Object __stdcall View3D_ObjectCreateU32(char const* name, pr::view3d::Colour colour, int vcount, int icount, int ncount, pr::view3d::Vertex const* verts, UINT32 const* indices, pr::view3d::Nugget const* nuggets, pr::view3d::ObjectCreateOptions const& options, GUID const& context_id);
 
 	// Re-run a compute vertex generator over the vertex buffer of an object created with EVertexSource::GpuGeneratedBuffer (the object's own model only).
-	// Uses the same b0/u0 contract as creation. u0 holds the current vertices, so the shader may update records in place. Blocks until the GPU work completes.
+	// Uses the same b0/u0 contract as creation. u0 holds the current vertices, so the shader may update records in place.
+	// The work is submitted to the graphics queue without waiting, so later rendering and readbacks on that queue see the new vertices.
 	VIEW3D_API void __stdcall View3D_ObjectGpuGenerate(pr::view3d::Object object, void const* compute_bytecode, size_t compute_bytecode_size, void const* constants, size_t constants_size, int thread_group_size_x);
 
 	// Replace the ProceduralBinding::ConstantsSize constants of every procedural shader on the object's own nuggets. Later frames use the new values.
