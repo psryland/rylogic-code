@@ -872,6 +872,12 @@ public readonly struct TickParams : IEquatable<TickParams>
 		/// <summary>Optional image drawn over the box's fill and border; ImageBrush.None draws no image.</summary>
 		public readonly ImageBrush m_image;
 
+		/// <summary>
+		/// Draws no fill, border, or image and leaves the control's content (such as text) fully opaque.
+		/// Every UiStyleDesc channel starts as this visual until it is set.
+		/// </summary>
+		public static readonly StyleVisual Empty = new(Colour.TransparentBlack);
+
 		/// <summary>Create a state-channel visual.</summary>
 		public StyleVisual(Colour fill, Colour border_colour = default, float border_thickness = 0, float corner_radius = 0, float opacity = 1, Colour foreground = default, Colour thumb = default, ImageBrush image = default)
 		{
