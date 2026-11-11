@@ -124,6 +124,7 @@ namespace pr::rdr12
 		void DrawNuggets(Frame& frame, GfxCmdList& cmd_list, PipeStateDesc const& default_pipe_state, std::span<DrawListElement const> drawlist, int first_index, ESubPass sub_pass, std::span<PopulationDrawRef const> populations = {});
 
 		// Draw a single nugget. 'population' is null for an ordinary draw, otherwise the nugget is drawn indirectly for each classified population instance.
-		void DrawNugget(GfxCmdList& cmd_list, Nugget const& nugget, PipeStateDesc& desc, bool& pipe_state_bound, int& pipe_state_hash, PopulationDrawRef const* population);
+		// 'bound_pipe_state' is the state bound to 'cmd_list' while 'pipe_state_bound' is true. Both are updated when the bound state changes.
+		void DrawNugget(GfxCmdList& cmd_list, Nugget const& nugget, PipeStateDesc& desc, bool& pipe_state_bound, PipeStateDesc& bound_pipe_state, PopulationDrawRef const* population);
 	};
 }

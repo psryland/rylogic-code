@@ -491,7 +491,7 @@ namespace pr::rdr12
 			if (fill_mode == EFillMode::Wireframe)
 				desc.Apply(PSO<EPipeState::FillMode>(D3D12_FILL_MODE_WIREFRAME));
 
-			m_cmd_list.SetPipelineState(m_pipe_state_pool.Get(desc));
+			m_cmd_list.SetPipelineState(rdr().PipeStates().Get(desc));
 			if (nugget.m_irange.empty())
 			{
 				m_cmd_list.DrawInstanced(
@@ -512,7 +512,7 @@ namespace pr::rdr12
 			// Change the pipe state to point list
 			desc.Apply(PSO<EPipeState::TopologyType>(To<D3D12_PRIMITIVE_TOPOLOGY_TYPE>(ETopo::PointList)));
 			desc.Apply(PSO<EPipeState::GS>(wnd().m_diag.m_gs_fillmode_points->m_code.GS));
-			m_cmd_list.SetPipelineState(m_pipe_state_pool.Get(desc));
+			m_cmd_list.SetPipelineState(rdr().PipeStates().Get(desc));
 
 			m_cmd_list.DrawInstanced(
 				s_cast<size_t>(nugget.m_vrange.size()), 1U,

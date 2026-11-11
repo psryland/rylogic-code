@@ -32,7 +32,6 @@ namespace pr::rdr12
 		GpuSync&                m_gsync;              // Actual submission timeline; must outlive complete step destruction
 		GpuUploadBuffer          m_upload_buffer;      // Shared upload buffer for shaders to use to upload parameters
 		PipeStateDesc            m_default_pipe_state; // Default settings for the pipeline state
-		PipeStatePool            m_pipe_state_pool;    // Pool of pipeline state objects
 		AutoSub                  m_evt_model_delete;   // Event subscription for model deleted notification
 
 		// The supplied fence must track this step's actual submissions and outlive its complete destruction, including upload cleanup.

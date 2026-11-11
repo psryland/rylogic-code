@@ -78,9 +78,10 @@ namespace pr::rdr12
 		Renderer*                   m_rdr;       // The renderer that owns this model
 		ShaderCode                  m_code;      // Byte code for the shader parts
 		D3DPtr<ID3D12RootSignature> m_signature; // Signature for shader, null if an overlay
+		std::vector<std::vector<BYTE>> m_owned_code; // Bytecode compiled at runtime and owned by this shader. See 'OwnByteCode'.
 		
 		explicit Shader(Renderer& rdr);
-		virtual ~Shader() = default;
+		virtual ~Shader();
 
 		// Renderer access
 		Renderer const& rdr() const;
@@ -88,6 +89,11 @@ namespace pr::rdr12
 
 		// Sort id for the shader
 		SortKeyId SortId() const;
+
+		// Keep 'code' for the lifetime of this shader and return a reference to it. Bytecode that is not static data must be owned this way, because
+		// pipelines are identified by bytecode address. Deleting the shader releases the pipelines that use its owned bytecode or its signature, so a
+		// later allocation at the same address cannot select a stale pipeline.
+		ShaderCode::ByteCode OwnByteCode(std::vector<BYTE> code);
 
 		// Create a shader
 		template <typename TShader, typename... Args> requires (std::is_base_of_v<Shader, TShader> && std::constructible_from<TShader, Args...>)

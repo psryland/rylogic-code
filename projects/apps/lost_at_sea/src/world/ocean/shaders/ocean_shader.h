@@ -13,11 +13,6 @@ namespace las
 {
 	struct OceanShader : rdr12::Shader
 	{
-		// Compiled shader bytecodes (populated at construction from runtime compilation).
-		// The ByteCode wrappers in m_code point into these vectors, so they must outlive the shader.
-		std::vector<uint8_t> m_vs_bytecode;
-		std::vector<uint8_t> m_ps_bytecode;
-
 		// Ocean constant buffer data, updated each frame
 		alignas(16) CBufOcean m_cbuf;
 

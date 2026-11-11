@@ -104,6 +104,9 @@
     <ClCompile Include="src\view3d-12\render_tests_ui.cpp">
       <Filter>view3d-12</Filter>
     </ClCompile>
+    <ClCompile Include="src\view3d-12\pipe_state_cache_tests.cpp">
+      <Filter>view3d-12</Filter>
+    </ClCompile>
     <ClCompile Include="src\view3d-12\raycast_lifetime.cpp">
       <Filter>view3d-12</Filter>
     </ClCompile>

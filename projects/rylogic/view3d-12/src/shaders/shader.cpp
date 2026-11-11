@@ -17,6 +17,7 @@ namespace pr::rdr12
 		, m_rdr(&rdr)
 		, m_code()
 		, m_signature()
+		, m_owned_code()
 	{
 	}
 
@@ -37,6 +38,29 @@ namespace pr::rdr12
 		return SortKeyId(hash::HashBytes32(&m_code, &m_code + 1) % SortKey::MaxShaderId);
 	}
 
+	// Release the pipelines that refer to memory this shader owns, before that memory can be reused
+	Shader::~Shader()
+	{
+		// Shaders without owned memory are skipped, because no pipeline can refer to memory they own
+		if (m_owned_code.empty() && m_signature == nullptr)
+			return;
+
+		std::vector<void const*> bytecode;
+		bytecode.reserve(m_owned_code.size());
+		for (auto const& code : m_owned_code)
+			bytecode.push_back(code.data());
+
+		rdr().PipeStates().Forget(m_signature.get(), bytecode);
+	}
+
+	// Keep 'code' for the lifetime of this shader and return a reference to it
+	ShaderCode::ByteCode Shader::OwnByteCode(std::vector<BYTE> code)
+	{
+		// Moving the vector into the list keeps its data address, so earlier references stay valid when the list grows
+		auto& owned = m_owned_code.emplace_back(std::move(code));
+		return ShaderCode::ByteCode(std::span<BYTE const>(owned));
+	}
+
 	// Ref counting clean up function
 	void Shader::RefCountZero(RefCounted<Shader>* doomed)
 	{
@@ -53,8 +77,6 @@ namespace pr::rdr12
 	ProceduralShader::ProceduralShader(Renderer& rdr, ERenderStep rdr_step, std::span<BYTE const> vs_bytecode, std::span<std::span<BYTE const> const> pixel_family, ForwardPixelFamily const& replaces, std::span<std::byte const> constants, D3DPtr<ID3D12Resource> buffer, std::string_view name)
 		:Shader(rdr)
 		,m_rdr_step(rdr_step)
-		,m_vs_bytecode(vs_bytecode.begin(), vs_bytecode.end())
-		,m_ps_bytecode()
 		,m_pixel_family()
 		,m_constants()
 		,m_buffers{buffer}
@@ -76,18 +98,17 @@ namespace pr::rdr12
 		if (&replaces != &shader_code::forward_family && &replaces != &shader_code::forward_pbr_family && &replaces != &shader_code::forward_detail_family)
 			throw std::invalid_argument("A procedural pixel family must replace a stock forward pixel family");
 
-		// Retain stable storage for the bytecode referenced by the pipeline state. An empty vertex stage leaves the stock vertex shader in place.
+		// Own copies of the bytecode referenced by the pipeline state. An empty vertex stage leaves the stock vertex shader in place.
 		std::copy(constants.begin(), constants.end(), m_constants.begin());
-		if (!m_vs_bytecode.empty())
-			m_code.VS = ShaderCode::ByteCode(std::span<BYTE const>(m_vs_bytecode));
+		if (!vs_bytecode.empty())
+			m_code.VS = OwnByteCode({ vs_bytecode.begin(), vs_bytecode.end() });
 		if (!pixel_family.empty())
 			m_pixel_family.m_replaces = &replaces;
 
 		for (size_t i = 0; i != pixel_family.size(); ++i)
 		{
 			// The family is selected per sub-pass when the pipeline is built, so it is not stored in 'm_code.PS'.
-			m_ps_bytecode[i].assign(pixel_family[i].begin(), pixel_family[i].end());
-			m_pixel_family.m_code[i] = ShaderCode::ByteCode(std::span<BYTE const>(m_ps_bytecode[i]));
+			m_pixel_family.m_code[i] = OwnByteCode({ pixel_family[i].begin(), pixel_family[i].end() });
 		}
 	}
 
@@ -97,13 +118,13 @@ namespace pr::rdr12
 	// True if this shader replaces the stock vertex shader.
 	bool ProceduralShader::HasVertexShader() const
 	{
-		return !m_vs_bytecode.empty();
+		return static_cast<bool>(m_code.VS);
 	}
 
 	// True if this shader replaces the stock forward pixel shaders.
 	bool ProceduralShader::HasPixelFamily() const
 	{
-		return !m_ps_bytecode[0].empty();
+		return static_cast<bool>(m_pixel_family.m_code[0]);
 	}
 
 	// True if this shader's forward pixel family replaces the stock PBR pixel shaders.

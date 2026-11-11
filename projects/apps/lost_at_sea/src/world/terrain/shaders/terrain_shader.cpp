@@ -20,8 +20,6 @@ namespace las
 
 	TerrainShader::TerrainShader(Renderer& rdr)
 		: Shader(rdr)
-		, m_vs_bytecode()
-		, m_ps_bytecode()
 		, m_cbuf()
 		, m_tuning()
 	{
@@ -36,10 +34,8 @@ namespace las
 			.Define(L"SHADER_BUILD")
 			.Optimise(true);
 
-		m_vs_bytecode = compiler.ShaderModel(L"vs_6_0").EntryPoint(L"VSTerrain").Compile();
-		m_ps_bytecode = compiler.ShaderModel(L"ps_6_0").EntryPoint(L"PSTerrain").Compile();
-		m_code.VS = { m_vs_bytecode };
-		m_code.PS = { m_ps_bytecode };
+		m_code.VS = OwnByteCode(compiler.ShaderModel(L"vs_6_0").EntryPoint(L"VSTerrain").Compile());
+		m_code.PS = OwnByteCode(compiler.ShaderModel(L"ps_6_0").EntryPoint(L"PSTerrain").Compile());
 
 		// Initialise cbuf from tuning defaults
 		auto& cbuf = storage_cast<CBufTerrain>(m_cbuf);

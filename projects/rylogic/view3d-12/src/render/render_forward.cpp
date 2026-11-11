@@ -1286,7 +1286,7 @@ namespace pr::rdr12
 		auto const camera = CameraTransforms(scn().m_cam);
 		auto bound = BoundDescriptors{};
 		auto pipe_state_bound = false;
-		auto pipe_state_hash = 0;
+		auto bound_pipe_state = PipeStateDesc{};
 		auto frame_resources_bound = true;
 
 		// Material passes can temporarily switch root signatures. Restore the render-step frame bindings before drawing the next nugget.
@@ -1384,22 +1384,22 @@ namespace pr::rdr12
 			}
 
 			// Draw the nugget.
-			DrawNugget(cmd_list, nugget, desc, pipe_state_bound, pipe_state_hash, population);
+			DrawNugget(cmd_list, nugget, desc, pipe_state_bound, bound_pipe_state, population);
 		}
 	}
 
 	// Draw a single nugget
-	void RenderForward::DrawNugget(GfxCmdList& cmd_list, Nugget const& nugget, PipeStateDesc& desc, bool& pipe_state_bound, int& pipe_state_hash, PopulationDrawRef const* population)
+	void RenderForward::DrawNugget(GfxCmdList& cmd_list, Nugget const& nugget, PipeStateDesc& desc, bool& pipe_state_bound, PipeStateDesc& bound_pipe_state, PopulationDrawRef const* population)
 	{
 		auto set_pipe_state = [&]
 		{
-			auto hash = desc.hash();
-			if (pipe_state_bound && pipe_state_hash == hash)
+			// Consecutive draws often share a state. Comparing descriptions is cheaper than a cache lookup.
+			if (pipe_state_bound && desc == bound_pipe_state)
 				return;
 
-			cmd_list.SetPipelineState(m_pipe_state_pool.Get(desc));
+			cmd_list.SetPipelineState(rdr().PipeStates().Get(desc));
 			pipe_state_bound = true;
-			pipe_state_hash = hash;
+			bound_pipe_state = desc;
 		};
 
 		// Ordinary draws draw one instance. Population draws take their instance counts from the classification's argument records.

@@ -761,7 +761,7 @@ namespace pr::rdr12
 				// Bind the views and draw one instance per view
 				auto pix_draw = pix::DetailScope<ID3D12GraphicsCommandList>(m_cmd_list.get(), nugget.m_model->m_name.c_str());
 				m_shader.SetupDrawViews(m_cmd_list.get(), batch_views, batch_beg);
-				m_cmd_list.SetPipelineState(m_pipe_state_pool.Get(desc));
+				m_cmd_list.SetPipelineState(rdr().PipeStates().Get(desc));
 				if (!nugget.m_irange.empty())
 					m_cmd_list.DrawIndexedInstanced(s_cast<size_t>(nugget.m_irange.size()), batch_views.size(), s_cast<size_t>(nugget.m_irange.m_beg), 0, 0U);
 				else
@@ -837,7 +837,7 @@ namespace pr::rdr12
 						{
 							bound.Reset();
 						}
-						m_cmd_list.SetPipelineState(m_pipe_state_pool.Get(desc));
+						m_cmd_list.SetPipelineState(rdr().PipeStates().Get(desc));
 
 						// Bind the instance records. The payload and skin slots need valid addresses even when unused, so they alias the instance records.
 						auto skinned = static_cast<bool>(nugget.m_model->m_skin);

@@ -214,35 +214,34 @@ namespace pr::rdr12
 		}
 	};
 
-	// Pipe state object description
+	// Pipe state object description. Two descriptions are equal when their final states are equal, whatever order changes were applied in.
+	// Shader stages and the input layout are identified by address and length, so their data must outlive any pipeline created from them.
 	struct PipeStateDesc
 	{
 	private:
 
-		// Note:
-		//  - Don't set members of 'm_desc' directly otherwise
-		//    the hash won't be updated and pooling won't work.
 		D3D12_GRAPHICS_PIPELINE_STATE_DESC m_desc;
 		int m_view_count;
-		int m_hash;
 
 	public:
 
 		PipeStateDesc()
 			:m_desc()
 			,m_view_count()
-			,m_hash(hash::HashBytes32(&m_desc, &m_desc + 1))
 		{}
 		PipeStateDesc(D3D12_GRAPHICS_PIPELINE_STATE_DESC const& rhs)
 			:m_desc(rhs)
 			,m_view_count()
-			,m_hash(hash::HashBytes32(&m_desc, &m_desc + 1))
 		{}
 
-		// The current hash value for this pipe state description
-		int hash() const
+		// Return a hash of the final state, for lookup only. Equal descriptions have equal hashes.
+		uint64_t Hash() const;
+
+		// True if the final states are identical
+		friend bool operator == (PipeStateDesc const& lhs, PipeStateDesc const& rhs)
 		{
-			return m_hash;
+			// Compare the bytes, because the description is plain data with no owned pointers
+			return lhs.m_view_count == rhs.m_view_count && memcmp(&lhs.m_desc, &rhs.m_desc, sizeof(lhs.m_desc)) == 0;
 		}
 
 		// The number of view instances. Zero disables view instancing. Otherwise each draw is rasterised once per view, and view 'i' goes to
@@ -253,18 +252,14 @@ namespace pr::rdr12
 		}
 		void ViewCount(int count)
 		{
-			// Record the change in the hash
+			// View instancing has a device limit on the number of views
 			assert(count >= 0 && count <= D3D12_MAX_VIEW_INSTANCE_COUNT);
-			m_hash = hash::HashBytes32(&count, &count + 1, m_hash);
 			m_view_count = count;
 		}
 
 		// Apply changes to the pipeline state description
 		void Apply(PipeState const& ps)
 		{
-			// Record the change in the hash
-			m_hash = hash::HashBytes32(byte_ptr(ps.value()), byte_ptr(ps.value()) + ps.size(), m_hash);
-
 			// Set the value of a pipeline state description field
 			memcpy(ps.ptr(m_desc), ps.value(), ps.size());
 		}
@@ -284,54 +279,50 @@ namespace pr::rdr12
 		}
 	};
 
-	// A pipe state object instance
-	struct PipeStateObject
+	// The graphics pipeline state objects of one renderer, shared by all of its windows and render steps.
+	// Pipelines are found by their final description, so equal states share one pipeline. Pipelines that have not been used for 'MaxIdleTime' are
+	// released when the cache grows beyond 'TrimCount'. The cache is thread safe.
+	struct PipeStateCache
 	{
-		D3DPtr<ID3D12PipelineState> m_pso; // The pipeline state object
-		int64_t m_frame_number;            // The frame number when last used
-		int m_hash;                        // Hash of the pipeline state data used to create 'm_pso'
+		using clock_t = std::chrono::steady_clock;
+		static constexpr size_t TrimCount = 256;
+		static constexpr auto MaxIdleTime = std::chrono::seconds(10);
 
-		PipeStateObject(D3DPtr<ID3D12PipelineState> pso, int64_t frame_number, int hash)
-			: m_pso(pso)
-			, m_frame_number(frame_number)
-			, m_hash(hash)
-		{}
+	private:
 
-		// Access the allocator
-		ID3D12PipelineState const* operator ->() const
+		struct Entry
 		{
-			return m_pso.get();
-		}
-		ID3D12PipelineState* operator ->()
-		{
-			return m_pso.get();
-		}
+			PipeStateDesc m_desc;                    // The description that 'm_pso' was created from
+			D3DPtr<ID3D12RootSignature> m_signature; // Holds the root signature, so its address cannot be reused while it identifies this entry
+			D3DPtr<ID3D12PipelineState> m_pso;       // The pipeline state object
+			clock_t::time_point m_last_used;         // When 'Get' last returned this entry
+		};
 
-		// Convert to the allocator pointer
-		operator ID3D12PipelineState const* () const
-		{
-			return m_pso.get();
-		}
-		operator ID3D12PipelineState* ()
-		{
-			return m_pso.get();
-		}
-	};
+		Renderer* m_rdr;
+		std::unordered_multimap<uint64_t, Entry> m_entries;
+		mutable std::mutex m_mutex;
 
-	// A pool of pipe states
-	struct PipeStatePool
-	{
-		using pool_t = pr::vector<PipeStateObject, 16, false>;
-		Window* m_wnd;
-		pool_t m_pool;
+		// Release entries that have been idle for too long. Requires 'm_mutex' to be held.
+		void Trim(clock_t::time_point now);
 
-		explicit PipeStatePool(Window& wnd);
-		PipeStatePool(PipeStatePool&&) = default;
-		PipeStatePool(PipeStatePool const&) = delete;
-		PipeStatePool& operator=(PipeStatePool&&) = default;
-		PipeStatePool& operator=(PipeStatePool const&) = delete;
+		// Release one entry's pipeline once the GPU is no longer using it. Requires 'm_mutex' to be held.
+		void Release(Entry& entry);
 
-		// Return a pipeline state instance for the given description
+	public:
+
+		explicit PipeStateCache(Renderer& rdr);
+		PipeStateCache(PipeStateCache const&) = delete;
+		PipeStateCache& operator=(PipeStateCache const&) = delete;
+
+		// Return the pipeline state object for 'desc', creating it if needed. The returned pointer is valid until the GPU finishes the work submitted
+		// after the next 'Forget' or trim that removes it, so it is safe to record into a command list that is submitted as usual.
 		ID3D12PipelineState* Get(PipeStateDesc const& desc);
+
+		// Release every pipeline that uses 'signature' or any shader stage whose bytecode starts at an address in 'bytecode'.
+		// Call this before the storage of the bytecode or the signature is released, so that a later allocation at the same address cannot match.
+		void Forget(ID3D12RootSignature const* signature, std::span<void const* const> bytecode);
+
+		// The number of cached pipeline state objects
+		size_t Count() const;
 	};
 }
