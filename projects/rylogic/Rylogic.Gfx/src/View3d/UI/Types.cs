@@ -207,6 +207,15 @@ public enum EOrientation : int
 	Count = 2,
 }
 
+/// <summary>Horizontal placement of a Text control's run within its text rectangle. Other text-bearing control types use a fixed placement for their type.</summary>
+public enum ETextAlign : int
+{
+	Left = 0,
+	Center = 1,
+	Right = 2,
+	Count = 3,
+}
+
 /// <summary>
 /// Closed style/transition state channel vocabulary. Selected is a durable per-control flag (ControlDesc.Selected); Visibility fires for one Update()
 /// when rendering observes a control return to Visible after observing it Hidden/Collapsed; ValueChanged fires for one Update() call whenever

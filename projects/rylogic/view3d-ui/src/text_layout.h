@@ -51,9 +51,9 @@ namespace pr::view3d::ui
 		float inset_dip;
 	};
 
-	// The placement rule for a text-bearing control type. Throws EngineException(InvalidArgument)
-	// for a type that displays no text of its own.
-	TextPlacement TextPlacementFor(EControlType type);
+	// The placement rule for a text-bearing control. A Text control uses its authored text_align; other types use a fixed placement for their
+	// type. Throws EngineException(InvalidArgument) for a type that displays no text of its own.
+	TextPlacement TextPlacementFor(ControlDesc const& desc);
 
 	// The apparent screen-DIPs-per-local-DIP scale of the root that owns 'id', or 1.0 when no
 	// placement has been computed for it (which is the correct identity for a screen-space root).

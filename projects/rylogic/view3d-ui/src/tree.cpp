@@ -207,6 +207,10 @@ namespace pr::view3d::ui
 			if (static_cast<std::uint32_t>(desc.orientation) >= static_cast<std::uint32_t>(EOrientation::Count))
 				throw EngineException(EStatus::UnknownType, std::format("control {}: unknown EOrientation {}", desc.id, static_cast<int>(desc.orientation)));
 
+			// Text alignment is likewise validated for every type, although only Text uses it.
+			if (static_cast<std::uint32_t>(desc.text_align) >= static_cast<std::uint32_t>(ETextAlign::Count))
+				throw EngineException(EStatus::UnknownType, std::format("control {}: unknown ETextAlign {}", desc.id, static_cast<int>(desc.text_align)));
+
 			// Completion is application-owned, never clamped or inferred from activity animation.
 			switch (desc.type)
 			{

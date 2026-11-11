@@ -194,6 +194,9 @@ public sealed record UiControlDesc
 	/// <summary>Value axis direction for Slider and ProgressBar. Vertical values increase upward. Ignored by other control types.</summary>
 	public EOrientation Orientation { get; set; } = EOrientation.Horizontal;
 
+	/// <summary>Horizontal placement of a Text control's text. Ignored by other control types, which use a fixed placement for their type.</summary>
+	public ETextAlign TextAlign { get; set; } = ETextAlign.Left;
+
 	/// <summary>
 	/// Create an independent deep copy: mutating the clone's Layout/World (or this instance's) afterward cannot affect the
 	/// other, because Layout and World are themselves replaced with their own independent copies rather than shared by

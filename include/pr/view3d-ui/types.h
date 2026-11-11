@@ -15,8 +15,8 @@
 
 namespace pr::view3d::ui
 {
-	inline constexpr std::uint32_t VIEW3D_UI_API_VERSION = 0x000A0000U;
-	inline constexpr std::uint32_t VIEW3D_UI_STRUCT_VERSION = 10U;
+	inline constexpr std::uint32_t VIEW3D_UI_API_VERSION = 0x000B0000U;
+	inline constexpr std::uint32_t VIEW3D_UI_STRUCT_VERSION = 11U;
 
 	// Maximum role parts recorded directly within one TemplateDesc. Bounded so the descriptor
 	// stays fixed-layout; the closed role vocabulary (section 6.3) never needs more than this.
@@ -247,6 +247,17 @@ namespace pr::view3d::ui
 		Horizontal = 0,
 		Vertical = 1,
 		Count = 2,
+	};
+
+	// Horizontal placement of a text run within its text rectangle. Left starts the run at the left edge (plus any inset); Center places the
+	// run in the middle; Right ends the run at the right edge (minus any inset). Selected for a Text control by ControlDesc::text_align.
+	// Other text-bearing control types use a fixed placement for their type.
+	enum class ETextAlign : std::int32_t
+	{
+		Left = 0,
+		Center = 1,
+		Right = 2,
+		Count = 3,
 	};
 
 	// Closed style/transition state channel vocabulary (section 6.4). Selected is a durable
@@ -669,6 +680,10 @@ namespace pr::view3d::ui
 
 		// Direction in which a Slider or ProgressBar value increases. Ignored by other control types.
 		EOrientation orientation;
+
+		// Horizontal placement of a Text control's run within its text rectangle. Zero (Left) is the
+		// default. Ignored by other control types, which use a fixed placement for their type.
+		ETextAlign text_align;
 	};
 
 	// One ComboBox item text range. Ranges index Transaction::blob and are copied into the

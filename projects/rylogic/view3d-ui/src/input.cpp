@@ -400,7 +400,7 @@ namespace pr::view3d::ui
 			// and shifted left by the scroll that was drawn.
 			auto const scale = ControlScale(tree, hit_context.placements, node.desc.id);
 			auto const font = ResolveControlFont(tree, node.desc.font_resource_id);
-			auto const placement = TextPlacementFor(node.desc.type);
+			auto const placement = TextPlacementFor(node.desc);
 			auto const text_rect = TextRectOf(tree, node, layout_it->second, scale);
 			auto const origin_x = text_rect.x + placement.inset_dip * scale - edit.scroll_dip;
 			auto const layout_height = hit_context.shaper->LayoutHeight(font.family, font.size * scale, text);
@@ -718,7 +718,7 @@ namespace pr::view3d::ui
 			auto const& node = node_it->second;
 			auto const scale = ControlScale(tree, hit_context.placements, id);
 			auto const font = ResolveControlFont(tree, node.desc.font_resource_id);
-			auto const placement = TextPlacementFor(node.desc.type);
+			auto const placement = TextPlacementFor(node.desc);
 			auto const display = DisplayTextOf(node.desc, edit);
 			auto const caret_offset = DisplayRangesOf(node.desc, edit).caret;
 			auto const visible_w = std::max(0.0f, TextRectOf(tree, node, layout_it->second, scale).w - 2.0f * placement.inset_dip * scale);

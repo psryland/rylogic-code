@@ -12,23 +12,6 @@
 
 namespace pr::view3d::ui
 {
-	// Internal (non-ABI) horizontal placement rule for a TextPresenter DrawItem, resolved once by
-	// draw_packet_builder.cpp per control type and applied by the renderer against the actual
-	// shaped run width it alone knows (TextShaper::Shape's returned total advance): Left starts
-	// the run at bounds.x + text_inset_dip - text_scroll_dip (a bare Text label uses inset 0; a TextBox insets its
-	// content from the left edge like a conventional text field); Center places the run in the
-	// middle of bounds.w, ignoring text_inset_dip, used for a Button's label; Right ends the run at
-	// bounds.x + bounds.w - text_inset_dip, used for tick labels drawn to the left of their ticks. This is purely a
-	// renderer hint - it never reaches the public C ABI - so it uses ordinary C++ enum semantics
-	// rather than the ABI's fixed-width EFoo convention.
-	enum class ETextAlign
-	{
-		Left = 0,
-		Center = 1,
-		Right = 2,
-		Count = 3,
-	};
-
 	// One resolved visual primitive instance ready for a renderer to draw, in DIP space. Ordering
 	// within DrawPacket::items is a stable pre-order tree/part traversal so submission order is
 	// deterministic given identical accepted state (section 9.3). 'text'/'font_family'/'font_size'/
@@ -47,7 +30,7 @@ namespace pr::view3d::ui
 		std::string text;        // UTF-8; the accepted text, or a focused TextBox's live pending/composing text
 		std::string font_family; // resolved from ControlDesc::font_resource_id; empty selects the built-in fallback
 		float font_size;         // DIPs; resolved from the referenced Font resource, or a fixed default
-		ETextAlign text_align;   // renderer hint only, see ETextAlign; not part of the public C ABI
+		ETextAlign text_align;   // resolved per control by draw_packet_builder.cpp; the renderer applies it against the shaped run width it alone knows
 		float text_inset_dip;    // DIPs; applied when text_align is Left or Right (see ETextAlign)
 		float text_scroll_dip;   // DIPs the whole text layout, with its decorations, is shifted left; only applied when text_align == Left
 

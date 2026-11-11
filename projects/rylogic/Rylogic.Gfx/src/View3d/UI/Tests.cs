@@ -79,7 +79,7 @@ public sealed class TestUiProgressBar
 	public void AbiAndSemantics()
 	{
 		Native.EnsureLoaded();
-		Assert.Equal(0x000A0000U, Native.View3DUI_ApiVersion());
+		Assert.Equal(0x000B0000U, Native.View3DUI_ApiVersion());
 		Native.Check(Native.View3DUI_StructSize(EStructId.Control, out var control_size));
 		Native.Check(Native.View3DUI_StructSize(EStructId.Style, out var style_size));
 		Native.Check(Native.View3DUI_StructSize(EStructId.SemanticNode, out var semantic_size));
@@ -416,6 +416,7 @@ public sealed class TestUiAbi
 		Assert.Equal(40, Marshal.OffsetOf<Native.TemplatePart>(nameof(Native.TemplatePart.m_ticks)).ToInt32());
 		Assert.Equal(80, Marshal.OffsetOf<StyleVisual>(nameof(StyleVisual.m_image)).ToInt32());
 		Assert.Equal(Marshal.OffsetOf<Native.ControlDesc>(nameof(Native.ControlDesc.m_max_visible_items)).ToInt32() + 4, Marshal.OffsetOf<Native.ControlDesc>(nameof(Native.ControlDesc.m_orientation)).ToInt32());
+		Assert.Equal(Marshal.OffsetOf<Native.ControlDesc>(nameof(Native.ControlDesc.m_orientation)).ToInt32() + 4, Marshal.OffsetOf<Native.ControlDesc>(nameof(Native.ControlDesc.m_text_align)).ToInt32());
 
 		// Constructing a runtime independently re-verifies the same complete EStructId set through its own VerifyStructLayout pass.
 		using var runtime = new UiRuntime();
@@ -1475,6 +1476,28 @@ public sealed class TestUiJson
 		ExpectJsonError("$.tree[0].orientation", () => UiDocument.Parse(@"{ ""schema_version"": 3, ""tree"": [ { ""id"": 1, ""type"": ""Root"", ""orientation"": ""Diagonal"" } ] }"));
 	}
 
+	/// <summary>Text alignment defaults to Left, reaches the wire descriptor, and is read, written, and validated by the JSON document.</summary>
+	[Test]
+	public void TextAlignPacksParsesAndRoundTrips()
+	{
+		// The authored alignment is packed into the native descriptor
+		var control = new UiControlDesc { Id = new ControlId(2), Type = EControlType.Text, TextAlign = ETextAlign.Center };
+		var builder = new UiTransactionBuilder().Upsert(control);
+		Assert.Equal(ETextAlign.Center, builder.DebugControls[0].m_text_align);
+
+		// JSON reads the alignment, defaults it to Left, and keeps it through a canonical round trip
+		var document = UiDocument.Parse(@"{ ""schema_version"": 3, ""tree"": [ { ""id"": 1, ""type"": ""Root"", ""children"": [
+			{ ""id"": 2, ""type"": ""Text"", ""text"": ""A"", ""text_align"": ""Right"" } ] } ] }");
+		Assert.Equal(ETextAlign.Left, document.Controls[0].TextAlign);
+		Assert.Equal(ETextAlign.Right, document.Controls[1].TextAlign);
+		var canonical = document.Serialize();
+		Assert.Equal(ETextAlign.Right, UiDocument.Parse(canonical).Controls[1].TextAlign);
+		Assert.Equal(canonical, UiDocument.Parse(canonical).Serialize());
+
+		// Unknown alignments are rejected
+		ExpectJsonError("$.tree[0].text_align", () => UiDocument.Parse(@"{ ""schema_version"": 3, ""tree"": [ { ""id"": 1, ""type"": ""Root"", ""text_align"": ""Justify"" } ] }"));
+	}
+
 	/// <summary>Compare two resource descriptors field-by-field for a more precise failure message than the record's own value equality gives.</summary>
 	private static void AssertResourcesEqual(UiResourceDesc expected, UiResourceDesc actual)
 	{
@@ -1540,6 +1563,7 @@ public sealed class TestUiJson
 		Assert.Equal(expected.SelectedIndex, actual.SelectedIndex);
 		Assert.Equal(expected.MaxVisibleItems, actual.MaxVisibleItems);
 		Assert.Equal(expected.Orientation, actual.Orientation);
+		Assert.Equal(expected.TextAlign, actual.TextAlign);
 		Assert.Equal(expected.Layout.Width, actual.Layout.Width);
 		Assert.Equal(expected.Layout.Height, actual.Layout.Height);
 		Assert.Equal(expected.Layout.HAlign, actual.Layout.HAlign);

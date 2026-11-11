@@ -203,7 +203,7 @@ Hidden suppresses the whole subtree's drawing/input but retains its allocation. 
 Changing an ancestor's visibility also affects descendant input and semantics. An unavailable subtree loses focus, pressed/captured interaction, and composition;
 call `Update` after submitting the transaction to refresh layout and semantic snapshots.
 
-The current native ABI is version `0x000A0000` / struct version `10`; use matching managed and native binaries. Replace the old boolean `Visible` property with `Visibility`:
+The current native ABI is version `0x000B0000` / struct version `11`; use matching managed and native binaries. Replace the old boolean `Visible` property with `Visibility`:
 `true` becomes `EVisibility.Visible`, and `false` becomes `EVisibility.Hidden` to preserve behavior. Select `Collapsed` explicitly to remove space.
 No auto-sizing or clipping behavior is implied.
 
@@ -275,4 +275,5 @@ handles; `UiDocument.TextureKeys` lists the keys and `ToTransactionBuilder(key =
 Style visuals accept `"image": { "image_id", "source": { "x", "y", "w", "h" }, "slice_left", "slice_top", "slice_right", "slice_bottom", "slice_scale", "tint" }`
 (tint defaults to white). Template parts are `{ "role", "style_id", "margin_left", "margin_top", "margin_right", "margin_bottom", "width", "height", "ticks": { "interval",
 "major_every", "major_length", "minor_length", "thickness", "align", "label_font_id", "label_decimals", "label_gap" } }`. Controls accept `"orientation": "Horizontal"`
-(default) or `"Vertical"`. Schema version `2` and the old named template parts (`"name"`, `"primitive"`, `"required"`) are rejected.
+(default) or `"Vertical"`, and `"text_align": "Left"` (default), `"Center"`, or `"Right"`, which places a `Text` control's text and is ignored by other control types.
+Schema version `2` and the old named template parts (`"name"`, `"primitive"`, `"required"`) are rejected.
