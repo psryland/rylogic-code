@@ -233,6 +233,7 @@ public sealed class UiDocument
 		writer.WriteNumber("selected_index", control.SelectedIndex);
 		writer.WriteNumber("max_visible_items", control.MaxVisibleItems);
 		writer.WriteString("orientation", control.Orientation.ToString());
+		writer.WriteString("text_align", control.TextAlign.ToString());
 		WriteWorld(writer, control.World);
 
 		writer.WriteStartArray("children");
@@ -538,6 +539,7 @@ public sealed class UiDocument
 			SelectedIndex = TryGetInt32(node, "selected_index", out var selected_index) ? selected_index : -1,
 			MaxVisibleItems = GetUInt32(node, "max_visible_items", path, 0),
 			Orientation = GetEnum<EOrientation>(node, "orientation", path, required: false, EOrientation.Horizontal),
+			TextAlign = GetEnum<ETextAlign>(node, "text_align", path, required: false, ETextAlign.Left),
 			World = ParseWorld(node, $"{path}.world"),
 		};
 		// Reject invalid completion at the authoring boundary, before constructing a transaction.

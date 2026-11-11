@@ -24,13 +24,13 @@ namespace pr::view3d::ui
 		return ResolvedFont{ .family = DefaultFontFamily, .size = DefaultFontSize, .colour = DefaultFontColour };
 	}
 
-	TextPlacement TextPlacementFor(EControlType type)
+	TextPlacement TextPlacementFor(ControlDesc const& desc)
 	{
-		switch (type)
+		switch (desc.type)
 		{
 			case EControlType::Text:
 			{
-				return TextPlacement{ .align = ETextAlign::Left, .inset_dip = 0.0f }; // a bare label has no box of its own to inset from
+				return TextPlacement{ .align = desc.text_align, .inset_dip = 0.0f }; // a bare label has no box of its own to inset from
 			}
 			case EControlType::TextBox:
 			case EControlType::ComboBox:

@@ -442,12 +442,15 @@ Current placement and overflow contract:
   control or clears; showing a subtree does not restore stale focus/capture. `Update` recomputes layout and semantics from the accepted descriptors.
 - Text is unwrapped except for explicit line breaks. The complete DirectWrite layout height, including all lines and fallback-font metrics, is vertically centred
   in the control. Glyphs, selection decorations, pointer text hit testing, and reported caret rectangles share that placement.
+- Horizontal text placement depends on the control type. A `Text` control uses its `ControlDesc::text_align` (`ETextAlign` Left, the zero default, Center, or
+  Right) with no inset. `TextBox` and `ComboBox` text is left-aligned and inset from the left edge, and a `Button` label is centred; these types ignore
+  `text_align`.
 - Authored stack contents or text can exceed a container or an undersized viewport. Layout does not promise automatic clipping, scrolling, or content shrinking;
   the current draw-packet path does not emit parent clips. Applications must provide enough space for the content they author.
 - Layout, drawing, and semantic bounds are viewport-relative DIPs. Client-pixel input and accessibility bounds include the viewport offset and client/target ratio.
   Updating viewport dimensions or DPI recomputes placement from authored values, rather than scaling the previous layout.
 
-Current native API version is `0x000A0000`, and every wire struct header uses version `10`. `ControlDesc::visibility` is a signed 32-bit `EVisibility`
+Current native API version is `0x000B0000`, and every wire struct header uses version `11`. `ControlDesc::visibility` is a signed 32-bit `EVisibility`
 at the former boolean field's offset; unchanged byte size does not make version-3 callers compatible. `ControlDesc::masked != 0` is an appended
 TextBox-only password flag; zero-initialised older descriptors remain unmasked only when submitted through the current struct version. The private View3D
 host bridge version is unchanged.
@@ -458,6 +461,8 @@ ABI 10 adds image skins and role-based templates (section 6.3): `EResourceKind::
 `ImageBrush` appended to `StyleVisual` as `image`; `TemplatePart` replaced by a role record (`ETemplatePart`, `style_id`, margins, `width`/`height`,
 `TickParams`); `ControlDesc::orientation` appended (`EOrientation`); `EVisualPrimitive::Image` and the `DrawItem` image fields. The private View3D host
 bridge moves to version `0x00040000` and adds the `View3D_UIHostTextureResource` export. Native clients and managed mirrors must refresh together.
+ABI 11 appends `ControlDesc::text_align` (`ETextAlign`), the horizontal placement of a `Text` control's run. `ETextAlign` moves from the internal draw-packet
+header into the public types and is shared by `DrawItem::text_align`. Native clients and managed mirrors must refresh together.
 Managed callers use `UiControlDesc.Visibility`; replace old `true` with `EVisibility.Visible` and old `false` with `EVisibility.Hidden` to preserve behavior.
 Choose `Collapsed` explicitly when controls should stop reserving space. The native demonstration and existing tests preserve their former Visible/Hidden intent.
 JSON schema version `2` uses `"visibility": "Visible" | "Hidden" | "Collapsed"` (default Visible); schema version `1` and the boolean `visible` property are rejected.

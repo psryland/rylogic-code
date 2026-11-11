@@ -467,7 +467,7 @@ namespace pr::view3d::ui
 		auto const scroll_dip = has_edit ? edit_it->second.scroll_dip : 0.0f;
 		auto const scale = ControlScale(m_impl->m_tree, &m_impl->m_placements, control_id);
 		auto const font = ResolveControlFont(m_impl->m_tree, node.desc.font_resource_id);
-		auto const placement = TextPlacementFor(node.desc.type);
+		auto const placement = TextPlacementFor(node.desc);
 
 		// The caret rectangle must be the one the renderer paints, so it is measured from the same
 		// shaped layout and placed with the same vertical formula rather than an approximation.

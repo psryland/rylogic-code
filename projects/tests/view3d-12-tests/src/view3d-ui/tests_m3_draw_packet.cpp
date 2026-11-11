@@ -372,4 +372,62 @@ namespace pr::view3d::ui::tests
 		PR_EXPECT(TextItemOf(4).text_align == ETextAlign::Left);
 		PR_EXPECT(TextItemOf(4).text_inset_dip == 8.0f);
 	}
+
+	PRUnitTest(DrawPacketPlacesTextByItsAuthoredAlignmentAndOtherTypesIgnoreIt, Quick)
+	{
+		// Text controls take their authored text_align; a Button keeps its centred label even when text_align says otherwise.
+		auto engine = UiEngine(MakeConfig());
+		auto b0 = TxnBuilder{};
+		b0.Upsert(MakeControl(1, 0, EControlType::Root, ELayoutMode::Overlay, Lp(300.0f, 200.0f)));
+
+		auto centred = MakeControl(2, 1, EControlType::Text, ELayoutMode::Overlay, Lp(50.0f, 20.0f));
+		std::tie(centred.text_offset, centred.text_length) = b0.AddText("A");
+		centred.text_align = ETextAlign::Center;
+		b0.Upsert(centred);
+
+		auto right = MakeControl(3, 1, EControlType::Text, ELayoutMode::Overlay, Lp(50.0f, 20.0f));
+		std::tie(right.text_offset, right.text_length) = b0.AddText("B");
+		right.text_align = ETextAlign::Right;
+		b0.Upsert(right);
+
+		auto button = MakeControl(4, 1, EControlType::Button, ELayoutMode::Overlay, Lp(50.0f, 20.0f));
+		std::tie(button.text_offset, button.text_length) = b0.AddText("OK");
+		button.text_align = ETextAlign::Left;
+		b0.Upsert(button);
+
+		engine.TransactionApply(b0.Build(0, 1));
+		engine.Update(Viewport(300, 200));
+
+		// Find each control's text item in the packet.
+		auto const& packet = engine.DrawPackets();
+		auto const TextItemOf = [&](ControlId id) -> DrawItem const&
+		{
+			for (auto const& item : packet.items)
+			{
+				if (item.control_id == id && item.primitive == EVisualPrimitive::TextPresenter)
+					return item;
+			}
+			throw std::runtime_error("test helper: no text item found for the requested control id");
+		};
+
+		PR_EXPECT(TextItemOf(2).text_align == ETextAlign::Center);
+		PR_EXPECT(TextItemOf(3).text_align == ETextAlign::Right);
+		PR_EXPECT(TextItemOf(3).text_inset_dip == 0.0f);
+		PR_EXPECT(TextItemOf(4).text_align == ETextAlign::Center);
+
+		// An out-of-range alignment rejects the whole transaction.
+		auto b1 = TxnBuilder{};
+		auto bad = MakeControl(5, 1, EControlType::Text, ELayoutMode::Overlay, Lp(50.0f, 20.0f));
+		bad.text_align = ETextAlign::Count;
+		b1.Upsert(bad);
+		try
+		{
+			engine.TransactionApply(b1.Build(1, 2));
+			PR_EXPECT(false);
+		}
+		catch (EngineException const& ex)
+		{
+			PR_EXPECT(ex.Status() == EStatus::UnknownType);
+		}
+	}
 }

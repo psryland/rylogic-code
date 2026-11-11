@@ -390,6 +390,7 @@ public sealed unsafe class UiTransactionBuilder
 			m_selected_index = control.SelectedIndex,
 			m_max_visible_items = control.MaxVisibleItems,
 			m_orientation = control.Orientation,
+			m_text_align = control.TextAlign,
 			m_world = ToNative(control.World),
 		};
 	}

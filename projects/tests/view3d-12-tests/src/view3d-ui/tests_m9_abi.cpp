@@ -61,8 +61,8 @@ namespace pr::view3d::ui::tests
 	PRUnitTest(TheUiAbiVersionIsDeclaredConsistentlyAcrossHeaderAndDll, Quick)
 	{
 		// A caller using the boolean visibility contract must be rejected even though field sizes match.
-		PR_EXPECT(VIEW3D_UI_STRUCT_VERSION == 10U);
-		PR_EXPECT(VIEW3D_UI_API_VERSION == 0x000A0000U);
+		PR_EXPECT(VIEW3D_UI_STRUCT_VERSION == 11U);
+		PR_EXPECT(VIEW3D_UI_API_VERSION == 0x000B0000U);
 		PR_EXPECT(ApiVersion() == VIEW3D_UI_API_VERSION);
 
 		// The header's compiled-in version and the DLL's reported version are the same value, so a

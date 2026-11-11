@@ -9,8 +9,8 @@ namespace Rylogic.Gfx.UI;
 internal static unsafe class Native
 {
 	internal const string Dll = "view3d-ui";
-	internal const uint ApiVersion = 0x000A0000U;
-	internal const uint StructVersion = 10U;
+	internal const uint ApiVersion = 0x000B0000U;
+	internal const uint StructVersion = 11U;
 	private static IntPtr m_module;
 
 	/// <summary>Load the configuration-appropriate native runtime before the first P/Invoke.</summary>
@@ -154,6 +154,7 @@ internal static unsafe class Native
 		internal int m_selected_index;
 		internal uint m_max_visible_items;
 		internal EOrientation m_orientation;
+		internal ETextAlign m_text_align;
 	}
 
 	[StructLayout(LayoutKind.Sequential)]

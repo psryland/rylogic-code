@@ -511,7 +511,7 @@ namespace pr::view3d::ui
 			auto const& style_record = StyleOf(tree, node.desc.style_id);
 			auto const normal = style_record.desc.visuals[static_cast<std::size_t>(EStateChannel::Normal)];
 			auto const font = ResolveControlFont(tree, node.desc.font_resource_id);
-			auto const placement = TextPlacementFor(EControlType::TextBox);
+			auto const placement = TextPlacementFor(node.desc);
 			auto const selected_text = node.desc.selected_index >= 0 && static_cast<std::uint32_t>(node.desc.selected_index) < node.combo_items.size() ? node.combo_items[static_cast<std::size_t>(node.desc.selected_index)] : std::string{};
 			if (!selected_text.empty())
 			{
@@ -559,7 +559,7 @@ namespace pr::view3d::ui
 			auto const hover = style_record.desc.visuals[static_cast<std::size_t>(EStateChannel::Hover)];
 			auto const selected = style_record.desc.visuals[static_cast<std::size_t>(EStateChannel::Selected)];
 			auto const font = ResolveControlFont(tree, node.desc.font_resource_id);
-			auto const placement = TextPlacementFor(EControlType::TextBox);
+			auto const placement = TextPlacementFor(node.desc);
 
 			DrawItem background{};
 			background.control_id = node.desc.id;
@@ -686,7 +686,7 @@ namespace pr::view3d::ui
 				if (!text.empty() || (focused && has_edit_state))
 				{
 					auto font = ResolveControlFont(tree, node.desc.font_resource_id);
-					auto placement = TextPlacementFor(node.desc.type);
+					auto placement = TextPlacementFor(node.desc);
 					auto const text_part = FindPart(tmpl, ETemplatePart::Text);
 					auto const text_bounds = TextRectOf(tree, node, bounds, scale);
 
