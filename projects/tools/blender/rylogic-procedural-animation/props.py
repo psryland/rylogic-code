@@ -40,6 +40,21 @@ FAMILY_MEDIUMS = [
 	("GROUND", "Ground", "The family walks on the ground"),
 	("WATER", "Water", "The family swims at the water's surface. Its cycles must not plant any feet; the limbs hang from the body in the cycle's pose"),
 ]
+FAMILY_ACTIONS = [
+	("NONE", "None", "The family moves with its movement cycles"),
+	("COLLAPSE", "Collapse", "Lose motor control and crumple from the base family's stance to lying on the ground. Leaving the family gets back up"),
+	("PUNCHES", "Punches", "Stand in a boxing stance and throw the punch sequence in turn, repeating it"),
+]
+PUNCH_HANDS = [
+	("LEFT", "Left", "Punch with the left arm"),
+	("RIGHT", "Right", "Punch with the right arm"),
+]
+PUNCH_KINDS = [
+	("JAB", "Jab", "A straight punch with the lead hand"),
+	("CROSS", "Cross", "A straight punch with the rear hand, turning the torso further"),
+	("HOOK", "Hook", "A punch that swings around from the side"),
+	("UPPERCUT", "Uppercut", "An upward punch from low to chin height"),
+]
 
 
 def _MinAngle(name: str, default_degrees: float, description: str) -> FloatProperty:
@@ -138,12 +153,26 @@ class RYLOGIC_PG_RigContact(PropertyGroup):
 	normal: FloatVectorProperty(name="Normal", size=3, default=(0.0, 0.0, -1.0), description="The outward surface direction in the bone's rest space")
 
 
+class RYLOGIC_PG_GaitPunch(PropertyGroup):
+	"""One punch of an action family's punch sequence."""
+
+	hand: EnumProperty(name="Hand", items=PUNCH_HANDS, default="LEFT", description="The side of the arm that punches. The rig needs an arm chain on that side")
+	kind: EnumProperty(name="Kind", items=PUNCH_KINDS, default="JAB")
+	duration: FloatProperty(name="Duration", unit="TIME_ABSOLUTE", min=0.05, default=0.6, description="The time for the punch and the return to the guard")
+
+
 class RYLOGIC_PG_GaitFamily(PropertyGroup):
 	"""A posture: a group of movement cycles that share walking limbs. The name is the built-in 'name' property, which cycles refer to.
 
 	The order of the families is their order in the '.gait', which is the runtime's order of preference when a family cannot be used on the ground.
+	An action family has no cycles. It plays a procedural action in place, starting from the stance of its base family.
 	"""
 
+	action_kind: EnumProperty(name="Action", items=FAMILY_ACTIONS, default="NONE", description="An action that the family plays in place instead of moving. An action family uses only the action settings")
+	action_base: StringProperty(name="Base Family", default="", description="Action families only. The family without an action whose stance and posture the action starts from and returns to")
+	action_duration: FloatProperty(name="Duration", unit="TIME_ABSOLUTE", min=0.05, default=1.6, description="Collapse only. The time from standing to lying on the ground")
+	punches: CollectionProperty(name="Punches", type=RYLOGIC_PG_GaitPunch, description="Punches only. The sequence of punches, which repeats")
+	active_punch: IntProperty(name="Active Punch", default=0)
 	up: EnumProperty(name="Up", items=FAMILY_UPS, default="SURFACE", description="The direction that the body stands up along")
 	max_slope: FloatProperty(name="Max Slope", subtype="ANGLE", min=math.radians(0.1), max=math.pi, default=math.pi, description="The steepest ground, from level, on which the family can be used. 180 degrees allows any ground")
 	max_speed: FloatProperty(name="Max Speed", unit="VELOCITY", min=0.01, default=1.0, description="The fastest that the character should move in this family. It may exceed the fastest cycle's speed")
@@ -228,6 +257,7 @@ CLASSES = (
 	RYLOGIC_PG_RigBoneRef,
 	RYLOGIC_PG_RigChain,
 	RYLOGIC_PG_RigContact,
+	RYLOGIC_PG_GaitPunch,
 	RYLOGIC_PG_GaitFamily,
 	RYLOGIC_PG_GaitCycle,
 	RYLOGIC_PG_Rig,

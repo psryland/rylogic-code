@@ -32,11 +32,27 @@ class RYLOGIC_UL_rig_families(UIList):
 	"""Lists an armature's gait families."""
 
 	def draw_item(self, context, layout, data, item, icon, active_data, active_property, index):
-		# Show the editable name with its posture
+		# Show the editable name with its posture, or with its action for an action family
 		row = layout.row()
 		row.prop(item, "name", text="", emboss=False, icon="ARMATURE_DATA")
+		if item.action_kind != "NONE":
+			row.label(text=f"{item.action_kind.title()} from {item.action_base or '(no base)'}")
+			return
+
 		slope = "any slope" if item.max_slope >= math.pi else f"up to {math.degrees(item.max_slope):.0f}°"
 		row.label(text=f"{item.medium.title()}, {item.up.title()} up, {slope}, {item.max_speed:.2f} m/s")
+
+
+class RYLOGIC_UL_rig_punches(UIList):
+	"""Lists an action family's punch sequence."""
+
+	def draw_item(self, context, layout, data, item, icon, active_data, active_property, index):
+		# Show each punch's hand, kind and duration in sequence order
+		row = layout.row(align=True)
+		row.label(text=f"{index + 1}.")
+		row.prop(item, "hand", text="")
+		row.prop(item, "kind", text="")
+		row.prop(item, "duration", text="")
 
 
 class RYLOGIC_UL_rig_cycles(UIList):
@@ -251,9 +267,25 @@ class RYLOGIC_PT_rig_families(_RigSubPanel, Panel):
 		if not 0 <= rig.active_family < len(rig.families):
 			return
 
-		# The active family
+		# The active family. An action family uses only its action settings.
 		family = rig.families[rig.active_family]
 		box = layout.box()
+		box.prop(family, "action_kind")
+		if family.action_kind != "NONE":
+			box.prop_search(family, "action_base", rig, "families")
+			match family.action_kind:
+				case "COLLAPSE":
+					box.prop(family, "action_duration")
+				case "PUNCHES":
+					row = box.row()
+					row.template_list("RYLOGIC_UL_rig_punches", "", family, "punches", family, "active_punch", rows=3)
+					column = row.column(align=True)
+					column.operator("rylogic_rig.item_add", icon="ADD", text="").collection = "PUNCHES"
+					column.operator("rylogic_rig.item_remove", icon="REMOVE", text="").collection = "PUNCHES"
+				case _:
+					raise ValueError(f"Unknown action kind '{family.action_kind}'")
+			return
+
 		box.prop(family, "up")
 		box.prop(family, "max_slope")
 		box.prop(family, "max_speed")
@@ -338,6 +370,7 @@ CLASSES = (
 	RYLOGIC_UL_rig_chains,
 	RYLOGIC_UL_rig_contacts,
 	RYLOGIC_UL_rig_families,
+	RYLOGIC_UL_rig_punches,
 	RYLOGIC_UL_rig_cycles,
 	RYLOGIC_PT_rig,
 	RYLOGIC_PT_rig_overlay,
