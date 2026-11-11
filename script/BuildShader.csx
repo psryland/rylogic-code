@@ -103,8 +103,33 @@ public class ShaderBuilder
 		foreach (var shdr in shaders)
 			BuildShader(shdr, outdir, platform, config);
 
-		// Create the .built file, so that VS's custom build tool can check for it's existence to determine when a build is needed.
-		File.Create(stamp).Dispose();
+		// The .built stamp tells the build when the shader was last compiled. It holds the semicolon separated files the shader includes,
+		// so that the build can recompile the shader when any of them change.
+		var dependencies = shaders
+			.SelectMany(Dependencies)
+			.Where(x => !string.Equals(x, fullpath, StringComparison.OrdinalIgnoreCase))
+			.Distinct(StringComparer.OrdinalIgnoreCase)
+			.Order(StringComparer.OrdinalIgnoreCase);
+		File.WriteAllText(stamp, string.Join(";", dependencies));
+	}
+
+	// Return the full paths of the files that 'shdr' is compiled from, including its own file.
+	private IEnumerable<string> Dependencies(ShaderDesc shdr)
+	{
+		// Ask the compiler for the dependency list, in makefile format: "<target>: <dep> \" with one dependency per line
+		var args = CompilerArgs(shdr);
+		args.Add("-M");
+		var output = Run(args);
+
+		// Join the continuation lines, then drop the target name. The target ends at the first ": " because a drive letter colon is followed by '\'.
+		var text = output.Replace("\\\r\n", " ").Replace("\\\n", " ");
+		var start = text.IndexOf(": ", StringComparison.Ordinal);
+		if (start == -1)
+			throw new Exception($"Unexpected dependency output for {shdr.FullPath}: {output}");
+
+		// Paths are separated by spaces, and a space within a path is escaped as "\ "
+		var deps = text[(start + 2)..].Replace("\\ ", "\0").Split([' ', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
+		return deps.Select(x => Path.GetFullPath(x.Replace('\0', ' ')));
 	}
 
 	// Return the root directory that owns generated shader outputs.
@@ -252,35 +277,19 @@ public class ShaderBuilder
 		if (File.Exists(filepath_cso)) File.Delete(filepath_cso);
 
 		// Set up the command line for DXC
-		var args = (List<string>)[m_compiler, shdr.FullPath, shdr.Profile];
+		var args = CompilerArgs(shdr);
 
 		// Set the variable name to the name of the shader
 		args.Add($"/Vn{shdr.Name}");
 		Trace($"Variable Name: {args.Last()}");
-
-		// Set the entry point when building named-entry compute shaders.
-		if (shdr.EntryPoint.Length != 0)
-			args.Add($"/E{shdr.EntryPoint}");
 
 		// Choose the output files to generate
 		args.Add($"/Fh{filepath_h}");
 		Trace($"Output: {args.Last()}");
 		if (m_obj) args.Add($"/Fo{filepath_cso}");
 
-		// Set include paths
-		var includes = (List<string>)[
-			$"/I{UserVars.Path([UserVars.Root, "include"])}",
-			$"/I{UserVars.Path([UserVars.Root, "projects/rylogic"])}",
-		];
-		args.AddRange(includes);
-
-		// Set defines
-		args.Add("/DSHADER_BUILD");
-		if (shdr.Define.Length != 0)
-			args.Add($"/D{shdr.Define}");
-
 		// Set other command line options
-		args.AddRange(["/nologo", "/Gis", "/Ges", "/WX", "/Zpc", "/HV", "2021"]);
+		args.AddRange(["/nologo", "/Gis", "/Ges", "/WX", "/Zpc"]);
 
 		// Debug build options
 		// For some reason, the /Zi option causes the output to be different each time it's built using fxc
@@ -314,6 +323,31 @@ public class ShaderBuilder
 			//Run([m_compiler, shdr.FullPath, $"/P{filepath_pp}"] + includes + defines + options)
 			//Run([os.path.join(UserVars.root, "bin", "textformatter.exe"), "-f", filepath_pp, "-newlines", "0", "1"])
 		}
+	}
+
+	// Return the DXC command line that selects the source, target, entry point, include paths, defines and language version of 'shdr'.
+	// These options decide which files the shader includes, so compiling and dependency listing share them.
+	private List<string> CompilerArgs(ShaderDesc shdr)
+	{
+		// Select the source file and target profile
+		var args = (List<string>)[m_compiler, shdr.FullPath, shdr.Profile];
+
+		// Set the entry point when building named-entry shaders.
+		if (shdr.EntryPoint.Length != 0)
+			args.Add($"/E{shdr.EntryPoint}");
+
+		// Set include paths
+		args.Add($"/I{UserVars.Path([UserVars.Root, "include"])}");
+		args.Add($"/I{UserVars.Path([UserVars.Root, "projects/rylogic"])}");
+
+		// Set defines
+		args.Add("/DSHADER_BUILD");
+		if (shdr.Define.Length != 0)
+			args.Add($"/D{shdr.Define}");
+
+		// Set the HLSL language version
+		args.AddRange(["/HV", "2021"]);
+		return args;
 	}
 
 	// Execute a process and return the output

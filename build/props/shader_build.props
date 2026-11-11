@@ -18,17 +18,25 @@
 		</ShaderBuild>
 	</ItemDefinitionGroup>
 
-	<ItemGroup>
-		<ShaderBuildDependency Include="$(ProjectDir)src\**\*.hlsli" />
-		<!-- Public shader headers, such as the view3d shader contracts, are included by project shaders. -->
-		<ShaderBuildDependency Include="$(RylogicRoot)include\pr\**\*.hlsli" />
-	</ItemGroup>
+	<!--
+	Each shader's .built stamp lists the files it includes (see BuildShader.csx). Read them into the 'Includes' metadata so that a change to any included
+	file, including an included .hlsl file, recompiles only the shaders that include it. A shader without a stamp has not been built, so it builds anyway.
+	-->
+	<Target Name="ShaderBuildReadIncludes">
+		<ItemGroup>
+			<ShaderBuild Condition="Exists('%(StampDir)%(Filename).built')">
+				<!-- Unescape so the semicolons separate the files rather than being part of one file name -->
+				<Includes>$([MSBuild]::Unescape($([System.IO.File]::ReadAllText('%(StampDir)%(Filename).built').Trim())))</Includes>
+			</ShaderBuild>
+		</ItemGroup>
+	</Target>
 
 	<!-- Batch incrementally by source file so one stale shader does not rebuild every item. -->
 	<Target
 		Name="ShaderBuildTarget"
 		BeforeTargets="CLCompile"
-		Inputs="%(ShaderBuild.FullPath);@(ShaderBuildDependency);$(ScriptPath)BuildShader.csx;$(MSBuildThisFileFullPath)"
+		DependsOnTargets="ShaderBuildReadIncludes"
+		Inputs="%(ShaderBuild.FullPath);%(ShaderBuild.Includes);$(ScriptPath)BuildShader.csx;$(MSBuildThisFileFullPath)"
 		Outputs="%(ShaderBuild.StampDir)%(ShaderBuild.Filename).built"
 	>
 		<!-- 
