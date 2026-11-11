@@ -60,7 +60,7 @@ internal static unsafe class Native
 		internal uint m_sample_rate;
 		internal uint m_channel_count;
 		internal float m_speed_of_sound;
-		internal float m_max_engine_buffer_ms;
+		internal float m_stream_lookahead_ms;
 
 		/// <summary>Convert caller-facing options into the exact ABI layout.</summary>
 		internal static Config From(EngineOptions options)
@@ -75,7 +75,7 @@ internal static unsafe class Native
 				m_sample_rate = options.SampleRate,
 				m_channel_count = options.ChannelCount,
 				m_speed_of_sound = options.SpeedOfSound,
-				m_max_engine_buffer_ms = options.MaxEngineBufferMs,
+				m_stream_lookahead_ms = options.StreamLookaheadMs,
 			};
 		}
 	}

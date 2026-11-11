@@ -770,7 +770,7 @@ namespace pr::unittests
 				.sample_rate = 0,
 				.channel_count = 0,
 				.speed_of_sound = 343.0f,
-				.max_engine_buffer_ms = 40.0f,
+				.stream_lookahead_ms = 250.0f,
 			};
 			auto fix = AudioFixture{&config};
 			auto wave = MakeWave(48000);
@@ -874,7 +874,7 @@ namespace pr::unittests
 				.sample_rate = 0,
 				.channel_count = 0,
 				.speed_of_sound = 343.0f,
-				.max_engine_buffer_ms = 40.0f,
+				.stream_lookahead_ms = 250.0f,
 			};
 			auto fix = AudioFixture{&config};
 			auto desc = MakeStreamDesc();
@@ -930,6 +930,35 @@ namespace pr::unittests
 					return event.type == EEvent::StreamStopped && event.voice == stream && event.status == EStatus::Success;
 				});
 			PR_EXPECT(found_stopped);
+
+			PR_EXPECT(fix.m_api.StreamDestroy(fix.m_engine, stream) == EStatus::Success);
+		}
+
+		PRUnitTestMethod(StreamPlaybackSurvivesStalledUpdates, Extended)
+		{
+			auto fix = AudioFixture{};
+			auto desc = MakeStreamDesc(AUDIO_INFINITE_LOOP);
+			auto stream = StreamHandle{};
+			PR_EXPECT(fix.m_api.StreamCreateOgg(fix.m_engine, &desc, k_ogg_fixture_bytes, sizeof(k_ogg_fixture_bytes), &stream) == EStatus::Success);
+			PR_EXPECT(fix.m_api.StreamPlay(fix.m_engine, stream) == EStatus::Success);
+
+			// Update normally until playback has started and consumed some audio.
+			auto state = StreamState{};
+			auto started = PollUntil(fix.m_api, fix.m_engine, [&]
+				{
+					PR_EXPECT(fix.m_api.StreamStateGet(fix.m_engine, stream, &state) == EStatus::Success);
+					return state.pcm_position > 0;
+				});
+			PR_EXPECT(started);
+
+			// Stall the owner thread for longer than the audio it could queue itself. The decode worker must keep the voice fed meanwhile.
+			auto position_before = state.pcm_position;
+			std::this_thread::sleep_for(std::chrono::milliseconds(600));
+			PR_EXPECT(fix.m_api.EngineUpdate(fix.m_engine) == EStatus::Success);
+			PR_EXPECT(fix.m_api.StreamStateGet(fix.m_engine, stream, &state) == EStatus::Success);
+			PR_EXPECT(state.playback == EPlaybackState::Playing);
+			PR_EXPECT(state.underrun_count == 0);
+			PR_EXPECT(state.pcm_position > position_before);
 
 			PR_EXPECT(fix.m_api.StreamDestroy(fix.m_engine, stream) == EStatus::Success);
 		}

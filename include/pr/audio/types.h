@@ -99,7 +99,11 @@ namespace pr::audio
 		std::uint32_t sample_rate;
 		std::uint32_t channel_count;
 		float speed_of_sound;
-		float max_engine_buffer_ms;
+
+		// Decoded audio each stream keeps queued ahead of playback, in milliseconds. Streams underrun only when their audio is not refilled
+		// within this time. Larger values cost memory (about 190 KB per stereo 48 kHz stream at 1000 ms), and are limited by XAudio2's
+		// queue of XAUDIO2_MAX_QUEUED_BUFFERS (64) decoded chunks of 4 KB, about 1.3 s of stereo 48 kHz audio.
+		float stream_lookahead_ms;
 	};
 
 	// Position, orientation, and motion of the engine's single rendered listener.
@@ -231,7 +235,7 @@ namespace pr::audio
 		std::uint32_t device_reset_count;
 		std::uint32_t output_channel_count;
 		std::uint32_t output_sample_rate;
-		float engine_buffer_ms;
+		float stream_lookahead_ms;
 
 		// Linear peak and RMS levels of the master output during the most recent processing pass, per output channel.
 		// Only the first 'meter_channel_count' entries are valid.

@@ -5,8 +5,9 @@
 // Ogg Vorbis decode state for one resident streaming voice. Not part of the public API.
 //
 // A Stream owns the complete compressed file and decodes it incrementally on a background
-// worker thread into small PCM chunks, which the engine owner thread submits to an XAudio2
-// source voice. All members below are protected entirely by the single Engine::Impl::m_streams_mutex;
+// worker thread into small PCM chunks. Both the worker and the engine owner thread submit those
+// chunks to an XAudio2 source voice, so playback stays fed while the owner thread is late.
+// All members below are protected entirely by the single Engine::Impl::m_streams_mutex;
 // this type performs no locking of its own, so every access - from either the worker or the
 // owner thread - must happen while that mutex is held.
 #pragma once
@@ -79,13 +80,15 @@ namespace pr::audio
 		std::uint32_t m_loops_remaining; // AUDIO_INFINITE_LOOP for an unbounded loop, else remaining automatic replays.
 		bool m_decode_ended; // True once decode has produced its final chunk (loops exhausted or a corrupt read).
 		bool m_decode_error; // True if decode ended because of corrupt compressed data rather than a clean EOF.
-		std::deque<PcmChunk> m_pending; // Decoded, not yet submitted to XAudio2 (worker-produced, owner-consumed).
+		std::deque<PcmChunk> m_pending; // Decoded, not yet submitted to XAudio2.
 		std::uint64_t m_pending_frames; // Total frames currently queued in m_pending.
 
-		// Owner-thread-only playback bookkeeping (never touched by the decode worker).
-		EPlaybackState m_playback;
+		// Submission bookkeeping, updated by both threads as they feed and reconcile XAudio2 buffers.
 		std::deque<PcmChunk> m_inflight; // Submitted to XAudio2, not yet completed (FIFO; relies on XAudio2's per-voice completion order).
 		std::uint64_t m_position_base; // PCM frames consumed before the currently in-flight and pending chunks.
+
+		// Playback state, changed only by the owner thread. The worker reads 'm_playback' and 'm_source_voice' to decide whether to submit.
+		EPlaybackState m_playback;
 		std::uint32_t m_underrun_count;
 		Callback m_callback;
 		XAudioVoicePtr<IXAudio2SourceVoice> m_source_voice;

@@ -23,7 +23,7 @@ namespace pr::audio
 		// Top-level groups use this stage and each child uses its parent's stage minus one, so children always mix before their parents.
 		inline constexpr std::uint32_t k_root_group_stage = 1U << 20;
 
-		// Convert an engine buffering bound in milliseconds to a frame count at a given sample rate.
+		// Convert a duration in milliseconds to a frame count at a given sample rate.
 		std::uint64_t FrameCountForMs(std::uint32_t sample_rate, float milliseconds)
 		{
 			return static_cast<std::uint64_t>(static_cast<double>(sample_rate) * static_cast<double>(milliseconds) / 1000.0);
@@ -290,7 +290,7 @@ namespace pr::audio
 			.sample_rate = 0,
 			.channel_count = 0,
 			.speed_of_sound = 343.0f,
-			.max_engine_buffer_ms = 40.0f,
+			.stream_lookahead_ms = 250.0f,
 		};
 	}
 
@@ -464,7 +464,7 @@ namespace pr::audio
 				throw std::invalid_argument("Audio capacities must be non-zero and rendered voices cannot exceed logical voices");
 			if (config.max_streams == 0)
 				throw std::invalid_argument("Audio stream capacity must be non-zero");
-			if (!(config.speed_of_sound > 0.0f) || !(config.max_engine_buffer_ms > 0.0f && config.max_engine_buffer_ms <= 40.0f))
+			if (!(config.speed_of_sound > 0.0f) || !std::isfinite(config.stream_lookahead_ms) || !(config.stream_lookahead_ms > 0.0f))
 				throw std::invalid_argument("Audio physical and buffering limits are invalid");
 
 			auto com_result = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
@@ -1069,35 +1069,61 @@ namespace pr::audio
 			ApplyStreamMix(stream, Clock::now());
 		}
 
-		// Hand one decoded chunk to XAudio2 and track it in m_inflight until it completes. Callers must hold m_streams_mutex.
-		void SubmitStreamChunk(Stream& stream, PcmChunk chunk)
+		// Retire the m_inflight chunks that XAudio2 has finished playing and advance the played position past them.
+		// Callers must hold m_streams_mutex.
+		void ReconcileCompletedChunks(Stream& stream)
 		{
-			if (!stream.m_source_voice || chunk.m_frame_count == 0)
-				return;
-
-			stream.m_inflight.push_back(std::move(chunk));
-			auto& queued = stream.m_inflight.back();
-			auto buffer = XAUDIO2_BUFFER{
-				.AudioBytes = static_cast<UINT32>(queued.m_samples.size()),
-				.pAudioData = reinterpret_cast<BYTE const*>(queued.m_samples.data()),
-			};
-			stream.m_callback.m_queued_count.fetch_add(1, std::memory_order_acq_rel);
-			auto result = stream.m_source_voice->SubmitSourceBuffer(&buffer);
-			if (FAILED(result))
-				stream.m_callback.m_queued_count.fetch_sub(1, std::memory_order_acq_rel);
-			CheckHR(result, "IXAudio2SourceVoice::SubmitSourceBuffer");
-		}
-
-		// Reconcile completed buffers, publish underrun/completion events, and forward newly decoded audio
-		// to XAudio2. Called once per stream from Update(). Callers must hold m_streams_mutex.
-		void PumpStream(StreamHandle handle, Stream& stream)
-		{
+			// XAudio2 completes one voice's buffers in submission order, so the completion count identifies the oldest chunks.
 			auto completed = stream.m_callback.m_completed_count.exchange(0, std::memory_order_acq_rel);
 			for (auto i = std::uint32_t{}; i != completed && !stream.m_inflight.empty(); ++i)
 			{
 				stream.m_position_base += stream.m_inflight.front().m_frame_count;
 				stream.m_inflight.pop_front();
 			}
+		}
+
+		// Submit pending decoded chunks to a playing stream's source voice, up to XAudio2's per-voice queue limit; the rest stay pending.
+		// Paused and stopped streams keep all their audio pending. Returns the first failed submission result, and that chunk stays pending.
+		// Callers must hold m_streams_mutex.
+		HRESULT FeedStream(Stream& stream)
+		{
+			// Only a realized, playing stream accepts audio
+			if (stream.m_playback != EPlaybackState::Playing || !stream.m_source_voice)
+				return S_OK;
+
+			while (!stream.m_pending.empty() && stream.m_inflight.size() < XAUDIO2_MAX_QUEUED_BUFFERS)
+			{
+				// A chunk without whole frames carries no playable audio
+				auto& next = stream.m_pending.front();
+				if (next.m_frame_count == 0)
+				{
+					stream.PopPendingChunk();
+					continue;
+				}
+
+				// Submit from the pending chunk's own sample memory. Moving the chunk into m_inflight keeps that heap buffer, so it stays
+				// valid until XAudio2 reports completion. Completions are only reconciled under the mutex held here, so the move cannot race them.
+				auto buffer = XAUDIO2_BUFFER{
+					.AudioBytes = static_cast<UINT32>(next.m_samples.size()),
+					.pAudioData = reinterpret_cast<BYTE const*>(next.m_samples.data()),
+				};
+				stream.m_callback.m_queued_count.fetch_add(1, std::memory_order_acq_rel);
+				auto result = stream.m_source_voice->SubmitSourceBuffer(&buffer);
+				if (FAILED(result))
+				{
+					stream.m_callback.m_queued_count.fetch_sub(1, std::memory_order_acq_rel);
+					return result;
+				}
+				stream.m_inflight.push_back(std::move(*stream.PopPendingChunk()));
+			}
+			return S_OK;
+		}
+
+		// Reconcile completed buffers, publish underrun/completion events, top up XAudio2 with any decoded audio the worker has not
+		// yet submitted, and start newly playing voices. Called once per stream from Update(). Callers must hold m_streams_mutex.
+		void PumpStream(StreamHandle handle, Stream& stream)
+		{
+			ReconcileCompletedChunks(stream);
 
 			auto underrun = stream.m_callback.m_underrun.exchange(false, std::memory_order_acq_rel);
 			if (underrun && stream.m_source_started && stream.m_playback == EPlaybackState::Playing && !(stream.m_decode_ended && stream.m_pending.empty() && stream.m_inflight.empty()))
@@ -1109,8 +1135,7 @@ namespace pr::audio
 			if (stream.m_playback != EPlaybackState::Playing)
 				return;
 
-			for (auto chunk = stream.PopPendingChunk(); chunk; chunk = stream.PopPendingChunk())
-				SubmitStreamChunk(stream, std::move(*chunk));
+			CheckHR(FeedStream(stream), "IXAudio2SourceVoice::SubmitSourceBuffer");
 			if (!stream.m_source_started && !stream.m_inflight.empty())
 			{
 				stream.m_callback.m_underrun.store(false, std::memory_order_release);
@@ -1127,27 +1152,36 @@ namespace pr::audio
 			}
 		}
 
-		// Background decode loop: the only place that calls into libvorbis, kept off the owner thread so
-		// Update() and the Stream* API never block on codec work. Touches only decode state (never XAudio2).
+		// Background decode and feed loop: the only place that calls into libvorbis. Decoded audio is submitted to XAudio2 here as well,
+		// so playing streams stay fed while the owner thread is busy or late, and only a worker stall longer than the look-ahead can underrun.
+		// Starting voices, events, and error reporting stay with the owner thread in PumpStream.
 		void StreamWorkerRun()
 		{
+			// Every pass works under the stream mutex, which the wait releases between passes
 			auto lock = std::unique_lock<std::mutex>(m_streams_mutex);
 			while (!m_stream_worker_stop.load(std::memory_order_acquire))
 			{
 				for (auto& slot : m_streams)
 				{
+					// Skip empty slots
 					if (!slot.m_object)
 						continue;
 
+					// Retire finished buffers first so they no longer count towards the look-ahead
 					auto& stream = *slot.m_object;
-					auto target_frames = FrameCountForMs(stream.m_sample_rate, m_config.max_engine_buffer_ms);
+					ReconcileCompletedChunks(stream);
 
-					// Maintain the requested look-ahead beyond XAudio2's current buffer because its consumed fraction is not observable until the buffer completes.
+					// Maintain the look-ahead beyond XAudio2's current buffer because its consumed fraction is not observable until the buffer completes.
+					auto target_frames = FrameCountForMs(stream.m_sample_rate, m_config.stream_lookahead_ms);
 					while (!stream.m_decode_ended && stream.BufferedSuccessorFrameCount() < target_frames)
 					{
+						// Decode bounded chunks until the look-ahead is met or decode ends
 						if (!stream.DecodeOneChunk(k_stream_decode_chunk_bytes))
 							break;
 					}
+
+					// A failed submission leaves the chunk pending; the owner thread's next PumpStream retries it and reports the error
+					(void)FeedStream(stream);
 				}
 				m_stream_worker_wake.wait_for(lock, k_stream_worker_interval);
 			}
@@ -1821,7 +1855,7 @@ namespace pr::audio
 			.header = {sizeof(Diagnostics), AUDIO_STRUCT_VERSION},
 			.output_channel_count = m_impl->m_output_channels,
 			.output_sample_rate = m_impl->m_output_sample_rate,
-			.engine_buffer_ms = m_impl->m_config.max_engine_buffer_ms,
+			.stream_lookahead_ms = m_impl->m_config.stream_lookahead_ms,
 		};
 		for (auto const& slot : m_impl->m_voices)
 		{
