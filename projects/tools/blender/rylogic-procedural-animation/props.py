@@ -54,6 +54,8 @@ PUNCH_KINDS = [
 	("CROSS", "Cross", "A straight punch with the rear hand, turning the torso further"),
 	("HOOK", "Hook", "A punch that swings around from the side"),
 	("UPPERCUT", "Uppercut", "An upward punch from low to chin height"),
+	("BODY_HOOK", "Body hook", "A hook to the body, bending the knees and leaning to the punching side"),
+	("BODY_JAB", "Body jab", "A straight punch to the body, stepping in with the punching side's foot"),
 ]
 
 

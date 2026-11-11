@@ -110,7 +110,7 @@
 //      "duration": 1.6,                    // collapse only, > 0. The time, in seconds, from standing to lying on the ground.
 //      "punches": [{                       // punches only, not empty. The sequence of punches, which repeats.
 //        "hand": "left" | "right",         // the side of the arm that punches. The rig must have an arm chain on that side.
-//        "kind": "jab" | "cross" | "hook" | "uppercut",
+//        "kind": "jab" | "cross" | "hook" | "uppercut" | "body_hook" | "body_jab",
 //        "duration": 0.6                   // > 0. The time, in seconds, for the punch and the return to the guard.
 //      }]
 //    }
@@ -118,7 +118,8 @@
 //
 // When the gait is read, an action family copies its base family's travel, up, slope limit, medium, wave and cycles (see 'ResolveActions'),
 // and its max speed is zero, because the body stays where it is. A collapse lets the body go limp from the base stance and fall to lie on
-// its side on the ground. A punches action stands with the feet apart in a boxing stance and throws the punches in turn, turning the torso into each.
+// its side on the ground. A punches action stands with the feet apart in a boxing stance and throws the punches in turn, turning the torso into each
+// and dipping, leaning or stepping as each kind of punch needs.
 #pragma once
 #include "pr/animation/forward.h"
 #include "pr/animation/rig.h"
@@ -242,6 +243,12 @@ namespace pr::animation
 
 		// An upward punch from low to chin height
 		Uppercut,
+
+		// A hook to the body, bending the knees and leaning to the punching side
+		BodyHook,
+
+		// A straight punch to the body, stepping in with the punching side's foot
+		BodyJab,
 	};
 
 	// One punch of a punches action
@@ -286,7 +293,7 @@ namespace pr::animation
 	inline constexpr std::array<std::string_view, 2> FamilyUpNames = { "surface", "gravity" };
 	inline constexpr std::array<std::string_view, 2> FamilyMediumNames = { "ground", "water" };
 	inline constexpr std::array<std::string_view, 2> ActionKindNames = { "collapse", "punches" };
-	inline constexpr std::array<std::string_view, 4> PunchKindNames = { "jab", "cross", "hook", "uppercut" };
+	inline constexpr std::array<std::string_view, 6> PunchKindNames = { "jab", "cross", "hook", "uppercut", "body_hook", "body_jab" };
 
 	// Evaluate a bone motion at 'phase'
 	inline v4 Evaluate(std::array<Harmonic, GaitHarmonics> const& harmonics, float phase)
@@ -894,6 +901,7 @@ namespace pr::animation::tests
 				Punch{ .hand = ESide::Left, .kind = EPunchKind::Jab, .duration = 0.5f },
 				Punch{ .hand = ESide::Left, .kind = EPunchKind::Hook, .duration = 0.6f },
 				Punch{ .hand = ESide::Left, .kind = EPunchKind::Uppercut, .duration = 0.7f },
+				Punch{ .hand = ESide::Left, .kind = EPunchKind::BodyJab, .duration = 0.6f },
 			},
 		} });
 		ResolveActions(gait);
@@ -917,7 +925,7 @@ namespace pr::animation::tests
 			PR_EXPECT(read.families.size() == 5 && read.families[3].action && read.families[3].action->kind == EActionKind::Collapse && read.families[3].action->duration == 1.6f);
 			PR_EXPECT(FEqlAbsolute(read.families[4].travel, v4::XAxis(), 1e-6f) && read.families[4].max_slope == 0.4f);
 			auto const& punches = read.families[4].action->punches;
-			PR_EXPECT(punches.size() == 3 && punches[1].hand == ESide::Left && punches[1].kind == EPunchKind::Hook && punches[2].duration == 0.7f);
+			PR_EXPECT(punches.size() == 4 && punches[1].hand == ESide::Left && punches[1].kind == EPunchKind::Hook && punches[2].duration == 0.7f && punches[3].kind == EPunchKind::BodyJab);
 
 			// A right hand has no arm in the test rig, and an action family cannot be a base
 			auto bad = gait;

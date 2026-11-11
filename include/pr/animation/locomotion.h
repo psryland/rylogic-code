@@ -48,7 +48,9 @@
 //       The family's posture (see 'Locomotion::posture') is its base stance lying on its side.
 //     - "punches" loops its sequence of punches. The feet take a boxing stance with the left foot forward, and the body crouches with its hands
 //       holding a guard in front of the chin. Each punch drives one fist out and back while the torso turns the punching shoulder forward and
-//       leans after the fist, carrying the hips and head with it. The punches fade in and out with the family's blend time.
+//       leans after the fist, carrying the hips and head with it. Depending on the kind of punch, the knees dip or rise, the chest bends towards
+//       the punching side, and the punching side's foot turns on its ball or steps forward and back. The feet return to their stance after each
+//       punch, so the body stays in place. The punches fade in and out with the family's blend time.
 //
 // The body's motion comes from outside (for example, a physics simulation); the controller does not move the character's origin.
 // Model space has +Z up. The body's up is the model's +Z axis in world space, so the body may stand on any surface: a slope, a wall, or a ceiling.
@@ -618,6 +620,7 @@ namespace pr::animation
 				auto foot = world_to_model * limb.foot;
 				m_targets[limb.chain].frame = limb.support == 1.0f ? foot : BlendFrame(HangingFrame(limb), foot, limb.support);
 			}
+			StepPunchFeet();
 
 			// Grasping hands move from their usual goals to their grasps
 			for (auto const& reach : m_reaches)
@@ -759,6 +762,10 @@ namespace pr::animation
 
 		// The fraction of the chest's forward travel, as the torso leans into a punch, by which the hips also move forward over the front foot
 		static constexpr float PunchHipDrive = 0.4f;
+
+		// The fraction of a punching foot's step by which the hips move forward with it, and the height of the step's arc as a fraction of its length
+		static constexpr float StepSurge = 0.5f;
+		static constexpr float StepLift = 0.3f;
 
 		// The angle (radians) by which each bone of a punching hand's digits curls towards the palm to make a fist
 		static constexpr float FistCurl = 1.2f;
@@ -2379,18 +2386,98 @@ namespace pr::animation
 			return { nullptr, 0.0f };
 		}
 
+		// How the body moves into one kind of punch. Angles and distances are at the punch's full extent unless stated. The fist's path is in
+		// model axes from the shoulder, in units of the arm's reach, for a left-hand punch. A right-hand punch mirrors its X values.
+		struct PunchStyle
+		{
+			float yaw;     // The angle (radians) by which the torso turns the punching shoulder forward
+			float lean;    // The angle (radians) by which the torso leans forward, beyond its guard
+			float tilt;    // The angle (radians) by which the chest bends sideways, dropping the punching shoulder
+			float dip;     // The distance that the hips drop, as a fraction of the spine's length. Negative values rise out of the guard's crouch.
+			float sink;    // The distance that the hips drop half way out, and rise from again by full extent, as a fraction of the spine's length
+			float pivot;   // The angle (radians) by which the punching side's foot turns on its ball, turning its heel out
+			float step;    // The distance that the punching side's foot steps forward, as a fraction of the leg's reach
+			v4 ctrl;       // The control point of the fist's curved path from the guard
+			v4 end;        // The fist's position at full extent
+			v4 dir;        // The direction that the fingers point at full extent
+			v4 pole;       // The direction that the elbow bends towards at full extent
+		};
+
+		// The left fist's guard position, in front of the chin, in model axes from the shoulder in units of the arm's reach
+		static v4 GuardFist()
+		{
+			return v4(-0.2f, -0.4f, 0.2f, 0);
+		}
+
+		// The movement of each kind of punch (see 'PunchStyle')
+		static PunchStyle StyleOf(EPunchKind kind)
+		{
+			switch (kind)
+			{
+				case EPunchKind::Jab:
+				{
+					// Straight out from the lead side, with a short step in
+					auto end = v4(-0.25f, -0.9f, 0.15f, 0);
+					return PunchStyle{ .yaw = 0.25f, .lean = 0.12f, .tilt = 0, .dip = 0, .sink = 0, .pivot = 0, .step = 0.06f,
+						.ctrl = (GuardFist() + end) * 0.5f, .end = end, .dir = v4(0, -1, 0, 0), .pole = Normalise(v4(0.5f, 0, -1, 0)) };
+				}
+				case EPunchKind::Cross:
+				{
+					// Straight out across the body's midline, with the hips and shoulders turned fully and the rear heel turned out
+					auto end = v4(-0.35f, -0.9f, 0.15f, 0);
+					return PunchStyle{ .yaw = 0.75f, .lean = 0.3f, .tilt = 0, .dip = 0, .sink = 0, .pivot = 0.6f, .step = 0,
+						.ctrl = (GuardFist() + end) * 0.5f, .end = end, .dir = v4(0, -1, 0, 0), .pole = Normalise(v4(0.5f, 0, -1, 0)) };
+				}
+				case EPunchKind::Hook:
+				{
+					// Out to the side, then around in front, with the elbow raised level with the fist and the foot turning with the hips
+					return PunchStyle{ .yaw = 0.65f, .lean = 0.2f, .tilt = 0, .dip = 0.05f, .sink = 0, .pivot = 0.5f, .step = 0,
+						.ctrl = v4(0.25f, -0.45f, 0.25f, 0), .end = v4(-0.45f, -0.6f, 0.2f, 0), .dir = Normalise(v4(-1, -0.6f, 0, 0)), .pole = Normalise(v4(1, 0, 0.3f, 0)) };
+				}
+				case EPunchKind::Uppercut:
+				{
+					// The knees dip with the fist, then the body rises, driving the fist up and forward under the chin of the opponent
+					return PunchStyle{ .yaw = 0.45f, .lean = 0.05f, .tilt = 0.12f, .dip = -0.08f, .sink = 0.3f, .pivot = 0.3f, .step = 0,
+						.ctrl = v4(-0.1f, -0.35f, -0.15f, 0), .end = v4(-0.25f, -0.55f, 0.35f, 0), .dir = Normalise(v4(0, -0.3f, 1, 0)), .pole = Normalise(v4(0.3f, 0, -1, 0)) };
+				}
+				case EPunchKind::BodyHook:
+				{
+					// A hook to the body. The knees bend deeply and the body leans to the punching side, so the fist swings in at the opponent's ribs.
+					return PunchStyle{ .yaw = 0.5f, .lean = 0.25f, .tilt = 0.25f, .dip = 0.35f, .sink = 0, .pivot = 0.4f, .step = 0,
+						.ctrl = v4(0.25f, -0.4f, -0.1f, 0), .end = v4(-0.35f, -0.55f, -0.3f, 0), .dir = Normalise(v4(-1, -0.6f, 0.2f, 0)), .pole = Normalise(v4(1, 0, 0.3f, 0)) };
+				}
+				case EPunchKind::BodyJab:
+				{
+					// A straight punch to the body. The punching side's foot lunges forward and the body drops level with the opponent's chest.
+					auto end = v4(-0.25f, -0.95f, -0.2f, 0);
+					return PunchStyle{ .yaw = 0.3f, .lean = 0.35f, .tilt = 0, .dip = 0.4f, .sink = 0, .pivot = 0, .step = 0.25f,
+						.ctrl = (GuardFist() + end) * 0.5f, .end = end, .dir = Normalise(v4(0, -1, -0.2f, 0)), .pole = Normalise(v4(0.5f, 0, -1, 0)) };
+				}
+				default: throw std::runtime_error("Unknown punch kind");
+			}
+		}
+
+		// The leg on the side 'side', or null if the rig has none
+		LimbState const* LegOn(ESide side) const
+		{
+			// Rigs have at most one leg on each side
+			auto it = std::ranges::find_if(m_limbs, [&](auto const& limb) { auto const& chain = m_rig.chains[limb.chain]; return chain.role == EChainRole::Leg && chain.side == side; });
+			return it != m_limbs.end() ? &*it : nullptr;
+		}
+
 		// How the torso of a body throwing punches moves from its guide pose. It is still when no punches show.
 		struct TorsoDrive
 		{
 			float yaw = 0;          // The chest's turn (radians) about model +Z. The pelvis turns 'PunchPelvisShare' of this.
 			float lean = 0;         // The chest's forward lean (radians) about the pelvis
+			float tilt = 0;         // The chest's sideways bend (radians) about model +Y, towards +X for positive angles
 			v4 hips = v4::Zero();   // The pelvis's model-space shift
-			v4 chest = v4::Zero();  // The chest's model-space shift, from both the lean and the hips' shift
+			v4 chest = v4::Zero();  // The chest's model-space shift, from the lean, the bend and the hips' shift
 		};
 
 		// The torso motion of a body throwing punches. On guard, the left shoulder leads and the body crouches forward. Into each punch, the
 		// punching shoulder turns forward and the chest leans after the fist, carrying the hips forward over the front foot, so the body's weight
-		// goes into the punch and the fist reaches further.
+		// goes into the punch and the fist reaches further. Punches to the body bend the knees and lean to the punching side.
 		TorsoDrive PunchDrive() const
 		{
 			// The torso moves only while punches show
@@ -2398,20 +2485,27 @@ namespace pr::animation
 			if (punch == nullptr || m_spine < 0)
 				return {};
 
-			// Turning about model +Z by a positive angle moves the right shoulder (-X) forward (-Y), and leaning about model +X by a positive angle
-			// moves the chest forward
+			// Turning about model +Z by a positive angle moves the right shoulder (-X) forward (-Y), leaning about model +X by a positive angle
+			// moves the chest forward, and bending about model +Y by a positive angle moves the chest towards +X (left)
+			auto style = StyleOf(punch->kind);
+			auto side = SideSign(punch->hand);
 			auto weight = m_action_weight;
 			auto drive = TorsoDrive{
-				.yaw = (-GuardYaw - SideSign(punch->hand) * PunchYaw(punch->kind) * extend) * weight,
-				.lean = (GuardLean + PunchLean(punch->kind) * extend) * weight,
+				.yaw = (-GuardYaw - side * style.yaw * extend) * weight,
+				.lean = (GuardLean + style.lean * extend) * weight,
+				.tilt = side * style.tilt * extend * weight,
 			};
 
-			// The hips drop behind the guard and move forward with a share of the punch's lean. The chest swings forward about the hips.
+			// The hips drop behind the guard, drop further or rise with the punch, and move forward with a share of the punch's lean. A stepping
+			// foot carries the hips forward by a share of its step. The chest swings about the hips.
 			auto const& guide = m_guide_targets[m_spine];
 			auto span = guide.frame.pos - guide.base.pos;
 			auto length = Length(span);
-			drive.hips = v4(0, -PunchHipDrive * length * PunchLean(punch->kind) * extend, -GuardCrouch * length, 0) * weight;
-			drive.chest = drive.hips + Rotate(quat(v4::XAxis(), drive.lean), span) - span;
+			auto leg = LegOn(punch->hand);
+			auto surge = PunchHipDrive * length * style.lean + (leg != nullptr ? StepSurge * style.step * leg->reach : 0.0f);
+			auto drop = GuardCrouch + style.dip * extend + style.sink * 4 * extend * (1 - extend);
+			drive.hips = v4(0, -surge * extend, -drop * length, 0) * weight;
+			drive.chest = drive.hips + Rotate(quat(v4::YAxis(), drive.tilt) * quat(v4::XAxis(), drive.lean), span) - span;
 			return drive;
 		}
 
@@ -2425,34 +2519,32 @@ namespace pr::animation
 				return;
 
 			auto& spine = m_targets[m_spine];
-			spine.frame = xform(spine.frame.pos + drive.chest, Normalise(quat(v4::ZAxis(), drive.yaw) * quat(v4::XAxis(), drive.lean) * spine.frame.rot));
+			spine.frame = xform(spine.frame.pos + drive.chest, Normalise(quat(v4::ZAxis(), drive.yaw) * quat(v4::YAxis(), drive.tilt) * quat(v4::XAxis(), drive.lean) * spine.frame.rot));
 			spine.base = xform(spine.base.pos + drive.hips, Normalise(quat(v4::ZAxis(), PunchPelvisShare * drive.yaw) * spine.base.rot));
 		}
 
-		// The angle (radians) by which the torso turns the punching shoulder forward at the full extent of each kind of punch
-		static float PunchYaw(EPunchKind kind)
+		// Move the punching side's foot of a body throwing punches. The foot turns on its ball as the hips turn, turning its heel out, and steps
+		// forward and back along a low arc for punches that step in. The foot's planted position does not change, so it returns to it.
+		void StepPunchFeet()
 		{
-			switch (kind)
-			{
-				case EPunchKind::Jab: { return 0.25f; }
-				case EPunchKind::Cross: { return 0.75f; }
-				case EPunchKind::Hook: { return 0.65f; }
-				case EPunchKind::Uppercut: { return 0.45f; }
-				default: throw std::runtime_error("Unknown punch kind");
-			}
-		}
+			// Only the punching side's foot moves
+			auto [punch, extend] = CurrentPunch();
+			auto const* leg = punch != nullptr ? LegOn(punch->hand) : nullptr;
+			if (leg == nullptr || m_action_weight == 0)
+				return;
 
-		// The angle (radians) by which the torso leans forward, beyond its guard, at the full extent of each kind of punch
-		static float PunchLean(EPunchKind kind)
-		{
-			switch (kind)
-			{
-				case EPunchKind::Jab: { return 0.12f; }
-				case EPunchKind::Cross: { return 0.3f; }
-				case EPunchKind::Hook: { return 0.2f; }
-				case EPunchKind::Uppercut: { return 0.05f; }
-				default: throw std::runtime_error("Unknown punch kind");
-			}
+			// Turning about model +Z with the same sign as the torso's turn moves the heel outward. The ball is the foot bone's tip.
+			auto style = StyleOf(punch->kind);
+			auto& target = m_targets[leg->chain];
+			auto length = m_rig.bones[m_rig.chains[leg->chain].bones.back()].length;
+			auto ball = target.frame.pos + Rotate(target.frame.rot, v4::YAxis()) * length;
+			auto turn = quat(v4::ZAxis(), -SideSign(punch->hand) * style.pivot * extend * m_action_weight);
+			auto frame = xform(ball + Rotate(turn, target.frame.pos - ball), Normalise(turn * target.frame.rot));
+
+			// The step moves forward (-Y) and lifts the foot most half way out
+			auto step = style.step * leg->reach * m_action_weight;
+			frame.pos += v4(0, -step * extend, StepLift * step * 4 * extend * (1 - extend), 0);
+			target.frame = frame;
 		}
 
 		// The model-space position of the shoulder joint of the arm 'limb', carried by the body like a hanging arm (see 'HangingFrame')
@@ -2482,13 +2574,18 @@ namespace pr::animation
 				if (chain.role != EChainRole::Arm)
 					continue;
 
-				// The guard holds the fist up in front of the chin, the forearm upright and the elbow down
+				// The guard holds the fist up in front of the chin, the forearm upright and the elbow down. Left-hand offsets mirror for the right arm.
 				auto side = SideSign(chain.side);
-				auto guard = v4(-side * 0.2f, -0.4f, 0.2f, 0);
+				auto mirror = [side](v4 v)
+				{
+					// Reflect across the body's midline for the right arm
+					return v4(side * v.x, v.y, v.z, v.w);
+				};
+				auto guard = mirror(GuardFist());
 				auto guard_dir = Normalise(v4(0, -0.4f, 1, 0));
 				auto guard_pole = Normalise(v4(side * 0.5f, 0, -1, 0));
 
-				// The punch's path from the guard, through an optional control point, to its full extent
+				// The punch's path from the guard, through a control point, to its full extent
 				auto ctrl = guard;
 				auto end = guard;
 				auto dir = guard_dir;
@@ -2496,47 +2593,12 @@ namespace pr::animation
 				auto strike = 0.0f;
 				if (chain.side == punch->hand)
 				{
+					auto style = StyleOf(punch->kind);
+					ctrl = mirror(style.ctrl);
+					end = mirror(style.end);
+					dir = mirror(style.dir);
+					pole = mirror(style.pole);
 					strike = extend;
-					switch (punch->kind)
-					{
-						case EPunchKind::Jab:
-						{
-							// Straight out from the lead side
-							end = v4(-side * 0.25f, -0.9f, 0.15f, 0);
-							ctrl = (guard + end) * 0.5f;
-							dir = v4(0, -1, 0, 0);
-							pole = Normalise(v4(side * 0.5f, 0, -1, 0));
-							break;
-						}
-						case EPunchKind::Cross:
-						{
-							// Straight out across the body's midline
-							end = v4(-side * 0.35f, -0.9f, 0.15f, 0);
-							ctrl = (guard + end) * 0.5f;
-							dir = v4(0, -1, 0, 0);
-							pole = Normalise(v4(side * 0.5f, 0, -1, 0));
-							break;
-						}
-						case EPunchKind::Hook:
-						{
-							// Out to the side, then around in front, with the elbow raised level with the fist
-							ctrl = v4(side * 0.25f, -0.45f, 0.25f, 0);
-							end = v4(-side * 0.45f, -0.6f, 0.2f, 0);
-							dir = Normalise(v4(-side, -0.6f, 0, 0));
-							pole = Normalise(v4(side, 0, 0.3f, 0));
-							break;
-						}
-						case EPunchKind::Uppercut:
-						{
-							// Down, then up and forward under the chin of the opponent
-							ctrl = v4(-side * 0.1f, -0.35f, -0.15f, 0);
-							end = v4(-side * 0.25f, -0.55f, 0.35f, 0);
-							dir = Normalise(v4(0, -0.3f, 1, 0));
-							pole = Normalise(v4(side * 0.3f, 0, -1, 0));
-							break;
-						}
-						default: throw std::runtime_error("Unknown punch kind");
-					}
 				}
 
 				// Follow the curved path from the guard to the punch's extent, turning the fingers from the guard direction to the punch direction
@@ -4212,29 +4274,44 @@ namespace pr::animation::tests
 			auto body = BodyState{ .gravity = v4(0, 0, -9.8f, 0) };
 			auto hand = rig.BoneIndex("hand.L");
 			auto chest = rig.BoneIndex("chest");
+			auto hips = rig.BoneIndex("hips");
+			auto foot = rig.BoneIndex("foot.L");
 			loco.RequestFamily(fight, 0.5f);
-			for (int i = 0; i != 120; ++i)
+			for (int i = 0; i != 144; ++i)
 				loco.Step(dt, body, ground);
 
-			// One pass of the sequence, which is 1.8 seconds long
+			// One pass of the sequence, which is 2.4 seconds long
 			auto start = loco.pose().model[hand].pos;
+			auto foot_start = loco.pose().model[foot].pos;
 			auto y_lo = std::numeric_limits<float>::max();
 			auto y_hi = std::numeric_limits<float>::lowest();
 			auto chest_lo = std::numeric_limits<float>::max();
 			auto chest_hi = std::numeric_limits<float>::lowest();
-			for (int i = 0; i != 108; ++i)
+			auto hips_lo = std::numeric_limits<float>::max();
+			auto hips_hi = std::numeric_limits<float>::lowest();
+			auto foot_lo = std::numeric_limits<float>::max();
+			for (int i = 0; i != 144; ++i)
 			{
 				loco.Step(dt, body, ground);
 				y_lo = std::min(y_lo, loco.pose().model[hand].pos.y);
 				y_hi = std::max(y_hi, loco.pose().model[hand].pos.y);
 				chest_lo = std::min(chest_lo, loco.pose().model[chest].pos.y);
 				chest_hi = std::max(chest_hi, loco.pose().model[chest].pos.y);
+				hips_lo = std::min(hips_lo, loco.pose().model[hips].pos.z);
+				hips_hi = std::max(hips_hi, loco.pose().model[hips].pos.z);
+				foot_lo = std::min(foot_lo, loco.pose().model[foot].pos.y);
 			}
 
+			// The body jab steps the foot forward and drops the hips, and the foot returns to its stance
+			auto const& leg = loco.limbs()[0];
 			auto const& arm = loco.limbs()[1];
+			PR_EXPECT(rig.chains[leg.chain].role == EChainRole::Leg);
 			PR_EXPECT(rig.chains[arm.chain].role == EChainRole::Arm);
 			PR_EXPECT(y_hi - y_lo > 0.2f * arm.reach);
 			PR_EXPECT(chest_hi - chest_lo > 0.02f);
+			PR_EXPECT(hips_hi - hips_lo > 0.1f);
+			PR_EXPECT(foot_start.y - foot_lo > 0.15f * leg.reach);
+			PR_EXPECT(FEqlAbsolute(loco.pose().model[foot].pos, foot_start, 0.02f));
 			PR_EXPECT(FEqlAbsolute(loco.pose().model[hand].pos, start, 0.02f));
 		}
 	};
