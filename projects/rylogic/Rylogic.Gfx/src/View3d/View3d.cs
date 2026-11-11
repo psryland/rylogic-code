@@ -2123,6 +2123,8 @@ namespace Rylogic.Gfx
 		// Render the window
 		[DllImport(Dll)] private static extern void View3D_WindowRender(HWindow window);
 		[DllImport(Dll)] private static extern void View3D_WindowRenderHidden(HWindow window);
+		[DllImport(Dll)] private static extern int View3D_WindowPrewarmPipelines(HWindow window);
+		[DllImport(Dll)] private static extern bool View3D_WindowPipelineStats(HWindow window, out PipelineStats stats);
 
 		// Wait for any previous frames to complete rendering within the GPU
 		[DllImport(Dll)] private static extern void View3D_WindowGSyncWait(HWindow window);

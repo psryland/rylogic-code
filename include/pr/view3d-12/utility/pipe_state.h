@@ -281,12 +281,26 @@ namespace pr::rdr12
 
 	// The graphics pipeline state objects of one renderer, shared by all of its windows and render steps.
 	// Pipelines are found by their final description, so equal states share one pipeline. Pipelines that have not been used for 'MaxIdleTime' are
-	// released when the cache grows beyond 'TrimCount'. The cache is thread safe.
+	// released when the cache grows beyond 'TrimCount'. Pipelines can also be created ahead of use on worker threads, see 'Prewarm'.
+	// The cache is thread safe.
 	struct PipeStateCache
 	{
 		using clock_t = std::chrono::steady_clock;
 		static constexpr size_t TrimCount = 256;
 		static constexpr auto MaxIdleTime = std::chrono::seconds(10);
+
+		// Counters of pipeline creation, for measuring how much creation happens while drawing
+		struct Stats
+		{
+			int64_t m_created;        // Pipelines created by 'Get', i.e. while recording draws
+			double m_created_ms;      // The total time 'Get' spent creating pipelines
+			double m_created_max_ms;  // The longest single creation by 'Get'
+			int64_t m_prewarmed;      // Pipelines created by the prewarm workers
+			double m_prewarmed_ms;    // The total worker time spent creating pipelines
+			int64_t m_failed;         // Prewarm creations that failed. 'Get' reports the same failure if the state is drawn.
+			int64_t m_pending;        // Prewarm requests that are queued or being created
+			int64_t m_count;          // The number of cached pipelines
+		};
 
 	private:
 
@@ -296,11 +310,34 @@ namespace pr::rdr12
 			D3DPtr<ID3D12RootSignature> m_signature; // Holds the root signature, so its address cannot be reused while it identifies this entry
 			D3DPtr<ID3D12PipelineState> m_pso;       // The pipeline state object
 			clock_t::time_point m_last_used;         // When 'Get' last returned this entry
+			bool m_pinned;                           // Prewarmed and not yet used. Trimming keeps pinned entries, so prewarmed states survive until drawn.
+		};
+		struct Request
+		{
+			PipeStateDesc m_desc;                    // The description to create a pipeline for
+			D3DPtr<ID3D12RootSignature> m_signature; // Holds the root signature until the pipeline is created
+			uint64_t m_hash;                         // 'm_desc.Hash()'
 		};
 
 		Renderer* m_rdr;
 		std::unordered_multimap<uint64_t, Entry> m_entries;
+		std::deque<Request> m_requests;
+		int m_in_flight;
+		Stats m_stats;
 		mutable std::mutex m_mutex;
+		std::condition_variable_any m_cv;
+
+		// Held shared by a worker while it creates a pipeline, and exclusively by 'Forget'. Lock order: 'm_create_lock' then 'm_mutex'.
+		std::shared_mutex m_create_lock;
+
+		// Declared last so the workers stop before any other member is destroyed
+		std::vector<std::jthread> m_workers;
+
+		// Find the entry for 'desc'. Requires 'm_mutex' to be held.
+		Entry* Find(PipeStateDesc const& desc, uint64_t hash);
+
+		// Create prewarm requests until stopped
+		void Worker(std::stop_token stop);
 
 		// Release entries that have been idle for too long. Requires 'm_mutex' to be held.
 		void Trim(clock_t::time_point now);
@@ -318,11 +355,18 @@ namespace pr::rdr12
 		// after the next 'Forget' or trim that removes it, so it is safe to record into a command list that is submitted as usual.
 		ID3D12PipelineState* Get(PipeStateDesc const& desc);
 
-		// Release every pipeline that uses 'signature' or any shader stage whose bytecode starts at an address in 'bytecode'.
+		// Create pipelines for 'descs' on worker threads, so that later 'Get' calls find them. States that are cached or already requested are ignored.
+		// The root signatures and shader bytecode of 'descs' must remain valid until created or forgotten (see 'Forget'). Returns the number of new requests.
+		int Prewarm(std::span<PipeStateDesc const> descs);
+
+		// Release every pipeline that uses 'signature' or any shader stage whose bytecode starts at an address in 'bytecode', and drop matching prewarm requests.
 		// Call this before the storage of the bytecode or the signature is released, so that a later allocation at the same address cannot match.
 		void Forget(ID3D12RootSignature const* signature, std::span<void const* const> bytecode);
 
 		// The number of cached pipeline state objects
 		size_t Count() const;
+
+		// The creation counters, and the number of prewarm requests not yet complete
+		Stats GetStats() const;
 	};
 }

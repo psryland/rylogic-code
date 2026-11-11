@@ -93,6 +93,10 @@ namespace pr::rdr12
 	void RenderStep::Prepare(Frame&)
 	{}
 
+	// Add the pipeline states that drawing the current draw list would use
+	void RenderStep::CollectPipelines(std::vector<PipeStateDesc>&) const
+	{}
+
 	// Add an instance. The instance, model, and nuggets must be resident for the entire time
 	// that the instance is in the draw list, i.e. until 'RemoveInstance' or 'ClearDrawlist' is called.
 	void RenderStep::AddInstance(BaseInstance const& inst)

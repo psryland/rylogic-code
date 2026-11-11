@@ -533,6 +533,112 @@ namespace pr::rdr12
 		m_alp_list.Close();
 	}
 
+	// Add the pipeline states of the draw list and the scene's populations, for each sub-pass that can draw them
+	void RenderForward::CollectPipelines(std::vector<PipeStateDesc>& descs) const
+	{
+		// Choose the sub-pass defaults in the same way as 'Execute'. The opaque pass uses the reflection sidecar when ray traced reflections are on.
+		auto const* ray_tracing = scn().FindRStep<RenderRayTracing>();
+		auto const rt_pass = ray_tracing != nullptr ? ray_tracing->ScreenPass() : ERayTracingScreenPass::None;
+		auto const reflections = ray_tracing != nullptr && rdr().RayTracing().Available() && (rt_pass == ERayTracingScreenPass::Reflections || rt_pass == ERayTracingScreenPass::ReflectionsAndCaustics);
+		auto const& opaque_state = reflections ? m_reflection_pipe_state : m_default_pipe_state;
+		auto const kbuf = static_cast<bool>(wnd().m_alpha_kbuffer);
+
+		// Reflection guard bands redraw the opaques with view instancing, one view per needed band. The needed bands depend on the camera,
+		// so every band count is collected whenever a reflection plane can be projected. See 'ReflectionPlaneNeeded'.
+		auto const guard_bands = kbuf && !All(scn().m_reflection_plane == v4::Zero());
+
+		// Add the states of one nugget drawn from 'base', with the fill mode variants that 'DrawNugget' applies
+		auto add = [&](PipeStateDesc const& base, Nugget const& nugget, BaseInstance const& instance, bool population)
+		{
+			// Draws without a pass for this step are skipped, as in 'DrawNuggets'
+			auto material_override = FindMaterial(instance);
+			auto const& material = material_override != nullptr ? *material_override.get() : nugget.mat();
+			auto const* pass = material.Pass(m_step_id);
+			if (pass == nullptr)
+				return;
+
+			auto desc = base;
+			ComposePipeline(desc, nugget, instance, material, *pass, population);
+
+			// The point fill mode is a diagnostic view, so its pipelines are created when first drawn
+			auto const fill_mode = nugget.FillMode() != EFillMode::Default ? nugget.FillMode() : scn().FillMode();
+			switch (fill_mode)
+			{
+				case EFillMode::Default:
+				case EFillMode::Solid:
+				{
+					descs.push_back(desc);
+					break;
+				}
+				case EFillMode::Wireframe:
+				{
+					desc.Apply(PSO<EPipeState::FillMode>(D3D12_FILL_MODE_WIREFRAME));
+					descs.push_back(desc);
+					break;
+				}
+				case EFillMode::SolidWire:
+				{
+					descs.push_back(desc);
+					desc.Apply(PSO<EPipeState::FillMode>(D3D12_FILL_MODE_WIREFRAME));
+					desc.Apply(PSO<EPipeState::BlendState0>({FALSE}));
+					descs.push_back(desc);
+					break;
+				}
+				case EFillMode::Points:
+				{
+					break;
+				}
+				default:
+				{
+					throw std::runtime_error("Unknown fill mode");
+				}
+			}
+		};
+
+		// Add the states of an opaque draw, including its guard band variants
+		auto add_opaque = [&](Nugget const& nugget, BaseInstance const& instance, ESortGroup group, bool population)
+		{
+			// The guard bands leave out the skybox, as in 'DrawOpaques'
+			add(opaque_state, nugget, instance, population);
+			if (!guard_bands || group == ESortGroup::Skybox)
+				return;
+
+			for (int views = 1; views <= 3; ++views)
+			{
+				auto band_state = m_default_pipe_state;
+				band_state.ViewCount(views);
+				add(band_state, nugget, instance, population);
+			}
+		};
+
+		// Draw list elements use the sub-pass of their sort group. Without a K-buffer, every group draws with the opaque state.
+		{
+			auto drawlist = m_drawlist.lock();
+			for (auto const& dle : *drawlist)
+			{
+				auto const group = dle.m_sort_key.Group();
+				if (!kbuf || group < ESortGroup::Alpha)
+					add_opaque(*dle.m_nugget, *dle.m_instance, group, false);
+				else if (group < ESortGroup::PostAlpha)
+					add(m_alpha_pipe_state, *dle.m_nugget, *dle.m_instance, false);
+				else
+					add(m_post_alpha_pipe_state, *dle.m_nugget, *dle.m_instance, false);
+			}
+		}
+
+		// Population draws are drawn with the opaques, through each list's proxy instance. Classification can draw any list, so all are added.
+		for (auto const& pop : scn().Populations())
+		{
+			for (auto const& proxy : pop->m_proxies)
+			{
+				PopulationNuggets(*proxy.m_model.get(), m_step_id, [&](Nugget const& nug)
+				{
+					add_opaque(nug, proxy.m_base, pop->m_sort_group, true);
+				});
+			}
+		}
+	}
+
 	// Prepare the sky's low cloud history for this frame.
 	void RenderForward::PrepareSkyHistory()
 	{

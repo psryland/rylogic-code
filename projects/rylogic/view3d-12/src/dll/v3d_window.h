@@ -228,6 +228,10 @@ namespace pr::rdr12
 		// which pays the first-use costs of its content (pipeline states, driver work) ahead of the frames that show it.
 		void Render(bool display = true);
 
+		// Start creating the pipeline states that drawing the window's objects would use, including hidden objects that may be shown later.
+		// The states are created on worker threads, so this returns quickly. Returns the number of states requested, excluding those already cached.
+		// Poll the renderer's pipeline cache statistics to find when the requests are complete. Call on the main thread.
+		int PrewarmPipelines();
 		// Attach or detach a UI provider. Providers record each pass in attach order.
 		view3d::ui::EHostStatus UIProviderAttach(view3d::ui::Provider const& provider);
 		view3d::ui::EHostStatus UIProviderDetach(void* provider_context);

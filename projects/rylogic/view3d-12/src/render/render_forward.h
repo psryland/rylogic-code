@@ -82,6 +82,9 @@ namespace pr::rdr12
 		// Perform the render step
 		void Execute(Frame& frame) override;
 
+		// Add the pipeline states of the draw list and the scene's populations, for each sub-pass that can draw them
+		void CollectPipelines(std::vector<PipeStateDesc>& descs) const override;
+
 		// Prepare the sky's low cloud history for this frame: size, swap, and clear the history textures, and set the shader's history constants.
 		void PrepareSkyHistory();
 

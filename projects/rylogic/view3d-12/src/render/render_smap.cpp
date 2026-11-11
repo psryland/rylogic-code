@@ -227,6 +227,54 @@ namespace pr::rdr12
 		desc.Apply(PSO<EPipeState::VS>(skinned ? shader_code::shadow_map_skinned_population_vs : shader_code::shadow_map_population_vs));
 	}
 
+	// Add the pipeline states of the draw list and the scene's populations, for both depth clip modes
+	void RenderSmap::CollectPipelines(std::vector<PipeStateDesc>& descs) const
+	{
+		// Add the states of one draw. Which views clamp depth depends on the camera and lights, so both modes are added.
+		auto add = [&](Nugget const& nugget, Material const& material, bool population)
+		{
+			// Draws without a shadow pass are skipped, as in 'Execute'
+			auto const* pass = material.Pass(m_step_id);
+			if (pass == nullptr)
+				return;
+
+			for (auto clamp_depth : { false, true })
+			{
+				auto desc = m_default_pipe_state;
+				ComposePipeline(desc, nugget, material, *pass, clamp_depth, population);
+				descs.push_back(desc);
+			}
+		};
+
+		// Draw list elements use the instance's material override when it has one
+		{
+			auto drawlist = m_drawlist.lock();
+			for (auto const& dle : *drawlist)
+			{
+				auto material_override = FindMaterial(*dle.m_instance);
+				add(*dle.m_nugget, material_override != nullptr ? *material_override.get() : dle.m_nugget->mat(), false);
+			}
+		}
+
+		// Population draws use the nugget's material, and only the solid nuggets that cast shadows, as in 'Execute'
+		for (auto const& pop : scn().Populations())
+		{
+			for (auto const& proto : pop->m_prototypes)
+			{
+				for (auto const& lod : proto->m_lods)
+				{
+					PopulationNuggets(*lod.m_model.get(), m_step_id, [&](Nugget const& nug)
+					{
+						if (nug.FillMode() != EFillMode::Default && nug.FillMode() != EFillMode::Solid)
+							return;
+
+						add(nug, nug.mat(), true);
+					});
+				}
+			}
+		}
+	}
+
 	// Choose the shadow views for the frame
 	void RenderSmap::Prepare(Frame& frame)
 	{

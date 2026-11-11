@@ -40,8 +40,11 @@
 #include <type_traits>
 #include <variant>
 #include <mutex>
+#include <shared_mutex>
 #include <condition_variable>
 #include <thread>
+#include <stop_token>
+#include <deque>
 #include <latch>
 #include <future>
 #include <cwctype>

@@ -847,6 +847,34 @@ namespace pr::rdr12
 		Validate();
 	}
 
+	// Start creating the pipeline states that drawing the window's objects would use
+	int V3dWindow::PrewarmPipelines()
+	{
+		// The scene's draw lists are borrowed to find the draws, so this must not run during a render
+		assert(std::this_thread::get_id() == m_main_thread_id);
+		m_scene.ClearDrawlists();
+
+		// Add every object with a model, including hidden objects and children, because hidden content may be shown during later camera moves.
+		// The transforms do not matter, because pipeline states do not depend on where an object is drawn.
+		auto add = [&](this auto const& self, ldraw::LdrObject const& obj) -> void
+		{
+			// Add the object, then its children
+			if (obj.m_model != nullptr)
+				m_scene.AddInstance(obj);
+
+			for (auto const& child : obj.m_child)
+				self(*child.get());
+		};
+		for (auto* obj : m_objects)
+			add(*obj);
+
+		// Collect the states, then restore the empty draw lists that 'Render' expects to fill
+		std::vector<PipeStateDesc> descs;
+		m_scene.CollectPipelines(descs);
+		m_scene.ClearDrawlists();
+		return rdr().PipeStates().Prewarm(descs);
+	}
+
 	// Append a provider so it draws after every provider attached before it.
 	view3d::ui::EHostStatus V3dWindow::UIProviderAttach(view3d::ui::Provider const& provider)
 	{

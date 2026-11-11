@@ -77,6 +77,10 @@ namespace pr::rdr12
 		// Prepare resources or command work that must happen before any render step executes.
 		virtual void Prepare(Frame& frame);
 
+		// Add the pipeline states that drawing the current draw list would use to 'descs', so they can be created before they are drawn.
+		// Steps that do not draw with cached pipelines add nothing. Duplicates are allowed.
+		virtual void CollectPipelines(std::vector<PipeStateDesc>& descs) const;
+
 		// Perform the render step
 		virtual void Execute(Frame& frame) = 0;
 

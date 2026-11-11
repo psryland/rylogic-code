@@ -802,6 +802,19 @@ namespace pr
 			float m_width; // The width of the band. Zero is an abrupt switch at 'm_start'.
 		};
 
+		// Counters of a renderer's pipeline state cache. See View3D_WindowPipelineStats.
+		struct PipelineStats
+		{
+			int64_t m_created;        // Pipelines created while recording draws. Each creation can stall the frame that draws it.
+			double m_created_ms;      // The total time spent creating pipelines while recording draws.
+			double m_created_max_ms;  // The longest single creation while recording draws.
+			int64_t m_prewarmed;      // Pipelines created ahead of use by View3D_WindowPrewarmPipelines.
+			double m_prewarmed_ms;    // The total worker time spent creating prewarmed pipelines.
+			int64_t m_failed;         // Prewarm creations that failed. The failure is reported again if the state is drawn.
+			int64_t m_pending;        // Prewarm requests that are queued or being created.
+			int64_t m_count;          // The number of cached pipelines.
+		};
+
 		// Diagnostics of a population. See View3D_PopulationStats.
 		struct PopulationStats
 		{
@@ -1396,6 +1409,14 @@ extern "C"
 	// Render the window and execute the frame on the GPU without showing it. The next frame renders over the same back buffer.
 	// Use it to pay the first-use costs of new content (pipeline states, driver work) before the frames that show it.
 	VIEW3D_API void __stdcall View3D_WindowRenderHidden(pr::view3d::Window window);
+
+	// Start creating the pipeline states that drawing the window's objects would use, including hidden objects, on worker threads.
+	// Returns the number of states requested, excluding those already created or requested. Poll View3D_WindowPipelineStats until 'm_pending' is zero
+	// to find when they are ready. Returns -1 on error.
+	VIEW3D_API int __stdcall View3D_WindowPrewarmPipelines(pr::view3d::Window window);
+
+	// Get the counters of the pipeline state cache of the window's renderer, shared by all windows of the renderer
+	VIEW3D_API BOOL __stdcall View3D_WindowPipelineStats(pr::view3d::Window window, pr::view3d::PipelineStats& stats);
 
 	// Wait for any previous frames to complete rendering within the GPU
 	VIEW3D_API void __stdcall View3D_WindowGSyncWait(pr::view3d::Window window);

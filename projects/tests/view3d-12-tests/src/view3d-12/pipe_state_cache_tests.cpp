@@ -92,11 +92,55 @@ namespace render_tests
 			RequirePipeState(cache.Get(base) == base_pso, "Deleting the shader forgot an unrelated pipeline");
 		}
 
+		// Prewarmed states must be created by the workers, so drawing them later creates nothing
+		{
+			// Two new states, one requested twice, and one already cached
+			auto a = base;
+			a.Apply(rdr::PSO<rdr::EPipeState::CullMode>(D3D12_CULL_MODE_FRONT));
+			auto b = base;
+			b.Apply(rdr::PSO<rdr::EPipeState::DepthClipEnable>(FALSE));
+			auto const before = cache.GetStats();
+			rdr::PipeStateDesc const descs[] = { a, b, a, base };
+			RequirePipeState(cache.Prewarm(descs) == 2, "Prewarm did not request only the new, distinct states");
+
+			// Wait for the workers to finish
+			auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+			for (; cache.GetStats().m_pending != 0; std::this_thread::sleep_for(std::chrono::milliseconds(1)))
+				RequirePipeState(std::chrono::steady_clock::now() < deadline, "Prewarm requests did not complete");
+
+			auto const after = cache.GetStats();
+			RequirePipeState(after.m_prewarmed == before.m_prewarmed + 2 && after.m_failed == before.m_failed, "The workers did not create the requested states");
+			RequirePipeState(cache.Prewarm(descs) == 0, "Prewarm requested states that are already cached");
+			cache.Get(a);
+			cache.Get(b);
+			RequirePipeState(cache.GetStats().m_created == after.m_created, "Drawing a prewarmed state created a new pipeline");
+		}
+
+		// Forgetting bytecode must drop its pending requests, so workers never read released bytecode
+		{
+			// Many variants keep the workers busy while the shader is deleted
+			auto owned = std::make_unique<OwnedVertexShader>(renderer);
+			std::vector<rdr::PipeStateDesc> descs;
+			for (int i = 0; i != 48; ++i)
+			{
+				auto desc = make_desc(owned->m_code);
+				desc.Apply(rdr::PSO<rdr::EPipeState::CullMode>(static_cast<D3D12_CULL_MODE>(D3D12_CULL_MODE_NONE + i % 3)));
+				desc.Apply(rdr::PSO<rdr::EPipeState::FillMode>(static_cast<D3D12_FILL_MODE>(D3D12_FILL_MODE_WIREFRAME + (i / 3) % 2)));
+				desc.Apply(rdr::PSO<rdr::EPipeState::DepthFunc>(static_cast<D3D12_COMPARISON_FUNC>(D3D12_COMPARISON_FUNC_NEVER + i / 6)));
+				descs.push_back(desc);
+			}
+			auto const count = cache.Count();
+			cache.Prewarm(descs);
+			owned.reset();
+			RequirePipeState(cache.GetStats().m_pending == 0, "Forgetting the bytecode left pending requests");
+			RequirePipeState(cache.Count() == count, "Forgetting the bytecode left prewarmed pipelines that use it");
+		}
+
 		// Forgetting a root signature releases every pipeline that uses it
 		cache.Forget(smap.m_signature.get(), {});
 		RequirePipeState(cache.Count() == initial, "Forgetting the signature left pipelines that use it");
 		renderer.Poll();
-		std::cout << "PASS pipeline sharing by final state, and release with owned bytecode and signatures" << std::endl;
+		std::cout << "PASS pipeline sharing by final state, prewarming, and release with owned bytecode and signatures" << std::endl;
 	}
 }
 

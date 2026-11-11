@@ -126,6 +126,13 @@ namespace pr::rdr12
 			rs->ClearDrawlist();
 	}
 
+	// Add the pipeline states that each render step would use to draw the current draw lists
+	void Scene::CollectPipelines(std::vector<PipeStateDesc>& descs) const
+	{
+		for (auto const& rs : m_render_steps)
+			rs->CollectPipelines(descs);
+	}
+
 	// Return a render step from this scene (if present)
 	RenderStep const* Scene::FindRStep(ERenderStep id) const
 	{
