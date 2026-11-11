@@ -132,6 +132,9 @@ namespace pr::rdr12
 		// The geometry and materials of this LOD. Every nugget is drawn for each instance at this LOD.
 		ModelPtr m_model;
 
+		// Optional. When set, this material replaces the material of every nugget of 'm_model', in the same way as an instance material override.
+		MaterialPtr m_material;
+
 		// The minimum projected radius, in pixels, of the prototype bounding sphere at which this LOD is drawn.
 		// LODs are ordered from most to least detailed, so thresholds must strictly decrease. Instances smaller than the last LOD's threshold are not drawn.
 		float m_min_size;
@@ -245,11 +248,13 @@ namespace pr::rdr12
 		using GpuSync = ::pr::compute::GpuSync;
 
 		// An identity-transform instance that supplies element constants for a LOD's nuggets. Population draws place vertices with the instance records.
+		// 'm_material' is the LOD's material override, or null to draw each nugget with its own material.
 		struct Proxy
 		{
 			#define PR_RDR_INST(x)\
-			x(m4x4    , m_i2w  , EInstComp::I2WTransform)\
-			x(ModelPtr, m_model, EInstComp::ModelPtr)
+			x(m4x4       , m_i2w     , EInstComp::I2WTransform)\
+			x(ModelPtr   , m_model   , EInstComp::ModelPtr)\
+			x(MaterialPtr, m_material, EInstComp::MaterialPtr)
 			PR_RDR12_INSTANCE_MEMBERS(Proxy, PR_RDR_INST);
 			#undef PR_RDR_INST
 		};
@@ -486,8 +491,9 @@ namespace pr::rdr12
 	void Validate(Population const* population);
 
 	// Return the nuggets of a LOD that draw for 'step': the default dependents of each top-level nugget, that are not hidden and have a material pass.
-	// 'fn' is called with each nugget. This is a template so callers' capturing lambdas are not wrapped in an allocating 'std::function'.
-	template <typename Fn> void PopulationNuggets(Model const& model, ERenderStep step, Fn&& fn)
+	// 'material' is the LOD's material override, or null to use each nugget's own material. 'fn' is called with each nugget and the material it draws with.
+	// This is a template so callers' capturing lambdas are not wrapped in an allocating 'std::function'.
+	template <typename Fn> void PopulationNuggets(Model const& model, Material const* material, ERenderStep step, Fn&& fn)
 	{
 		// Populations draw the default variant of each nugget, in the same way as an instance without overrides.
 		// Nuggets that do not cast shadows are skipped in the shadow pass, as they are for ordinary instances.
@@ -501,12 +507,24 @@ namespace pr::rdr12
 					continue;
 				if (step == ERenderStep::ShadowMap && AllSet(dep.m_nflags, ENuggetFlag::ShadowCastExclude))
 					continue;
-				if (dep.mat().Pass(step) == nullptr)
+
+				auto const& mat = material != nullptr ? *material : dep.mat();
+				if (mat.Pass(step) == nullptr)
 					continue;
 
-				fn(dep);
+				fn(dep, mat);
 			}
 		}
+	}
+	template <typename Fn> void PopulationNuggets(PopulationLod const& lod, ERenderStep step, Fn&& fn)
+	{
+		// A LOD draws its model with its optional material override
+		PopulationNuggets(*lod.m_model.get(), lod.m_material.get(), step, std::forward<Fn>(fn));
+	}
+	template <typename Fn> void PopulationNuggets(Population::Proxy const& proxy, ERenderStep step, Fn&& fn)
+	{
+		// A proxy draws its LOD's model with the LOD's optional material override
+		PopulationNuggets(*proxy.m_model.get(), proxy.m_material.get(), step, std::forward<Fn>(fn));
 	}
 
 	// Return the overlay whose vertex shader 'material' applies for 'step', or null if the stock vertex shader is used.

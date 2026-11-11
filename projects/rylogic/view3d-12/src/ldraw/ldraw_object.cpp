@@ -691,26 +691,26 @@ namespace pr::rdr12::ldraw
 
 	namespace
 	{
-		// Return a new PBR material to replace the material of 'nug'. An existing PBR material is copied. Any other material is promoted,
-		// keeping its base colour, roughness, two-sided state, and supported shader overlays. Throws if an overlay cannot run with PBR passes.
-		RefPtr<MaterialPBR> EditablePbrMaterial(Nugget const& nug)
+		// Return a new PBR material to replace 'mat'. An existing PBR material is copied. Any other material is promoted, keeping its base colour,
+		// roughness, two-sided state, and supported shader overlays. 'requires_alpha' selects blending for the promoted material.
+		// Throws if an overlay cannot run with PBR passes.
+		RefPtr<MaterialPBR> EditablePbrMaterial(Material const& mat, bool requires_alpha)
 		{
 			// Copy an existing PBR material so that all of its channels are preserved.
-			if (auto const* current = dynamic_cast<MaterialPBR const*>(&nug.mat()); current != nullptr)
+			if (auto const* current = dynamic_cast<MaterialPBR const*>(&mat); current != nullptr)
 				return RefPtr<MaterialPBR>(::pr::compute::New<MaterialPBR>(*current), true);
 
 			// Copy the common surface components from the ordinary material.
-			auto requires_alpha = nug.RequiresAlpha();
 			auto material = RefPtr<MaterialPBR>(::pr::compute::New<MaterialPBR>(), true);
-			if (auto const* base_colour = nug.mat().Component<materials::BaseColour>(); base_colour != nullptr)
+			if (auto const* base_colour = mat.Component<materials::BaseColour>(); base_colour != nullptr)
 				material->m_base_colour = *base_colour;
-			if (auto const* roughness = nug.mat().Component<materials::Roughness>(); roughness != nullptr)
+			if (auto const* roughness = mat.Component<materials::Roughness>(); roughness != nullptr)
 				material->m_roughness = *roughness;
-			if (auto const* two_sided = nug.mat().Component<materials::TwoSided>(); two_sided != nullptr)
+			if (auto const* two_sided = mat.Component<materials::TwoSided>(); two_sided != nullptr)
 				material->m_two_sided = *two_sided;
 
 			// Keep the bounded procedural vertex stages supported by the stock PBR passes, and forward pixel families written for PBR.
-			if (auto const* overlays = nug.mat().Component<materials::ShaderOverlays>(); overlays != nullptr)
+			if (auto const* overlays = mat.Component<materials::ShaderOverlays>(); overlays != nullptr)
 			{
 				for (auto const& overlay : overlays->m_overlays)
 				{
@@ -726,6 +726,11 @@ namespace pr::rdr12::ldraw
 				material->m_alpha.m_mode = materials::EAlphaMode::Blend;
 
 			return material;
+		}
+		RefPtr<MaterialPBR> EditablePbrMaterial(Nugget const& nug)
+		{
+			// A nugget's blending also depends on its tint and vertex colours, not only its material.
+			return EditablePbrMaterial(nug.mat(), nug.RequiresAlpha());
 		}
 	}
 
@@ -822,6 +827,52 @@ namespace pr::rdr12::ldraw
 			material->tint_mask_texture(slot);
 
 			nug->mat(static_cast<MaterialPtr>(material));
+			return true;
+		}, name);
+	}
+
+	// Set or clear the normal map of this object's instance material, leaving the shared model unchanged.
+	void LdrObject::MaterialOverrideNormalMap(Texture2D* tex, Sampler* sam, materials::ENormalMapSpace space, float scale, char const* name, int index)
+	{
+		// Apply to each matched object's own material override, so other instances of the same model are not affected.
+		Apply([=](LdrObject* obj)
+		{
+			// Ignore matched objects without geometry, as the nugget setters do.
+			if (obj->m_model == nullptr)
+				return true;
+
+			// Edit a PBR copy of the existing override, or start from the selected nugget's material when there is no override yet.
+			auto material = RefPtr<MaterialPBR>{};
+			if (obj->m_material != nullptr)
+			{
+				material = EditablePbrMaterial(*obj->m_material.get(), obj->m_material->RequiresAlpha());
+			}
+			else
+			{
+				auto nug = obj->m_model->m_nuggets;
+				for (auto i = 0; i != index && nug; ++i, nug = nug->m_next)
+				{}
+				if (nug == nullptr)
+					throw std::runtime_error("nugget index out of range");
+
+				material = EditablePbrMaterial(*nug.get());
+			}
+
+			// A null texture leaves an empty slot, which the PBR passes treat as having no normal map.
+			auto slot = materials::TextureSlot{ Texture2DPtr(tex, true), SamplerPtr(sam, true), {}, materials::ETextureColourSpace::Linear, {} };
+			material->normal_texture(slot, scale, space);
+			obj->m_material = static_cast<MaterialPtr>(material);
+
+			// An instance material that needs blending makes the renderer skip the opaque nuggets, so the shared model needs alpha variants to draw instead.
+			if (obj->m_material->RequiresAlpha())
+			{
+				ResourceFactory factory(obj->m_model->rdr());
+				for (auto& n : Enumerate(obj->m_model->m_nuggets))
+				{
+					if (!n.HasAlphaVariant())
+						n.AlphaVariant(factory, true);
+				}
+			}
 			return true;
 		}, name);
 	}

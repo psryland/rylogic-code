@@ -229,8 +229,13 @@ float3 PerturbWorldNormal(PSIn In, float3 normal, float2 normal_uv)
 	float2 duv2 = ddy(normal_uv);
 	float3 dp2_perp = cross(dp2, normal);
 	float3 dp1_perp = cross(normal, dp1);
-	float3 tangent = dp2_perp * duv1.x + dp1_perp * duv2.x;
-	float3 bitangent = dp2_perp * duv1.y + dp1_perp * duv2.y;
+
+	// These sums are the UV gradients scaled by det = dot(dp1, dp2_perp), so they carry the sign of det. Screen Y points down in HLSL,
+	// which makes det negative for a surface facing the viewer and would invert the frame. Multiply by the sign of det so that the
+	// tangent always follows increasing U and the bitangent follows increasing V.
+	float frame_sign = dot(dp1, dp2_perp) < 0.0f ? -1.0f : 1.0f;
+	float3 tangent = (dp2_perp * duv1.x + dp1_perp * duv2.x) * frame_sign;
+	float3 bitangent = (dp2_perp * duv1.y + dp1_perp * duv2.y) * frame_sign;
 	// The frame length scales with (world size of a pixel x UV size of a pixel)^2, so it is tiny for fine textures seen close up.
 	// Only a frame with no UV change across the pixel (zero, or NaN from degenerate derivatives) has no usable direction; reject only that case.
 	float frame_len = max(dot(tangent, tangent), dot(bitangent, bitangent));

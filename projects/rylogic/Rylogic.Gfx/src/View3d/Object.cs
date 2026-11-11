@@ -692,6 +692,28 @@ namespace Rylogic.Gfx
 			}
 
 			/// <summary>
+			/// Assign a normal map to this object's instance material override, with the same encoding as NuggetNormalMapSet. Only this object changes;
+			/// the shared model and other instances of it keep their materials. Without an existing override, the override starts as a PBR copy of
+			/// nugget 'index's material. The override replaces the material of every nugget of the model, and population prototypes created from this
+			/// object use it too.
+			/// </summary>
+			public void MaterialOverrideNormalMapSet(Texture normal_map, Sampler sampler, ENormalMapSpace space, float scale = 1.0f, string? name = null, int index = 0)
+			{
+				// The renderer holds its own references to both resources.
+				View3D_ObjectMaterialOverrideNormalMapSet(Handle, normal_map.Handle, sampler.Handle, space, scale, name, index);
+			}
+
+			/// <summary>
+			/// Remove the normal map from this object's instance material override, so the surface uses its interpolated vertex normals. Only this object
+			/// changes. Without an existing override, the override starts as a PBR copy of nugget 'index's material.
+			/// </summary>
+			public void MaterialOverrideNormalMapClear(string? name = null, int index = 0)
+			{
+				// Null resources leave the override with an empty normal-map slot.
+				View3D_ObjectMaterialOverrideNormalMapSet(Handle, IntPtr.Zero, IntPtr.Zero, ENormalMapSpace.Tangent, 1.0f, name, index);
+			}
+
+			/// <summary>
 			/// Assign a tint mask to a selected nugget, promoting it to a PBR material if needed. The mask uses the nugget's first texture coordinate.
 			/// Red is a linear weight: 1 = the object and population instance tint colours the base colour, 0 = the base colour is kept.
 			/// The tint alpha still applies everywhere. The nugget tint (material base colour) is not masked.

@@ -790,7 +790,7 @@ namespace pr
 		// One level of detail of a population prototype. See View3D_PopulationPrototypeCreate.
 		struct PopulationLod
 		{
-			Object m_object;      // Supplies the LOD's model. Child objects are not used.
+			Object m_object;      // Supplies the LOD's model and its instance material override, if any. Child objects are not used.
 			float m_min_size;     // The minimum projected radius, in pixels, of the prototype bounding sphere at which this LOD is drawn.
 			float m_transition;   // The dithered transition band above 'm_min_size', as a fraction of 'm_min_size'. Zero is an abrupt switch.
 		};
@@ -1995,6 +1995,12 @@ extern "C"
 	// normal using a frame derived from the UVs. Model maps hold model-space normals with Z rebuilt as non-negative, so they replace the vertex
 	// normal and suit height fields facing model +Z; the nugget must still have vertex normals. Set 'tex' and 'sam' to null to remove the map.
 	VIEW3D_API void __stdcall View3D_ObjectNuggetNormalMapSet(pr::view3d::Object object, pr::view3d::Texture tex, pr::view3d::Sampler sam, pr::view3d::ENormalMapSpace space, float scale, char const* name, int index);
+
+	// Set or remove the normal map of an object's instance material override, with the same map encoding as View3D_ObjectNuggetNormalMapSet.
+	// Only this object changes; the shared model and other instances of it keep their materials. Without an existing override, the override
+	// starts as a PBR copy of nugget 'index's material. The override replaces the material of every nugget of the object's model, and population
+	// prototypes created from the object use it too.
+	VIEW3D_API void __stdcall View3D_ObjectMaterialOverrideNormalMapSet(pr::view3d::Object object, pr::view3d::Texture tex, pr::view3d::Sampler sam, pr::view3d::ENormalMapSpace space, float scale, char const* name, int index);
 
 	// Set or remove the tint mask of a nugget, promoting the nugget to a PBR material if needed. The mask is sampled with the nugget's first
 	// texture coordinate. Its red channel is a linear weight that limits where the tint colours the surface: 1 = the base colour is multiplied

@@ -419,6 +419,170 @@ namespace render_tests
 		std::cout << "PASS model normal map\n";
 	}
 
+	// Check that a tangent-space normal map tilts the surface towards +U for +X and towards +V (down the image) for +Y, as DirectX maps require.
+	void TangentNormalMapTests()
+	{
+		// A lit white quad facing the camera, with U increasing along +X (screen right) and V increasing along -Y (screen down).
+		auto fixture = Fixture(1);
+		auto normal = api::Vec4{0, 0, 1, 0};
+		api::Vertex verts[] =
+		{
+			{{-45,-45,-10,1}, normal, {0, 1}, 0xFFFFFFFF, 0},
+			{{+45,-45,-10,1}, normal, {1, 1}, 0xFFFFFFFF, 0},
+			{{+45,+45,-10,1}, normal, {1, 0}, 0xFFFFFFFF, 0},
+			{{-45,+45,-10,1}, normal, {0, 0}, 0xFFFFFFFF, 0},
+		};
+		UINT16 indices[] = {0,1,2,0,2,3};
+		auto nugget = api::Nugget{};
+		nugget.m_topo = api::ETopo::TriList;
+		nugget.m_geom = static_cast<api::EGeom>(static_cast<int>(api::EGeom::Vert) | static_cast<int>(api::EGeom::Norm) | static_cast<int>(api::EGeom::Tex0));
+		nugget.m_cull_mode = api::ECullMode::None;
+		nugget.m_tint = 0xFFFFFFFF;
+		auto object = View3D_ObjectCreate("TangentQuad", 0xFFFFFFFF, 4, 6, 1, verts, indices, &nugget, GUID{});
+		Require(object != nullptr, "Tangent quad creation failed");
+		fixture.m_objects.push_back(object);
+		View3D_WindowAddObject(fixture.m_window, object);
+		fixture.CheckErrors();
+		auto brightness = [](std::vector<unsigned char> const& image)
+		{
+			// The quad is grey, so one channel at the centre measures its lighting.
+			return Linear(image[(64 * ImageSize + 64) * 4 + 1]);
+		};
+		auto sampler = api::SamplerPtr(View3D_SamplerCreate(api::SamplerOptions{D3D12_FILTER_MIN_MAG_MIP_LINEAR, D3D12_TEXTURE_ADDRESS_MODE_CLAMP, D3D12_TEXTURE_ADDRESS_MODE_CLAMP, D3D12_TEXTURE_ADDRESS_MODE_CLAMP, "TangentNormalMap"}));
+		Require(sampler != nullptr, "Tangent normal-map sampler was not created");
+
+		// Each case lights the quad at 45 degrees from one side and tilts the map normal towards that side by atan(0.5), as in 'ModelNormalMapTests'.
+		// A correct tangent frame raises the brightness by about 1.342; an inverted axis lowers it instead.
+		struct Case { char const* name; api::Vec4 light_direction; uint32_t pixel; };
+		Case const cases[] =
+		{
+			{"-X from -U", api::Vec4{+0.70710678f, 0, -0.70710678f, 0}, 0xFF008046U},
+			{"+Y (DirectX) from +V", api::Vec4{0, +0.70710678f, -0.70710678f, 0}, 0xFF00BA80U},
+		};
+		for (auto const& c : cases)
+		{
+			// Light the quad from the side the map normal leans towards.
+			auto light = SceneLightingGet(fixture.m_window);
+			light.m_type = api::ELight::Directional;
+			light.m_direction = c.light_direction;
+			light.m_ambient = 0xFF000000;
+			light.m_diffuse = 0xFFFFFFFF;
+			light.m_specular = 0xFF000000;
+			light.m_intensity = 1;
+			light.m_cast_shadow = 0;
+			light.m_on = TRUE;
+			SceneLightingSet(fixture.m_window, light);
+
+			// An empty slot gives the flat reference, then a uniform tangent-space map tilts the normal.
+			View3D_ObjectNuggetNormalMapSet(object, nullptr, nullptr, api::ENormalMapSpace::Tangent, 1.0f, nullptr, 0);
+			fixture.CheckErrors();
+			auto flat = fixture.Image();
+			auto options = api::TextureOptions{};
+			options.m_format = DXGI_FORMAT_R8G8B8A8_UNORM;
+			options.m_resource_state = D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE;
+			options.m_mips = 1;
+			options.m_multisamp = {1, 0};
+			options.m_t2s = {{1,0,0,0}, {0,1,0,0}, {0,0,1,0}, {0,0,0,1}};
+			std::array<uint32_t, 4> pixels; pixels.fill(c.pixel);
+			auto texture = api::TexturePtr(View3D_TextureCreate(2, 2, pixels.data(), sizeof(pixels), options));
+			Require(texture != nullptr, "Tangent normal-map texture was not created");
+			View3D_ObjectNuggetNormalMapSet(object, texture.get(), sampler.get(), api::ENormalMapSpace::Tangent, 1.0f, nullptr, 0);
+			fixture.CheckErrors();
+			auto tilted = fixture.Image();
+			Require(std::abs(brightness(tilted) / brightness(flat) - 1.342f) < 0.03f, (std::string("Tangent normal map ") + c.name + " tilted the lighting normal incorrectly: flat " + std::to_string(brightness(flat)) + ", tilted " + std::to_string(brightness(tilted))).c_str());
+		}
+
+		// Any GPU validation error fails the fixture.
+		fixture.CheckDebugLayer();
+		std::cout << "PASS tangent normal map\n";
+	}
+
+	// Check that an instance material override normal map tilts only that instance, leaving the shared model and other instances unchanged.
+	void MaterialOverrideNormalMapTests()
+	{
+		// A lit white quad, plus an instance of it at the same place, with a directional light from the -X side as in 'ModelNormalMapTests'.
+		auto fixture = Fixture(1);
+		auto object = fixture.Quad(10, 0xFFFFFFFF, 45, nullptr, 0, 0xFFFFFFFF, true, true);
+		auto instance = View3D_ObjectCreateInstance(object);
+		Require(instance != nullptr, "Instance creation failed");
+		fixture.m_objects.push_back(instance);
+		View3D_ObjectO2WSet(instance, View3D_ObjectO2WGet(object, nullptr), nullptr);
+		auto light = SceneLightingGet(fixture.m_window);
+		light.m_type = api::ELight::Directional;
+		light.m_direction = api::Vec4{0.70710678f, 0, -0.70710678f, 0};
+		light.m_ambient = 0xFF000000;
+		light.m_diffuse = 0xFFFFFFFF;
+		light.m_specular = 0xFF000000;
+		light.m_intensity = 1;
+		light.m_cast_shadow = 0;
+		light.m_on = TRUE;
+		SceneLightingSet(fixture.m_window, light);
+		auto brightness = [](std::vector<unsigned char> const& image)
+		{
+			// The quad is grey, so one channel at the centre measures its lighting.
+			return Linear(image[(64 * ImageSize + 64) * 4 + 1]);
+		};
+		auto source_image = fixture.Image();
+
+		// The same uniform model-space map as 'ModelNormalMapTests', which raises the brightness by about 1.342.
+		auto options = api::TextureOptions{};
+		options.m_format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		options.m_resource_state = D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE;
+		options.m_mips = 0;
+		options.m_multisamp = {1, 0};
+		options.m_t2s = {{1,0,0,0}, {0,1,0,0}, {0,0,1,0}, {0,0,0,1}};
+		std::array<uint32_t, 4> pixels; pixels.fill(0xFF008046U);
+		auto texture = api::TexturePtr(View3D_TextureCreate(2, 2, pixels.data(), sizeof(pixels), options));
+		auto sampler = api::SamplerPtr(View3D_SamplerCreate(api::SamplerOptions{D3D12_FILTER_MIN_MAG_MIP_LINEAR, D3D12_TEXTURE_ADDRESS_MODE_CLAMP, D3D12_TEXTURE_ADDRESS_MODE_CLAMP, D3D12_TEXTURE_ADDRESS_MODE_CLAMP, "OverrideNormalMap"}));
+		fixture.CheckErrors();
+		Require(texture != nullptr && sampler != nullptr, "Override normal-map resources were not created");
+
+		// An empty slot gives the instance a PBR override with an unchanged normal, which is the flat reference for the instance.
+		View3D_WindowRemoveObject(fixture.m_window, object);
+		View3D_WindowAddObject(fixture.m_window, instance);
+		View3D_ObjectMaterialOverrideNormalMapSet(instance, nullptr, nullptr, api::ENormalMapSpace::Model, 1.0f, nullptr, 0);
+		fixture.CheckErrors();
+		auto flat = fixture.Image();
+
+		// The map tilts the instance's lighting normal.
+		View3D_ObjectMaterialOverrideNormalMapSet(instance, texture.get(), sampler.get(), api::ENormalMapSpace::Model, 1.0f, nullptr, 0);
+		fixture.CheckErrors();
+		auto tilted = fixture.Image();
+		Require(std::abs(brightness(tilted) / brightness(flat) - 1.342f) < 0.03f, (std::string("Override normal map tilted the lighting normal incorrectly: flat ") + std::to_string(brightness(flat)) + ", tilted " + std::to_string(brightness(tilted))).c_str());
+
+		// The source object shares the model but not the override, so it still draws as before.
+		View3D_WindowRemoveObject(fixture.m_window, instance);
+		View3D_WindowAddObject(fixture.m_window, object);
+		Require(ImageDifference(source_image, fixture.Image()) < 100, "The override normal map changed the source object");
+
+		// A further instance of the source does not inherit the override.
+		auto other = View3D_ObjectCreateInstance(object);
+		Require(other != nullptr, "Second instance creation failed");
+		fixture.m_objects.push_back(other);
+		View3D_ObjectO2WSet(other, View3D_ObjectO2WGet(object, nullptr), nullptr);
+		View3D_WindowRemoveObject(fixture.m_window, object);
+		View3D_WindowAddObject(fixture.m_window, other);
+		Require(ImageDifference(source_image, fixture.Image()) < 100, "The override normal map changed another instance of the model");
+
+		// An instance of the overridden instance copies its override.
+		auto copy = View3D_ObjectCreateInstance(instance);
+		Require(copy != nullptr, "Copy creation failed");
+		fixture.m_objects.push_back(copy);
+		View3D_ObjectO2WSet(copy, View3D_ObjectO2WGet(object, nullptr), nullptr);
+		View3D_WindowRemoveObject(fixture.m_window, other);
+		View3D_WindowAddObject(fixture.m_window, copy);
+		Require(ImageDifference(tilted, fixture.Image()) < 100, "An instance of the overridden object did not copy the override");
+
+		// Invalid inputs are reported.
+		View3D_ObjectMaterialOverrideNormalMapSet(instance, texture.get(), nullptr, api::ENormalMapSpace::Model, 1.0f, nullptr, 0);
+		Require(!fixture.m_errors.empty(), "An override normal map without a sampler was accepted");
+		fixture.m_errors.clear();
+
+		// Any GPU validation error fails the fixture.
+		fixture.CheckDebugLayer();
+		std::cout << "PASS material override normal map\n";
+	}
+
 	// Check that a tint mask limits where the object tint colours the surface, and that removing it restores the full tint.
 	void TintMaskTests()
 	{
@@ -505,6 +669,14 @@ namespace pr::unittests::view3d12
 	PRUnitTest(View3d12_ModelNormalMap, Extended | Serial)
 	{
 		render_tests::ModelNormalMapTests();
+	}
+	PRUnitTest(View3d12_TangentNormalMap, Extended | Serial)
+	{
+		render_tests::TangentNormalMapTests();
+	}
+	PRUnitTest(View3d12_MaterialOverrideNormalMap, Extended | Serial)
+	{
+		render_tests::MaterialOverrideNormalMapTests();
 	}
 	PRUnitTest(View3d12_TintMask, Extended | Serial)
 	{

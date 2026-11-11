@@ -196,8 +196,8 @@ namespace pr::rdr12
 			{
 				for (auto& nug : nugget.Dependents())
 				{
-					// Blending only matters for nuggets that have a forward pass
-					auto const& material = nug.mat();
+					// Blending only matters for nuggets that have a forward pass. The proxy's material override replaces every nugget's material.
+					auto const& material = proxy.m_material != nullptr ? *proxy.m_material.get() : nug.mat();
 					auto const* pass = material.Pass(ERenderStep::RenderForward);
 					if (pass != nullptr && pass->RequiresAlpha(proxy.m_base, material, nug))
 						throw std::invalid_argument(std::format("Population model '{}' has a material that requires alpha blending", model.m_name));
@@ -394,6 +394,7 @@ namespace pr::rdr12
 		for (int i = 0, iend = isize(m_proxies); i != iend; ++i)
 		{
 			m_proxies[i].m_model = m_prototypes[m_lists[i].m_prototype]->m_lods[m_lists[i].m_lod].m_model;
+			m_proxies[i].m_material = m_prototypes[m_lists[i].m_prototype]->m_lods[m_lists[i].m_lod].m_material;
 			m_proxies[i].m_i2w = m4x4::Identity();
 			ValidateMaterials(m_proxies[i], *m_proxies[i].m_model.get());
 
@@ -1002,7 +1003,7 @@ namespace pr::rdr12
 		for (int list = 0, lend = isize(pop.m_lists); list != lend; ++list)
 		{
 			auto const& [prototype, lod] = pop.m_lists[list];
-			PopulationNuggets(*pop.m_proxies[list].m_model.get(), step, [&](Nugget const& nug)
+			PopulationNuggets(pop.m_proxies[list], step, [&](Nugget const& nug, Material const&)
 			{
 				// Records 2k and 2k+1 are the indexed and non-indexed draws of the nugget.
 				auto i = isize(args);
@@ -1121,7 +1122,7 @@ namespace pr::rdr12
 		// Each drawn nugget of each list has an indexed and a non-indexed argument record, as in 'Cull'.
 		auto arg_count = int64_t{};
 		for (auto const& proxy : pop.m_proxies)
-			PopulationNuggets(*proxy.m_model.get(), step, [&](Nugget const&) { arg_count += 2; });
+			PopulationNuggets(proxy, step, [&](Nugget const&, Material const&) { arg_count += 2; });
 
 		return ClassificationSize(pop, ListBase(pop, arg_count));
 	}

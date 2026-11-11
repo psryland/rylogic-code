@@ -376,6 +376,53 @@ namespace render_tests
 		std::cout << "PASS population block live counts, instance flags, draw range, fade bands, and removal: MSAA " << samples << '\n';
 	}
 
+	// Verify that a population prototype draws with its source object's instance material override instead of the model's nugget materials
+	void PopulationMaterialOverrideTests()
+	{
+		// Remove all scene light so the rendered colour is the emission alone.
+		Fixture fixture(1);
+		auto light = SceneLightingGet(fixture.m_window);
+		light.m_ambient = light.m_diffuse = light.m_specular = 0xFF000000;
+		light.m_on = TRUE;
+		light.m_intensity = 1;
+		SceneLightingSet(fixture.m_window, light);
+
+		// A plane whose object material override emits full green, and the same plane without an override.
+		auto glow = View3D_ObjectCreateLdrA("*Plane Glow { *Data {90 90} *Material {*BaseColour{FF000000} *Emissive{FF00FF00} *Metallic{0} *Roughness{1}}}", FALSE, nullptr, nullptr);
+		auto plain = View3D_ObjectCreateLdrA("*Plane Plain { *Data {90 90} }", FALSE, nullptr, nullptr);
+		Require(glow != nullptr && plain != nullptr, "Plane creation failed");
+		fixture.m_objects.push_back(glow);
+		fixture.m_objects.push_back(plain);
+
+		// Draw one instance of a prototype made from 'object' at the centre of the view, and return the image.
+		auto draw = [&](api::Object object)
+		{
+			// The population holds its own references, so it can be released after the image is taken.
+			auto lods = api::PopulationLod{ .m_object = object, .m_min_size = 0, .m_transition = 0 };
+			auto prototype = api::PopulationPrototypePtr(View3D_PopulationPrototypeCreate(&lods, 1, 0, {}, {}));
+			Require(prototype != nullptr, "Population prototype creation failed");
+			auto population = api::PopulationPtr(PopulationCreate(prototype.get(), 4, 1, 0));
+			Require(population != nullptr, "Population creation failed");
+			auto instance = PopulationInstanceAt(0, 0, -50, 0xFFFFFFFF);
+			View3D_PopulationInstancesUpdate(population.get(), 0, &instance, 1);
+			View3D_PopulationBlockSet(population.get(), 0, api::BBox{ .centre = {0, 0, -50, 1}, .radius = {45, 45, 1, 0} }, 0, 4, 1);
+			View3D_WindowAddPopulation(fixture.m_window, population.get());
+			fixture.CheckErrors();
+			auto image = fixture.Image();
+			View3D_WindowRemovePopulation(fixture.m_window, population.get());
+			fixture.CheckErrors();
+			return image;
+		};
+
+		// The override's emission is drawn, and the plane without the override differs from it.
+		auto glow_image = draw(glow);
+		Expect(glow_image, 0, 1, 0, 64, 64);
+		Require(ImageDifference(glow_image, draw(plain)) > 100, "A population without the material override drew like the override");
+
+		fixture.CheckDebugLayer();
+		std::cout << "PASS population material override\n";
+	}
+
 	// Verify that populations cast shadows, including from outside the camera view, and that cached shadow views follow population changes
 	void PopulationShadowTests(int samples)
 	{
@@ -923,6 +970,10 @@ namespace pr::unittests::view3d12
 	{
 		render_tests::PopulationTests(1);
 		render_tests::PopulationTests(4);
+	}
+	PRUnitTest(View3d12_PopulationMaterialOverride, Extended | Serial)
+	{
+		render_tests::PopulationMaterialOverrideTests();
 	}
 	PRUnitTest(View3d12_PopulationShadows, Extended | Serial)
 	{
