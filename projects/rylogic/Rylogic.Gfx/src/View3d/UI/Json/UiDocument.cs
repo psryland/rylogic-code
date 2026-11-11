@@ -692,8 +692,8 @@ public sealed class UiDocument
 	}
 
 	/// <summary>
-	/// Parse one "styles" array entry into a UiStyleDesc, resolving each declared per-channel state. 'resource_kinds' maps every declared
-	/// resource id to its kind, so image brushes can be checked against Image resources.
+	/// Parse one "styles" array entry into a UiStyleDesc, resolving each declared per-channel state. Undeclared channels keep StyleVisual.Empty.
+	/// 'resource_kinds' maps every declared resource id to its kind, so image brushes can be checked against Image resources.
 	/// </summary>
 	private static UiStyleDesc ParseStyle(JsonElement element, string path, IReadOnlyDictionary<ulong, EResourceKind> resource_kinds)
 	{

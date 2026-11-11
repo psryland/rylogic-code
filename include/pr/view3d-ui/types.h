@@ -763,14 +763,15 @@ namespace pr::view3d::ui
 		Colour tint;
 	};
 
-	// Visual appearance applied while a control is in one state channel.
+	// Visual appearance applied while a control is in one state channel. A value-initialised visual draws no fill, border,
+	// or image and leaves the control's content (such as text) fully opaque.
 	struct StyleVisual
 	{
 		Colour fill;
 		Colour border_colour;
 		float border_thickness;
 		float corner_radius;
-		float opacity;
+		float opacity = 1.0f;
 
 		// ProgressBar and Slider indicator colour; 'fill' remains the track colour. Ignored by other types.
 		Colour foreground;

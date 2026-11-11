@@ -350,11 +350,23 @@ public sealed record UiResourceDesc
 /// every channel's visual and transition by value. Submitting this via UiTransactionBuilder.AddStyle copies every channel
 /// into the queued transaction immediately, so mutating this instance (via SetVisual/SetTransition) afterward can never
 /// change an already-queued transaction; use Clone() first if you need an independent copy to keep mutating separately.
+/// A channel that is never set uses StyleVisual.Empty, so it draws nothing but never hides the control's content.
 /// </summary>
 public sealed class UiStyleDesc : IEquatable<UiStyleDesc>
 {
-	private readonly StyleVisual[] m_visuals = new StyleVisual[(int)EStateChannel.Count];
+	private readonly StyleVisual[] m_visuals = CreateEmptyVisuals();
 	private readonly TransitionDesc[] m_transitions = new TransitionDesc[(int)EStateChannel.Count];
+
+	/// <summary>Create one StyleVisual.Empty per state channel.</summary>
+	private static StyleVisual[] CreateEmptyVisuals()
+	{
+		// default(StyleVisual) has zero opacity, which would hide the control's content
+		var visuals = new StyleVisual[(int)EStateChannel.Count];
+		for (var i = 0; i != visuals.Length; ++i)
+			visuals[i] = StyleVisual.Empty;
+
+		return visuals;
+	}
 
 	/// <summary>The stable, application-assigned identity this descriptor creates or updates.</summary>
 	public StyleId Id { get; set; }

@@ -1128,6 +1128,22 @@ public sealed class TestUiJson
 		ExpectJsonError("$.tree[0].visible", () => UiDocument.Parse(@"{ ""schema_version"": 3, ""tree"": [ { ""id"": 1, ""type"": ""Root"", ""visible"": false } ] }"));
 	}
 
+	/// <summary>Undeclared style channels draw nothing but keep the control's content (such as text) fully opaque.</summary>
+	[Test]
+	public void UndeclaredStyleChannelsKeepContentOpaque()
+	{
+		// A style with no states, and one that declares only its normal state
+		var document = UiDocument.Parse("""{"schema_version":3,"styles":[{"id":1},{"id":2,"states":{"normal":{"visual":{"fill":"#3060C0FF"}}}}],"tree":[{"id":1,"type":"Root"}]}""");
+		for (var channel = EStateChannel.Normal; channel != EStateChannel.Count; ++channel)
+		{
+			// Every undeclared channel resolves to the empty visual with full opacity
+			Assert.Equal(StyleVisual.Empty, document.Styles[0].GetVisual(channel));
+			Assert.Equal(1f, document.Styles[0].GetVisual(channel).m_opacity);
+			if (channel != EStateChannel.Normal)
+				Assert.Equal(StyleVisual.Empty, document.Styles[1].GetVisual(channel));
+		}
+	}
+
 	private const string ValidDocument = @"{
 		""schema_version"": 3,
 		""resources"": [ { ""id"": 1, ""kind"": ""Font"", ""name"": ""Segoe UI"", ""font_size"": 14 } ],
