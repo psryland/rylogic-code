@@ -251,8 +251,9 @@ namespace pr::view3d::ui
 		}
 
 		// The part of the range a progress indicator covers: [start, start + length]. An indeterminate indicator is a quarter of
-		// the range that travels smoothly back and forth once every 2400 ms. Host time, rather than update count or transactions,
-		// drives the animation.
+		// the range whose centre travels smoothly from the minimum to the maximum and back once every 2400 ms, so near either end
+		// part of it lies outside [0, 1] and is clipped by the track. Host time, rather than update count or transactions, drives
+		// the animation.
 		std::pair<float, float> ProgressSpan(ControlDesc const& desc, double time_ms)
 		{
 			// Determinate progress always starts at the minimum.
@@ -260,14 +261,74 @@ namespace pr::view3d::ui
 				return { 0.0f, ValueFraction(desc) };
 
 			auto const length = 0.25f;
-			auto const start = static_cast<float>(0.5 - 0.5 * std::cos(std::fmod(time_ms, 2400.0) * (6.283185307179586 / 2400.0))) * (1.0f - length);
-			return { start, length };
+			auto const centre = static_cast<float>(0.5 - 0.5 * std::cos(std::fmod(time_ms, 2400.0) * (6.283185307179586 / 2400.0)));
+			return { centre - 0.5f * length, length };
+		}
+
+		// The part of 'rect' between axis coordinates 'a' and 'b'. Unlike CutAlongAxis, the span may extend beyond 'rect'.
+		Rect SpanAlongAxis(Rect rect, EOrientation orientation, float a, float b)
+		{
+			// Only the axis extent changes; the cross-axis extent is that of 'rect'.
+			auto const lo = std::min(a, b);
+			auto const hi = std::max(a, b);
+			switch (orientation)
+			{
+				case EOrientation::Horizontal: { return Rect{ lo, rect.y, hi - lo, rect.h }; }
+				case EOrientation::Vertical: { return Rect{ rect.x, lo, rect.w, hi - lo }; }
+				default: { throw EngineException(EStatus::UnknownType, "unknown orientation"); }
+			}
+		}
+
+		// Crop the box and image items from index 'first' onward to 'clip', removing items left with no area. Image items keep
+		// their texture mapping, so the visible part of the image is unchanged. Box items are simply resized, so a border or
+		// rounded corner appears at a cut edge.
+		void ClipItems(DrawPacket& out, std::size_t first, Rect clip)
+		{
+			// Each item is intersected with 'clip' independently.
+			auto keep = first;
+			for (auto i = first; i != out.items.size(); ++i)
+			{
+				// Items wholly outside the clip are dropped.
+				auto item = std::move(out.items[i]);
+				auto const& b = item.bounds;
+				auto const x0 = std::max(b.x, clip.x);
+				auto const y0 = std::max(b.y, clip.y);
+				auto const x1 = std::min(b.x + b.w, clip.x + clip.w);
+				auto const y1 = std::min(b.y + b.h, clip.y + clip.h);
+				if (x1 <= x0 || y1 <= y0)
+					continue;
+
+				// The image's source rectangle shrinks in proportion to its destination rectangle.
+				switch (item.primitive)
+				{
+					case EVisualPrimitive::Image:
+					{
+						auto const su = item.uv.w / b.w;
+						auto const sv = item.uv.h / b.h;
+						item.uv = Rect{ item.uv.x + (x0 - b.x) * su, item.uv.y + (y0 - b.y) * sv, (x1 - x0) * su, (y1 - y0) * sv };
+						break;
+					}
+					case EVisualPrimitive::SolidBox:
+					case EVisualPrimitive::RoundedBox:
+					{
+						item.corner_radius = std::min(item.corner_radius, std::min(x1 - x0, y1 - y0) * 0.5f);
+						break;
+					}
+					default:
+					{
+						throw EngineException(EStatus::InvalidArgument, "only box and image items can be clipped");
+					}
+				}
+				item.bounds = Rect{ x0, y0, x1 - x0, y1 - y0 };
+				out.items[keep++] = std::move(item);
+			}
+			out.items.resize(keep);
 		}
 
 		// Paint the built-in progress indicator within the track's border, without changing accepted state.
 		void AppendBuiltinProgress(ControlNode const& node, ValueGeometry const& geom, StyleVisual const& visual, double time_ms, float scale, DrawPacket& out)
 		{
-			// Reuse the existing quad renderer; each indicator is entirely inside its track.
+			// Reuse the existing quad renderer. CutAlongAxis keeps each indicator inside its track, which crops an indeterminate span at either end.
 			auto const [start, length] = ProgressSpan(node.desc, time_ms);
 			if (geom.track.w <= 0.0f || geom.track.h <= 0.0f || length == 0.0f)
 				return;
@@ -405,11 +466,21 @@ namespace pr::view3d::ui
 					}
 					case EControlType::ProgressBar:
 					{
+						// Progress spans the indicator's own rect, so an indicator with margins still reaches both of its ends.
 						auto const [start, length] = ProgressSpan(node.desc, time_ms);
-						if (node.desc.is_indeterminate != 0)
-							from = AxisPosition(geom, start);
+						auto const span_geom = ValueGeometry{ .orientation = geom.orientation, .track = rect, .travel = rect, .thumb_size = Vec2{ 0.0f, 0.0f } };
+						if (node.desc.is_indeterminate == 0)
+						{
+							to = AxisPosition(span_geom, start + length);
+							break;
+						}
 
-						to = AxisPosition(geom, start + length);
+						// An indeterminate indicator is drawn at full size and then cropped to its rect, so an image brush is
+						// clipped at the ends rather than squashed. 'to' stays at 'from', so the shared draw below adds nothing.
+						auto const first = out.items.size();
+						auto const span = SpanAlongAxis(rect, geom.orientation, AxisPosition(span_geom, start), AxisPosition(span_geom, start + length));
+						AppendPartBox(tree, id, span, PartVisual(tree, id, *indicator, visual, styles), scale, out);
+						ClipItems(out, first, rect);
 						break;
 					}
 					default:
