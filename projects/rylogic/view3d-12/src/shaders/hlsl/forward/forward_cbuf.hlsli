@@ -101,7 +101,7 @@ struct CBufPbrSurface// :reg(b4)
 	int emissive_texcoord;             // Shader texture-coordinate lane used by the emissive texture
 	int normal_texcoord;               // Shader texture-coordinate lane used by the normal-map texture
 	int texcoord_count;                // Number of optional texture-coordinate lanes bound for this draw
-	int pad0;
+	int tint_mask_texcoord;            // Shader texture-coordinate lane used by the tint-mask texture
 	int pad1;
 
 	// GPU procedural surface data. Coordinate rows transform object-space positions into cell-local noise coordinates.
@@ -122,6 +122,9 @@ struct CBufPbrSurface// :reg(b4)
 	float4 procedural_near_z;
 	int4 procedural_near_cell;         // xyz = wrapped near cell, w unused
 	float4 procedural_params2;         // x = near normal strength, y/z = near fade start/end distance, w = near cells per base cell
+
+	// Tint mask. Placed last so the offsets of the fields above stay the same.
+	TexXForm tint_mask_uv_transform;   // Transform applied to the tint-mask texture coordinates
 };
 
 // Constants used for diagnostic shaders.

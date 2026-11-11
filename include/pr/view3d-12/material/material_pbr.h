@@ -12,6 +12,7 @@
 #include "pr/view3d-12/material/components/procedural_surface.h"
 #include "pr/view3d-12/material/components/roughness.h"
 #include "pr/view3d-12/material/components/shader_overlays.h"
+#include "pr/view3d-12/material/components/tint_mask.h"
 #include "pr/view3d-12/material/components/two_sided.h"
 #include "pr/view3d-12/material/material.h"
 
@@ -27,6 +28,7 @@ namespace pr::rdr12
 		materials::Roughness m_roughness;    // Roughness properties.
 		materials::Emissive m_emissive;      // Emissive properties.
 		materials::NormalMap m_normal_map;   // Normal-map properties.
+		materials::TintMask m_tint_mask;     // Limits where the appearance tint colours the base colour.
 		materials::ProceduralSurface m_procedural_surface; // GPU procedural surface, disabled by default.
 		materials::ShaderOverlays m_shaders; // Procedural vertex overlays retained across PBR promotion.
 		materials::Alpha m_alpha;            // Alpha behaviour.
@@ -51,9 +53,9 @@ namespace pr::rdr12
 		// Return true if this material requires alpha rendering.
 		virtual bool RequiresAlpha() const override;
 
-		// Return true if forward drawing 'nugget' with 'material' (a PBR material) samples extra texture coordinate streams.
-		// Such draws use the stock TexN forward shader variants instead of the TEXCOORD_0 variants.
-		static bool UsesExtraTexCoords(Material const& material, Nugget const* nugget);
+		// Return true if forward drawing 'nugget' with 'material' (a PBR material) needs the stock TexN forward shader variants instead of
+		// the TEXCOORD_0 variants. This is true when the material samples extra texture coordinate streams or uses a tint mask.
+		static bool UsesTexNShader(Material const& material, Nugget const* nugget);
 
 		// Return the material colour that should be folded into the shared nugget tint constant.
 		Colour TintColour() const override;
@@ -78,6 +80,9 @@ namespace pr::rdr12
 
 		// Set the normal-map texture and how its samples are interpreted.
 		MaterialPBR& normal_texture(materials::TextureSlot slot, float scale = 1.0f, materials::ENormalMapSpace space = materials::ENormalMapSpace::Tangent);
+
+		// Set the tint-mask texture. The R channel limits where the appearance tint colours the base colour. Pass an empty slot to clear it.
+		MaterialPBR& tint_mask_texture(materials::TextureSlot slot);
 
 		// Set or clear the GPU-evaluated procedural surface.
 		MaterialPBR& procedural_surface(materials::ProceduralSurface surface);

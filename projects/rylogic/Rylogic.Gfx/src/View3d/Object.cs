@@ -691,6 +691,24 @@ namespace Rylogic.Gfx
 				View3D_ObjectNuggetNormalMapSet(Handle, IntPtr.Zero, IntPtr.Zero, ENormalMapSpace.Tangent, 1.0f, name, index);
 			}
 
+			/// <summary>
+			/// Assign a tint mask to a selected nugget, promoting it to a PBR material if needed. The mask uses the nugget's first texture coordinate.
+			/// Red is a linear weight: 1 = the object and population instance tint colours the base colour, 0 = the base colour is kept.
+			/// The tint alpha still applies everywhere. The nugget tint (material base colour) is not masked.
+			/// </summary>
+			public void NuggetTintMaskSet(Texture tint_mask, Sampler sampler, string? name = null, int index = 0)
+			{
+				// The renderer holds its own references to both resources.
+				View3D_ObjectNuggetTintMaskSet(Handle, tint_mask.Handle, sampler.Handle, name, index);
+			}
+
+			/// <summary>Remove the tint mask from a selected nugget, so the tint colours the whole surface.</summary>
+			public void NuggetTintMaskClear(string? name = null, int index = 0)
+			{
+				// Null resources leave the material with an empty tint-mask slot.
+				View3D_ObjectNuggetTintMaskSet(Handle, IntPtr.Zero, IntPtr.Zero, name, index);
+			}
+
 			/// <summary>Assign a tileable slope map as detail normals of a simple-material nugget. New assignments start with no layers.</summary>
 			public void NuggetDetailNormalsSet(Texture slope_map, Sampler sampler, string? name = null, int index = 0)
 			{

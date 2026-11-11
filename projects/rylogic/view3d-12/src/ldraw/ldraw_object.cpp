@@ -800,6 +800,32 @@ namespace pr::rdr12::ldraw
 		}, name);
 	}
 
+	// Set or clear the tint mask of a model nugget, promoting the nugget to a PBR material if needed.
+	void LdrObject::NuggetTintMask(Texture2D* tex, Sampler* sam, char const* name, int index)
+	{
+		// Apply model-owned material replacement consistently with existing nugget editing APIs.
+		Apply([=](LdrObject* obj)
+		{
+			// Ignore matched objects without geometry, as the existing nugget setters do.
+			if (obj->m_model == nullptr)
+				return true;
+
+			auto nug = obj->m_model->m_nuggets;
+			for (auto i = 0; i != index && nug; ++i, nug = nug->m_next)
+			{}
+			if (nug == nullptr)
+				throw std::runtime_error("nugget index out of range");
+
+			// A null texture leaves an empty slot, which the PBR passes treat as having no tint mask.
+			auto material = EditablePbrMaterial(*nug.get());
+			auto slot = materials::TextureSlot{ Texture2DPtr(tex, true), SamplerPtr(sam, true), {}, materials::ETextureColourSpace::Linear, {} };
+			material->tint_mask_texture(slot);
+
+			nug->mat(static_cast<MaterialPtr>(material));
+			return true;
+		}, name);
+	}
+
 	// Set the detail-normal slope map of a simple-material model nugget, or remove detail normals when 'tex' is null.
 	void LdrObject::NuggetDetailNormals(Texture2D* tex, Sampler* sam, char const* name, int index)
 	{

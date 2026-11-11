@@ -418,6 +418,78 @@ namespace render_tests
 		fixture.CheckDebugLayer();
 		std::cout << "PASS model normal map\n";
 	}
+
+	// Check that a tint mask limits where the object tint colours the surface, and that removing it restores the full tint.
+	void TintMaskTests()
+	{
+		// A lit, textured white quad with a red object tint. A light from the -X side keeps the surface lit.
+		auto fixture = Fixture(1);
+		auto object = fixture.Quad(10, 0xFFFFFFFF, 45, nullptr, 0, 0xFFFFFFFF, true, true);
+		View3D_ObjectColourSet(object, FALSE, 0xFFFF0000, nullptr, api::EColourOp::Overwrite, 0);
+		auto light = SceneLightingGet(fixture.m_window);
+		light.m_type = api::ELight::Directional;
+		light.m_direction = api::Vec4{0.70710678f, 0, -0.70710678f, 0};
+		light.m_ambient = 0xFF000000;
+		light.m_diffuse = 0xFFFFFFFF;
+		light.m_specular = 0xFF000000;
+		light.m_intensity = 1;
+		light.m_cast_shadow = 0;
+		light.m_on = TRUE;
+		SceneLightingSet(fixture.m_window, light);
+		auto green = [](std::vector<unsigned char> const& image)
+		{
+			// Green is the same channel in RGBA and BGRA images, and the red tint removes it.
+			return Linear(image[(64 * ImageSize + 64) * 4 + 1]);
+		};
+
+		// An empty tint-mask slot promotes the nugget to PBR, with the tint applied to the whole surface.
+		View3D_ObjectNuggetTintMaskSet(object, nullptr, nullptr, nullptr, 0);
+		fixture.CheckErrors();
+		auto tinted = fixture.Image();
+		Require(green(tinted) < 0.01f, (std::string("The tint did not colour the unmasked surface: green ") + std::to_string(green(tinted))).c_str());
+
+		// Uniform masks of 0 and 1. The mask is linear, so the R channel byte maps directly to the weight.
+		auto options = api::TextureOptions{};
+		options.m_format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		options.m_resource_state = D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE;
+		options.m_mips = 0;
+		options.m_multisamp = {1, 0};
+		options.m_t2s = {{1,0,0,0}, {0,1,0,0}, {0,0,1,0}, {0,0,0,1}};
+		std::array<uint32_t, 4> zeros; zeros.fill(0xFF000000U);
+		std::array<uint32_t, 4> ones; ones.fill(0xFFFFFFFFU);
+		auto mask_off = api::TexturePtr(View3D_TextureCreate(2, 2, zeros.data(), sizeof(zeros), options));
+		auto mask_on = api::TexturePtr(View3D_TextureCreate(2, 2, ones.data(), sizeof(ones), options));
+		auto sampler = api::SamplerPtr(View3D_SamplerCreate(api::SamplerOptions{D3D12_FILTER_MIN_MAG_MIP_LINEAR, D3D12_TEXTURE_ADDRESS_MODE_CLAMP, D3D12_TEXTURE_ADDRESS_MODE_CLAMP, D3D12_TEXTURE_ADDRESS_MODE_CLAMP, "TintMask"}));
+		fixture.CheckErrors();
+		Require(mask_off != nullptr && mask_on != nullptr && sampler != nullptr, "Tint-mask resources were not created");
+
+		// A zero mask keeps the authored white colour, so green matches the untinted lighting.
+		View3D_ObjectNuggetTintMaskSet(object, mask_off.get(), sampler.get(), nullptr, 0);
+		fixture.CheckErrors();
+		auto masked_out = fixture.Image();
+		Require(green(masked_out) > 0.05f, (std::string("A zero tint mask did not keep the authored colour: green ") + std::to_string(green(masked_out))).c_str());
+
+		// A full mask matches the unmasked tint.
+		View3D_ObjectNuggetTintMaskSet(object, mask_on.get(), sampler.get(), nullptr, 0);
+		fixture.CheckErrors();
+		Require(ImageDifference(tinted, fixture.Image()) < 100, "A full tint mask did not match the unmasked tint");
+
+		// Invalid inputs are reported.
+		View3D_ObjectNuggetTintMaskSet(object, mask_on.get(), nullptr, nullptr, 0);
+		Require(!fixture.m_errors.empty(), "A tint mask without a sampler was accepted");
+		fixture.m_errors.clear();
+
+		// Removing the mask restores the full tint.
+		View3D_ObjectNuggetTintMaskSet(object, mask_off.get(), sampler.get(), nullptr, 0);
+		fixture.CheckErrors();
+		View3D_ObjectNuggetTintMaskSet(object, nullptr, nullptr, nullptr, 0);
+		fixture.CheckErrors();
+		Require(ImageDifference(tinted, fixture.Image()) < 100, "Removing the tint mask did not restore the full tint");
+
+		// Any GPU validation error fails the fixture.
+		fixture.CheckDebugLayer();
+		std::cout << "PASS tint mask\n";
+	}
 }
 
 namespace pr::unittests::view3d12
@@ -433,5 +505,9 @@ namespace pr::unittests::view3d12
 	PRUnitTest(View3d12_ModelNormalMap, Extended | Serial)
 	{
 		render_tests::ModelNormalMapTests();
+	}
+	PRUnitTest(View3d12_TintMask, Extended | Serial)
+	{
+		render_tests::TintMaskTests();
 	}
 }

@@ -277,19 +277,21 @@ namespace pr::rdr12
 			};
 
 			// Return the PBR texture slots in the order used when assigning shader UV lanes.
-			static std::array<materials::TextureSlot const*, 5> TextureSlots(Material const& material)
+			static std::array<materials::TextureSlot const*, 6> TextureSlots(Material const& material)
 			{
 				auto const* base_colour = material.Component<materials::BaseColour>();
 				auto const* metallic = material.Component<materials::Metallic>();
 				auto const* roughness = material.Component<materials::Roughness>();
 				auto const* emissive = material.Component<materials::Emissive>();
 				auto const* normal_map = material.Component<materials::NormalMap>();
+				auto const* tint_mask = material.Component<materials::TintMask>();
 				return {
 					base_colour != nullptr ? &base_colour->m_tex : nullptr,
 					metallic != nullptr ? &metallic->m_tex.m_slot : nullptr,
 					roughness != nullptr ? &roughness->m_tex.m_slot : nullptr,
 					emissive != nullptr ? &emissive->m_tex : nullptr,
 					normal_map != nullptr ? &normal_map->m_tex : nullptr,
+					tint_mask != nullptr ? &tint_mask->m_tex : nullptr,
 				};
 			}
 
@@ -327,16 +329,27 @@ namespace pr::rdr12
 				return bindings;
 			}
 
-			// Return true if a texture slot can be sampled by this draw.
-			static bool HasUsableTexture(MaterialPassContext const& ctx, materials::TextureSlot const& slot, TexCoordBindings const& bindings)
+			// Return true if a texture slot can be sampled when drawing 'nugget'.
+			static bool HasUsableTexture(Nugget const* nugget, materials::TextureSlot const& slot, TexCoordBindings const& bindings)
 			{
-				if (slot.m_texture == nullptr || ctx.m_dle.m_nugget == nullptr)
+				if (slot.m_texture == nullptr || nugget == nullptr)
 					return false;
 
 				if (slot.m_texcoord == 0)
-					return AllSet(ctx.m_dle.m_nugget->m_geom, EGeom::Tex0);
+					return AllSet(nugget->m_geom, EGeom::Tex0);
 
 				return bindings.Lane(slot) != -1;
+			}
+			static bool HasUsableTexture(MaterialPassContext const& ctx, materials::TextureSlot const& slot, TexCoordBindings const& bindings)
+			{
+				return HasUsableTexture(ctx.m_dle.m_nugget, slot, bindings);
+			}
+
+			// Return true if 'material' has a tint mask that can be sampled when drawing 'nugget'.
+			static bool HasUsableTintMask(Material const& material, Nugget const* nugget, TexCoordBindings const& bindings)
+			{
+				auto const* tint_mask = material.Component<materials::TintMask>();
+				return tint_mask != nullptr && HasUsableTexture(nugget, tint_mask->m_tex, bindings);
 			}
 
 			// Return the shader lane for a usable texture slot, falling back to tex0 for inactive slots.
@@ -426,6 +439,7 @@ namespace pr::rdr12
 				auto const& roughness = *ctx.m_material.Component<materials::Roughness>();
 				auto const& alpha = *ctx.m_material.Component<materials::Alpha>();
 				auto const& normal_map = *ctx.m_material.Component<materials::NormalMap>();
+				auto const& tint_mask = *ctx.m_material.Component<materials::TintMask>();
 				auto const* procedural_surface = ctx.m_material.Component<materials::ProceduralSurface>();
 
 				auto texture_flags = 0;
@@ -469,6 +483,10 @@ namespace pr::rdr12
 						}
 					}
 				}
+				if (HasUsableTexture(ctx, tint_mask.m_tex, texcoords))
+				{
+					texture_flags |= shaders::PbrTextureFlag_HasTintMask;
+				}
 
 				auto cb = shaders::fwd::CBufPbrSurface{
 					.base_colour = base_colour.m_colour.rgba,
@@ -492,6 +510,8 @@ namespace pr::rdr12
 					.emissive_texcoord = ShaderTexCoord(texcoords, emissive.m_tex),
 					.normal_texcoord = ShaderTexCoord(texcoords, normal_map.m_tex),
 					.texcoord_count = texcoords.m_count,
+					.tint_mask_texcoord = ShaderTexCoord(texcoords, tint_mask.m_tex),
+					.tint_mask_uv_transform = ShaderTexXForm(tint_mask.m_tex.m_uv_transform),
 				};
 				if (procedural_surface != nullptr)
 					SetProceduralConstants(cb, ctx, *procedural_surface);
@@ -500,35 +520,22 @@ namespace pr::rdr12
 				ctx.m_cmd_list.SetGraphicsRootConstantBufferView((UINT)shaders::fwd::ERootParam::CBufPbrSurface, gpu_address);
 			}
 
-			// Return the root parameter that binds a shader texture-coordinate lane.
-			static shaders::fwd::ERootParam TexCoordRootParam(int lane)
-			{
-				switch (lane)
-				{
-					case 1: { return shaders::fwd::ERootParam::Tex1Stream; }
-					case 2: { return shaders::fwd::ERootParam::Tex2Stream; }
-					case 3: { return shaders::fwd::ERootParam::Tex3Stream; }
-					case 4: { return shaders::fwd::ERootParam::Tex4Stream; }
-					default:
-					{
-						throw std::runtime_error("Unknown shader texture coordinate lane");
-					}
-				}
-			}
-
 			// Bind the model vertex streams used by PBR texture-coordinate lanes.
-			static void BindTexCoordStreams(MaterialPassContext& ctx, TexCoordBindings const& texcoords)
+			static void BindTexCoordStreams(MaterialPassContext& ctx, shaders::Forward const& shader, TexCoordBindings const& texcoords)
 			{
-				if (texcoords.m_count == 0)
+				// Only the TexN shader variants read the lanes. They are selected by extra streams or by a usable tint mask.
+				if (texcoords.m_count == 0 && !HasUsableTintMask(ctx.m_material, ctx.m_dle.m_nugget, texcoords))
 					return;
 
-				// The TexN shader statically references every optional lane, so bind a valid SRV for inactive lanes rather than leaving stale
-				// descriptors behind.
+				// The TexN shader statically references every lane, so unused lanes get a null view rather than a stale descriptor.
+				// The shader does not read lanes at or beyond 'texcoord_count'. The lanes share one table, so the material descriptor
+				// cache is not used for this table.
+				auto srvs = std::array<Descriptor, MaxExtraTexCoordStreams>{};
 				for (auto index = 0; index != MaxExtraTexCoordStreams; ++index)
 				{
-					auto const* stream = index < texcoords.m_count ? texcoords.m_streams[index] : texcoords.m_streams[0];
-					BindMaterialDescriptor(ctx.m_cmd_list, ctx.m_wnd.m_heap_view, TexCoordRootParam(index + 1), stream->m_srv, ctx.m_bound);
+					srvs[index] = index < texcoords.m_count ? texcoords.m_streams[index]->m_srv : shader.m_null_texcoord_stream;
 				}
+				ctx.m_cmd_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::TexStreams, ctx.m_wnd.m_heap_view.Add(srvs));
 			}
 
 			// Bind resources and constants for the PBR forward pass.
@@ -539,8 +546,14 @@ namespace pr::rdr12
 				auto const& roughness = *ctx.m_material.Component<materials::Roughness>();
 				auto const& emissive = *ctx.m_material.Component<materials::Emissive>();
 				auto const& normal_map = *ctx.m_material.Component<materials::NormalMap>();
+				auto const& tint_mask = *ctx.m_material.Component<materials::TintMask>();
 				auto texcoords = GatherTexCoordBindings(ctx.m_material, ctx.m_dle.m_nugget);
 
+				auto const* shader = dynamic_cast<shaders::Forward*>(ctx.m_shader);
+				if (shader == nullptr)
+					throw std::runtime_error("PBR forward material pass requires a forward shader");
+
+				// Bind every PBR texture, using the fallback texture and sampler for empty slots.
 				BindTexture(ctx, shaders::fwd::ERootParam::DiffTexture, base_colour.m_tex);
 				BindSampler(ctx, shaders::fwd::ERootParam::DiffTextureSampler, base_colour.m_tex);
 				BindTexture(ctx, shaders::fwd::ERootParam::PbrMetallicTexture, metallic.m_tex.m_slot);
@@ -551,15 +564,12 @@ namespace pr::rdr12
 				BindSampler(ctx, shaders::fwd::ERootParam::PbrEmissiveSampler, emissive.m_tex);
 				BindTexture(ctx, shaders::fwd::ERootParam::PbrNormalTexture, normal_map.m_tex);
 				BindSampler(ctx, shaders::fwd::ERootParam::PbrNormalSampler, normal_map.m_tex);
-				BindTexCoordStreams(ctx, texcoords);
+				BindTexture(ctx, shaders::fwd::ERootParam::PbrTintMaskTexture, tint_mask.m_tex);
+				BindSampler(ctx, shaders::fwd::ERootParam::PbrTintMaskSampler, tint_mask.m_tex);
 
-				if (dynamic_cast<shaders::Forward*>(ctx.m_shader) != nullptr)
-				{
-					BindPbrConstants(ctx, texcoords);
-					return;
-				}
-
-				throw std::runtime_error("PBR forward material pass requires a forward shader");
+				// Bind the texture-coordinate lanes and the constants that describe them.
+				BindTexCoordStreams(ctx, *shader, texcoords);
+				BindPbrConstants(ctx, texcoords);
 			}
 
 			// Bind resources and constants for the PBR shadow-map pass.
@@ -602,8 +612,8 @@ namespace pr::rdr12
 			{
 				auto const* desc = static_cast<D3D12_GRAPHICS_PIPELINE_STATE_DESC const*>(pipe_state);
 				
-				// If the pass uses extra texture coordinate streams, select a shader variant that samples them
-				if (MaterialPBR::UsesExtraTexCoords(ctx.m_material, &ctx.m_nugget))
+				// If the pass uses extra texture coordinate streams or a tint mask, select a shader variant that supports them
+				if (MaterialPBR::UsesTexNShader(ctx.m_material, &ctx.m_nugget))
 				{
 					pipe_state.Apply(PSO<EPipeState::VS>(shader_code::forward_texn_pbr_vs));
 					pipe_state.Apply(PSO<EPipeState::PS>(
@@ -631,6 +641,7 @@ namespace pr::rdr12
 		, m_roughness()
 		, m_emissive()
 		, m_normal_map()
+		, m_tint_mask()
 		, m_procedural_surface()
 		, m_shaders()
 		, m_alpha()
@@ -644,6 +655,7 @@ namespace pr::rdr12
 		, m_roughness(rhs.m_roughness)
 		, m_emissive(rhs.m_emissive)
 		, m_normal_map(rhs.m_normal_map)
+		, m_tint_mask(rhs.m_tint_mask)
 		, m_procedural_surface(rhs.m_procedural_surface)
 		, m_shaders(rhs.m_shaders)
 		, m_alpha(rhs.m_alpha)
@@ -695,11 +707,13 @@ namespace pr::rdr12
 		return m_alpha.RequiresAlpha();
 	}
 
-	// Return true if forward drawing 'nugget' with 'material' samples extra texture coordinate streams.
-	bool MaterialPBR::UsesExtraTexCoords(Material const& material, Nugget const* nugget)
+	// Return true if forward drawing 'nugget' with 'material' needs the stock TexN forward shader variants.
+	bool MaterialPBR::UsesTexNShader(Material const& material, Nugget const* nugget)
 	{
 		// A texture slot needs an extra lane only when it names a non-zero channel that the nugget's model provides.
-		return MaterialPBRPass::GatherTexCoordBindings(material, nugget).m_count != 0;
+		// The tint mask needs the untinted vertex colour, which only the TexN variants provide.
+		auto bindings = MaterialPBRPass::GatherTexCoordBindings(material, nugget);
+		return bindings.m_count != 0 || MaterialPBRPass::HasUsableTintMask(material, nugget, bindings);
 	}
 
 	// Return the material colour that should be folded into the shared nugget tint constant.
@@ -777,6 +791,13 @@ namespace pr::rdr12
 		return *this;
 	}
 
+	// Set the tint-mask texture.
+	MaterialPBR& MaterialPBR::tint_mask_texture(materials::TextureSlot slot)
+	{
+		m_tint_mask.m_tex = slot;
+		return *this;
+	}
+
 	// Set the GPU-evaluated procedural surface.
 	MaterialPBR& MaterialPBR::procedural_surface(materials::ProceduralSurface surface)
 	{
@@ -831,6 +852,9 @@ namespace pr::rdr12
 
 		if (component_id == materials::NormalMap::Id)
 			return &m_normal_map;
+
+		if (component_id == materials::TintMask::Id)
+			return &m_tint_mask;
 
 		if (component_id == materials::ProceduralSurface::Id)
 			return m_procedural_surface.m_enabled ? &m_procedural_surface : nullptr;

@@ -30,6 +30,7 @@ static const int PbrTextureFlag_HasRoughnessMap   = (1 << 4);
 static const int PbrTextureFlag_HasEmissiveMap    = (1 << 5);
 static const int PbrTextureFlag_HasNormalMap      = (1 << 6);
 static const int PbrTextureFlag_NormalMapModel    = (1 << 7); // The normal map stores model-space normals rather than tangent-space perturbations.
+static const int PbrTextureFlag_HasTintMask       = (1 << 8); // The tint mask limits where the appearance tint colours the base colour.
 
 // Row major matrix for use in structured buffers
 struct Mat4x4
@@ -109,6 +110,7 @@ struct PSInTexN
 	float4 ws_vert semantic(POSITION1);
 	float4 ws_norm semantic(NORMAL0);
 	float4 diff    semantic(COLOR0);
+	float4 vcol    semantic(COLOR1);   // The vertex colour before any tint. 'diff' is this colour multiplied by the appearance tint.
 	float2 tex0    semantic(TEXCOORD0);
 	float2 tex1    semantic(TEXCOORD1);
 	float2 tex2    semantic(TEXCOORD2);

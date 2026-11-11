@@ -1996,6 +1996,12 @@ extern "C"
 	// normal and suit height fields facing model +Z; the nugget must still have vertex normals. Set 'tex' and 'sam' to null to remove the map.
 	VIEW3D_API void __stdcall View3D_ObjectNuggetNormalMapSet(pr::view3d::Object object, pr::view3d::Texture tex, pr::view3d::Sampler sam, pr::view3d::ENormalMapSpace space, float scale, char const* name, int index);
 
+	// Set or remove the tint mask of a nugget, promoting the nugget to a PBR material if needed. The mask is sampled with the nugget's first
+	// texture coordinate. Its red channel is a linear weight that limits where the tint colours the surface: 1 = the base colour is multiplied
+	// by the object and population instance tint colour; 0 = the base colour is kept. The tint alpha still applies everywhere. The nugget tint
+	// (the material base colour) is not masked. Without a mask, the tint colours the whole surface. Set 'tex' and 'sam' to null to remove the mask.
+	VIEW3D_API void __stdcall View3D_ObjectNuggetTintMaskSet(pr::view3d::Object object, pr::view3d::Texture tex, pr::view3d::Sampler sam, char const* name, int index);
+
 	// Detail normals tilt a simple material's normals with world-projected layers of a tileable slope map. The map's red and green channels hold
 	// the height slope along u and v, encoded as (slope + 1) / 2, and the blue channel holds (slope_u² + slope_v²) / 2, so mip filtering keeps
 	// the roughness that minified slopes lose. Set 'tex' and 'sam' to null to remove detail normals. Layers are kept when the map

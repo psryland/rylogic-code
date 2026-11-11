@@ -29,10 +29,7 @@ namespace pr::rdr12::shaders
 			PbrRoughnessTexture,
 			OpaqueDepth,
 			PbrEmissiveTexture,
-			Tex1Stream,
-			Tex2Stream,
-			Tex3Stream,
-			Tex4Stream,
+			TexStreams, // Table of the optional texture-coordinate lanes, t8..t11
 			PbrNormalTexture,
 			DiffTextureSampler,
 			PbrMetallicSampler,
@@ -58,6 +55,8 @@ namespace pr::rdr12::shaders
 			PopulationDraw,
 			PopulationSkin,
 			ReflectionPlane, // Table of the reflection texture and its coverage
+			PbrTintMaskTexture,
+			PbrTintMaskSampler,
 		};
 
 		enum class ESampParam
@@ -82,7 +81,11 @@ namespace pr::rdr12::shaders
 		// It maps clip (x, y) affinely using w, and keeps z and w, so depth testing and clipping are unchanged. Not owned.
 		m4x4 const* m_clip_remap;
 
+		// A null view of a 'StructuredBuffer<float2>' for texture-coordinate lanes that a draw does not use. Reads return zero.
+		Descriptor m_null_texcoord_stream;
+
 		explicit Forward(Renderer& rdr);
+		~Forward() override;
 		void SetupFrame(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, Scene const& scene) override;
 
 		// Upload one set of element constants per entry in 'drawlist', in drawlist order, using 'camera' for the projection.

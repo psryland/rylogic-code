@@ -4157,6 +4157,22 @@ VIEW3D_API void __stdcall View3D_ObjectNuggetNormalMapSet(view3d::Object object,
 	CatchAndReport(View3D_ObjectNuggetNormalMapSet, ,);
 }
 
+// Set or remove the tint mask of a model nugget.
+VIEW3D_API void __stdcall View3D_ObjectNuggetTintMaskSet(view3d::Object object, view3d::Texture tex, view3d::Sampler sam, char const* name, int index)
+{
+	// Validate the public values before replacing the immutable renderer material.
+	try
+	{
+		Validate(object);
+		if ((tex == nullptr) != (sam == nullptr))
+			throw std::invalid_argument("A tint mask requires both a texture and a sampler, or neither");
+
+		DllLockGuard;
+		object->NuggetTintMask(tex, sam, name, index);
+	}
+	CatchAndReport(View3D_ObjectNuggetTintMaskSet, ,);
+}
+
 // Set or remove the detail-normal slope map of a simple-material model nugget.
 VIEW3D_API void __stdcall View3D_ObjectNuggetDetailNormalsSet(view3d::Object object, view3d::Texture tex, view3d::Sampler sam, char const* name, int index)
 {

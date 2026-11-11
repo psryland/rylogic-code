@@ -200,7 +200,7 @@ namespace pr::rdr12
 		{
 			// Name the material requirement of the family's model.
 			if (family.m_replaces == &shader_code::forward_pbr_family)
-				throw std::runtime_error("PBR forward pixel families require a stock PBR forward pixel shader without extra texture coordinate streams");
+				throw std::runtime_error("PBR forward pixel families require a stock PBR forward pixel shader without extra texture coordinate streams or a tint mask");
 			if (family.m_replaces == &shader_code::forward_detail_family)
 				throw std::runtime_error("Detail-normal forward pixel families require a simple material with detail normals");
 

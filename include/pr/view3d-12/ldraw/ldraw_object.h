@@ -257,6 +257,10 @@ namespace pr::rdr12::ldraw
 		// Set the normal map of a model nugget, or remove it when 'tex' is null. The nugget is promoted to a PBR material if needed.
 		void NuggetNormalMap(Texture2D* tex, Sampler* sam, materials::ENormalMapSpace space, float scale, char const* name, int index);
 
+		// Set the tint mask of a model nugget, or remove it when 'tex' is null. The nugget is promoted to a PBR material if needed.
+		// The mask's R channel limits where the instance and population tint colours the base colour (see materials::TintMask).
+		void NuggetTintMask(Texture2D* tex, Sampler* sam, char const* name, int index);
+
 		// Set the detail-normal slope map of a simple-material model nugget, or remove detail normals when 'tex' is null.
 		void NuggetDetailNormals(Texture2D* tex, Sampler* sam, char const* name, int index);
 
