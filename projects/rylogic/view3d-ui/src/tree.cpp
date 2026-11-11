@@ -265,6 +265,8 @@ namespace pr::view3d::ui
 				throw EngineException(EStatus::InvalidArgument, std::format("control {}: canvas position ({}, {}) must be finite", desc.id, layout.canvas_x, layout.canvas_y));
 			if (!std::isfinite(layout.scroll_offset_x) || layout.scroll_offset_x < 0.0f || !std::isfinite(layout.scroll_offset_y) || layout.scroll_offset_y < 0.0f)
 				throw EngineException(EStatus::InvalidArgument, std::format("control {}: scroll offset ({}, {}) must be finite and non-negative", desc.id, layout.scroll_offset_x, layout.scroll_offset_y));
+			if (!std::isfinite(layout.h_fraction) || !std::isfinite(layout.v_fraction))
+				throw EngineException(EStatus::InvalidArgument, std::format("control {}: alignment fraction ({}, {}) must be finite", desc.id, layout.h_fraction, layout.v_fraction));
 
 			// The world block only exists for world-anchored roots; a screen root or a non-root
 			// control carries whatever the application left there and it is never read.

@@ -189,23 +189,27 @@ namespace pr::view3d::ui
 	};
 
 	// Horizontal alignment of a control within its parent's cross-axis or overlay slot.
+	// Fraction places the control's centre at LayoutParams::h_fraction of the slot's width.
 	enum class EHAlign : std::int32_t
 	{
 		Left = 0,
 		Center = 1,
 		Right = 2,
 		Stretch = 3,
-		Count = 4,
+		Fraction = 4,
+		Count = 5,
 	};
 
 	// Vertical alignment of a control within its parent's cross-axis or overlay slot.
+	// Fraction places the control's centre at LayoutParams::v_fraction of the slot's height.
 	enum class EVAlign : std::int32_t
 	{
 		Top = 0,
 		Center = 1,
 		Bottom = 2,
 		Stretch = 3,
-		Count = 4,
+		Fraction = 4,
+		Count = 5,
 	};
 
 	// Closed visual primitive vocabulary usable by a lookless template (section 6.3). Applications
@@ -548,6 +552,11 @@ namespace pr::view3d::ui
 		// content has been shifted by, not an arbitrary position.
 		float scroll_offset_x;
 		float scroll_offset_y;
+
+		// The position of this control's centre within its slot, as a fraction of the slot's width or height after margins.
+		// Used only when h_align/v_align is Fraction; ignored otherwise. Any finite value is accepted, so a control can sit partly outside its slot.
+		float h_fraction;
+		float v_fraction;
 	};
 
 	// Explicit world-anchoring inputs for a Root whose root_policy is world-anchored; ignored

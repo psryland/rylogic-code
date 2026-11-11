@@ -267,6 +267,8 @@ public sealed class UiDocument
 		writer.WriteNumber("canvas_y", layout.CanvasY);
 		writer.WriteNumber("scroll_offset_x", layout.ScrollOffsetX);
 		writer.WriteNumber("scroll_offset_y", layout.ScrollOffsetY);
+		writer.WriteNumber("h_fraction", layout.HFraction);
+		writer.WriteNumber("v_fraction", layout.VFraction);
 		writer.WriteEndObject();
 	}
 
@@ -620,6 +622,8 @@ public sealed class UiDocument
 		layout.CanvasY = GetFloat(element, "canvas_y", path, 0);
 		layout.ScrollOffsetX = GetFloat(element, "scroll_offset_x", path, 0);
 		layout.ScrollOffsetY = GetFloat(element, "scroll_offset_y", path, 0);
+		layout.HFraction = GetFloat(element, "h_fraction", path, 0);
+		layout.VFraction = GetFloat(element, "v_fraction", path, 0);
 		return layout;
 	}
 

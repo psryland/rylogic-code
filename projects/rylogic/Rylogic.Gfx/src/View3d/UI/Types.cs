@@ -141,24 +141,26 @@ public enum EProjection
 	Count = 2,
 }
 
-/// <summary>Horizontal alignment of a control within its parent's cross-axis or overlay slot.</summary>
+/// <summary>Horizontal alignment of a control within its parent's cross-axis or overlay slot. Fraction places the control's centre at <see cref="UiLayoutParams.HFraction"/> of the slot's width.</summary>
 public enum EHAlign
 {
 	Left = 0,
 	Center = 1,
 	Right = 2,
 	Stretch = 3,
-	Count = 4,
+	Fraction = 4,
+	Count = 5,
 }
 
-/// <summary>Vertical alignment of a control within its parent's cross-axis or overlay slot.</summary>
+/// <summary>Vertical alignment of a control within its parent's cross-axis or overlay slot. Fraction places the control's centre at <see cref="UiLayoutParams.VFraction"/> of the slot's height.</summary>
 public enum EVAlign
 {
 	Top = 0,
 	Center = 1,
 	Bottom = 2,
 	Stretch = 3,
-	Count = 4,
+	Fraction = 4,
+	Count = 5,
 }
 
 /// <summary>Closed visual primitive vocabulary usable by a lookless template. Applications compose these but cannot submit shaders or draw callbacks.</summary>

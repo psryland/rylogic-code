@@ -62,6 +62,10 @@ public sealed record UiLayoutParams
 	/// <summary>Content shift applied only when this control's own LayoutMode is Scroll; must be finite and non-negative.</summary>
 	public float ScrollOffsetX { get; set; }
 	public float ScrollOffsetY { get; set; }
+
+	/// <summary>The control's centre as a fraction of its slot's width/height after margins; used only when HAlign/VAlign is Fraction. Must be finite.</summary>
+	public float HFraction { get; set; }
+	public float VFraction { get; set; }
 }
 
 /// <summary>
