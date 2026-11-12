@@ -123,6 +123,16 @@ public sealed class Engine :IDisposable
 		Native.Check(Native.Audio_EngineUpdate(Handle));
 	}
 
+	/// <summary>
+	/// Stop or restart all audio processing. While suspended the native mixing and stream decode threads are idle and playback freezes in place,
+	/// resuming from the same positions. Mix changes made while suspended become audible after resuming. Setting the current state again does nothing.
+	/// </summary>
+	public void SetSuspended(bool suspended)
+	{
+		EnsureOwner();
+		Native.Check(Native.Audio_EngineSuspendedSet(Handle, suspended ? 1U : 0U));
+	}
+
 	/// <summary>Return the number of events currently queued without consuming them.</summary>
 	public unsafe int EventCount()
 	{

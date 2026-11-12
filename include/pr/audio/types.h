@@ -9,7 +9,7 @@
 
 namespace pr::audio
 {
-	inline constexpr std::uint32_t AUDIO_API_VERSION = 0x00030000U;
+	inline constexpr std::uint32_t AUDIO_API_VERSION = 0x00030001U;
 	inline constexpr std::uint32_t AUDIO_STRUCT_VERSION = 3U;
 	inline constexpr std::uint32_t AUDIO_INFINITE_LOOP = 0xFFFFFFFFU;
 	inline constexpr std::uint32_t AUDIO_MAX_METER_CHANNELS = 8U;

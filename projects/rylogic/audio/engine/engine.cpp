@@ -434,6 +434,9 @@ namespace pr::audio
 		std::condition_variable m_stream_worker_wake;
 		std::atomic<bool> m_stream_worker_stop;
 
+		// True while processing is suspended. Guarded by m_streams_mutex so the decode worker can sleep until resumed.
+		bool m_suspended;
+
 		explicit Impl(Config const& config)
 			: m_config(config)
 			, m_owner_thread(std::this_thread::get_id())
@@ -458,6 +461,7 @@ namespace pr::audio
 			, m_stream_worker()
 			, m_stream_worker_wake()
 			, m_stream_worker_stop(false)
+			, m_suspended(false)
 		{
 			ValidateStruct(config, "Config");
 			if (config.max_logical_voices == 0 || config.max_rendered_voices == 0 || config.max_rendered_voices > config.max_logical_voices || config.event_capacity == 0)
@@ -609,6 +613,10 @@ namespace pr::audio
 
 			CreateGraph();
 			CreateGroupVoices();
+
+			// A new XAudio2 instance starts processing immediately, so keep a suspended engine suspended across the reset
+			if (m_suspended)
+				m_xaudio->StopEngine();
 
 			// Restore the highest-priority active voices first so a device reset preserves virtualization policy.
 			auto candidates = std::vector<std::size_t>{};
@@ -1183,7 +1191,12 @@ namespace pr::audio
 					// A failed submission leaves the chunk pending; the owner thread's next PumpStream retries it and reports the error
 					(void)FeedStream(stream);
 				}
-				m_stream_worker_wake.wait_for(lock, k_stream_worker_interval);
+
+				// Suspended XAudio2 consumes no buffers, so sleep without polling until resumed or stopped
+				if (m_suspended)
+					m_stream_worker_wake.wait(lock, [this] { return !m_suspended || m_stream_worker_stop.load(std::memory_order_acquire); });
+				else
+					m_stream_worker_wake.wait_for(lock, k_stream_worker_interval);
 			}
 		}
 	};
@@ -1832,6 +1845,27 @@ namespace pr::audio
 			m_impl->PumpStream(MakeHandle(i, slot.m_generation), *slot.m_object);
 			m_impl->ApplyStreamMix(*slot.m_object, now);
 		}
+	}
+
+	// Stop or restart XAudio2 processing and the stream decode worker.
+	void Engine::SuspendedSet(bool suspended)
+	{
+		// Ignore requests that do not change the state
+		m_impl->CheckThread();
+		auto streams_lock = std::unique_lock<std::mutex>(m_impl->m_streams_mutex);
+		if (m_impl->m_suspended == suspended)
+			return;
+
+		// StopEngine freezes every voice at its current position; StartEngine continues from there
+		if (suspended)
+			m_impl->m_xaudio->StopEngine();
+		else
+			CheckHR(m_impl->m_xaudio->StartEngine(), "IXAudio2::StartEngine");
+
+		// Publish the state after the engine call succeeds, then wake the worker so it observes the change
+		m_impl->m_suspended = suspended;
+		streams_lock.unlock();
+		m_impl->m_stream_worker_wake.notify_all();
 	}
 
 	// Copy and consume buffered runtime events.

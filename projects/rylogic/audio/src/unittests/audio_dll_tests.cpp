@@ -33,6 +33,7 @@ namespace pr::unittests
 			decltype(&Audio_EngineDestroy) EngineDestroy;
 			decltype(&Audio_EngineAbandon) EngineAbandon;
 			decltype(&Audio_EngineUpdate) EngineUpdate;
+			decltype(&Audio_EngineSuspendedSet) EngineSuspendedSet;
 			decltype(&Audio_ListenerSet) ListenerSet;
 			decltype(&Audio_GroupCreate) GroupCreate;
 			decltype(&Audio_GroupDestroy) GroupDestroy;
@@ -78,6 +79,7 @@ namespace pr::unittests
 				, EngineDestroy(m_module.Proc<decltype(EngineDestroy)>("Audio_EngineDestroy"))
 				, EngineAbandon(m_module.Proc<decltype(EngineAbandon)>("Audio_EngineAbandon"))
 				, EngineUpdate(m_module.Proc<decltype(EngineUpdate)>("Audio_EngineUpdate"))
+				, EngineSuspendedSet(m_module.Proc<decltype(EngineSuspendedSet)>("Audio_EngineSuspendedSet"))
 				, ListenerSet(m_module.Proc<decltype(ListenerSet)>("Audio_ListenerSet"))
 				, GroupCreate(m_module.Proc<decltype(GroupCreate)>("Audio_GroupCreate"))
 				, GroupDestroy(m_module.Proc<decltype(GroupDestroy)>("Audio_GroupDestroy"))
@@ -959,6 +961,48 @@ namespace pr::unittests
 			PR_EXPECT(state.playback == EPlaybackState::Playing);
 			PR_EXPECT(state.underrun_count == 0);
 			PR_EXPECT(state.pcm_position > position_before);
+
+			PR_EXPECT(fix.m_api.StreamDestroy(fix.m_engine, stream) == EStatus::Success);
+		}
+
+		PRUnitTestMethod(SuspendFreezesAndResumesPlayback, Extended)
+		{
+			// Start a looping stream and wait until it is audibly playing
+			auto fix = AudioFixture{};
+			auto desc = MakeStreamDesc(AUDIO_INFINITE_LOOP);
+			auto stream = StreamHandle{};
+			PR_EXPECT(fix.m_api.StreamCreateOgg(fix.m_engine, &desc, k_ogg_fixture_bytes, sizeof(k_ogg_fixture_bytes), &stream) == EStatus::Success);
+			PR_EXPECT(fix.m_api.StreamPlay(fix.m_engine, stream) == EStatus::Success);
+			auto state = StreamState{};
+			auto started = PollUntil(fix.m_api, fix.m_engine, [&]
+				{
+					PR_EXPECT(fix.m_api.StreamStateGet(fix.m_engine, stream, &state) == EStatus::Success);
+					return state.pcm_position > 0;
+				});
+			PR_EXPECT(started);
+
+			// While suspended the position must not advance, and the frozen voice must not count as an underrun
+			PR_EXPECT(fix.m_api.EngineSuspendedSet(fix.m_engine, 1) == EStatus::Success);
+			PR_EXPECT(fix.m_api.EngineSuspendedSet(fix.m_engine, 1) == EStatus::Success);
+			PR_EXPECT(fix.m_api.EngineUpdate(fix.m_engine) == EStatus::Success);
+			PR_EXPECT(fix.m_api.StreamStateGet(fix.m_engine, stream, &state) == EStatus::Success);
+			auto position_suspended = state.pcm_position;
+			std::this_thread::sleep_for(std::chrono::milliseconds(300));
+			PR_EXPECT(fix.m_api.EngineUpdate(fix.m_engine) == EStatus::Success);
+			PR_EXPECT(fix.m_api.StreamStateGet(fix.m_engine, stream, &state) == EStatus::Success);
+			PR_EXPECT(state.playback == EPlaybackState::Playing);
+			PR_EXPECT(state.pcm_position == position_suspended);
+			PR_EXPECT(state.underrun_count == 0);
+
+			// Resuming continues from the frozen position
+			PR_EXPECT(fix.m_api.EngineSuspendedSet(fix.m_engine, 0) == EStatus::Success);
+			auto resumed = PollUntil(fix.m_api, fix.m_engine, [&]
+				{
+					PR_EXPECT(fix.m_api.StreamStateGet(fix.m_engine, stream, &state) == EStatus::Success);
+					return state.pcm_position > position_suspended;
+				});
+			PR_EXPECT(resumed);
+			PR_EXPECT(state.underrun_count == 0);
 
 			PR_EXPECT(fix.m_api.StreamDestroy(fix.m_engine, stream) == EStatus::Success);
 		}
