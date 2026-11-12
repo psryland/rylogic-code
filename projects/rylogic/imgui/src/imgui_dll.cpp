@@ -46,7 +46,7 @@ namespace dll
 	namespace bridge = pr::view3d::ui;
 
 	// Version of this DLL's exported functions. Must match the client header and the managed wrapper.
-	constexpr std::uint32_t ApiVersion = 0x00020001U;
+	constexpr std::uint32_t ApiVersion = 0x00020002U;
 
 	struct InitArgs
 	{
@@ -686,6 +686,14 @@ extern "C"
 	{
 		Call(ctx, [&] { ImGui::PopID(); });
 	}
+	__declspec(dllexport) void __stdcall ImGui_PushStyleColor(Context& ctx, int idx, float r, float g, float b, float a)
+	{
+		Call(ctx, [&] { ImGui::PushStyleColor(static_cast<ImGuiCol>(idx), ImVec4(r, g, b, a)); });
+	}
+	__declspec(dllexport) void __stdcall ImGui_PopStyleColor(Context& ctx, int count)
+	{
+		Call(ctx, [&] { ImGui::PopStyleColor(count); });
+	}
 	__declspec(dllexport) void __stdcall ImGui_BeginDisabled(Context& ctx, bool disabled)
 	{
 		Call(ctx, [&] { ImGui::BeginDisabled(disabled); });
@@ -755,6 +763,22 @@ extern "C"
 	__declspec(dllexport) bool __stdcall ImGui_Combo(Context& ctx, char const* label, int* current_item, char const* items_separated_by_zeros, int popup_max_height_in_items)
 	{
 		return Call(ctx, [&] { return ImGui::Combo(label, current_item, items_separated_by_zeros, popup_max_height_in_items); });
+	}
+	__declspec(dllexport) bool __stdcall ImGui_BeginCombo(Context& ctx, char const* label, char const* preview_value, int flags)
+	{
+		return Call(ctx, [&] { return ImGui::BeginCombo(label, preview_value, static_cast<ImGuiComboFlags>(flags)); });
+	}
+	__declspec(dllexport) void __stdcall ImGui_EndCombo(Context& ctx)
+	{
+		Call(ctx, [&] { ImGui::EndCombo(); });
+	}
+	__declspec(dllexport) bool __stdcall ImGui_Selectable(Context& ctx, char const* label, bool selected, int flags)
+	{
+		return Call(ctx, [&] { return ImGui::Selectable(label, selected, static_cast<ImGuiSelectableFlags>(flags)); });
+	}
+	__declspec(dllexport) void __stdcall ImGui_SetItemDefaultFocus(Context& ctx)
+	{
+		Call(ctx, [&] { ImGui::SetItemDefaultFocus(); });
 	}
 	__declspec(dllexport) bool __stdcall ImGui_ColorEdit3(Context& ctx, char const* label, float* col, int flags)
 	{

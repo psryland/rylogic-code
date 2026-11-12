@@ -9,7 +9,7 @@ namespace Rylogic.Audio;
 internal static unsafe class Native
 {
 	internal const string Dll = "audio";
-	internal const uint ApiVersion = 0x00030000U;
+	internal const uint ApiVersion = 0x00030001U;
 	internal const uint StructVersion = 3U;
 	private static IntPtr m_module;
 
@@ -237,6 +237,7 @@ internal static unsafe class Native
 	[DllImport(Dll)] internal static extern EStatus Audio_EngineDestroy(ulong engine);
 	[DllImport(Dll)] internal static extern void Audio_EngineAbandon(ulong engine);
 	[DllImport(Dll)] internal static extern EStatus Audio_EngineUpdate(ulong engine);
+	[DllImport(Dll)] internal static extern EStatus Audio_EngineSuspendedSet(ulong engine, uint suspended);
 	[DllImport(Dll)] internal static extern EStatus Audio_ListenerSet(ulong engine, ListenerState* listener);
 
 	[DllImport(Dll)] internal static extern EStatus Audio_GroupCreate(ulong engine, GroupDesc* desc, out ulong group);

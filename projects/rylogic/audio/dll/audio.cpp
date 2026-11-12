@@ -401,6 +401,7 @@ AUDIO_API void __stdcall Audio_EngineAbandon(EngineHandle engine)
 	}
 
 AUDIO_ENGINE_CALL(Audio_EngineUpdate, (EngineHandle engine), EngineFromHandle(context, engine).Update())
+AUDIO_ENGINE_CALL(Audio_EngineSuspendedSet, (EngineHandle engine, std::uint32_t suspended), EngineFromHandle(context, engine).SuspendedSet(suspended != 0))
 AUDIO_ENGINE_CALL(Audio_ListenerSet, (EngineHandle engine, ListenerState const* listener), Validate(listener, "ListenerState"); EngineFromHandle(context, engine).ListenerSet(*listener))
 AUDIO_ENGINE_CALL(Audio_ClipDestroy, (EngineHandle engine, ClipHandle clip), EngineFromHandle(context, engine).ClipDestroy(clip))
 AUDIO_ENGINE_CALL(Audio_GroupDestroy, (EngineHandle engine, GroupHandle group), EngineFromHandle(context, engine).GroupDestroy(group))

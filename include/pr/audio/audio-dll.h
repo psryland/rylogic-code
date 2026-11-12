@@ -58,6 +58,8 @@ extern "C"
 	AUDIO_API void __stdcall Audio_EngineAbandon(pr::audio::EngineHandle engine);
 	// Apply queued mix values, including zero-duration targets without interpolation, and advance engine bookkeeping.
 	AUDIO_API pr::audio::EStatus __stdcall Audio_EngineUpdate(pr::audio::EngineHandle engine);
+	// Stop (non-zero) or restart (zero) all audio processing; playback freezes in place while suspended. See Engine::SuspendedSet.
+	AUDIO_API pr::audio::EStatus __stdcall Audio_EngineSuspendedSet(pr::audio::EngineHandle engine, std::uint32_t suspended);
 	AUDIO_API pr::audio::EStatus __stdcall Audio_ListenerSet(pr::audio::EngineHandle engine, pr::audio::ListenerState const* listener);
 
 	AUDIO_API pr::audio::EStatus __stdcall Audio_GroupCreate(pr::audio::EngineHandle engine, pr::audio::GroupDesc const* desc, pr::audio::GroupHandle* group);
