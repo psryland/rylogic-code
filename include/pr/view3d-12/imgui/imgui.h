@@ -26,7 +26,7 @@ struct ID3D12GraphicsCommandList;
 namespace pr::rdr12::imgui
 {
 	// Version of the DLL's exported functions that this header expects
-	constexpr std::uint32_t ApiVersion = 0x00020001U;
+	constexpr std::uint32_t ApiVersion = 0x00020002U;
 
 	// Opaque DLL context handle. Defined within the DLL.
 	struct Context;
@@ -94,6 +94,8 @@ namespace pr::rdr12::imgui
 		x(, SetNextItemWidth   , void (__stdcall*)(Context& ctx, float width))\
 		x(, PushID             , void (__stdcall*)(Context& ctx, char const* id))\
 		x(, PopID              , void (__stdcall*)(Context& ctx))\
+		x(, PushStyleColor     , void (__stdcall*)(Context& ctx, int idx, float r, float g, float b, float a))\
+		x(, PopStyleColor      , void (__stdcall*)(Context& ctx, int count))\
 		x(, BeginDisabled      , void (__stdcall*)(Context& ctx, bool disabled))\
 		x(, EndDisabled        , void (__stdcall*)(Context& ctx))\
 		x(, CollapsingHeader   , bool (__stdcall*)(Context& ctx, char const* label, int flags))\
@@ -110,6 +112,10 @@ namespace pr::rdr12::imgui
 		x(, InputFloat         , bool (__stdcall*)(Context& ctx, char const* label, float* v, float step, float step_fast, char const* format, int flags))\
 		x(, InputText          , bool (__stdcall*)(Context& ctx, char const* label, char* buf, size_t buf_size, int flags))\
 		x(, Combo              , bool (__stdcall*)(Context& ctx, char const* label, int* current_item, char const* items_separated_by_zeros, int popup_max_height_in_items))\
+		x(, BeginCombo         , bool (__stdcall*)(Context& ctx, char const* label, char const* preview_value, int flags))\
+		x(, EndCombo           , void (__stdcall*)(Context& ctx))\
+		x(, Selectable         , bool (__stdcall*)(Context& ctx, char const* label, bool selected, int flags))\
+		x(, SetItemDefaultFocus, void (__stdcall*)(Context& ctx))\
 		x(, ColorEdit3         , bool (__stdcall*)(Context& ctx, char const* label, float* col, int flags))\
 		x(, PlotLines          , void (__stdcall*)(Context& ctx, char const* label, float const* values, int values_count, int values_offset, char const* overlay_text, float scale_min, float scale_max, float graph_w, float graph_h))
 		#define PR_IMGUI_FUNCTION_MEMBERS(prefix, name, function_type) using prefix##name##Fn = function_type; prefix##name##Fn prefix##name = {};
@@ -307,6 +313,14 @@ namespace pr::rdr12::imgui
 		{
 			ImGuiDll::get().PopID(*m_ctx);
 		}
+		void PushStyleColor(int idx, float r, float g, float b, float a)
+		{
+			ImGuiDll::get().PushStyleColor(*m_ctx, idx, r, g, b, a);
+		}
+		void PopStyleColor(int count = 1)
+		{
+			ImGuiDll::get().PopStyleColor(*m_ctx, count);
+		}
 		void BeginDisabled(bool disabled = true)
 		{
 			ImGuiDll::get().BeginDisabled(*m_ctx, disabled);
@@ -374,6 +388,22 @@ namespace pr::rdr12::imgui
 		bool Combo(char const* label, int* current_item, char const* items_separated_by_zeros, int popup_max_height_in_items = -1)
 		{
 			return ImGuiDll::get().Combo(*m_ctx, label, current_item, items_separated_by_zeros, popup_max_height_in_items);
+		}
+		bool BeginCombo(char const* label, char const* preview_value, int flags = 0)
+		{
+			return ImGuiDll::get().BeginCombo(*m_ctx, label, preview_value, flags);
+		}
+		void EndCombo()
+		{
+			ImGuiDll::get().EndCombo(*m_ctx);
+		}
+		bool Selectable(char const* label, bool selected = false, int flags = 0)
+		{
+			return ImGuiDll::get().Selectable(*m_ctx, label, selected, flags);
+		}
+		void SetItemDefaultFocus()
+		{
+			ImGuiDll::get().SetItemDefaultFocus(*m_ctx);
 		}
 		bool ColorEdit3(char const* label, float* col, int flags = 0)
 		{

@@ -293,6 +293,12 @@ public sealed partial class Workspace : IDisposable
 				{
 					return Assign(Text(action, "id"), Text(action, "origin"));
 				}
+				case "clips":
+				{
+					// Clips share the original, not the source variant's processing or review state
+					var (_, variant) = VariantOf(action);
+					return CreateClips(variant, action["ranges"] as JsonArray ?? throw new InvalidOperationException("Add at least one clip range."));
+				}
 				case "find_candidates":
 				{
 					return FindCandidates(Text(action, "id"));
@@ -349,6 +355,8 @@ public sealed partial class Workspace : IDisposable
 					prep.Save(Config.PrepFolder);
 					if (status == EVariantStatus.Accepted)
 						Prepare(prep.Id, variant);
+					else if (status == EVariantStatus.Rejected)
+						ForgetRejectedImport(variant.Origin);
 
 					return null;
 				}
@@ -391,8 +399,10 @@ public sealed partial class Workspace : IDisposable
 					if (variant.Source == null)
 						throw new InvalidOperationException("Import the original before editing its recipe.");
 
+					var mixed_before = variant.MixInputs.Select(x => x.Origin).ToHashSet(StringComparer.Ordinal);
 					variant.Recipe = JsonSerializer.Deserialize<List<RecipeStep>>(action["recipe"], AuthoringJson.Options) ?? [];
 					variant.ReferenceMaster = null;
+					BindMixInputs(variant, mixed_before);
 					prep.Save(Config.PrepFolder);
 					Prepare(prep.Id, variant);
 					return null;
@@ -445,6 +455,115 @@ public sealed partial class Workspace : IDisposable
 			}
 			return sound_id != null ? Assign(sound_id, origin) : "Added.";
 		}
+	}
+
+	/// <summary>
+	/// The credit to suggest for a file the user is about to add: its tags where it has them, and a title from its file name 'file_name' otherwise.
+	/// 'file_path' is the file's contents, which may be a temporary copy.
+	/// </summary>
+	public async Task<FileCredit> SuggestCreditAsync(string file_path, string file_name, CancellationToken cancel)
+	{
+		// Tag names differ between formats and taggers, so the common spellings of each field are tried in turn
+		var tags = await Ffmpeg.ReadTagsAsync(file_path, cancel);
+		string? First(params string[] keys)
+		{
+			// The first non-empty tag among 'keys'
+			return keys.Select(tags.GetValueOrDefault).FirstOrDefault(x => !string.IsNullOrWhiteSpace(x));
+		}
+
+		// A web address may have its own tag, or be written into a comment or the copyright notice
+		var url = First("url", "www", "purl", "wxxx", "website", "woar", "woas");
+		url ??= tags.Values.Select(x => WebAddress().Match(x)).FirstOrDefault(x => x.Success)?.Value;
+		return new FileCredit
+		{
+			Title = First("title") ?? Path.GetFileNameWithoutExtension(file_name),
+			Author = First("artist", "album_artist", "composer", "author", "performer"),
+			Licence = First("license", "licence", "copyright"),
+			Url = url,
+		};
+	}
+
+	/// <summary>
+	/// Add the audio file at 'file_path', named 'file_name' on the user's disk, as a new original credited with 'credit', and assign it to 'sound_id' if
+	/// given. The file is copied into the originals folder, because it exists nowhere else the tool can find.
+	/// </summary>
+	public async Task<string> ImportFileAsync(string? sound_id, string file_path, string file_name, FileCredit credit, CancellationToken cancel)
+	{
+		// Only types the tool can decode are accepted, and every recording needs a name for the credit
+		var type = Path.GetExtension(file_name).ToLowerInvariant();
+		if (!LocalTypes.Contains(type))
+			throw new InvalidOperationException($"'{file_name}' is not a supported audio file. Use one of: {string.Join(", ", LocalTypes)}.");
+		if (string.IsNullOrWhiteSpace(credit.Title))
+			throw new InvalidOperationException("Give the recording a title.");
+
+		// The origin is named by the file's bytes, so adding the same file again finds the first copy
+		var id = SourceStore.SourceIdOf(await SourceStore.Sha256Async(file_path, cancel));
+		var origin = $"imported:{id}";
+		lock (m_lock)
+		{
+			if (m_origins.Origins.ContainsKey(origin))
+				return sound_id != null ? Assign(sound_id, origin) : $"'{file_name}' is already known.";
+		}
+
+		// Store the original without holding the lock; a wave file is converted to FLAC, which takes a moment
+		var provenance = new SourceSidecar
+		{
+			Kind = EOriginKind.Imported,
+			Origin = origin,
+			Title = credit.Title.Trim(),
+			Author = Blank(credit.Author),
+			Licence = Blank(credit.Licence),
+			Url = Blank(credit.Url),
+			DownloadName = Path.GetFileName(file_name),
+		};
+		var sidecar = await Sources.ImportAsync(file_path, provenance, cancel);
+
+		lock (m_lock)
+		{
+			// Another request may have added it meanwhile; keep the first record
+			if (!m_origins.Origins.ContainsKey(origin))
+			{
+				m_origins.Origins[origin] = new OriginRecord { Title = provenance.Title, User = provenance.Author, Licence = provenance.Licence, Url = provenance.Url, Source = sidecar.Id };
+				SaveOrigins();
+			}
+			return sound_id != null ? Assign(sound_id, origin) : $"Added '{file_name}' to the unassigned recordings.";
+		}
+	}
+
+	/// <summary>
+	/// Remove the file-added 'origin' once every variant using it is rejected: a rejected recording that exists nowhere else is not worth keeping.
+	/// The variants go with it, and so does its original unless another origin shares it. Caller holds the lock.
+	/// </summary>
+	private void ForgetRejectedImport(string origin)
+	{
+		// Only file-added origins are forgotten, and only once nothing still considers them. A mix keeps its inputs even when rejected, because its recipe still names them.
+		if (OriginsFile.KindOf(origin) != EOriginKind.Imported)
+			return;
+		if (m_catalog.Any(x => PrepOf(x.Id).Variants.Any(v => (v.Origin == origin && v.Status != EVariantStatus.Rejected) || v.MixInputs.Any(m => m.Origin == origin))))
+			return;
+
+		// Remove the rejected variants, and the renders shown for them, so no variant refers to a missing original
+		foreach (var sound in m_catalog)
+		{
+			var prep = PrepOf(sound.Id);
+			var gone = prep.Variants.Where(x => x.Origin == origin).ToList();
+			if (gone.Count == 0)
+				continue;
+
+			foreach (var variant in gone)
+			{
+				prep.Variants.Remove(variant);
+				m_renders.Remove(RenderSlot(sound.Id, variant.Id));
+			}
+			prep.Save(Config.PrepFolder);
+		}
+
+		// The same bytes may also have arrived another way, in which case the original belongs to that origin too
+		var source = m_origins.Origins.GetValueOrDefault(origin)?.Source;
+		m_origins.Origins.Remove(origin);
+		SaveOrigins();
+		if (source != null && !m_origins.Origins.Values.Any(x => x.Source == source) && Sources.Contains(source) && Sources.Sidecar(source).Kind == EOriginKind.Imported)
+			Sources.Delete(source);
 	}
 
 	/// <summary>The origin whose browse preview is stored at 'preview' (relative to the previews folder), or null.</summary>
@@ -521,6 +640,48 @@ public sealed partial class Workspace : IDisposable
 		return $"Searching Freesound for {sound_id} candidates. This takes a minute or two.";
 	}
 
+	/// <summary>Create independent candidate variants from original-time ranges, each naming its destination sound ID. Caller holds the lock.</summary>
+	private string CreateClips(Variant original, JsonArray ranges)
+	{
+		// Check the entire request before adding anything, so an invalid later range cannot leave earlier clips behind
+		if (original.Source == null)
+			throw new InvalidOperationException("Import the original before creating clips.");
+		if (ranges.Count == 0)
+			throw new InvalidOperationException("Add at least one clip range.");
+
+		var clips = new List<(PrepFile prep, double start, double end)>();
+		foreach (var node in ranges)
+		{
+			// Ranges may overlap or share a destination; every range is a distinct variant
+			var range = node as JsonObject ?? throw new InvalidOperationException("Each clip needs a sound ID, start and end.");
+			var prep = PrepOf(Text(range, "id"));
+			if (range["start"] is not JsonValue start_value || !start_value.TryGetValue<double>(out var start) ||
+				range["end"] is not JsonValue end_value || !end_value.TryGetValue<double>(out var end) ||
+				!double.IsFinite(start) || !double.IsFinite(end) || start < 0 || end <= start)
+				throw new InvalidOperationException("Each clip needs finite times in seconds, with 0 <= start < end.");
+
+			clips.Add((prep, start, end));
+		}
+
+		// Stable IDs and the existing trim step make clips ordinary editable variants, with no new persisted format
+		var created = new List<(PrepFile prep, Variant variant)>();
+		foreach (var (prep, start, end) in clips)
+		{
+			var variant = prep.AddVariant(original.Origin, original.Source, EVariantStatus.Candidate);
+			variant.Note = FormattableString.Invariant($"Clip {start:0.######}-{end:0.######} s");
+			variant.Recipe.Add(new RecipeStep { Step = ERecipeStep.Trim, Start = start, End = end });
+			created.Add((prep, variant));
+		}
+		foreach (var prep in created.Select(x => x.prep).Distinct())
+			prep.Save(Config.PrepFolder);
+
+		// Preview uses the same renderer as cooking; acceptance remains an explicit review action
+		foreach (var (prep, variant) in created)
+			QueueRender(prep.Id, variant);
+
+		return $"Created {created.Count} clip candidates. Accept them to use them in the game.";
+	}
+
 	/// <summary>Assign 'origin' to 'sound_id' and describe its other uses. Caller holds the lock.</summary>
 	private string Assign(string sound_id, string origin)
 	{
@@ -550,7 +711,7 @@ public sealed partial class Workspace : IDisposable
 		prep.Save(Config.PrepFolder);
 
 		// Other live uses help avoid using one recording for unrelated sounds
-		var others = m_catalog.Select(x => x.Id).Where(x => x != sound_id && PrepOf(x).Variants.Any(v => v.Origin == origin && v.Status != EVariantStatus.Rejected)).ToList();
+		var others = m_catalog.Select(x => x.Id).Where(x => x != sound_id && PrepOf(x).Variants.Any(v => v.Uses(origin) && v.Status != EVariantStatus.Rejected)).ToList();
 		return others.Count != 0 ? $"{notice} Also used for {string.Join(", ", others)}." : notice;
 	}
 
@@ -730,7 +891,7 @@ public sealed partial class Workspace : IDisposable
 		QueueRender(session.SoundId, variant);
 
 		// Only the latest edit is kept: an earlier edit that no variant uses any more exists nowhere else worth keeping
-		if (OriginsFile.KindOf(previous) == EOriginKind.Edited && !m_catalog.Any(x => PrepOf(x.Id).Variants.Any(v => v.Origin == previous)))
+		if (OriginsFile.KindOf(previous) == EOriginKind.Edited && !m_catalog.Any(x => PrepOf(x.Id).Variants.Any(v => v.Uses(previous))))
 		{
 			if (m_origins.Origins.GetValueOrDefault(previous)?.Source is string old_source)
 				Sources.Delete(old_source);
@@ -760,11 +921,27 @@ public sealed partial class Workspace : IDisposable
 			return;
 		}
 
-		// Hand-made and edited sources are added outside the tool or by the editor, so there is nothing to fetch
-		if (!import || OriginsFile.KindOf(variant.Origin) is EOriginKind.HandMade or EOriginKind.Edited)
+		// Hand-made, edited and imported sources are added outside the tool, by the editor or from a file, so there is nothing to fetch
+		if (!import || OriginsFile.KindOf(variant.Origin) is EOriginKind.HandMade or EOriginKind.Edited or EOriginKind.Imported)
 			return;
 
 		QueueImport(variant.Origin);
+	}
+
+	/// <summary>
+	/// Bind each mix input of 'variant' to its origin's original. The import of a newly added input that has not been imported is started; inputs in
+	/// 'mixed_before' already started theirs. The render fails with a reason until every input is imported. Caller holds the lock.
+	/// </summary>
+	private void BindMixInputs(Variant variant, IReadOnlySet<string> mixed_before)
+	{
+		// The registry is the only authority for an origin's source, so a source sent by the page is never trusted. An input not yet picked has no origin.
+		foreach (var input in variant.MixInputs)
+		{
+			var record = m_origins.Origins.GetValueOrDefault(input.Origin);
+			input.Source = record?.Source;
+			if (record != null && input.Source == null && !mixed_before.Contains(input.Origin) && OriginsFile.KindOf(input.Origin) is EOriginKind.Freesound or EOriginKind.Local)
+				QueueImport(input.Origin);
+		}
 	}
 
 	/// <summary>Render the current recipe of 'variant' in the background. Caller holds the lock.</summary>
@@ -776,10 +953,14 @@ public sealed partial class Workspace : IDisposable
 		var origin = variant.Origin;
 		var record = CopyOf(OriginRecordOf(origin));
 		var recipe = JsonSerializer.Deserialize<List<RecipeStep>>(AuthoringJson.ToCanonicalString(variant.Recipe), AuthoringJson.Options)!;
+		var mixed = recipe.Where(x => !x.Bypass).SelectMany(x => x.Inputs ?? []).Where(x => x.Source != null).Select(x => (x.Origin, record: CopyOf(OriginRecordOf(x.Origin)), source: x.Source!)).ToList();
 		QueueJob(slot, $"Render {sound_id} {variant.Id}", async cancel =>
 		{
-			// An original missing from the fetched folder is fetched again before rendering
+			// Originals missing from the fetched folder are fetched again before rendering
 			await Fetcher.EnsureAsync(origin, record, source, cancel);
+			foreach (var input in mixed)
+				await Fetcher.EnsureAsync(input.Origin, input.record, input.source, cancel);
+
 			return await Cache.GetOrRenderAsync(source, recipe, cancel);
 		}, result =>
 		{
@@ -812,16 +993,20 @@ public sealed partial class Workspace : IDisposable
 				SaveOrigins();
 				foreach (var sound in m_catalog)
 				{
+					// Variants of the origin take it as their original; mixes waiting for it as an input render once it is bound
 					var prep = PrepOf(sound.Id);
 					var waiting = prep.Variants.Where(x => x.Origin == origin && x.Source == null).ToList();
-					if (waiting.Count == 0)
+					var mixing = prep.Variants.Where(x => x.MixInputs.Any(m => m.Origin == origin && m.Source == null)).ToList();
+					if (waiting.Count == 0 && mixing.Count == 0)
 						continue;
 
 					foreach (var variant in waiting)
-					{
 						variant.Source = sidecar.Id;
+					foreach (var input in mixing.SelectMany(x => x.MixInputs).Where(x => x.Origin == origin))
+						input.Source = sidecar.Id;
+					foreach (var variant in waiting.Union(mixing).Where(x => x.Source != null))
 						QueueRender(sound.Id, variant);
-					}
+
 					prep.Save(Config.PrepFolder);
 				}
 			}
@@ -858,6 +1043,7 @@ public sealed partial class Workspace : IDisposable
 			}
 			case EOriginKind.HandMade:
 			case EOriginKind.Edited:
+			case EOriginKind.Imported:
 			{
 				return null;
 			}
@@ -1092,4 +1278,13 @@ public sealed partial class Workspace : IDisposable
 
 	[GeneratedRegex("[^A-Za-z0-9._-]+")]
 	private static partial Regex SafeName();
+
+	[GeneratedRegex(@"https?://[^\s""'<>]+", RegexOptions.IgnoreCase)]
+	private static partial Regex WebAddress();
+
+	/// <summary>'text' trimmed, or null when it is empty.</summary>
+	private static string? Blank(string? text)
+	{
+		return string.IsNullOrWhiteSpace(text) ? null : text.Trim();
+	}
 }

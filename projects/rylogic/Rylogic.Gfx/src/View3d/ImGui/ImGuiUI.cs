@@ -69,6 +69,41 @@ public enum ETreeNodeFlags
 	DefaultOpen = 1 << 5,
 }
 
+/// <summary>Drop-down list flags. Values match ImGuiComboFlags.</summary>
+[Flags]
+public enum EComboFlags
+{
+	None = 0,
+	PopupAlignLeft = 1 << 0,
+	HeightSmall = 1 << 1,
+	HeightRegular = 1 << 2,
+	HeightLarge = 1 << 3,
+	HeightLargest = 1 << 4,
+	NoArrowButton = 1 << 5,
+	NoPreview = 1 << 6,
+	WidthFitPreview = 1 << 7,
+}
+
+/// <summary>Selectable item flags. Values match ImGuiSelectableFlags.</summary>
+[Flags]
+public enum ESelectableFlags
+{
+	None = 0,
+	NoAutoClosePopups = 1 << 0,
+	SpanAllColumns = 1 << 1,
+	AllowDoubleClick = 1 << 2,
+	Disabled = 1 << 3,
+	AllowOverlap = 1 << 4,
+	Highlight = 1 << 5,
+}
+
+/// <summary>The style colours that can be pushed. Values match ImGuiCol.</summary>
+public enum EStyleColour
+{
+	Text = 0,
+	TextDisabled = 1,
+}
+
 /// <summary>Colour editor flags. Values match ImGuiColorEditFlags.</summary>
 [Flags]
 public enum EColorEditFlags
@@ -96,7 +131,7 @@ public enum EColorEditFlags
 public sealed unsafe class ImGuiUI : IDisposable
 {
 	/// <summary>Version of the 'imgui.dll' exports that this wrapper expects.</summary>
-	internal const uint ApiVersion = 0x00020001U;
+	internal const uint ApiVersion = 0x00020002U;
 
 	private const string Dll = "imgui";
 	private static IntPtr s_module;
@@ -353,6 +388,18 @@ public sealed unsafe class ImGuiUI : IDisposable
 		ImGui_PopID(Ctx);
 	}
 
+	/// <summary>Use a straight (not premultiplied) RGBA 'colour' for the style element 'idx' until the matching 'PopStyleColor'.</summary>
+	public void PushStyleColor(EStyleColour idx, float r, float g, float b, float a = 1f)
+	{
+		ImGui_PushStyleColor(Ctx, (int)idx, r, g, b, a);
+	}
+
+	/// <summary>Restore the last 'count' colours pushed by 'PushStyleColor'.</summary>
+	public void PopStyleColor(int count = 1)
+	{
+		ImGui_PopStyleColor(Ctx, count);
+	}
+
 	/// <summary>Grey out and ignore input for following widgets while 'disabled' is true. Always pair with 'EndDisabled'.</summary>
 	public void BeginDisabled(bool disabled = true)
 	{
@@ -482,6 +529,33 @@ public sealed unsafe class ImGuiUI : IDisposable
 		fixed (int* p_current = &current)
 		fixed (byte* p_items = bytes)
 			return ImGui_Combo(Ctx, label, p_current, p_items, -1);
+	}
+
+	/// <summary>
+	/// Begin a drop-down list whose closed box shows 'preview'. Call 'EndCombo' only if this returns true, which it does while the list is open.
+	/// Add the entries with 'Selectable'.
+	/// </summary>
+	public bool BeginCombo(string label, string preview, EComboFlags flags = EComboFlags.None)
+	{
+		return ImGui_BeginCombo(Ctx, label, preview, (int)flags);
+	}
+
+	/// <summary>End the drop-down list begun by 'BeginCombo'.</summary>
+	public void EndCombo()
+	{
+		ImGui_EndCombo(Ctx);
+	}
+
+	/// <summary>A clickable row, highlighted while 'selected'. Returns true when clicked. Inside a drop-down list, a click also closes the list.</summary>
+	public bool Selectable(string label, bool selected = false, ESelectableFlags flags = ESelectableFlags.None)
+	{
+		return ImGui_Selectable(Ctx, label, selected, (int)flags);
+	}
+
+	/// <summary>Make the previous item the one that keyboard navigation starts at when its window or list opens.</summary>
+	public void SetItemDefaultFocus()
+	{
+		ImGui_SetItemDefaultFocus(Ctx);
 	}
 
 	/// <summary>An RGB colour editor with a swatch that opens a colour picker. Returns true when the colour changed. The alpha of 'colour' is preserved.</summary>
@@ -619,6 +693,12 @@ public sealed unsafe class ImGuiUI : IDisposable
 	[DllImport(Dll)][return: MarshalAs(UnmanagedType.U1)] private static extern bool ImGui_InputFloat(IntPtr ctx, [MarshalAs(UnmanagedType.LPUTF8Str)] string label, float* v, float step, float step_fast, [MarshalAs(UnmanagedType.LPUTF8Str)] string format, int flags);
 	[DllImport(Dll)][return: MarshalAs(UnmanagedType.U1)] private static extern bool ImGui_InputText(IntPtr ctx, [MarshalAs(UnmanagedType.LPUTF8Str)] string label, byte* buf, UIntPtr buf_size, int flags);
 	[DllImport(Dll)][return: MarshalAs(UnmanagedType.U1)] private static extern bool ImGui_Combo(IntPtr ctx, [MarshalAs(UnmanagedType.LPUTF8Str)] string label, int* current_item, byte* items_separated_by_zeros, int popup_max_height_in_items);
+	[DllImport(Dll)][return: MarshalAs(UnmanagedType.U1)] private static extern bool ImGui_BeginCombo(IntPtr ctx, [MarshalAs(UnmanagedType.LPUTF8Str)] string label, [MarshalAs(UnmanagedType.LPUTF8Str)] string preview_value, int flags);
+	[DllImport(Dll)] private static extern void ImGui_EndCombo(IntPtr ctx);
+	[DllImport(Dll)][return: MarshalAs(UnmanagedType.U1)] private static extern bool ImGui_Selectable(IntPtr ctx, [MarshalAs(UnmanagedType.LPUTF8Str)] string label, [MarshalAs(UnmanagedType.U1)] bool selected, int flags);
+	[DllImport(Dll)] private static extern void ImGui_SetItemDefaultFocus(IntPtr ctx);
+	[DllImport(Dll)] private static extern void ImGui_PushStyleColor(IntPtr ctx, int idx, float r, float g, float b, float a);
+	[DllImport(Dll)] private static extern void ImGui_PopStyleColor(IntPtr ctx, int count);
 	[DllImport(Dll)][return: MarshalAs(UnmanagedType.U1)] private static extern bool ImGui_ColorEdit3(IntPtr ctx, [MarshalAs(UnmanagedType.LPUTF8Str)] string label, float* col, int flags);
 	[DllImport(Dll)] private static extern void ImGui_PlotLines(IntPtr ctx, [MarshalAs(UnmanagedType.LPUTF8Str)] string label, float* values, int values_count, int values_offset, [MarshalAs(UnmanagedType.LPUTF8Str)] string? overlay_text, float scale_min, float scale_max, float graph_w, float graph_h);
 

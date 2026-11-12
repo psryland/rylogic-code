@@ -112,6 +112,10 @@ public sealed class OriginalFetcher
 			{
 				throw new InvalidOperationException($"'{origin}' is an edit that exists nowhere else, and its original is missing from '{Sources.Folder}'.");
 			}
+			case EOriginKind.Imported:
+			{
+				throw new InvalidOperationException($"'{origin}' was added from a file that exists nowhere else, and its original is missing from '{Sources.Folder}'.");
+			}
 			default:
 			{
 				throw new ArgumentOutOfRangeException(nameof(origin), origin, "Unknown origin kind.");

@@ -153,6 +153,10 @@ namespace pr::audio
 		// Zero-duration mix targets are applied without interpolation. XAudio2 makes graph changes audible on its processing thread.
 		void Update();
 
+		// Stop or restart all audio processing. While suspended, the XAudio2 processing thread and the stream decode worker are idle, so playback freezes in place
+		// and resumes from the same positions. Mix changes made while suspended become audible after resuming. Setting the current state again does nothing.
+		void SuspendedSet(bool suspended);
+
 		// Copy and consume buffered runtime events.
 		std::uint32_t EventsCopy(std::span<Event> events);
 

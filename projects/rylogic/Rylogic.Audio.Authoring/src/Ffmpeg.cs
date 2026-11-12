@@ -81,6 +81,75 @@ public sealed class Ffmpeg
 		}
 	}
 
+	/// <summary>
+	/// The descriptive tags of 'path', such as 'title' and 'artist', keyed by lowercase tag name. Tags that the file's format stores per stream, as Ogg
+	/// does, are included. A file without tags gives an empty dictionary.
+	/// </summary>
+	public async Task<IReadOnlyDictionary<string, string>> ReadTagsAsync(string path, CancellationToken cancel)
+	{
+		// ffmpeg writes the tags in its plain 'ffmetadata' text form: a header line, then one 'key=value' line per tag
+		var tags = new Dictionary<string, string>(StringComparer.Ordinal);
+		foreach (var source in new[] { "0", "0:s:a:0" })
+		{
+			string[] arguments =
+			[
+				"-nostdin", "-hide_banner", "-loglevel", "error",
+				"-i", path,
+				"-map_metadata", source, "-f", "ffmetadata", "-",
+			];
+			var text = string.Empty;
+			await RunAsync(arguments, stdout => text = new StreamReader(stdout).ReadToEnd(), $"Reading the tags of '{path}'", cancel);
+
+			// The file's own tags come first, so a stream tag of the same name does not replace one
+			foreach (var (key, value) in ParseMetadata(text))
+				tags.TryAdd(key, value);
+		}
+		return tags;
+	}
+
+	/// <summary>The tags in ffmpeg's 'ffmetadata' text form, ignoring any chapter or stream sections.</summary>
+	private static IEnumerable<(string key, string value)> ParseMetadata(string text)
+	{
+		// A backslash escapes the next character, including a line break that continues the value on the next line
+		var line = new System.Text.StringBuilder();
+		var lines = new List<string>();
+		for (int i = 0; i != text.Length; ++i)
+		{
+			// Unescaped line breaks end a line
+			var c = text[i];
+			if (c == '\\' && i + 1 != text.Length)
+			{
+				line.Append(text[++i]);
+			}
+			else if (c == '\n')
+			{
+				lines.Add(line.ToString().TrimEnd('\r'));
+				line.Clear();
+			}
+			else
+			{
+				line.Append(c);
+			}
+		}
+		lines.Add(line.ToString());
+
+		// Comments start with ';' or '#', and the first section header ends the file-level tags
+		foreach (var entry in lines)
+		{
+			// Lines without '=' are blank or malformed
+			if (entry.StartsWith('['))
+				yield break;
+
+			var equals = entry.IndexOf('=');
+			if (entry.StartsWith(';') || entry.StartsWith('#') || equals <= 0)
+				continue;
+
+			var value = entry[(equals + 1)..].Trim();
+			if (value.Length != 0)
+				yield return (entry[..equals].Trim().ToLowerInvariant(), value);
+		}
+	}
+
 	/// <summary>Run ffmpeg with 'arguments'. 'read_stdout', if given, consumes standard output while ffmpeg runs.</summary>
 	private async Task RunAsync(IEnumerable<string> arguments, Action<Stream>? read_stdout, string what, CancellationToken cancel)
 	{

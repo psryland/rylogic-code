@@ -82,6 +82,11 @@ Compression and limiting would be separate, explicit steps in a later version; n
 - A recipe editor per variant: add, remove, reorder and bypass steps, with parameter controls. The processed preview re-renders automatically after a short
   pause in editing.
 - Loudness matching for audition is a clearly labelled playback-only option. The default playback is the actual prepared gain.
+- **Create clips from original** in a variant's recipe editor collects multiple start/end ranges in seconds, with a destination sound ID per range.
+  Listen and seek in the original, then use **Set start** / **Set end**, or type timestamps. Ranges may overlap and may target the same or different
+  existing sound IDs. Each range creates a separate candidate with a stable variant ID, the same source and provenance, and its own initial `trim`
+  recipe. The original, the source variant, its processing and any reference master stay unchanged. Clips can be processed and reviewed independently;
+  accepting them uses the existing preview, live-update and cook paths. No extra original copies or new preparation format are needed.
 
 ## Live link (development only)
 

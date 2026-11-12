@@ -46,6 +46,7 @@ public sealed class SourceStore
 			case EOriginKind.Local:
 			case EOriginKind.HandMade:
 			case EOriginKind.Edited:
+			case EOriginKind.Imported:
 			{
 				return false;
 			}

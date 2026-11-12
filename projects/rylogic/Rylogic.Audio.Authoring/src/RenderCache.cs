@@ -35,15 +35,18 @@ public sealed class RenderCache
 	}
 
 	/// <summary>
-	/// The cache key for rendering 'recipe' from 'source_id': a hash of the renderer version, the original's content, the enabled steps and the ffmpeg
-	/// build that decodes the original.
+	/// The cache key for rendering 'recipe' from 'source_id': a hash of the renderer version, the content of the original and of every mixed-in
+	/// original, the enabled steps and the ffmpeg build that decodes the originals.
 	/// </summary>
 	public async Task<string> KeyAsync(string source_id, IReadOnlyList<RecipeStep> recipe, CancellationToken cancel)
 	{
 		// Bypassed steps do not affect the output, so toggling bypass back restores the earlier key
-		var original_sha = await m_sources.OriginalSha256Async(source_id, cancel);
+		var shas = new List<string> { await m_sources.OriginalSha256Async(source_id, cancel) };
+		foreach (var input in RecipeRenderer.InputSources(recipe))
+			shas.Add(await m_sources.OriginalSha256Async(input, cancel));
+
 		var steps = AuthoringJson.ToCanonicalString(recipe.Where(x => !x.Bypass).ToList());
-		var text = string.Join('\n', RecipeRenderer.PreparationVersion, original_sha, steps, m_ffmpeg.Version);
+		var text = string.Join('\n', RecipeRenderer.PreparationVersion, string.Join('\n', shas), steps, m_ffmpeg.Version);
 		return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
 	}
 
@@ -56,12 +59,23 @@ public sealed class RenderCache
 		if (File.Exists(path))
 			return (key, path);
 
-		// Always render from the original, never from another render
-		await m_sources.VerifyAsync(source_id, cancel);
-		var original = await m_ffmpeg.DecodeAsync(m_sources.OriginalPath(source_id), cancel);
-		var rendered = await Task.Run(() => RecipeRenderer.Render(original, recipe), cancel);
+		// Always render from the originals, never from another render
+		var original = await DecodeAsync(source_id, cancel);
+		var inputs = new Dictionary<string, AudioBuffer>();
+		foreach (var input in RecipeRenderer.InputSources(recipe))
+			inputs[input] = await DecodeAsync(input, cancel);
+
+		var rendered = await Task.Run(() => RecipeRenderer.Render(original, recipe, inputs), cancel);
 		cancel.ThrowIfCancellationRequested();
 		AuthoringJson.WriteAtomic(path, WavFile.Encode(rendered));
 		return (key, path);
+	}
+
+	/// <summary>Verify and decode the original of 'source_id'.</summary>
+	private async Task<AudioBuffer> DecodeAsync(string source_id, CancellationToken cancel)
+	{
+		// A corrupted original must never produce a render that looks valid
+		await m_sources.VerifyAsync(source_id, cancel);
+		return await m_ffmpeg.DecodeAsync(m_sources.OriginalPath(source_id), cancel);
 	}
 }
