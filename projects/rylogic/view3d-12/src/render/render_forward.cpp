@@ -631,7 +631,7 @@ namespace pr::rdr12
 		{
 			for (auto const& proxy : pop->m_proxies)
 			{
-				PopulationNuggets(*proxy.m_model.get(), m_step_id, [&](Nugget const& nug)
+				PopulationNuggets(proxy, m_step_id, [&](Nugget const& nug, Material const&)
 				{
 					add_opaque(nug, proxy.m_base, pop->m_sort_group, true);
 				});

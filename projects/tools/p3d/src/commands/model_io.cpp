@@ -240,15 +240,17 @@ namespace
 			out.m_alpha_cutoff = mat.m_alpha_cutoff;
 			out.m_double_sided = mat.m_double_sided;
 
-			AddTexture(out, mat.m_base_colour_texture, p3d::Texture::EType::Diffuse, mat.m_alpha_mode != gltf::EAlphaMode::Opaque);
-			AddTexture(out, mat.m_metallic_roughness_texture, p3d::Texture::EType::MetallicRoughness, false);
-			AddTexture(out, mat.m_emissive_texture, p3d::Texture::EType::Emissive, false);
-			AddTexture(out, mat.m_normal_texture, p3d::Texture::EType::NormalMap, false);
+			// glTF normal maps use the OpenGL convention, which the p3d texture records so the renderer can sample them correctly.
+			auto base_flags = mat.m_alpha_mode != gltf::EAlphaMode::Opaque ? p3d::Texture::EFlags::Alpha : p3d::Texture::EFlags::None;
+			AddTexture(out, mat.m_base_colour_texture, p3d::Texture::EType::Diffuse, base_flags);
+			AddTexture(out, mat.m_metallic_roughness_texture, p3d::Texture::EType::MetallicRoughness, p3d::Texture::EFlags::None);
+			AddTexture(out, mat.m_emissive_texture, p3d::Texture::EType::Emissive, p3d::Texture::EFlags::None);
+			AddTexture(out, mat.m_normal_texture, p3d::Texture::EType::NormalMap, p3d::Texture::EFlags::NormalGreenUp);
 			return id;
 		}
 
 		// Add one texture slot to 'mat', extracting the image if the glTF file embeds it.
-		void AddTexture(p3d::Material& mat, geometry::TextureRef const& src, p3d::Texture::EType type, bool has_alpha)
+		void AddTexture(p3d::Material& mat, geometry::TextureRef const& src, p3d::Texture::EType type, p3d::Texture::EFlags flags)
 		{
 			if (!src)
 				return;
@@ -257,7 +259,7 @@ namespace
 			tex.m_filepath = src.m_data.empty() ? src.m_uri : ExtractImage(src);
 			tex.m_type = type;
 			tex.m_addr_mode = ToAddrMode(src.m_wrap_s);
-			tex.m_flags = has_alpha ? p3d::Texture::EFlags::Alpha : p3d::Texture::EFlags::None;
+			tex.m_flags = flags;
 			tex.m_wrap_s = src.m_wrap_s;
 			tex.m_wrap_t = src.m_wrap_t;
 			tex.m_min_filter = src.m_min_filter;

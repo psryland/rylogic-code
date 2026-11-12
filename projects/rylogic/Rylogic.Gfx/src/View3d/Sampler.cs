@@ -1,4 +1,4 @@
-﻿//#define PR_VIEW3D_CREATE_STACKTRACE
+//#define PR_VIEW3D_CREATE_STACKTRACE
 using System;
 using Rylogic.Utility;
 using HSampler = System.IntPtr;
@@ -52,7 +52,7 @@ namespace Rylogic.Gfx
 			/// <summary>Create a sampler instance from a stock sampler</summary>
 			public static Sampler FromStock(EStockSampler sam)
 			{
-				// Stock textures are not reference counted
+				// Stock resources are owned by the renderer, so the handle is borrowed
 				return new Sampler(View3D_SamplerCreateStock(sam), owned: false);
 			}
 

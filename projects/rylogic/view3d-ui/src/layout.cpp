@@ -10,17 +10,19 @@ namespace pr::view3d::ui
 	namespace
 	{
 		// Offset of a child's near edge within 'avail' space, for a child of 'size' using 'align'.
-		float AlignOffset(std::int32_t align_value, std::int32_t stretch_value, float avail, float size)
+		// 'fraction' is the child's centre as a fraction of 'avail', used only by the Fraction alignment.
+		float AlignOffset(std::int32_t align_value, std::int32_t stretch_value, float avail, float size, float fraction)
 		{
 			if (align_value == stretch_value)
 				return 0.0f; // Stretch: the child already fills 'avail', so it starts at the origin.
 
-			// Left/Top == 0, Center == 1, Right/Bottom == 2 for both EHAlign and EVAlign.
+			// Left/Top == 0, Center == 1, Right/Bottom == 2, Fraction == 4 for both EHAlign and EVAlign.
 			switch (align_value)
 			{
 				case 0: return 0.0f;
 				case 1: return (avail - size) * 0.5f;
 				case 2: return avail - size;
+				case 4: return avail * fraction - size * 0.5f;
 				default: throw EngineException(EStatus::UnknownType, std::format("AlignOffset: unrecognised alignment value {}", align_value));
 			}
 		}
@@ -40,8 +42,8 @@ namespace pr::view3d::ui
 			auto avail_h = std::max(0.0f, content.h - cl.margin_top - cl.margin_bottom);
 			auto w = ResolveExtent(cl.h_align == EHAlign::Stretch, cl.width, avail_w);
 			auto h = ResolveExtent(cl.v_align == EVAlign::Stretch, cl.height, avail_h);
-			auto ox = AlignOffset(static_cast<std::int32_t>(cl.h_align), static_cast<std::int32_t>(EHAlign::Stretch), avail_w, w);
-			auto oy = AlignOffset(static_cast<std::int32_t>(cl.v_align), static_cast<std::int32_t>(EVAlign::Stretch), avail_h, h);
+			auto ox = AlignOffset(static_cast<std::int32_t>(cl.h_align), static_cast<std::int32_t>(EHAlign::Stretch), avail_w, w, cl.h_fraction);
+			auto oy = AlignOffset(static_cast<std::int32_t>(cl.v_align), static_cast<std::int32_t>(EVAlign::Stretch), avail_h, h, cl.v_fraction);
 			return Rect{ content.x + cl.margin_left + ox, content.y + cl.margin_top + oy, w, h };
 		}
 
@@ -92,7 +94,7 @@ namespace pr::view3d::ui
 						// applies within the full content height.
 						auto avail_h = std::max(0.0f, content.h - cl.margin_top - cl.margin_bottom);
 						auto h = ResolveExtent(cl.v_align == EVAlign::Stretch, cl.height, avail_h);
-						auto oy = AlignOffset(static_cast<std::int32_t>(cl.v_align), static_cast<std::int32_t>(EVAlign::Stretch), avail_h, h);
+						auto oy = AlignOffset(static_cast<std::int32_t>(cl.v_align), static_cast<std::int32_t>(EVAlign::Stretch), avail_h, h, cl.v_fraction);
 						auto x = cursor.x + cl.margin_left;
 						rect = Rect{ x, content.y + cl.margin_top + oy, cl.width, h };
 						cursor.x = x + cl.width + cl.margin_right + lp.stack_spacing;
@@ -103,7 +105,7 @@ namespace pr::view3d::ui
 						// Children flow top-to-bottom; horizontal alignment applies within the full content width.
 						auto avail_w = std::max(0.0f, content.w - cl.margin_left - cl.margin_right);
 						auto w = ResolveExtent(cl.h_align == EHAlign::Stretch, cl.width, avail_w);
-						auto ox = AlignOffset(static_cast<std::int32_t>(cl.h_align), static_cast<std::int32_t>(EHAlign::Stretch), avail_w, w);
+						auto ox = AlignOffset(static_cast<std::int32_t>(cl.h_align), static_cast<std::int32_t>(EHAlign::Stretch), avail_w, w, cl.h_fraction);
 						auto y = cursor.y + cl.margin_top;
 						rect = Rect{ content.x + cl.margin_left + ox, y, w, cl.height };
 						cursor.y = y + cl.height + cl.margin_bottom + lp.stack_spacing;

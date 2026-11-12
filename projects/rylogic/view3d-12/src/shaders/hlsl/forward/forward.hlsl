@@ -68,6 +68,10 @@ SamplerState      g_roughness_sampler :register(s5);
 SamplerState      g_emissive_sampler  :register(s6);
 SamplerState      g_normal_sampler    :register(s7);
 
+// PBR tint mask. The R channel is a linear weight: 1 means the appearance tint colours the base colour, 0 means the authored colour is kept.
+Texture2D<float4> g_tint_mask_texture :register(t30);
+SamplerState      g_tint_mask_sampler :register(s9);
+
 // The frame's world space lights. The count is in 'g_frame.light_info.x'.
 StructuredBuffer<Light> g_lights :register(t15);
 
@@ -123,20 +127,6 @@ PSIn ToPSIn(PSIn In)
 	return In;
 }
 
-// Return the common pixel-shader input fields from an optional texture-coordinate input.
-PSIn ToPSIn(PSInTexN In)
-{
-	PSIn Out = (PSIn)0;
-	Out.ss_vert = In.ss_vert;
-	Out.ws_vert = In.ws_vert;
-	Out.ws_norm = In.ws_norm;
-	Out.diff = In.diff;
-	Out.tex0 = In.tex0;
-	Out.idx0 = In.idx0;
-	Out.dither = In.dither;
-	return Out;
-}
-
 // Return the transformed texture-coordinate value for a shader lane.
 float2 PbrTextureUV(PSIn In, int texcoord)
 {
@@ -181,6 +171,30 @@ float2 PbrSlotUV(TIn In, int texcoord, TexXForm transform)
 	return TransformPbrUV(PbrTextureUV(In, texcoord), transform);
 }
 
+// Return the common pixel-shader input fields from an optional texture-coordinate input. Pixel shaders only.
+// With a tint mask, 'diff' has the appearance tint only where the mask is set: lerp(vcol, vcol * tint, mask) = vcol * lerp(1, tint, mask).
+// Alpha keeps the tinted value, so opacity is not affected by the mask.
+PSIn ToPSIn(PSInTexN In)
+{
+	// Copy the fields shared with the standard input.
+	PSIn Out = (PSIn)0;
+	Out.ss_vert = In.ss_vert;
+	Out.ws_vert = In.ws_vert;
+	Out.ws_norm = In.ws_norm;
+	Out.diff = In.diff;
+	Out.tex0 = In.tex0;
+	Out.idx0 = In.idx0;
+	Out.dither = In.dither;
+
+	// Limit the tint colour to the masked area of the surface.
+	if (AnySet(g_pbr.texture_flags, PbrTextureFlag_HasTintMask))
+	{
+		float mask = g_tint_mask_texture.Sample(g_tint_mask_sampler, PbrSlotUV(In, g_pbr.tint_mask_texcoord, g_pbr.tint_mask_uv_transform)).r;
+		Out.diff = float4(lerp(In.vcol.rgb, In.diff.rgb, mask), In.diff.a);
+	}
+	return Out;
+}
+
 // Return the world-space surface normal used by the forward material path.
 float4 ResolveWorldNormal(PSIn In, bool is_front_face)
 {
@@ -201,7 +215,11 @@ float4 ResolveWorldNormal(PSIn In, bool is_front_face)
 // Apply the material normal-map sample to a world-space geometric normal.
 float3 PerturbWorldNormal(PSIn In, float3 normal, float2 normal_uv)
 {
+	// The bitangent below follows increasing V (down the image), so a map whose +Y points up the image has its Y negated.
 	float2 map_xy = g_normal_texture.Sample(g_normal_sampler, normal_uv).xy * 2.0f - 1.0f;
+	if (AnySet(g_pbr.texture_flags, PbrTextureFlag_NormalMapGreenUp))
+		map_xy.y = -map_xy.y;
+
 	map_xy *= g_pbr.normal_scale;
 	float3 map_normal = normalize(float3(map_xy, sqrt(saturate(1.0f - dot(map_xy, map_xy)))));
 
@@ -211,8 +229,13 @@ float3 PerturbWorldNormal(PSIn In, float3 normal, float2 normal_uv)
 	float2 duv2 = ddy(normal_uv);
 	float3 dp2_perp = cross(dp2, normal);
 	float3 dp1_perp = cross(normal, dp1);
-	float3 tangent = dp2_perp * duv1.x + dp1_perp * duv2.x;
-	float3 bitangent = dp2_perp * duv1.y + dp1_perp * duv2.y;
+
+	// These sums are the UV gradients scaled by det = dot(dp1, dp2_perp), so they carry the sign of det. Screen Y points down in HLSL,
+	// which makes det negative for a surface facing the viewer and would invert the frame. Multiply by the sign of det so that the
+	// tangent always follows increasing U and the bitangent follows increasing V.
+	float frame_sign = dot(dp1, dp2_perp) < 0.0f ? -1.0f : 1.0f;
+	float3 tangent = (dp2_perp * duv1.x + dp1_perp * duv2.x) * frame_sign;
+	float3 bitangent = (dp2_perp * duv1.y + dp1_perp * duv2.y) * frame_sign;
 	// The frame length scales with (world size of a pixel x UV size of a pixel)^2, so it is tiny for fine textures seen close up.
 	// Only a frame with no UV change across the pixel (zero, or NaN from degenerate derivatives) has no usable direction; reject only that case.
 	float frame_len = max(dot(tangent, tangent), dot(bitangent, bitangent));
@@ -312,6 +335,7 @@ PSInTexN VSForwardTexN(VSIn In, uint vertex_id : SV_VertexID)
 	Out.ws_vert = base.ws_vert;
 	Out.ws_norm = base.ws_norm;
 	Out.diff = base.diff;
+	Out.vcol = In.diff;
 	Out.tex0 = base.tex0;
 	Out.idx0 = base.idx0;
 	Out.dither = base.dither;
@@ -364,7 +388,7 @@ PSIn VSForwardPopulation(VSIn In, uint instance_id : SV_InstanceID)
 // Forward VS for population draws of PBR materials that use optional texture-coordinate lanes
 PSInTexN VSForwardTexNPopulation(VSIn In, uint vertex_id : SV_VertexID, uint instance_id : SV_InstanceID)
 {
-	// Place the shared vertex fields; the optional lanes do not depend on the placement.
+	// Place the shared vertex fields; the optional lanes and the untinted vertex colour do not depend on the placement.
 	PSInTexN Out = VSForwardTexN(In, vertex_id);
 	PSIn base = (PSIn)0;
 	base.ws_vert = Out.ws_vert;
@@ -402,7 +426,7 @@ PSIn VSForwardSkinnedPopulation(VSIn In, uint instance_id : SV_InstanceID)
 // Forward VS for population draws of skinned LOD models with PBR materials that use optional texture-coordinate lanes
 PSInTexN VSForwardTexNSkinnedPopulation(VSIn In, uint vertex_id : SV_VertexID, uint instance_id : SV_InstanceID)
 {
-	// The optional lanes do not depend on the pose, so only the shared fields come from the skinned variant
+	// The optional lanes and the untinted vertex colour do not depend on the pose, so only the shared fields come from the skinned variant
 	PSInTexN Out = VSForwardTexN(In, vertex_id);
 	PSIn base = VSForwardSkinnedPopulation(In, instance_id);
 	Out.ws_vert = base.ws_vert;

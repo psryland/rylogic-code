@@ -360,7 +360,7 @@ namespace pr::rdr12
 		// Fill in the standard PBR texture slots of a renderer material from imported texture references.
 		// All formats describe the same set of slots, so the mapping onto the renderer material is shared.
 		template <typename Material>
-		static void ApplyPbrTextures(ResourceFactory& factory, MaterialPBR& material, Material const& src, geometry::TextureRef const& base, geometry::TextureRef const& metallic_roughness, geometry::TextureRef const& emissive, geometry::TextureRef const& normal, bool base_has_alpha)
+		static void ApplyPbrTextures(ResourceFactory& factory, MaterialPBR& material, Material const& src, geometry::TextureRef const& base, geometry::TextureRef const& metallic_roughness, geometry::TextureRef const& emissive, geometry::TextureRef const& normal, materials::ENormalMapConvention normal_convention, bool base_has_alpha)
 		{
 			auto base_texture = CreateTextureSlot(factory, src, "base-colour", base, materials::ETextureColourSpace::Srgb, base_has_alpha);
 			if (base_texture)
@@ -386,7 +386,7 @@ namespace pr::rdr12
 
 			auto normal_texture = CreateTextureSlot(factory, src, "normal", normal, materials::ETextureColourSpace::Linear, false);
 			if (normal_texture)
-				material.normal_texture(normal_texture, normal.m_scale);
+				material.normal_texture(normal_texture, normal.m_scale, materials::ENormalMapSpace::Tangent, normal_convention);
 		}
 
 		// Copy imported material properties into a renderer PBR material.
@@ -472,10 +472,10 @@ namespace pr::rdr12
 				material.alpha_mode(AlphaMode(src.m_alpha_mode), src.m_alpha_cutoff);
 			}
 
-			// Apply glTF-specific texture slots to a renderer PBR material.
+			// Apply glTF-specific texture slots to a renderer PBR material. glTF normal maps use the OpenGL convention.
 			static void ConfigureTextures(ResourceFactory& factory, MaterialPBR& material, geometry::gltf::Material const& src)
 			{
-				ApplyPbrTextures(factory, material, src, src.m_base_colour_texture, src.m_metallic_roughness_texture, src.m_emissive_texture, src.m_normal_texture, UsesBaseTextureAlpha(src.m_alpha_mode));
+				ApplyPbrTextures(factory, material, src, src.m_base_colour_texture, src.m_metallic_roughness_texture, src.m_emissive_texture, src.m_normal_texture, materials::ENormalMapConvention::OpenGL, UsesBaseTextureAlpha(src.m_alpha_mode));
 			}
 		};
 		template <> struct MaterialTraits<geometry::fbx::Material>
@@ -616,7 +616,9 @@ namespace pr::rdr12
 			auto metallic_roughness = slot(geometry::p3d::Texture::EType::MetallicRoughness);
 			auto emissive = slot(geometry::p3d::Texture::EType::Emissive);
 			auto normal = slot(geometry::p3d::Texture::EType::NormalMap);
-			ApplyPbrTextures(factory, material, src, base, metallic_roughness, emissive, normal, src.m_alpha_mode != geometry::p3d::Material::EAlphaMode::Opaque);
+			auto const* normal_tex = src.find_texture(geometry::p3d::Texture::EType::NormalMap);
+			auto normal_convention = normal_tex != nullptr && AllSet(normal_tex->m_flags, geometry::p3d::Texture::EFlags::NormalGreenUp) ? materials::ENormalMapConvention::OpenGL : materials::ENormalMapConvention::DirectX;
+			ApplyPbrTextures(factory, material, src, base, metallic_roughness, emissive, normal, normal_convention, src.m_alpha_mode != geometry::p3d::Material::EAlphaMode::Opaque);
 		}
 	}
 

@@ -9,6 +9,7 @@
 #include "pr/view3d-12/model/nugget.h"
 #include "pr/view3d-12/instance/instance.h"
 #include "pr/view3d-12/population/population.h"
+#include "pr/view3d-12/resource/resource_store.h"
 #include "view3d-12/src/shaders/common.h"
 
 namespace pr::rdr12::shaders
@@ -35,10 +36,7 @@ namespace pr::rdr12::shaders
 		inline static constexpr auto PbrRoughnessTexture = ESRVReg::t5;
 		inline static constexpr auto OpaqueDepth = ESRVReg::t6;
 		inline static constexpr auto PbrEmissiveTexture = ESRVReg::t7;
-		inline static constexpr auto Tex1Stream = ESRVReg::t8;
-		inline static constexpr auto Tex2Stream = ESRVReg::t9;
-		inline static constexpr auto Tex3Stream = ESRVReg:: t10;
-		inline static constexpr auto Tex4Stream = ESRVReg:: t11;
+		inline static constexpr auto TexStreams = ESRVReg::t8; // and t9, t10, t11
 		inline static constexpr auto PbrNormalTexture = ESRVReg::t12;
 		inline static constexpr auto EnvMapPrev = ESRVReg::t13;
 		inline static constexpr auto SkyTexture = ESRVReg::t18;
@@ -59,6 +57,7 @@ namespace pr::rdr12::shaders
 		inline static constexpr auto PopulationSkin = ESRVReg::t27;
 		inline static constexpr auto PopulationDraw = ECBufReg::b8;
 		inline static constexpr auto ReflectionPlane = ESRVReg::t28; // and the coverage in t29
+		inline static constexpr auto PbrTintMaskTexture = ESRVReg::t30;
 	};
 	struct ESamp
 	{
@@ -71,6 +70,7 @@ namespace pr::rdr12::shaders
 		inline static constexpr auto PbrRoughness = ESamReg::s5;
 		inline static constexpr auto PbrEmissive = ESamReg::s6;
 		inline static constexpr auto PbrNormal = ESamReg::s7;
+		inline static constexpr auto PbrTintMask = ESamReg::s9;
 	};
 
 	Forward::Forward(Renderer& rdr)
@@ -78,6 +78,7 @@ namespace pr::rdr12::shaders
 		,m_sky_history()
 		,m_reflection_plane()
 		,m_clip_remap()
+		,m_null_texcoord_stream()
 	{
 		m_code = ShaderCode
 		{
@@ -90,6 +91,7 @@ namespace pr::rdr12::shaders
 		};
 		
 		// Create the root signature. The element index is a root constant because it changes for every draw.
+		// The signature is at the 64 DWORD limit, so related views share tables (e.g. the texture-coordinate lanes and the reflection plane).
 		m_signature = RootSig(ERootSigFlags::GraphicsOnly)
 			.CBuf(EReg::CBufFrame)
 			.U32(EReg::ElementIndex, sizeof(CBufElement) / sizeof(uint32_t))
@@ -107,10 +109,7 @@ namespace pr::rdr12::shaders
 			.SRV(EReg::PbrRoughnessTexture, 1)
 			.SRV(EReg::OpaqueDepth, 1, D3D12_SHADER_VISIBILITY_PIXEL)
 			.SRV(EReg::PbrEmissiveTexture, 1)
-			.SRV(EReg::Tex1Stream, 1, D3D12_SHADER_VISIBILITY_VERTEX)
-			.SRV(EReg::Tex2Stream, 1, D3D12_SHADER_VISIBILITY_VERTEX)
-			.SRV(EReg::Tex3Stream, 1, D3D12_SHADER_VISIBILITY_VERTEX)
-			.SRV(EReg::Tex4Stream, 1, D3D12_SHADER_VISIBILITY_VERTEX)
+			.SRV(EReg::TexStreams, 4, D3D12_SHADER_VISIBILITY_VERTEX)
 			.SRV(EReg::PbrNormalTexture, 1)
 			.Samp(ESamp::Diff, shaders::MaxSamplers)
 			.Samp(ESamp::PbrMetallic, 1)
@@ -140,7 +139,26 @@ namespace pr::rdr12::shaders
 			.U32<PopulationDraw>(EReg::PopulationDraw)
 			.SRV(EReg::PopulationSkin, D3D12_SHADER_VISIBILITY_VERTEX)
 			.SRV(EReg::ReflectionPlane, 2, D3D12_SHADER_VISIBILITY_PIXEL)
+			.SRV(EReg::PbrTintMaskTexture, 1, D3D12_SHADER_VISIBILITY_PIXEL)
+			.Samp(ESamp::PbrTintMask, 1, D3D12_SHADER_VISIBILITY_PIXEL)
 			.Create(rdr.d3d(), "ForwardSig");
+
+		// Create the null view bound to unused texture-coordinate lanes. The stride matches the 'float2' elements the shader declares.
+		ResourceStore::Access store(rdr);
+		auto null_stream_desc = D3D12_SHADER_RESOURCE_VIEW_DESC{
+			.Format = DXGI_FORMAT_UNKNOWN,
+			.ViewDimension = D3D12_SRV_DIMENSION_BUFFER,
+			.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+			.Buffer = { .FirstElement = 0, .NumElements = 1, .StructureByteStride = sizeof(v2), .Flags = D3D12_BUFFER_SRV_FLAG_NONE },
+		};
+		m_null_texcoord_stream = store.Descriptors().Create(nullptr, null_stream_desc);
+	}
+
+	// Return the null view to the descriptor store.
+	Forward::~Forward()
+	{
+		ResourceStore::Access store(rdr());
+		store.Descriptors().Release(m_null_texcoord_stream);
 	}
 
 	// Config the shader

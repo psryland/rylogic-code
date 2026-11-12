@@ -504,6 +504,32 @@ namespace pr::view3d::ui::tests
 		PR_EXPECT(RectEqual(BoundsOf(nodes, 2), Rect{ 80.0f, 40.0f, 40.0f, 20.0f }));
 	}
 
+	// Fraction alignment places the child's centre at the given fraction of the slot left after margins, and a fraction outside [0,1] is allowed.
+	PRUnitTest(LayoutOverlayFractionCentersChildAtFractionOfSlot, Quick)
+	{
+		// Arrange a 200x100 root with one child at fractions (0.75, 0.25) and one beyond the far edge.
+		auto runtime = Runtime{};
+		auto device = FakeDevice{};
+		auto ctx = UiContext(runtime, &device);
+
+		auto b0 = TxnBuilder{};
+		b0.Upsert(MakeControl(1, 0, EControlType::Root, ELayoutMode::Overlay, Lp(200.0f, 100.0f)));
+		auto child = MakeControl(2, 1, EControlType::Button, ELayoutMode::Overlay, Lp(40.0f, 20.0f, EHAlign::Fraction, EVAlign::Fraction));
+		child.layout.margin_left = 20.0f;
+		child.layout.h_fraction = 0.75f;
+		child.layout.v_fraction = 0.25f;
+		b0.Upsert(child);
+		auto outside = MakeControl(3, 1, EControlType::Button, ELayoutMode::Overlay, Lp(40.0f, 20.0f, EHAlign::Fraction, EVAlign::Top));
+		outside.layout.h_fraction = 1.1f;
+		b0.Upsert(outside);
+
+		// Child 2: slot width 180 from x=20, so the centre is at 20 + 135 = 155. The centre y is 25.
+		// Child 3: the centre is at 220, so it sits partly beyond the root's right edge.
+		auto nodes = ApplyAndSnapshotBounds(ctx, b0.Build(0, 1), Viewport(800, 600));
+		PR_EXPECT(RectEqual(BoundsOf(nodes, 2), Rect{ 135.0f, 15.0f, 40.0f, 20.0f }));
+		PR_EXPECT(RectEqual(BoundsOf(nodes, 3), Rect{ 200.0f, 0.0f, 40.0f, 20.0f }));
+	}
+
 	PRUnitTest(LayoutOverlayStretchFillsAvailableSpaceMinusMargins, Quick)
 	{
 		auto runtime = Runtime{};

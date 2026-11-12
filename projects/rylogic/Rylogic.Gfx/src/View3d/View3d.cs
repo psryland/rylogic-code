@@ -2498,6 +2498,8 @@ namespace Rylogic.Gfx
 		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern void View3D_ObjectNuggetProceduralSurfaceClear(HObject obj, [MarshalAs(UnmanagedType.LPStr)] string? name, int index);
 		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern void View3D_ObjectNuggetDetailNormalsSet(HObject obj, HTexture tex, HSampler sam, [MarshalAs(UnmanagedType.LPStr)] string? name, int index);
 		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern void View3D_ObjectNuggetNormalMapSet(HObject obj, HTexture tex, HSampler sam, ENormalMapSpace space, float scale, [MarshalAs(UnmanagedType.LPStr)] string? name, int index);
+		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern void View3D_ObjectMaterialOverrideNormalMapSet(HObject obj, HTexture tex, HSampler sam, ENormalMapSpace space, float scale, [MarshalAs(UnmanagedType.LPStr)] string? name, int index);
+		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern void View3D_ObjectNuggetTintMaskSet(HObject obj, HTexture tex, HSampler sam, [MarshalAs(UnmanagedType.LPStr)] string? name, int index);
 		[DllImport(Dll)] private static extern void View3D_ObjectDetailNormalLayersSet(HObject obj, [MarshalAs(UnmanagedType.LPArray)] DetailNormalLayer[]? layers, int count, float base_slope_variance);
 		[DllImport(Dll)] private static extern void View3D_ObjectDetailStrengthMapSet(HObject obj, IntPtr map);
 		[DllImport(Dll)] private static extern void View3D_ObjectProceduralBufferSet(HObject obj, int slot, IntPtr buffer);

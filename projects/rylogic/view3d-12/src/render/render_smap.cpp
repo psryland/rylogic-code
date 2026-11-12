@@ -256,19 +256,19 @@ namespace pr::rdr12
 			}
 		}
 
-		// Population draws use the nugget's material, and only the solid nuggets that cast shadows, as in 'Execute'
+		// Population draws use the LOD's material override or the nugget's material, and only the solid nuggets that cast shadows, as in 'Execute'
 		for (auto const& pop : scn().Populations())
 		{
 			for (auto const& proto : pop->m_prototypes)
 			{
 				for (auto const& lod : proto->m_lods)
 				{
-					PopulationNuggets(*lod.m_model.get(), m_step_id, [&](Nugget const& nug)
+					PopulationNuggets(lod, m_step_id, [&](Nugget const& nug, Material const& material)
 					{
 						if (nug.FillMode() != EFillMode::Default && nug.FillMode() != EFillMode::Solid)
 							return;
 
-						add(nug, nug.mat(), true);
+						add(nug, material, true);
 					});
 				}
 			}
@@ -388,7 +388,7 @@ namespace pr::rdr12
 			for (auto const& proto : pop->m_prototypes)
 			{
 				for (auto const& lod : proto->m_lods)
-					PopulationNuggets(*lod.m_model.get(), ERenderStep::ShadowMap, [&](Nugget const&) { casts = true; });
+					PopulationNuggets(lod, ERenderStep::ShadowMap, [&](Nugget const&, Material const&) { casts = true; });
 			}
 
 			if (!casts)
@@ -420,9 +420,9 @@ namespace pr::rdr12
 					HashWord(h, lod.m_model->m_revision);
 
 					// Custom shadow vertex shaders can change the geometry without any change to the population, in the same way as for ordinary nuggets
-					PopulationNuggets(*lod.m_model.get(), ERenderStep::ShadowMap, [&](Nugget const& nug)
+					PopulationNuggets(lod, ERenderStep::ShadowMap, [&](Nugget const&, Material const& material)
 					{
-						if (PopulationVertexOverlay(nug.mat(), ERenderStep::ShadowMap) != nullptr)
+						if (PopulationVertexOverlay(material, ERenderStep::ShadowMap) != nullptr)
 							caster.m_volatile = true;
 					});
 				}
@@ -851,8 +851,9 @@ namespace pr::rdr12
 						if (nugget.FillMode() != EFillMode::Default && nugget.FillMode() != EFillMode::Solid)
 							continue;
 
-						// The classification only includes nuggets with a pass for this step
-						auto const& material = nugget.mat();
+						// The classification only includes nuggets with a pass for this step. The proxy carries the LOD's material override.
+						auto material_override = FindMaterial(*dle.m_instance);
+						auto const& material = material_override != nullptr ? *material_override.get() : nugget.mat();
 						auto const* pass = material.Pass(m_step_id);
 						pr_assert(pass != nullptr && "Population draws only include nuggets with a shadow pass");
 

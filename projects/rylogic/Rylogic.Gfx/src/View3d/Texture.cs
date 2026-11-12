@@ -1,4 +1,4 @@
-﻿//#define PR_VIEW3D_CREATE_STACKTRACE
+//#define PR_VIEW3D_CREATE_STACKTRACE
 using System;
 using System.Diagnostics;
 using System.Drawing;
@@ -136,7 +136,7 @@ namespace Rylogic.Gfx
 			/// <summary>Create a texture instance from a stock texture</summary>
 			public static Texture FromStock(EStockTexture tex)
 			{
-				// Stock textures are not reference counted
+				// Stock resources are owned by the renderer, so the handle is borrowed
 				return new Texture(View3D_TextureCreateStock(tex), owned: false);
 			}
 

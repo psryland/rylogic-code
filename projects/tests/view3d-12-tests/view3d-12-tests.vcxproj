@@ -119,7 +119,6 @@
 		<ShaderBuild Include="src\view3d-12\shaders\hlsl\wave_grid.hlsl" VertexEntryPoints="wave_grid=VSMain" />
 		<ShaderBuild Include="src\view3d-12\shaders\hlsl\generated_vertex_input.hlsl" ComputeEntryPoints="generated_vertex_input=CSMain" />
 		<ShaderBuild Include="src\view3d-12\shaders\hlsl\shadow_transition.hlsl" ComputeEntryPoints="shadow_transition=CSMain" />
-		<ShaderBuildDependency Include="$(RylogicRoot)projects\rylogic\view3d-12\src\shaders\hlsl\shadow\shadow_cast.hlsli" />
 		<ShaderBuild Include="src\view3d-12\shaders\hlsl\population_producer.hlsl" ComputeEntryPoints="population_producer=CSMain" />
 		<ShaderBuild Include="src\view3d-12\shaders\hlsl\population_procedural_forward.hlsl" VertexEntryPoints="population_procedural_forward=VSMain" />
 		<ShaderBuild Include="src\view3d-12\shaders\hlsl\population_procedural_shadow.hlsl" VertexEntryPoints="population_procedural_shadow=VSMain" />

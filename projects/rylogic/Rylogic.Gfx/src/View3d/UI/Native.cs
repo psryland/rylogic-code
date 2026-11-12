@@ -100,6 +100,8 @@ internal static unsafe class Native
 		internal float m_canvas_y;
 		internal float m_scroll_offset_x;
 		internal float m_scroll_offset_y;
+		internal float m_h_fraction;
+		internal float m_v_fraction;
 	}
 
 	[StructLayout(LayoutKind.Sequential)]

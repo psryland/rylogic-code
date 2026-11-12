@@ -417,6 +417,8 @@ public sealed unsafe class UiTransactionBuilder
 			m_canvas_y = layout.CanvasY,
 			m_scroll_offset_x = layout.ScrollOffsetX,
 			m_scroll_offset_y = layout.ScrollOffsetY,
+			m_h_fraction = layout.HFraction,
+			m_v_fraction = layout.VFraction,
 		};
 	}
 

@@ -2937,7 +2937,7 @@ VIEW3D_API view3d::PopulationPrototype __stdcall View3D_PopulationPrototypeCreat
 {
 	try
 	{
-		// Each LOD takes its own reference to the object's model, so the prototype does not depend on the object's lifetime.
+		// Each LOD takes its own reference to the object's model and material override, so the prototype does not depend on the object's lifetime.
 		if (lod_count < 0 || (lods == nullptr && lod_count != 0))
 			throw std::invalid_argument("Population LOD array is invalid");
 
@@ -2949,7 +2949,7 @@ VIEW3D_API view3d::PopulationPrototype __stdcall View3D_PopulationPrototypeCreat
 			if (lod.m_object->m_model == nullptr)
 				throw std::invalid_argument("Population LOD object has no model");
 
-			rdr_lods.push_back(rdr12::PopulationLod{ .m_model = lod.m_object->m_model, .m_min_size = lod.m_min_size, .m_transition = lod.m_transition });
+			rdr_lods.push_back(rdr12::PopulationLod{ .m_model = lod.m_object->m_model, .m_material = lod.m_object->m_material, .m_min_size = lod.m_min_size, .m_transition = lod.m_transition });
 		}
 		auto rdr_fade_in = rdr12::PopulationFade{ .m_start = fade_in.m_start, .m_width = fade_in.m_width };
 		auto rdr_fade_out = rdr12::PopulationFade{ .m_start = fade_out.m_start, .m_width = fade_out.m_width };
@@ -4157,6 +4157,59 @@ VIEW3D_API void __stdcall View3D_ObjectNuggetNormalMapSet(view3d::Object object,
 	CatchAndReport(View3D_ObjectNuggetNormalMapSet, ,);
 }
 
+// Set or remove the normal map of an object's instance material override.
+VIEW3D_API void __stdcall View3D_ObjectMaterialOverrideNormalMapSet(view3d::Object object, view3d::Texture tex, view3d::Sampler sam, view3d::ENormalMapSpace space, float scale, char const* name, int index)
+{
+	// Validate the public values before replacing the instance material.
+	try
+	{
+		Validate(object);
+		if ((tex == nullptr) != (sam == nullptr))
+			throw std::invalid_argument("A normal map requires both a texture and a sampler, or neither");
+		if (!std::isfinite(scale))
+			throw std::invalid_argument("Normal map scale must be finite");
+
+		auto map_space = materials::ENormalMapSpace::Tangent;
+		switch (space)
+		{
+			case view3d::ENormalMapSpace::Tangent:
+			{
+				map_space = materials::ENormalMapSpace::Tangent;
+				break;
+			}
+			case view3d::ENormalMapSpace::Model:
+			{
+				map_space = materials::ENormalMapSpace::Model;
+				break;
+			}
+			default:
+			{
+				throw std::invalid_argument("Unknown normal map space");
+			}
+		}
+
+		DllLockGuard;
+		object->MaterialOverrideNormalMap(tex, sam, map_space, scale, name, index);
+	}
+	CatchAndReport(View3D_ObjectMaterialOverrideNormalMapSet, ,);
+}
+
+// Set or remove the tint mask of a model nugget.
+VIEW3D_API void __stdcall View3D_ObjectNuggetTintMaskSet(view3d::Object object, view3d::Texture tex, view3d::Sampler sam, char const* name, int index)
+{
+	// Validate the public values before replacing the immutable renderer material.
+	try
+	{
+		Validate(object);
+		if ((tex == nullptr) != (sam == nullptr))
+			throw std::invalid_argument("A tint mask requires both a texture and a sampler, or neither");
+
+		DllLockGuard;
+		object->NuggetTintMask(tex, sam, name, index);
+	}
+	CatchAndReport(View3D_ObjectNuggetTintMaskSet, ,);
+}
+
 // Set or remove the detail-normal slope map of a simple-material model nugget.
 VIEW3D_API void __stdcall View3D_ObjectNuggetDetailNormalsSet(view3d::Object object, view3d::Texture tex, view3d::Sampler sam, char const* name, int index)
 {
@@ -4353,15 +4406,18 @@ VIEW3D_API view3d::Texture __stdcall View3D_TextureCreate(int width, int height,
 	CatchAndReport(View3D_TextureCreate, , nullptr);
 }
 
-// Create one of the stock textures
+// Return one of the stock textures. The renderer owns stock textures for its lifetime, so the handle is borrowed and must not be released.
 VIEW3D_API view3d::Texture __stdcall View3D_TextureCreateStock(view3d::EStockTexture stock_texture)
 {
 	try
 	{
+		// Reject ids that have no stock texture before indexing the store's table.
+		auto id = rdr12::EStockTexture_::From(stock_texture);
+		if (id == rdr12::EStockTexture::Invalid)
+			throw std::invalid_argument("Invalid stock texture");
+
 		DllLockGuard;
-		ResourceFactory factory(Dll().m_rdr);
-		auto tex = factory.CreateTexture(static_cast<rdr12::EStockTexture>(stock_texture));
-		return tex.release();
+		return Dll().m_rdr.store().StockTexture(id).get();
 	}
 	CatchAndReport(View3D_TextureCreateStock, , nullptr);
 }
@@ -4456,15 +4512,18 @@ VIEW3D_API view3d::Sampler __stdcall View3D_SamplerCreate(view3d::SamplerOptions
 	CatchAndReport(View3D_TextureCreate, , nullptr);
 }
 
-// Create one of the stock samplers
+// Return one of the stock samplers. The renderer owns stock samplers for its lifetime, so the handle is borrowed and must not be released.
 VIEW3D_API view3d::Sampler __stdcall View3D_SamplerCreateStock(view3d::EStockSampler stock_sampler)
 {
 	try
 	{
+		// Reject ids that have no stock sampler before indexing the store's table.
+		auto id = rdr12::EStockSampler_::From(stock_sampler);
+		if (id == rdr12::EStockSampler::Invalid)
+			throw std::invalid_argument("Invalid stock sampler");
+
 		DllLockGuard;
-		ResourceFactory factory(Dll().m_rdr);
-		auto sam = factory.CreateSampler(static_cast<rdr12::EStockSampler>(stock_sampler));
-		return sam.release();
+		return Dll().m_rdr.store().StockSampler(id).get();
 	}
 	CatchAndReport(View3D_SamplerCreateStock, , nullptr);
 }
