@@ -481,6 +481,116 @@ public sealed class TestAuthoring
 		Assert.Equal(ERecipeStep.LowPass, PrepFile.Load(workspace.Config.PrepFolder, "wind.test").Variants[0].Recipe[0].Step);
 	}
 
+	/// <summary>Multiple original-time ranges become independent candidates and resolve as separate cooked sounds after acceptance.</summary>
+	[Test]
+	public void ClipRangesBecomeIndependentSounds()
+	{
+		// The source variant has processing and a reference master that must not be inherited by its clips
+		using var temp = new TempFolder();
+		File.WriteAllText(Path.Combine(temp.Path, "sounds.json"), $"{{\"schema\":1,\"sections\":[{{\"name\":\"Wind\",\"sounds\":[{BedSound("a")},{BedSound("b")}]}}]}}");
+		File.WriteAllText(Path.Combine(temp.Path, "authoring.json"), """{"schema":1,"catalog":"sounds.json","originals":"originals","prep":"prep","origins":"origins.json","cache":"cache"}""");
+		var config = AuthoringConfig.Load(Path.Combine(temp.Path, "authoring.json"));
+		var ffmpeg = new Ffmpeg();
+		var store = new SourceStore(config.OriginalsFolder, null, ffmpeg);
+		var download = Path.Combine(temp.Path, "tone.wav");
+		File.WriteAllBytes(download, WavFile.Encode(Sine(233.7, 0.1, 3)));
+		var sidecar = store.ImportAsync(download, new SourceSidecar { Kind = EOriginKind.Imported, Origin = "imported:test", Author = "Author", Licence = "CC0" }, CancellationToken.None).GetAwaiter().GetResult();
+		File.WriteAllText(config.OriginsPath, $"{{\"schema\":1,\"origins\":{{\"imported:test\":{{\"source\":\"{sidecar.Id}\",\"user\":\"Author\",\"licence\":\"CC0\"}}}}}}");
+		var prep = new PrepFile { Id = "a" };
+		var original = prep.AddVariant("imported:test", sidecar.Id, EVariantStatus.Candidate);
+		original.Recipe.Add(new RecipeStep { Step = ERecipeStep.Gain, Db = -12 });
+		original.ReferenceMaster = "master.flac";
+		original.Finalised = true;
+		prep.Save(config.PrepFolder);
+		var original_bytes = File.ReadAllBytes(store.OriginalPath(sidecar.Id));
+		using var http = new System.Net.Http.HttpClient();
+		using var workspace = new Workspace(config, ffmpeg, http);
+
+		// Two ranges target the same ID, and an overlapping range targets another ID; ordinary assignment must not deduplicate them
+		workspace.Apply(JsonNode.Parse("""{"action":"clips","id":"a","variant":"v1","ranges":[{"id":"a","start":0.25,"end":0.75},{"id":"a","start":1,"end":1.75},{"id":"b","start":0.5,"end":1.5}]}""")!.AsObject());
+		var a = PrepFile.Load(config.PrepFolder, "a");
+		var b = PrepFile.Load(config.PrepFolder, "b");
+		Assert.Equal(3, a.Variants.Count);
+		Assert.Equal("v2", a.Variants[1].Id);
+		Assert.Equal("v3", a.Variants[2].Id);
+		Assert.Equal("v1", b.Variants[0].Id);
+		Assert.Equal("master.flac", a.Variants[0].ReferenceMaster);
+		Assert.Equal(-12.0, a.Variants[0].Recipe[0].Db);
+		foreach (var clip in a.Variants.Skip(1).Concat(b.Variants))
+		{
+			// Every clip retains the original credit and starts a fresh, editable trim recipe
+			Assert.Equal(sidecar.Id, clip.Source);
+			Assert.Equal(original.Origin, clip.Origin);
+			Assert.Equal(EVariantStatus.Candidate, clip.Status);
+			Assert.False(clip.Finalised);
+			Assert.Null(clip.ReferenceMaster);
+			Assert.Equal(1, clip.Recipe.Count);
+			Assert.Equal(ERecipeStep.Trim, clip.Recipe[0].Step);
+		}
+		JsonNode Clip(string id, int index) => workspace.Snapshot()["preps"]![id]![index]!;
+		Assert.True(WaitFor(() => Clip("a", 1)["render_url"] != null && Clip("a", 2)["render_url"] != null && Clip("b", 0)["render_url"] != null, 30));
+		var sibling_url = (string?)Clip("a", 2)["render_url"];
+		Assert.Equal(0, PreparedSounds.ResolveAsync(config, workspace.Cache, workspace.Fetcher, ["a", "b"], CancellationToken.None).GetAwaiter().GetResult().Count);
+
+		// Processing and accepting one clip does not alter its siblings; accepted clips cook to the exact original slices
+		workspace.Apply(JsonNode.Parse("""{"action":"recipe","id":"a","variant":"v2","recipe":[{"step":"trim","start":0.25,"end":0.75},{"step":"gain","db":-6}]}""")!.AsObject());
+		workspace.Apply(new JsonObject { ["action"] = "status", ["id"] = "a", ["variant"] = "v2", ["status"] = "accepted" });
+		workspace.Apply(new JsonObject { ["action"] = "status", ["id"] = "a", ["variant"] = "v3", ["status"] = "accepted" });
+		workspace.Apply(new JsonObject { ["action"] = "status", ["id"] = "b", ["variant"] = "v1", ["status"] = "accepted" });
+		Assert.True(WaitFor(() => workspace.Jobs.Pending.Count == 0 && (string?)Clip("a", 0)["status"] == "accepted", 30));
+		var resolved = PreparedSounds.ResolveAsync(config, workspace.Cache, workspace.Fetcher, ["a", "b"], CancellationToken.None).GetAwaiter().GetResult();
+		Assert.Equal(2, resolved["a"].Count);
+		Assert.Equal(1, resolved["b"].Count);
+		var decoded = ffmpeg.DecodeAsync(store.OriginalPath(sidecar.Id), CancellationToken.None).GetAwaiter().GetResult();
+		var accepted = PrepFile.Load(config.PrepFolder, "a").Accepted.Concat(PrepFile.Load(config.PrepFolder, "b").Accepted).ToArray();
+		var paths = resolved["a"].Concat(resolved["b"]).ToArray();
+		for (var i = 0; i != paths.Length; ++i)
+		{
+			// Compare actual samples as well as length, so clipping the processed source instead would fail
+			var expected = RecipeRenderer.Render(decoded, accepted[i].Recipe);
+			var actual = WavFile.Read(paths[i]);
+			Assert.True(WavFile.Encode(expected).AsSpan().SequenceEqual(WavFile.Encode(actual)));
+			Assert.Equal(new[] { 0.5, 0.75, 1.0 }[i], actual.Seconds);
+		}
+		Assert.Equal(sibling_url, (string?)Clip("a", 1)["render_url"]);
+		Assert.True(original_bytes.AsSpan().SequenceEqual(File.ReadAllBytes(store.OriginalPath(sidecar.Id))));
+	}
+
+	/// <summary>Invalid clip batches leave all preparation files and next variant IDs unchanged.</summary>
+	[Test]
+	public void ClipRangesValidateBeforeAdding()
+	{
+		// A referenced variant avoids background rendering; invalid requests must fail before any render is queued
+		using var temp = new TempFolder();
+		File.WriteAllText(Path.Combine(temp.Path, "sounds.json"), $"{{\"schema\":1,\"sections\":[{{\"name\":\"Wind\",\"sounds\":[{BedSound("a")},{BedSound("b")}]}}]}}");
+		File.WriteAllText(Path.Combine(temp.Path, "authoring.json"), """{"schema":1,"catalog":"sounds.json","originals":"originals","prep":"prep","origins":"origins.json","cache":"cache"}""");
+		var config = AuthoringConfig.Load(Path.Combine(temp.Path, "authoring.json"));
+		var prep = new PrepFile { Id = "a" };
+		prep.AddVariant("imported:test", "source", EVariantStatus.Candidate).ReferenceMaster = "master.flac";
+		prep.Save(config.PrepFolder);
+		using var http = new System.Net.Http.HttpClient();
+		using var workspace = new Workspace(config, new Ffmpeg(), http);
+		var before = File.ReadAllText(PrepFile.PathFor(config.PrepFolder, "a"));
+
+		// A valid first range must not be added when a later range or destination is invalid
+		foreach (var bad in new[] { """{"id":"b","start":1,"end":1}""", """{"id":"b","start":2,"end":1}""", """{"id":"b","start":-1,"end":1}""", """{"id":"missing","start":0,"end":1}""", """{"id":"b","end":1}""", """{"id":"b","start":"bad","end":1}""" })
+		{
+			var action = JsonNode.Parse($$"""{"action":"clips","id":"a","variant":"v1","ranges":[{"id":"a","start":0,"end":1},{{bad}}]}""")!.AsObject();
+			Assert.Throws<InvalidOperationException>(() => workspace.Apply(action));
+			Assert.Equal(before, File.ReadAllText(PrepFile.PathFor(config.PrepFolder, "a")));
+			Assert.False(File.Exists(PrepFile.PathFor(config.PrepFolder, "b")));
+		}
+
+		// Empty batches and missing originals are actionable errors too
+		Assert.Throws<InvalidOperationException>(() => workspace.Apply(JsonNode.Parse("""{"action":"clips","id":"a","variant":"v1","ranges":[]}""")!.AsObject()));
+		var missing = new PrepFile { Id = "b" };
+		missing.AddVariant("imported:test", null, EVariantStatus.Candidate);
+		missing.Save(config.PrepFolder);
+		using var reopened = new Workspace(config, new Ffmpeg(), http);
+		Assert.Throws<InvalidOperationException>(() => reopened.Apply(JsonNode.Parse("""{"action":"clips","id":"b","variant":"v1","ranges":[{"id":"a","start":0,"end":1}]}""")!.AsObject()));
+		Assert.Equal(before, File.ReadAllText(PrepFile.PathFor(config.PrepFolder, "a")));
+	}
+
 	/// <summary>Local files are found recursively, credited to their folder, and assigned to the folder's sound ID or else the one their path suggests.</summary>
 	[Test]
 	public void LocalFoldersCreditAndAssign()
@@ -862,12 +972,12 @@ public sealed class TestAuthoring
 	[Test]
 	public void CatalogFormatRoundTrips()
 	{
-		// Every kind of value, including a whole-number gain, an 'active' object, and text that needs escaping
+		// Every kind of value, including a whole-number gain, 'active' and 'retrigger' objects, and text that needs escaping
 		const string Text =
 			"{\r\n\t\"schema\": 1,\r\n\t\"sections\": [\r\n" +
 			"\t\t{\r\n\t\t\t\"name\": \"Wind\",\r\n\t\t\t\"sounds\": [\r\n" +
 			"\t\t\t\t{\"id\": \"wind.calm\", \"placement\": \"bed\", \"loop\": true, \"channels\": \"stereo\", \"length_s\": [30, 60], \"load\": \"stream\", \"group\": \"wind\", \"gain\": 1.0, \"active\": {\"times\": [\"dawn\", \"day\"], \"peak\": \"day\"}, \"description\": \"Calm \\\"still\\\" air\"},\r\n" +
-			"\t\t\t\t{\"id\": \"wind.gust\", \"placement\": \"positioned\", \"loop\": false, \"channels\": \"mono\", \"load\": \"memory\", \"range_m\": 26.5, \"group\": \"wind\", \"gain\": 0.08}\r\n" +
+			"\t\t\t\t{\"id\": \"wind.gust\", \"placement\": \"positioned\", \"loop\": false, \"channels\": \"mono\", \"load\": \"memory\", \"range_m\": 26.5, \"group\": \"wind\", \"gain\": 0.08, \"retrigger\": {\"max_per_emitter\": 1, \"when_busy\": \"refuse\"}}\r\n" +
 			"\t\t\t]\r\n\t\t},\r\n" +
 			"\t\t{\r\n\t\t\t\"name\": \"Lab\",\r\n\t\t\t\"sounds\": [\r\n" +
 			"\t\t\t\t{\"id\": \"lab.radio\", \"placement\": \"bed\", \"loop\": true, \"channels\": \"mono\", \"length_s\": [0.1, 0.25], \"load\": \"stream\", \"group\": \"lab\", \"gain\": 0.58}\r\n" +

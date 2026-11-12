@@ -293,6 +293,12 @@ public sealed partial class Workspace : IDisposable
 				{
 					return Assign(Text(action, "id"), Text(action, "origin"));
 				}
+				case "clips":
+				{
+					// Clips share the original, not the source variant's processing or review state
+					var (_, variant) = VariantOf(action);
+					return CreateClips(variant, action["ranges"] as JsonArray ?? throw new InvalidOperationException("Add at least one clip range."));
+				}
 				case "find_candidates":
 				{
 					return FindCandidates(Text(action, "id"));
@@ -632,6 +638,48 @@ public sealed partial class Workspace : IDisposable
 				m_finds[sound_id] = (null, error.Message);
 		});
 		return $"Searching Freesound for {sound_id} candidates. This takes a minute or two.";
+	}
+
+	/// <summary>Create independent candidate variants from original-time ranges, each naming its destination sound ID. Caller holds the lock.</summary>
+	private string CreateClips(Variant original, JsonArray ranges)
+	{
+		// Check the entire request before adding anything, so an invalid later range cannot leave earlier clips behind
+		if (original.Source == null)
+			throw new InvalidOperationException("Import the original before creating clips.");
+		if (ranges.Count == 0)
+			throw new InvalidOperationException("Add at least one clip range.");
+
+		var clips = new List<(PrepFile prep, double start, double end)>();
+		foreach (var node in ranges)
+		{
+			// Ranges may overlap or share a destination; every range is a distinct variant
+			var range = node as JsonObject ?? throw new InvalidOperationException("Each clip needs a sound ID, start and end.");
+			var prep = PrepOf(Text(range, "id"));
+			if (range["start"] is not JsonValue start_value || !start_value.TryGetValue<double>(out var start) ||
+				range["end"] is not JsonValue end_value || !end_value.TryGetValue<double>(out var end) ||
+				!double.IsFinite(start) || !double.IsFinite(end) || start < 0 || end <= start)
+				throw new InvalidOperationException("Each clip needs finite times in seconds, with 0 <= start < end.");
+
+			clips.Add((prep, start, end));
+		}
+
+		// Stable IDs and the existing trim step make clips ordinary editable variants, with no new persisted format
+		var created = new List<(PrepFile prep, Variant variant)>();
+		foreach (var (prep, start, end) in clips)
+		{
+			var variant = prep.AddVariant(original.Origin, original.Source, EVariantStatus.Candidate);
+			variant.Note = FormattableString.Invariant($"Clip {start:0.######}-{end:0.######} s");
+			variant.Recipe.Add(new RecipeStep { Step = ERecipeStep.Trim, Start = start, End = end });
+			created.Add((prep, variant));
+		}
+		foreach (var prep in created.Select(x => x.prep).Distinct())
+			prep.Save(Config.PrepFolder);
+
+		// Preview uses the same renderer as cooking; acceptance remains an explicit review action
+		foreach (var (prep, variant) in created)
+			QueueRender(prep.Id, variant);
+
+		return $"Created {created.Count} clip candidates. Accept them to use them in the game.";
 	}
 
 	/// <summary>Assign 'origin' to 'sound_id' and describe its other uses. Caller holds the lock.</summary>

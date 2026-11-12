@@ -31,6 +31,8 @@
 	#recipe .mixinput .credit { font-size: 12px; }
 	#recipe .mixadd { margin: 3px 0 3px 96px; }
 	#recipe input[type=number] { width: 72px; }
+	#clips { margin-top: 10px; border-top: 1px solid #444; padding-top: 8px; }
+	#clips .range { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0; }
 	table { border-collapse: collapse; width: 100%; }
 	td, th { padding: 4px 6px; border-bottom: 1px solid #333; text-align: left; vertical-align: middle; }
 	tr.accepted td { background: #2e3b35; }
@@ -166,6 +168,9 @@ let edit = null;
 let edit_recipe = null;
 let edit_timer = null;
 const EDIT_DELAY_MS = 600;
+
+// Unsubmitted original-time ranges belong to the variant whose recipe is open.
+let clip_ranges = [];
 
 // Audio graph: one source plays at a time through a gain that applies playback-only loudness matching
 const ctx = new AudioContext();
@@ -404,6 +409,7 @@ function set_current(slot, play)
 		flush_recipe();
 		edit = variant;
 		edit_recipe = structuredClone((edit && variant_of(edit.id, edit.variant)?.recipe) ?? []);
+		clip_ranges = [];
 	}
 	current = slot;
 
@@ -559,6 +565,7 @@ function start_add()
 
 // Put a catalog entry into the sound form. The 'active' value has no editor, so it is kept from the entry and sent back unchanged.
 let form_active = undefined;
+let form_retrigger = undefined;
 function fill_form(info)
 {
 	// Fields default to blank when there is no entry
@@ -576,7 +583,8 @@ function fill_form(info)
 	f("sf_len_max").value = info?.length_s?.[1] ?? "";
 	f("sf_desc").value = info?.description ?? "";
 	form_active = info?.active;
-	f("sf_active").textContent = form_active ? `active: ${JSON.stringify(form_active)}` : "";
+	form_retrigger = info?.retrigger;
+	f("sf_active").textContent = [form_active ? `active: ${JSON.stringify(form_active)}` : "", form_retrigger ? `retrigger: ${JSON.stringify(form_retrigger)}` : ""].filter(x => x).join(" ");
 	update_form();
 }
 
@@ -619,6 +627,8 @@ function form_sound()
 		sound.range_m = Number(f("sf_range").value);
 	if (form_active)
 		sound.active = form_active;
+	if (form_retrigger)
+		sound.retrigger = form_retrigger;
 	if (f("sf_desc").value.trim())
 		sound.description = f("sf_desc").value.trim();
 
@@ -929,7 +939,102 @@ function render_recipe()
 		recipe_changed(true);
 	};
 	el.appendChild(add);
+	if (v.source)
+		render_clips(el);
+
 	update_recipe_state();
+}
+
+// Create several independent sounds from the original without changing the open variant.
+function render_clips(parent)
+{
+	// Draft ranges survive recipe redraws and preview changes within the same variant.
+	const el = document.createElement("details");
+	el.id = "clips";
+	el.open = clip_ranges.length !== 0;
+	const heading = document.createElement("summary");
+	heading.textContent = "Create clips from original";
+	el.appendChild(heading);
+	const help = document.createElement("p");
+	help.textContent = "Times are seconds in the unprocessed original. Each range creates a separate candidate with its own Trim recipe. Ranges may overlap. Accept clips after listening to them; the original and this variant stay unchanged.";
+	el.appendChild(help);
+	el.appendChild(button("Play original", "Listen and seek in the original to find clip boundaries", () => set_current({ ...edit, view: "original" }, true)));
+
+	// A destination is selected per range, including the current sound ID.
+	clip_ranges.forEach((range, i) =>
+	{
+		const row = document.createElement("div");
+		row.className = "range";
+		const pick = id_select([], id => { range.id = id; });
+		pick.value = range.id;
+		pick.setAttribute("aria-label", `Clip ${i + 1} sound ID`);
+		row.appendChild(pick);
+		for (const name of ["start", "end"])
+		{
+			const label = document.createElement("label");
+			label.textContent = `${name} `;
+			const input = document.createElement("input");
+			input.type = "number";
+			input.min = "0";
+			input.step = "0.001";
+			input.value = range[name] ?? "";
+			input.oninput = () => { range[name] = input.value === "" ? null : input.valueAsNumber; };
+			label.appendChild(input);
+			label.append(" s");
+			row.appendChild(label);
+			row.appendChild(button(`Set ${name}`, "Use the playhead position while the original is selected", () =>
+			{
+				// Processed playback has another timeline and must never supply original timestamps.
+				if (current?.id !== edit.id || current?.variant !== edit.variant || current?.view !== "original")
+				{
+					show_message("Select Play original before setting a clip boundary from the playhead.", true);
+					return;
+				}
+				const buf = buffers.get(url_of(current))?.buf;
+				range[name] = Number((buf ? position() % buf.duration : position()).toFixed(3));
+				input.value = range[name];
+			}));
+		}
+		row.appendChild(button("Remove", "Remove this unsubmitted range", () => { clip_ranges.splice(i, 1); render_recipe(); }));
+		el.appendChild(row);
+	});
+
+	// Creation uses the existing state action and render jobs, and leaves errors beside the retained draft.
+	el.appendChild(button("+ range", "Add another clip from this original", () =>
+	{
+		clip_ranges.push({ id: edit.id, start: 0, end: null });
+		render_recipe();
+	}));
+	const create = button("Create clips", "Create candidates; no clip is accepted automatically", async () =>
+	{
+		create.disabled = true;
+		try
+		{
+			const target = { ...edit };
+			const ranges = structuredClone(clip_ranges);
+			const { buf } = await buffer_for(url_of({ ...target, view: "original" }));
+			if (ranges.some(r => !r.id || !Number.isFinite(r.start) || !Number.isFinite(r.end) || r.start < 0 || r.end <= r.start || r.end > buf.duration))
+				throw new Error(`Choose a sound ID and 0 <= start < end <= ${buf.duration.toFixed(3)} seconds for every range.`);
+
+			const result = await post({ action: "clips", ...target, ranges });
+			if (!result.error && edit?.id === target.id && edit?.variant === target.variant && JSON.stringify(clip_ranges) === JSON.stringify(ranges))
+			{
+				clip_ranges = [];
+				render_recipe();
+			}
+		}
+		catch (error)
+		{
+			show_message(error.message, true);
+		}
+		finally
+		{
+			create.disabled = clip_ranges.length === 0;
+		}
+	});
+	create.disabled = clip_ranges.length === 0;
+	el.appendChild(create);
+	parent.appendChild(el);
 }
 
 // Build the controls for one recipe step

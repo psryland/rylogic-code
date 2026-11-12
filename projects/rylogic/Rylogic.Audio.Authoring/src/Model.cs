@@ -448,6 +448,9 @@ public sealed record CatalogSound
 	/// <summary>When the sound is active, as the JSON object written in the catalog. The authoring tool keeps it but does not interpret it.</summary>
 	public JsonElement? Active { get; init; }
 
+	/// <summary>How the game limits repeated plays of the sound, as the JSON object written in the catalog. The authoring tool keeps it but does not interpret it.</summary>
+	public JsonElement? Retrigger { get; init; }
+
 	/// <summary>A description of the sound for people.</summary>
 	public string? Description { get; init; }
 }
@@ -462,14 +465,14 @@ public sealed record CatalogSound
 /// - 'length_s': optional, '[min, max]' seconds wanted for the prepared audio.
 /// - 'range_m': required for a positioned sound and positive; not allowed for a bed.
 /// - 'group': a dotted name like an ID, at most 64 characters. 'gain': a finite number of at least 0.
-/// - 'active': optional; a JSON object kept as it is. 'description': optional text for people.
+/// - 'active' and 'retrigger': optional; JSON objects kept as they are. 'description': optional text for people.
 /// Comments and trailing commas are accepted when reading but are not kept. Sections are written in the order of their first sound, so a section
 /// with no sounds is not kept.
 /// </summary>
 public static partial class Catalog
 {
 	/// <summary>The properties a sound may have, in the order they are written.</summary>
-	public static IReadOnlyList<string> Properties { get; } = ["id", "placement", "loop", "channels", "length_s", "load", "range_m", "group", "gain", "active", "description"];
+	public static IReadOnlyList<string> Properties { get; } = ["id", "placement", "loop", "channels", "length_s", "load", "range_m", "group", "gain", "active", "retrigger", "description"];
 
 	/// <summary>Read the catalog at 'path', in file order. Throws <see cref="InvalidDataException"/> when the catalog breaks the rules.</summary>
 	public static IReadOnlyList<CatalogSound> Read(string path)
@@ -543,6 +546,7 @@ public static partial class Catalog
 			Group = StringOf(sound, "group", owner),
 			Gain = NumberOf(sound, "gain", owner),
 			Active = sound.TryGetProperty("active", out var active) ? active.ValueKind == JsonValueKind.Object ? active.Clone() : throw new InvalidDataException($"{owner} has an 'active' that is not an object.") : null,
+			Retrigger = sound.TryGetProperty("retrigger", out var retrigger) ? retrigger.ValueKind == JsonValueKind.Object ? retrigger.Clone() : throw new InvalidDataException($"{owner} has a 'retrigger' that is not an object.") : null,
 			Description = sound.TryGetProperty("description", out _) ? StringOf(sound, "description", owner) : null,
 		};
 	}
@@ -700,6 +704,8 @@ public static partial class Catalog
 		parts.Add(Property("gain", NumberJson(sound.Gain, "0.0##")));
 		if (sound.Active is { } active)
 			parts.Add(Property("active", ElementJson(active)));
+		if (sound.Retrigger is { } retrigger)
+			parts.Add(Property("retrigger", ElementJson(retrigger)));
 		if (sound.Description is { } description)
 			parts.Add(Property("description", StringJson(description)));
 
