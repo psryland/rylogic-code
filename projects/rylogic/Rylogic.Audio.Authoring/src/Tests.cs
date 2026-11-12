@@ -154,6 +154,31 @@ public sealed class TestAuthoring
 		Assert.Equal(AudioBuffer.SampleRate, bypassed.Frames);
 	}
 
+	/// <summary>A mix adds other originals at their own levels and start points, ends with the shortest part, and widens mono parts to stereo.</summary>
+	[Test]
+	public void MixStep()
+	{
+		// A mono ramp mixed with a quieter stereo tone that starts 0.25 s in: the tone is the shorter part once its start is skipped
+		var rate = AudioBuffer.SampleRate;
+		var tone = Sine(1000, 0.5, 1);
+		var inputs = new Dictionary<string, AudioBuffer> { ["tone"] = tone };
+		var step = new RecipeStep { Step = ERecipeStep.Mix, Db = 0, Inputs = [new MixInput { Origin = "local:tone.wav", Source = "tone", Start = 0.25, Db = -6.0206 }] };
+		var mixed = RecipeRenderer.Render(Ramp(rate * 2), [step], inputs);
+		Assert.Equal(2, mixed.Channels);
+		Assert.Equal(rate * 3 / 4, mixed.Frames);
+
+		// Each frame is the ramp on both channels plus half the tone from its start point
+		var at = rate / 3;
+		var expected = at + 0.5 * tone.Samples[(rate / 4 + at) * 2];
+		Assert.Equal(expected, mixed.Samples[at * 2], 0.01);
+		Assert.Equal(expected, mixed.Samples[at * 2 + 1], 0.01);
+
+		// A mix needs an input, an imported original for each one, and a start point inside it
+		Assert.Throws<InvalidDataException>(() => RecipeRenderer.Render(Ramp(rate), [new() { Step = ERecipeStep.Mix, Db = 0, Inputs = [] }]));
+		Assert.Throws<InvalidDataException>(() => RecipeRenderer.Render(Ramp(rate), [new() { Step = ERecipeStep.Mix, Db = 0, Inputs = [new MixInput { Origin = "local:x.wav" }] }]));
+		Assert.Throws<InvalidDataException>(() => RecipeRenderer.Render(Ramp(rate), [new() { Step = ERecipeStep.Mix, Db = 0, Inputs = [new MixInput { Origin = "local:tone.wav", Source = "tone", Start = 1 }] }], inputs));
+	}
+
 	/// <summary>Recipes stay bound to stable variant IDs through reordering, review and saving (P-T3).</summary>
 	[Test]
 	public void PrepFilesKeepVariantIdentity()
@@ -492,6 +517,52 @@ public sealed class TestAuthoring
 		Assert.Throws<InvalidOperationException>(() => config.LocalPathOf("local:missing/track.mp3"));
 	}
 
+	/// <summary>A file added from disk is credited from its tags, copied into the originals and assigned; rejecting it removes it again.</summary>
+	[Test]
+	public void ImportedFilesAreCreditedAndForgotten()
+	{
+		// A project with one sound, and a tagged mp3 and an untagged wave file outside the project
+		using var temp = new TempFolder();
+		File.WriteAllText(Path.Combine(temp.Path, "sounds.json"), $"{{\"schema\":1,\"sections\":[{{\"name\":\"Wind\",\"sounds\":[{BedSound("wind.test")}]}}]}}");
+		File.WriteAllText(Path.Combine(temp.Path, "authoring.json"), "{\"schema\":1,\"catalog\":\"sounds.json\",\"originals\":\"originals\",\"prep\":\"prep\",\"origins\":\"origins.json\",\"cache\":\"cache\"}");
+		var ffmpeg = new Ffmpeg();
+		var mp3 = Path.Combine(temp.Path, "gale.mp3");
+		using (var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(ffmpeg.ExePath, ["-v", "error", "-f", "lavfi", "-i", "sine=d=1", "-metadata", "title=Big Gale", "-metadata", "artist=Someone", "-metadata", "comment=From https://example.org/gale ok", mp3]) { UseShellExecute = false })!)
+			process.WaitForExit();
+
+		var wav = Path.Combine(temp.Path, "Breeze Take 2.wav");
+		File.WriteAllBytes(wav, WavFile.Encode(Sine(440, 0.1, 1)));
+		var config = AuthoringConfig.Load(Path.Combine(temp.Path, "authoring.json"));
+		using var http = new System.Net.Http.HttpClient();
+		using var workspace = new Workspace(config, ffmpeg, http);
+		workspace.Refresh();
+
+		// Tags fill the credit, finding a web address inside other text; without tags the title is the file name
+		var tagged = workspace.SuggestCreditAsync(mp3, "gale.mp3", CancellationToken.None).Result;
+		Assert.Equal("Big Gale", tagged.Title);
+		Assert.Equal("Someone", tagged.Author);
+		Assert.Equal("https://example.org/gale", tagged.Url);
+		var untagged = workspace.SuggestCreditAsync(wav, "Breeze Take 2.wav", CancellationToken.None).Result;
+		Assert.Equal("Breeze Take 2", untagged.Title);
+		Assert.Null(untagged.Author);
+
+		// Adding copies the file into the originals and assigns it to the sound as an unheard candidate with the given credit
+		workspace.ImportFileAsync("wind.test", wav, "Breeze Take 2.wav", new FileCredit { Title = "Breeze", Author = "Me", Licence = "CC0" }, CancellationToken.None).Wait();
+		var variant = PrepFile.Load(config.PrepFolder, "wind.test").Variants.Single();
+		Assert.True(variant.Origin.StartsWith("imported:"));
+		Assert.Equal(EVariantStatus.Unheard, variant.Status);
+		var record = OriginsFile.Load(config.OriginsPath).Origins[variant.Origin];
+		Assert.Equal("Breeze", record.Title);
+		Assert.Equal("Me", record.User);
+		Assert.True(File.Exists(Path.Combine(config.OriginalsFolder, $"{record.Source}.json")));
+
+		// Rejecting the only use forgets the variant, the origin and the copied original
+		workspace.Apply(new JsonObject { ["action"] = "status", ["id"] = "wind.test", ["variant"] = variant.Id, ["status"] = "rejected" });
+		Assert.Equal(0, PrepFile.Load(config.PrepFolder, "wind.test").Variants.Count);
+		Assert.False(OriginsFile.Load(config.OriginsPath).Origins.ContainsKey(variant.Origin));
+		Assert.False(File.Exists(Path.Combine(config.OriginalsFolder, $"{record.Source}.json")));
+	}
+
 	/// <summary>Playback matches the game: opening a project renders the recipes the game uses, and editing a recipe replaces a reference master.</summary>
 	[Test]
 	public void RecipesPlayAsInTheGame()
@@ -532,6 +603,49 @@ public sealed class TestAuthoring
 		Assert.Null(PrepFile.Load(config.PrepFolder, "wind.test").Variants[0].ReferenceMaster);
 		Assert.True(WaitFor(() => Variant(third)["render_url"] != null, 30));
 		Assert.Null((string?)Variant(third)["reference_url"]);
+	}
+
+	/// <summary>Picking a recording to mix in imports its original, renders the mix once it arrives, and keeps the recording in use for the game.</summary>
+	[Test]
+	public void MixInputsAreImportedAndInUse()
+	{
+		// A project with a long accepted recording and a shorter one that is only a candidate, so its original is not imported
+		using var temp = new TempFolder();
+		File.WriteAllText(Path.Combine(temp.Path, "sounds.json"), $"{{\"schema\":1,\"sections\":[{{\"name\":\"Wind\",\"sounds\":[{BedSound("wind.test")}]}}]}}");
+		File.WriteAllText(Path.Combine(temp.Path, "authoring.json"), "{\"schema\":1,\"catalog\":\"sounds.json\",\"originals\":\"originals\",\"fetched\":\"fetched\",\"prep\":\"prep\",\"origins\":\"origins.json\",\"cache\":\"cache\",\"local\":[{\"name\":\"rec\",\"path\":\"rec\",\"author\":\"Me\",\"licence\":\"CC0\"}]}");
+		Directory.CreateDirectory(Path.Combine(temp.Path, "rec", "wind.test"));
+		File.WriteAllBytes(Path.Combine(temp.Path, "rec", "wind.test", "gust.wav"), WavFile.Encode(Sine(440, 0.1, 2)));
+		File.WriteAllBytes(Path.Combine(temp.Path, "rec", "wind.test", "rain.wav"), WavFile.Encode(Sine(880, 0.1, 1)));
+		var config = AuthoringConfig.Load(Path.Combine(temp.Path, "authoring.json"));
+		using var http = new System.Net.Http.HttpClient();
+		using var workspace = new Workspace(config, new Ffmpeg(), http);
+		workspace.Refresh();
+		var gust = PrepFile.Load(config.PrepFolder, "wind.test").Variants.Single(x => x.Origin.EndsWith("gust.wav"));
+		var rain = PrepFile.Load(config.PrepFolder, "wind.test").Variants.Single(x => x.Origin.EndsWith("rain.wav"));
+		workspace.Apply(new JsonObject { ["action"] = "status", ["id"] = "wind.test", ["variant"] = gust.Id, ["status"] = "accepted" });
+		Assert.True(WaitFor(() => workspace.Jobs.Pending.Count == 0 && OriginsFile.Load(config.OriginsPath).Origins[gust.Origin].Source != null, 30));
+		Assert.Null(OriginsFile.Load(config.OriginsPath).Origins[rain.Origin].Source);
+
+		// Mixing in the candidate imports its original and binds it, and the render ends with the shorter recording
+		var recipe = new JsonArray { new JsonObject { ["step"] = "mix", ["db"] = 0, ["inputs"] = new JsonArray { new JsonObject { ["origin"] = rain.Origin, ["start"] = 0, ["db"] = -3 } } } };
+		workspace.Apply(new JsonObject { ["action"] = "recipe", ["id"] = "wind.test", ["variant"] = gust.Id, ["recipe"] = recipe });
+		JsonNode Gust() => workspace.Snapshot()["preps"]!["wind.test"]!.AsArray().Single(x => (string?)x!["id"] == gust.Id)!;
+		Assert.True(WaitFor(() => workspace.Jobs.Pending.Count == 0 && Gust()["render_url"] != null && Gust()["render_error"] == null, 30));
+		var input = PrepFile.Load(config.PrepFolder, "wind.test").Variants.Single(x => x.Id == gust.Id).MixInputs.Single();
+		Assert.Equal(OriginsFile.Load(config.OriginsPath).Origins[rain.Origin].Source, input.Source);
+		var key = ((string)Gust()["render_url"]!).Split('/')[^1];
+		Assert.Equal(AudioBuffer.SampleRate, WavFile.Read(Path.Combine(config.CacheFolder, key)).Frames);
+
+		// The game's preparation fetches a mixed-in original that has gone missing, so the mix still cooks
+		var ffmpeg = new Ffmpeg();
+		var sources = new SourceStore(config.OriginalsFolder, config.FetchedFolder, ffmpeg);
+		File.Delete(sources.OriginalPath(input.Source!));
+		File.Delete(sources.SidecarPath(input.Source!));
+		Directory.Delete(config.CacheFolder, recursive: true);
+		var fetcher = new OriginalFetcher(config, sources, new FreesoundClient(http, null));
+		var prepared = PreparedSounds.ResolveAsync(config, new RenderCache(config.CacheFolder, sources, ffmpeg), fetcher, ["wind.test"], CancellationToken.None).GetAwaiter().GetResult();
+		Assert.True(sources.Contains(input.Source!));
+		Assert.Equal(AudioBuffer.SampleRate, WavFile.Read(prepared["wind.test"].Single()).Frames);
 	}
 
 	/// <summary>

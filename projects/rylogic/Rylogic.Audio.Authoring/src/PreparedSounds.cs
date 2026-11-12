@@ -62,16 +62,23 @@ public static class PreparedSounds
 					continue;
 				}
 
-				// Otherwise the recipe is rendered from the original, which is fetched again if it is missing; a changed original fails inside the render cache
+				// Otherwise the recipe is rendered from the originals, which are fetched again if missing; a changed original fails inside the render cache
 				if (variant.Source == null)
 					throw new InvalidDataException($"Sound '{sound_id}' variant '{variant.Id}' is accepted but its original has not been imported.");
 
-				if (!fetcher.Sources.Contains(variant.Source))
+				var parts = variant.Recipe.Where(x => !x.Bypass).SelectMany(x => x.Inputs ?? []).Select(x => (x.Origin, x.Source)).Prepend((variant.Origin, variant.Source));
+				foreach (var (origin, source) in parts)
 				{
+					// A mix input without a source has never been imported, so there is nothing to fetch it as
+					if (source == null)
+						throw new InvalidDataException($"Sound '{sound_id}' variant '{variant.Id}' mixes in '{origin}', whose original has not been imported.");
+					if (fetcher.Sources.Contains(source))
+						continue;
+
 					// The origins registry says where the original came from, and is read only when something must be fetched
 					origins ??= OriginsFile.Load(config.OriginsPath);
-					var record = origins.Origins.GetValueOrDefault(variant.Origin) ?? throw new InvalidDataException($"Sound '{sound_id}' variant '{variant.Id}' has origin '{variant.Origin}', which is not in '{config.OriginsPath}'.");
-					await fetcher.EnsureAsync(variant.Origin, record, variant.Source, cancel);
+					var record = origins.Origins.GetValueOrDefault(origin) ?? throw new InvalidDataException($"Sound '{sound_id}' variant '{variant.Id}' uses origin '{origin}', which is not in '{config.OriginsPath}'.");
+					await fetcher.EnsureAsync(origin, record, source, cancel);
 				}
 
 				var (_, render_path) = await cache.GetOrRenderAsync(variant.Source, variant.Recipe, cancel);

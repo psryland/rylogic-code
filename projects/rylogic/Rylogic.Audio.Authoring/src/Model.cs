@@ -29,6 +29,12 @@ public enum EOriginKind
 	/// recording it was made from (see <see cref="OriginRecord.EditOf"/>), whose credit it keeps.
 	/// </summary>
 	Edited,
+
+	/// <summary>
+	/// A file on disk added through the tool, with the credit given when it was added. The file is kept as an original because it exists nowhere else
+	/// the tool can find. The origin reference is 'imported:&lt;source id&gt;'.
+	/// </summary>
+	Imported,
 }
 
 /// <summary>The review state of one variant.</summary>
@@ -72,6 +78,12 @@ public enum ERecipeStep
 
 	/// <summary>Crossfade the last 'duration' seconds into the start, so the result loops seamlessly. The result is 'duration' seconds shorter.</summary>
 	Loop,
+
+	/// <summary>
+	/// Scale the audio by 'db' decibels and add each of 'inputs', which are other originals. The result is as long as the shortest part. A mono part
+	/// is heard on both channels when another part is stereo.
+	/// </summary>
+	Mix,
 }
 
 /// <summary>The shape of a fade.</summary>
@@ -121,6 +133,9 @@ public sealed class RecipeStep
 	/// <summary>EQ bandwidth.</summary>
 	public double? Q { get; set; }
 
+	/// <summary>The other originals added by a mix.</summary>
+	public List<MixInput>? Inputs { get; set; }
+
 	/// <summary>A new step of kind 'step' with typical starting parameters.</summary>
 	public static RecipeStep CreateDefault(ERecipeStep step)
 	{
@@ -137,9 +152,26 @@ public sealed class RecipeStep
 			ERecipeStep.LowPass => new RecipeStep { Step = step, Frequency = 12000, Slope = 12 },
 			ERecipeStep.Eq => new RecipeStep { Step = step, Frequency = 1000, Db = 0, Q = 1 },
 			ERecipeStep.Loop => new RecipeStep { Step = step, Duration = 3 },
+			ERecipeStep.Mix => new RecipeStep { Step = step, Db = 0, Inputs = [] },
 			_ => throw new ArgumentOutOfRangeException(nameof(step), step, "Unknown recipe step."),
 		};
 	}
+}
+
+/// <summary>One original added by a mix step.</summary>
+public sealed class MixInput
+{
+	/// <summary>Origin reference of the added recording, such as 'freesound:483323'. It is credited wherever the sound is used.</summary>
+	public string Origin { get; set; } = string.Empty;
+
+	/// <summary>The source ID once the origin's original is imported. A mix cannot render until every input has one.</summary>
+	public string? Source { get; set; }
+
+	/// <summary>Where in the added recording the mix starts, in seconds.</summary>
+	public double Start { get; set; }
+
+	/// <summary>The level of the added recording, in decibels.</summary>
+	public double Db { get; set; }
 }
 
 /// <summary>
@@ -175,6 +207,16 @@ public sealed class Variant
 
 	/// <summary>The ordered processing steps.</summary>
 	public List<RecipeStep> Recipe { get; set; } = [];
+
+	/// <summary>The originals added by the recipe's mix steps, including bypassed ones, because turning the bypass off uses them again.</summary>
+	[JsonIgnore]
+	public IEnumerable<MixInput> MixInputs => Recipe.SelectMany(x => x.Inputs ?? []);
+
+	/// <summary>True if the variant plays 'origin', as its own recording or mixed in by its recipe.</summary>
+	public bool Uses(string origin)
+	{
+		return Origin == origin || MixInputs.Any(x => x.Origin == origin);
+	}
 }
 
 /// <summary>The version-controlled preparation file for one sound ID. Variant order is presentation order; the runtime uses the accepted ones in order.</summary>
@@ -297,6 +339,14 @@ public sealed class OriginRecord
 	public string? Source { get; set; }
 }
 
+/// <summary>The credit given to a recording added from a file. Only the title is required.</summary>
+public sealed record FileCredit
+{
+	public required string Title { get; init; }
+	public string? Author { get; init; }
+	public string? Licence { get; init; }
+	public string? Url { get; init; }
+}
 /// <summary>The registry of every origin seen by the authoring tool, keyed by origin reference.</summary>
 public sealed class OriginsFile
 {
@@ -314,6 +364,7 @@ public sealed class OriginsFile
 			"local" => EOriginKind.Local,
 			"hand_made" => EOriginKind.HandMade,
 			"edited" => EOriginKind.Edited,
+			"imported" => EOriginKind.Imported,
 			_ => throw new InvalidDataException($"Origin '{origin}' has an unknown kind."),
 		};
 	}

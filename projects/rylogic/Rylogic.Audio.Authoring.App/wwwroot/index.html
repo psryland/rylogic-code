@@ -25,6 +25,11 @@
 	#recipe .step.bypass { opacity: 0.5; }
 	#recipe .step .kind { width: 90px; font-weight: 600; }
 	#recipe .step label { color: #aaa; font-size: 12px; }
+	#recipe .mixinput { display: flex; align-items: center; gap: 6px; padding: 3px 0 3px 96px; border-bottom: 1px solid #333; }
+	#recipe .mixinput.bypass { opacity: 0.5; }
+	#recipe .mixinput label { color: #aaa; font-size: 12px; }
+	#recipe .mixinput .credit { font-size: 12px; }
+	#recipe .mixadd { margin: 3px 0 3px 96px; }
 	#recipe input[type=number] { width: 72px; }
 	table { border-collapse: collapse; width: 100%; }
 	td, th { padding: 4px 6px; border-bottom: 1px solid #333; text-align: left; vertical-align: middle; }
@@ -52,6 +57,11 @@
 	#soundform label.wide { flex: 1; display: flex; gap: 6px; align-items: center; }
 	#soundform input[type=number] { width: 64px; }
 	#ids button.addsound { width: 100%; margin-bottom: 6px; }
+	#importform { background: #24262a; border: 1px solid #3a3d43; border-radius: 6px; padding: 6px 10px; margin-top: 6px; }
+	#importform .row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 3px 0; }
+	#importform label { color: #aaa; font-size: 13px; }
+	#importform label.wide { flex: 1; display: flex; gap: 6px; align-items: center; }
+	#main.dropping { outline: 2px dashed #59f; outline-offset: -4px; }
 </style>
 </head>
 <body>
@@ -115,6 +125,26 @@
 		Add a Freesound sound <span id="addto"></span>: <input type="text" id="addnum" placeholder="number or page address" size="28">
 		<button id="add">Add</button>
 	</p>
+	<div id="importrow">
+		Add a file from disk <span id="importto"></span>: <button id="importpick" title="Choose an audio file, or drop one anywhere on this page">Choose file...</button>
+		<span class="muted">or drop one on this page</span>
+		<input type="file" id="importfile" accept=".wav,.mp3,.flac,.ogg,.opus" hidden>
+		<div id="importform" hidden>
+			<div class="row"><span id="im_file"></span></div>
+			<div class="row">
+				<label class="wide">Title <input type="text" id="im_title" class="note"></label>
+				<label class="wide">Author <input type="text" id="im_author" class="note"></label>
+			</div>
+			<div class="row">
+				<label class="wide">Licence <input type="text" id="im_licence" class="note" placeholder="e.g. CC0, CC-BY 4.0"></label>
+				<label class="wide">URL <input type="text" id="im_url" class="note" placeholder="optional"></label>
+			</div>
+			<div class="row">
+				<button id="im_add" title="Copy the file into the originals folder, which is kept with the project. Rejecting it later removes the copy again.">Add</button>
+				<button id="im_cancel">Cancel</button>
+			</div>
+		</div>
+	</div>
 	<p id="findrow" hidden>
 		<button id="find">Find more candidates</button>
 		<span id="findinfo"></span>
@@ -171,6 +201,7 @@ const STEPS = {
 	low_pass: { label: "Low-pass", params: { frequency: "Hz", slope: "slope" }, init: { frequency: 12000, slope: 12 } },
 	eq: { label: "EQ", params: { frequency: "Hz", db: "dB", q: "Q" }, init: { frequency: 1000, db: 0, q: 1 } },
 	loop: { label: "Loop", params: { duration: "s" }, init: { duration: 3 } },
+	mix: { label: "Mix", params: { db: "dB" }, init: { db: 0, inputs: [] } },
 };
 
 // Apply a new state from the server, then poll while background work or publishing is pending, or while an external editor may export an edit.
@@ -447,8 +478,9 @@ function availability(slot)
 // The origins with no live variant anywhere, split by whether they are marked not useful. A recording that a live edit was made from counts as used.
 function pool_origins()
 {
-	const live = Object.values(state.preps).flat().filter(v => v.status !== "rejected").map(v => v.origin);
-	const used = new Set([...live, ...live.map(o => state.origins[o]?.edit_of).filter(o => o)]);
+	const live = Object.values(state.preps).flat().filter(v => v.status !== "rejected");
+	const mixed = live.flatMap(v => (v.recipe ?? []).flatMap(s => s.inputs ?? [])).map(x => x.origin);
+	const used = new Set([...live.map(v => v.origin), ...mixed, ...live.map(v => state.origins[v.origin]?.edit_of).filter(o => o)]);
 	const origins = Object.keys(state.origins).filter(o => !used.has(o));
 	return { open: origins.filter(o => !state.origins[o].not_useful), not_useful: origins.filter(o => state.origins[o].not_useful) };
 }
@@ -689,6 +721,7 @@ function render_list()
 	t.innerHTML = "";
 	document.getElementById("title").textContent = adding ? "New sound" : sel_id === POOL ? "Unassigned recordings" : (sel_id ?? "Pick a sound ID");
 	document.getElementById("addto").textContent = sel_id && sel_id !== POOL ? `to ${sel_id}` : "to the unassigned pool";
+	document.getElementById("importto").textContent = sel_id && sel_id !== POOL ? `to ${sel_id}` : "to the unassigned pool";
 
 	// The form shows while adding or when a sound is selected; its choice lists follow the catalog
 	const sound = state.ids.find(x => x.id === sel_id);
@@ -892,7 +925,7 @@ function render_recipe()
 		if (!add.value)
 			return;
 
-		edit_recipe.push({ step: add.value, ...STEPS[add.value].init });
+		edit_recipe.push({ step: add.value, ...structuredClone(STEPS[add.value].init) });
 		recipe_changed(true);
 	};
 	el.appendChild(add);
@@ -959,7 +992,99 @@ function render_step(step, i)
 	down.disabled = i === edit_recipe.length - 1;
 	row.appendChild(down);
 	row.appendChild(button("\u2715", "Remove", () => { edit_recipe.splice(i, 1); recipe_changed(true); }));
+	if (step.step !== "mix")
+		return row;
+
+	// A mix lists the recordings it adds below its own controls
+	const group = document.createElement("div");
+	group.appendChild(row);
+	(step.inputs ??= []).forEach((input, j) => group.appendChild(render_mix_input(step, input, j)));
+	const more = button("+ recording", "Add another recording to the mix", () => { step.inputs.push({ origin: "", start: 0, db: 0 }); recipe_changed(true); });
+	more.className = "mixadd";
+	group.appendChild(more);
+	return group;
+}
+
+// Build the controls for recording 'j' of mix 'step': which recording, where it starts, its level and its credit
+function render_mix_input(step, input, j)
+{
+	// Any known recording can be picked by typing part of its name; the edited sound's own candidates are listed first
+	const row = document.createElement("div");
+	row.className = "mixinput" + (step.bypass ? " bypass" : "");
+	const pick = document.createElement("input");
+	pick.type = "search";
+	pick.placeholder = "type to find a recording...";
+	pick.setAttribute("list", mix_origin_list().id);
+	pick.value = input.origin;
+	pick.size = 28;
+	pick.onchange = () =>
+	{
+		// Only a known origin is taken; the server binds its original, importing it if needed
+		if (!state.origins[pick.value])
+			return;
+
+		input.origin = pick.value;
+		delete input.source;
+		recipe_changed(true);
+	};
+	row.appendChild(pick);
+
+	// Start point and level, changing the edited recipe directly
+	for (const [name, unit, step_size] of [["start", "s", "0.05"], ["db", "dB", "0.5"]])
+	{
+		const label = document.createElement("label");
+		label.textContent = ` ${name} `;
+		const field = document.createElement("input");
+		field.type = "number";
+		field.step = step_size;
+		field.value = input[name] ?? 0;
+		field.oninput = () =>
+		{
+			if (Number.isFinite(field.valueAsNumber))
+				input[name] = field.valueAsNumber;
+
+			recipe_changed(false);
+		};
+		label.appendChild(field);
+		label.append(` ${unit}`);
+		row.appendChild(label);
+	}
+
+	// Listen to the recording alone, or take it out of the mix
+	const listen = button("\u25B6", "Play this recording on its own", () => set_current({ origin: input.origin }, true));
+	listen.disabled = !state.origins[input.origin];
+	row.appendChild(listen);
+	row.appendChild(button("\u2715", "Remove this recording from the mix", () => { step.inputs.splice(j, 1); recipe_changed(true); }));
+
+	// The credit the recording carries into the game, and whether its original is ready to mix
+	const credit = document.createElement("span");
+	credit.className = "credit";
+	credit.innerHTML = state.origins[input.origin] ? name_html(input.origin) : `<span class="muted">pick a recording</span>`;
+	row.appendChild(credit);
 	return row;
+}
+
+// The shared list of every known recording for the mix pickers, with the edited sound's candidates first
+function mix_origin_list()
+{
+	// One list serves every picker in the recipe editor, and is rebuilt with it
+	let list = document.getElementById("mixorigins");
+	if (!list)
+	{
+		list = document.createElement("datalist");
+		list.id = "mixorigins";
+		document.getElementById("recipe").appendChild(list);
+		const own = [...new Set((state.preps[edit.id] ?? []).map(v => v.origin))];
+		const rest = Object.keys(state.origins).filter(o => !own.includes(o));
+		for (const origin of [...own, ...rest].filter(o => state.origins[o]))
+		{
+			const option = document.createElement("option");
+			option.value = origin;
+			option.label = origin_label(origin);
+			list.appendChild(option);
+		}
+	}
+	return list;
 }
 
 // Note an edit: redraw for structural changes, then send the recipe after a short pause so a burst of edits makes one render
@@ -1189,6 +1314,103 @@ document.getElementById("find").onclick = async () =>
 {
 	await post({ action: "find_candidates", id: sel_id });
 };
+
+// The file chosen or dropped for adding, waiting for its credit to be confirmed
+let import_file = null;
+
+// Stage a file for adding: show the credit form, filled in from the file's tags where it has them
+async function stage_import(file)
+{
+	// Only one file is added at a time; its name shows which file the form describes
+	import_file = file;
+	document.getElementById("im_file").textContent = `${file.name} (${(file.size / 1048576).toFixed(1)} MB)`;
+	for (const name of ["title", "author", "licence", "url"])
+		document.getElementById(`im_${name}`).value = "";
+
+	document.getElementById("im_title").value = file.name.replace(/\.[^.]*$/, "");
+	document.getElementById("importform").hidden = false;
+
+	// The suggestion arrives after the upload; a newer file replaces it
+	const body = new FormData();
+	body.append("file", file);
+	const r = await fetch("/api/import/credit", { method: "POST", body });
+	if (!r.ok || import_file !== file)
+		return;
+
+	const credit = await r.json();
+	for (const name of ["title", "author", "licence", "url"])
+	{
+		if (credit[name])
+			document.getElementById(`im_${name}`).value = credit[name];
+	}
+}
+
+function clear_import()
+{
+	import_file = null;
+	document.getElementById("importform").hidden = true;
+	document.getElementById("importfile").value = "";
+}
+
+document.getElementById("importpick").onclick = () => document.getElementById("importfile").click();
+document.getElementById("importfile").onchange = e =>
+{
+	if (e.target.files.length)
+		stage_import(e.target.files[0]);
+};
+document.getElementById("im_cancel").onclick = clear_import;
+
+// Add the staged file with the credit in the form, to the selected sound or the unassigned pool
+document.getElementById("im_add").onclick = async () =>
+{
+	// The reply carries the new state, like any review action
+	if (!import_file)
+		return;
+
+	const body = new FormData();
+	body.append("file", import_file);
+	if (sel_id && sel_id !== POOL)
+		body.append("id", sel_id);
+
+	for (const name of ["title", "author", "licence", "url"])
+		body.append(name, document.getElementById(`im_${name}`).value.trim());
+
+	show_message("Adding...", false);
+	const r = await fetch("/api/import", { method: "POST", body });
+	const s = await r.json();
+	adopt_state(s);
+	show_message(s.error ?? s.notice ?? "", !!s.error);
+	if (!s.error)
+		clear_import();
+};
+
+// Dropping a file anywhere on the main panel stages it, and stops the browser from opening the file instead
+{
+	// Highlight the panel while a file is dragged over it
+	const main = document.getElementById("main");
+	main.addEventListener("dragover", e =>
+	{
+		if (!e.dataTransfer.types.includes("Files"))
+			return;
+
+		e.preventDefault();
+		main.classList.add("dropping");
+	});
+	main.addEventListener("dragleave", e =>
+	{
+		if (e.target === main)
+			main.classList.remove("dropping");
+	});
+	main.addEventListener("drop", e =>
+	{
+		main.classList.remove("dropping");
+		if (!e.dataTransfer.files.length)
+			return;
+
+		e.preventDefault();
+		stage_import(e.dataTransfer.files[0]);
+	});
+}
 
 refresh();
 </script>

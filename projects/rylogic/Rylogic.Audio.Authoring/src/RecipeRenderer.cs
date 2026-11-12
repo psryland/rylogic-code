@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 
 namespace Rylogic.Audio.Authoring;
 
@@ -16,8 +17,11 @@ public static class RecipeRenderer
 	/// <summary>The crossfade used to join the two sides of a cut, in seconds.</summary>
 	public const double CutCrossfadeSeconds = 0.010;
 
-	/// <summary>Render 'recipe' applied to 'original'. 'original' is not modified. Throws <see cref="InvalidDataException"/> naming the bad step.</summary>
-	public static AudioBuffer Render(AudioBuffer original, IReadOnlyList<RecipeStep> recipe)
+	/// <summary>
+	/// Render 'recipe' applied to 'original'. 'inputs' holds the decoded original of every source the recipe's mix steps add, by source ID (see
+	/// <see cref="InputSources"/>). No buffer is modified. Throws <see cref="InvalidDataException"/> naming the bad step.
+	/// </summary>
+	public static AudioBuffer Render(AudioBuffer original, IReadOnlyList<RecipeStep> recipe, IReadOnlyDictionary<string, AudioBuffer>? inputs = null)
 	{
 		// Each enabled step transforms the result of the previous one; bypassed steps are skipped entirely
 		var buffer = original.Clone();
@@ -29,7 +33,7 @@ public static class RecipeRenderer
 
 			try
 			{
-				buffer = Apply(buffer, step);
+				buffer = Apply(buffer, step, inputs);
 			}
 			catch (InvalidDataException ex)
 			{
@@ -39,8 +43,34 @@ public static class RecipeRenderer
 		return buffer;
 	}
 
+	/// <summary>
+	/// The source IDs of the originals the enabled mix steps of 'recipe' add, each once, in recipe order. Throws <see cref="InvalidDataException"/> for
+	/// an input whose original has not been imported.
+	/// </summary>
+	public static IReadOnlyList<string> InputSources(IReadOnlyList<RecipeStep> recipe)
+	{
+		// Bypassed steps need nothing, so a missing input does not stop the rest of the recipe from rendering
+		var sources = new List<string>();
+		foreach (var input in recipe.Where(x => !x.Bypass).SelectMany(x => x.Inputs ?? []))
+		{
+			var source = input.Source ?? throw NotReady(input);
+			if (!sources.Contains(source))
+				sources.Add(source);
+		}
+		return sources;
+	}
+
+	/// <summary>The error for mix input 'input', which has no imported original.</summary>
+	private static InvalidDataException NotReady(MixInput input)
+	{
+		// An input added on the page has no recording until one is picked
+		return input.Origin.Length == 0
+			? new InvalidDataException("Pick a recording for each mix input.")
+			: new InvalidDataException($"The mix input '{input.Origin}' has not been imported yet.");
+	}
+
 	/// <summary>Apply one step.</summary>
-	private static AudioBuffer Apply(AudioBuffer buffer, RecipeStep step)
+	private static AudioBuffer Apply(AudioBuffer buffer, RecipeStep step, IReadOnlyDictionary<string, AudioBuffer>? inputs)
 	{
 		switch (step.Step)
 		{
@@ -120,6 +150,25 @@ public static class RecipeRenderer
 					throw new InvalidDataException("The loop crossfade must be at least one sample and at most half the sound's length.");
 
 				return Loop(buffer, length);
+			}
+			case ERecipeStep.Mix:
+			{
+				// The audio so far is the first part; each input joins from its start point, which must leave some of it to hear
+				var parts = new List<MixPart> { new(buffer, 0, DbToLinear(Required(step.Db, "db"))) };
+				foreach (var input in step.Inputs ?? [])
+				{
+					var source = input.Source ?? throw NotReady(input);
+					var audio = inputs?.GetValueOrDefault(source) ?? throw new InvalidDataException($"The mix input '{input.Origin}' was not provided.");
+					var start = audio.FrameAt(NonNegative(input.Start, "start"));
+					if (start == audio.Frames)
+						throw new InvalidDataException($"The mix input '{input.Origin}' starts at or after its end ({audio.Seconds:0.###} s).");
+
+					parts.Add(new MixPart(audio, start, DbToLinear(Required(input.Db, "db"))));
+				}
+				if (parts.Count == 1)
+					throw new InvalidDataException("Add at least one recording to mix.");
+
+				return Mix(parts);
 			}
 			default:
 			{
@@ -202,6 +251,31 @@ public static class RecipeRenderer
 			var tail_gain = Math.Cos(t * Math.PI / 2);
 			for (int c = 0; c != channels; ++c)
 				output[i * channels + c] = (float)(src[i * channels + c] * head_gain + src[(frames + i) * channels + c] * tail_gain);
+		}
+		return new AudioBuffer(output, channels);
+	}
+
+	/// <summary>One part of a mix: 'audio' from frame 'start', scaled by 'gain'.</summary>
+	private readonly record struct MixPart(AudioBuffer Audio, int Start, double Gain);
+
+	/// <summary>Sum 'parts', stopping at the end of the shortest. The result is stereo if any part is; a mono part is heard equally on both channels.</summary>
+	private static AudioBuffer Mix(IReadOnlyList<MixPart> parts)
+	{
+		// Every part has at least one frame from its start, so the result is never empty
+		var frames = parts.Min(x => x.Audio.Frames - x.Start);
+		var channels = parts.Max(x => x.Audio.Channels);
+		var output = new float[frames * channels];
+		foreach (var part in parts)
+		{
+			// A mono part reads its only channel for every output channel
+			var src = part.Audio.Samples;
+			var src_channels = part.Audio.Channels;
+			for (int i = 0; i != frames; ++i)
+			{
+				var frame = (part.Start + i) * src_channels;
+				for (int c = 0; c != channels; ++c)
+					output[i * channels + c] += (float)(src[frame + Math.Min(c, src_channels - 1)] * part.Gain);
+			}
 		}
 		return new AudioBuffer(output, channels);
 	}

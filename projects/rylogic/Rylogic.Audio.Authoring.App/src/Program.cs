@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -12,6 +13,7 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Logging;
@@ -171,6 +173,62 @@ public static partial class Program
 			return Reply(notice, error);
 		});
 
+		// Suggest a credit for a file the user is about to add, read from its tags
+		app.MapPost("/api/import/credit", async (HttpRequest request, CancellationToken cancel) =>
+		{
+			// The upload is only needed while its tags are read
+			var form = await ReadUploadAsync(request, cancel);
+			var file = form.Files.GetFile("file");
+			if (file == null)
+				return Results.BadRequest("The request has no file.");
+
+			var path = await SaveUpload(file, cancel);
+			try
+			{
+				var credit = await workspace.SuggestCreditAsync(path, file.FileName, cancel);
+				return Results.Content(JsonSerializer.Serialize(credit, AuthoringJson.Options), "application/json");
+			}
+			catch (InvalidOperationException ex)
+			{
+				// A file ffmpeg cannot read has no tags to suggest; the title still comes from its name
+				Console.WriteLine($"No tags read from '{file.FileName}': {ex.Message}");
+				return Results.Content(JsonSerializer.Serialize(new FileCredit { Title = Path.GetFileNameWithoutExtension(file.FileName) }, AuthoringJson.Options), "application/json");
+			}
+			finally
+			{
+				File.Delete(path);
+			}
+		});
+
+		// Add an uploaded file as a new original with the credit the user gave, replying with the new state like a review action
+		app.MapPost("/api/import", async (HttpRequest request, CancellationToken cancel) =>
+		{
+			// Errors are shown in the UI rather than failing the request, so the state stays current
+			var notice = (string?)null;
+			var error = (string?)null;
+			try
+			{
+				var form = await ReadUploadAsync(request, cancel);
+				var file = form.Files.GetFile("file") ?? throw new InvalidOperationException("Choose a file to add.");
+				var path = await SaveUpload(file, cancel);
+				try
+				{
+					string? Field(string name) => string.IsNullOrWhiteSpace(form[name]) ? null : form[name].ToString();
+					var credit = new FileCredit { Title = Field("title") ?? string.Empty, Author = Field("author"), Licence = Field("licence"), Url = Field("url") };
+					notice = await workspace.ImportFileAsync(Field("id"), path, file.FileName, credit, cancel);
+				}
+				finally
+				{
+					File.Delete(path);
+				}
+			}
+			catch (Exception ex) when (ex is InvalidOperationException or InvalidDataException or IOException)
+			{
+				error = ex.Message;
+			}
+			return Reply(notice, error);
+		});
+
 		// Run the project's apply command now, for changes made outside this tool. The run is not tied to the request, so closing the page does not stop a
 		// half-finished command.
 		app.MapPost("/api/apply", async () =>
@@ -310,6 +368,27 @@ public static partial class Program
 				? ($"{done}. {lines.LastOrDefault()}", null)
 				: (null, $"{verb} failed (exit code {process.ExitCode}): {string.Join(" | ", lines.TakeLast(6))}");
 		}
+	}
+
+	/// <summary>Read an upload form. Long uncompressed recordings exceed the server's default request and form size limits, so both are lifted for this request.</summary>
+	private static Task<IFormCollection> ReadUploadAsync(HttpRequest request, CancellationToken cancel)
+	{
+		// The server is local and only serves its own user, so a large file is not a risk
+		var body_limit = request.HttpContext.Features.Get<IHttpMaxRequestBodySizeFeature>();
+		if (body_limit is { IsReadOnly: false })
+			body_limit.MaxRequestBodySize = null;
+
+		return request.ReadFormAsync(new FormOptions { MultipartBodyLengthLimit = long.MaxValue }, cancel);
+	}
+
+	/// <summary>Save an uploaded file to a new temporary file with the same extension, which tells the importer its type. The caller deletes it.</summary>
+	private static async Task<string> SaveUpload(IFormFile file, CancellationToken cancel)
+	{
+		// The client's name is only trusted for its extension
+		var path = Path.Combine(Path.GetTempPath(), $"audio-authoring-{Guid.NewGuid():N}{Path.GetExtension(Path.GetFileName(file.FileName)).ToLowerInvariant()}");
+		await using var stream = File.Create(path);
+		await file.CopyToAsync(stream, cancel);
+		return path;
 	}
 
 	/// <summary>The sound number from a Freesound number or sound page address.</summary>
