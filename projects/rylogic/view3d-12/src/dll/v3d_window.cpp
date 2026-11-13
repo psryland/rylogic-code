@@ -2073,7 +2073,7 @@ namespace pr::rdr12
 		Invalidate();
 	}
 
-	// Get/Set the bounding radius below which populations are left out of the reflection's off-screen sources
+	// Get/Set the bounding radius below which populations are left out of the reflection's mirror view
 	float V3dWindow::ReflectionMinPopulationRadius() const
 	{
 		return m_scene.m_reflection_min_population_radius;
@@ -2087,23 +2087,6 @@ namespace pr::rdr12
 			return;
 
 		m_scene.m_reflection_min_population_radius = radius;
-		Invalidate();
-	}
-
-	// Get/Set the camera-space depth within which the reflection's cutaway source leaves out the scene
-	float V3dWindow::ReflectionCutawayDistance() const
-	{
-		return m_scene.m_reflection_cutaway_distance;
-	}
-	void V3dWindow::ReflectionCutawayDistance(float distance)
-	{
-		// Negative distances have no meaning
-		if (!(distance >= 0.0f) || !IsFinite(distance))
-			throw std::runtime_error("The reflection cutaway distance must be a finite, non-negative value");
-		if (distance == m_scene.m_reflection_cutaway_distance)
-			return;
-
-		m_scene.m_reflection_cutaway_distance = distance;
 		Invalidate();
 	}
 

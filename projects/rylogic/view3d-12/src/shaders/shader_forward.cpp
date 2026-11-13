@@ -57,7 +57,7 @@ namespace pr::rdr12::shaders
 		inline static constexpr auto PopulationPayload = ESRVReg::t26;
 		inline static constexpr auto PopulationSkin = ESRVReg::t27;
 		inline static constexpr auto PopulationDraw = ECBufReg::b8;
-		inline static constexpr auto ReflectionPlane = ESRVReg::t28; // and the coverage in t29
+		inline static constexpr auto ReflectionPlane = ESRVReg::t28;
 		inline static constexpr auto PbrTintMaskTexture = ESRVReg::t30;
 		inline static constexpr auto ProceduralTextures = ESRVReg::t31; // and t32, t33, t34
 	};
@@ -80,7 +80,7 @@ namespace pr::rdr12::shaders
 		:Shader(rdr)
 		,m_sky_history()
 		,m_reflection_plane()
-		,m_clip_remap()
+		,m_view()
 		,m_null_texcoord_stream()
 	{
 		m_code = ShaderCode
@@ -141,7 +141,7 @@ namespace pr::rdr12::shaders
 			.SRV(EReg::PopulationPayload, D3D12_SHADER_VISIBILITY_ALL)
 			.U32<PopulationDraw>(EReg::PopulationDraw)
 			.SRV(EReg::PopulationSkin, D3D12_SHADER_VISIBILITY_VERTEX)
-			.SRV(EReg::ReflectionPlane, 2, D3D12_SHADER_VISIBILITY_PIXEL)
+			.SRV(EReg::ReflectionPlane, 1, D3D12_SHADER_VISIBILITY_PIXEL)
 			.SRV(EReg::PbrTintMaskTexture, 1, D3D12_SHADER_VISIBILITY_PIXEL)
 			.Samp(ESamp::PbrTintMask, 1, D3D12_SHADER_VISIBILITY_PIXEL)
 			.SRV(EReg::ProceduralTextures, ProceduralShader::TextureSlotCount, D3D12_SHADER_VISIBILITY_PIXEL)
@@ -171,6 +171,7 @@ namespace pr::rdr12::shaders
 	{
 		// Set the frame constants
 		CBufFrame cb0 = {};
+		cb0.clip_remap = m4x4::Identity();
 		SetViewConstants(cb0.cam, scene.m_cam);
 		SetLightingConstants(cb0, scene);
 		SetEnvMapConstants(cb0.env_map, scene.m_global_envmap.get(), scene.m_global_envmap_prev.get(), scene.m_global_envmap_blend, scene.m_global_envmap_parallax_bounds);
@@ -180,14 +181,12 @@ namespace pr::rdr12::shaders
 		if (m_reflection_plane != nullptr)
 			cb0.reflection_plane = *m_reflection_plane;
 
-		// Move the projection into the remapped target region. Shaders that project with the camera transforms follow it automatically,
+		// Replace the camera. Shaders that project with the camera transforms follow it automatically,
 		// and shaders that use the per-element object to screen transform apply 'clip_remap' themselves.
-		cb0.clip_remap = m4x4::Identity();
-		if (m_clip_remap != nullptr)
+		if (m_view != nullptr)
 		{
-			cb0.clip_remap = *m_clip_remap;
-			cb0.cam.c2s = *m_clip_remap * cb0.cam.c2s;
-			cb0.cam.w2s = *m_clip_remap * cb0.cam.w2s;
+			cb0.cam = m_view->cam;
+			cb0.clip_remap = m_view->clip_remap;
 		}
 
 		// Clouds shade the sun when a visible procedural sky has them. Otherwise the zero shadow strength turns cloud shadows off,

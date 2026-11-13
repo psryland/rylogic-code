@@ -52,7 +52,6 @@ namespace pr::rdr12
 		, m_global_envmap_parallax_bounds(BBox::Reset())
 		, m_reflection_plane(v4::Zero())
 		, m_reflection_min_population_radius(0.0f)
-		, m_reflection_cutaway_distance(0.0f)
 		, m_global_fill_mode(EFillMode::Default)
 		, m_pso()
 		, m_ray_tracing_props()

@@ -34,48 +34,6 @@ namespace pr::rdr12
 {
 	using namespace ::pr::compute;
 
-	namespace
-	{
-		// A 2D affine map: (x, y) -> (a*x + b*y + tx, c*x + d*y + ty)
-		struct Affine2
-		{
-			float a, b, tx;
-			float c, d, ty;
-		};
-
-		// The map that applies 'rhs' and then 'lhs'
-		Affine2 operator * (Affine2 const& lhs, Affine2 const& rhs)
-		{
-			return Affine2{
-				.a = lhs.a * rhs.a + lhs.b * rhs.c,
-				.b = lhs.a * rhs.b + lhs.b * rhs.d,
-				.tx = lhs.a * rhs.tx + lhs.b * rhs.ty + lhs.tx,
-				.c = lhs.c * rhs.a + lhs.d * rhs.c,
-				.d = lhs.c * rhs.b + lhs.d * rhs.d,
-				.ty = lhs.c * rhs.tx + lhs.d * rhs.ty + lhs.ty,
-			};
-		}
-
-		// The inverse of an invertible affine map
-		Affine2 InvertAffine(Affine2 const& m)
-		{
-			// Invert the linear part, then undo the translation with it
-			auto det = m.a * m.d - m.b * m.c;
-			auto a = m.d / det;
-			auto b = -m.b / det;
-			auto c = -m.c / det;
-			auto d = m.a / det;
-			return Affine2{ .a = a, .b = b, .tx = -(a * m.tx + b * m.ty), .c = c, .d = d, .ty = -(c * m.tx + d * m.ty) };
-		}
-
-		// The clip space transform that applies 'm' to normalised device (x, y). Clip x and y are scaled by w, so the translation is scaled by w too.
-		// Depth and w are unchanged.
-		m4x4 ClipTransform(Affine2 const& m)
-		{
-			return m4x4{ v4{ m.a, m.c, 0, 0 }, v4{ m.b, m.d, 0, 0 }, v4{ 0, 0, 1, 0 }, v4{ m.tx, m.ty, 0, 1 } };
-		}
-	}
-
 	// The procedural sky's low cloud accumulated over frames. The sky shader reads the previous frame's history and writes this frame's.
 	struct RenderForward::SkyHistory
 	{
@@ -108,37 +66,16 @@ namespace pr::rdr12
 	};
 
 	// The reflection of the opaque scene in the scene's reflection plane, projected each frame by three compute passes (see reflection_plane.hlsl).
-	// Sources just beyond the viewport are rendered at low resolution into guard bands above, left of, and right of the viewport, so that their
-	// reflections are found too. The bands are packed side by side into one atlas, and all of them are drawn in one pass using view instancing.
+	// The main view is projected pixel for pixel. A second source, the mirror view, is the opaque scene and the sky drawn from
+	// the mirror image of the camera, with the near plane moved onto the reflection plane. It holds the true reflection, so it fills in surfaces
+	// that near objects hide in the main view and objects beyond the edges of the screen.
 	struct RenderForward::ReflectionPlane
 	{
 		// Root parameters of the projection passes. Each view gets its own table, because consecutive heap entries can wrap around the ring.
-		enum class EParam { Constants, Colour, Depth, MainDepth, Key, Raw, Final, Coverage };
+		enum class EParam { Constants, Colour, Depth, Key, Raw, Final };
 
-		// The source kinds, which the shaders read from 'cam.w'
-		static constexpr float SourceMain = 0.0f;
-		static constexpr float SourceBand = 1.0f;
-		static constexpr float SourceCutaway = 2.0f;
-
-		// The cutaway's resolution relative to the viewport, as the size of the square of viewport pixels that each cutaway pixel covers
-		static constexpr int CutawaySplat = 2;
-
-		// The size of the square of reflection pixels that each cutaway pixel's mirror image covers. It is larger than 'CutawaySplat' so that
-		// neighbouring squares overlap. Where the mirror image is slightly stretched, squares no larger than their spacing leave lines of uncovered
-		// pixels between them, and the sky shows through those lines.
-		static constexpr int CutawayCover = 3;
-
-		// The most the cutaway reaches beyond the viewport's sides and top, in normalised device units. The cutaway also covers the guard bands
-		// near the viewport, so that near objects just beyond the viewport's edges do not hide the reflections of what is behind them. The top band
-		// can reach several viewport heights, which would make a cutaway over all of it too costly to draw.
-		static constexpr float CutawaySideMax = 0.5f;
-		static constexpr float CutawayTopMax = 0.5f;
-
-		// The guard bands' resolution relative to the viewport, the top band's resolution relative to the other bands, and the most the side bands
-		// can reach beyond the viewport in normalised device units. The top band's lower resolution lets it reach further above the viewport.
-		static constexpr float GuardScale = 0.25f;
-		static constexpr float GuardTopScale = 0.5f;
-		static constexpr float GuardSideMax = 0.5f;
+		// The mirror view's keys are scaled by this, so that where the main view and the mirror view see the same surface, the sharper main view wins
+		static constexpr float MirrorKeyScale = 0.95f;
 
 		// Matches 'CBufReflectionPlane' in reflection_plane.hlsl
 		struct Constants
@@ -153,70 +90,35 @@ namespace pr::rdr12
 			v4 src2;
 		};
 
-		// One guard band
-		struct GuardBand
-		{
-			// Places the guarded area's normalised device coordinates (see 'm_guard_remap') in the band's area of the atlas
-			D3D12_VIEWPORT m_viewport;
-
-			// Maps atlas pixel positions in the band to the main view's normalised device coordinates
-			Affine2 m_src;
-
-			// The band's area in the atlas, in pixels
-			D3D12_RECT m_rect;
-
-			// The size of the square that each band pixel's reflection covers, in viewport pixels
-			float m_splat;
-
-			// True when reflections this frame can need sources from the band
-			bool m_needed;
-		};
-
 		// The passes' shared root signature and their pipeline states
 		D3DPtr<ID3D12RootSignature> m_sig;
 		D3DPtr<ID3D12PipelineState> m_project;
 		D3DPtr<ID3D12PipelineState> m_write;
 		D3DPtr<ID3D12PipelineState> m_fill;
 
-		// The winning depth key per pixel, the raw projected reflection, and the gap-filled reflection and its coverage read by the shaders.
+		// The winning depth key per pixel, the raw projected reflection, and the gap-filled reflection read by the shaders.
 		// All are the size of the back buffer.
 		Texture2DPtr m_key;
 		Texture2DPtr m_raw;
 		Texture2DPtr m_final;
-		Texture2DPtr m_coverage;
 		iv2 m_size;
 
-		// The guard band atlas colour and depth, and the atlas size. They use the main target's formats and sampling, so the scene's pipeline states draw into them.
-		Texture2DPtr m_band_colour;
-		Texture2DPtr m_band_depth;
-		iv2 m_band_size;
+		// The mirror view's colour and depth, and the drawn size in pixels. They use the main target's formats and sampling, so the scene's
+		// pipeline states draw into them.
+		Texture2DPtr m_mirror_colour;
+		Texture2DPtr m_mirror_depth;
+		iv2 m_mirror_size;
 
-		// This frame's bands: top, left, right. 'm_guard' is how far they reach beyond the viewport in normalised device units, (sides, top).
-		// 'm_guard_remap' maps the main view's clip space so that the guarded area, x in [-1-gx, 1+gx] and y in [-1, 1+gy], fills the unit square.
-		std::array<GuardBand, 3> m_bands;
-		v2 m_guard;
-		m4x4 m_guard_remap;
+		// This frame's mirror camera, as seen by the shaders. 'm_mirror_s2w' maps the mirror view's normalised device coordinates to the world
+		// position of the surface drawn there, 'm_mirror_w2s' maps world positions to the mirror view's render target clip space, and 'm_mirror_eye'
+		// is the mirror image of the camera position.
+		shaders::fwd::ViewOverride m_view;
+		m4x4 m_mirror_s2w;
+		m4x4 m_mirror_w2s;
+		v4 m_mirror_eye;
+
+		// True when the mirror view is drawn this frame
 		bool m_active;
-
-		// Per opaque drawlist element, non-zero when the element can appear in a needed band this frame
-		pr::vector<uint8_t> m_draw_elements;
-
-		// The cutaway: the opaque scene and the sky, without everything nearer than the scene's cutaway distance, drawn at low resolution
-		// over the viewport and the parts of the guard bands near it. 'm_cut_size' is the drawn area in pixels, at the top-left of the textures, which
-		// are allocated for the largest area so that turning the camera does not resize them. 'm_cut_origin' is the main view's normalised device
-		// position of the area's top-left corner. 'm_cut_remap' maps the area to the unit square, and scales clip depth so that the cutaway distance
-		// lands on the near plane, which clips away everything nearer. 'm_cut_scale' is the cutaway distance's depth in the main view, which converts
-		// cutaway depths back to main view depths.
-		Texture2DPtr m_cut_colour;
-		Texture2DPtr m_cut_depth;
-		iv2 m_cut_size;
-		v2 m_cut_origin;
-		m4x4 m_cut_remap;
-		float m_cut_scale;
-		bool m_cut_active;
-
-		// Per opaque drawlist element, non-zero when the element is drawn into the cutaway
-		pr::vector<uint8_t> m_cut_elements;
 
 		// The constants for this frame's shaders.
 		shaders::fwd::ReflectionPlane m_constants;
@@ -229,24 +131,15 @@ namespace pr::rdr12
 			, m_key()
 			, m_raw()
 			, m_final()
-			, m_coverage()
 			, m_size()
-			, m_band_colour()
-			, m_band_depth()
-			, m_band_size()
-			, m_bands()
-			, m_guard()
-			, m_guard_remap(m4x4::Identity())
+			, m_mirror_colour()
+			, m_mirror_depth()
+			, m_mirror_size()
+			, m_view()
+			, m_mirror_s2w(m4x4::Identity())
+			, m_mirror_w2s(m4x4::Identity())
+			, m_mirror_eye()
 			, m_active()
-			, m_draw_elements()
-			, m_cut_colour()
-			, m_cut_depth()
-			, m_cut_size()
-			, m_cut_origin()
-			, m_cut_remap(m4x4::Identity())
-			, m_cut_scale()
-			, m_cut_active()
-			, m_cut_elements()
 			, m_constants()
 		{
 			// The three passes read and write the same resources, so they share one signature
@@ -254,11 +147,9 @@ namespace pr::rdr12
 				.U32(ECBufReg::b0, sizeof(Constants) / sizeof(uint32_t))
 				.SRV(ESRVReg::t0, 1, D3D12_SHADER_VISIBILITY_ALL, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE)
 				.SRV(ESRVReg::t1, 1, D3D12_SHADER_VISIBILITY_ALL, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE)
-				.SRV(ESRVReg::t2, 1, D3D12_SHADER_VISIBILITY_ALL, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE)
 				.UAV(EUAVReg::u0, 1, D3D12_SHADER_VISIBILITY_ALL, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE)
 				.UAV(EUAVReg::u1, 1, D3D12_SHADER_VISIBILITY_ALL, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE)
 				.UAV(EUAVReg::u2, 1, D3D12_SHADER_VISIBILITY_ALL, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE)
-				.UAV(EUAVReg::u3, 1, D3D12_SHADER_VISIBILITY_ALL, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE)
 				.Create(device, "ReflectionPlaneSig");
 			m_project = ComputePSO(m_sig.get(), shader_code::reflection_plane_project_cs).Create(device, "ReflectionPlaneProjectPSO");
 			m_write = ComputePSO(m_sig.get(), shader_code::reflection_plane_write_cs).Create(device, "ReflectionPlaneWritePSO");
@@ -389,7 +280,7 @@ namespace pr::rdr12
 				if (materials::ProceduralPixelFamily(material, m_step_id) != nullptr)
 				{
 					auto desc = m_default_pipe_state;
-					ComposePipeline(desc, nug, inst, material, *pass, false);
+					ComposePipeline(desc, nug, inst, material, *pass, false, false);
 				}
 
 				// Add an element to the draw list
@@ -400,12 +291,24 @@ namespace pr::rdr12
 	}
 
 	// Compose the pipeline state for one forward draw.
-	void RenderForward::ComposePipeline(PipeStateDesc& desc, Nugget const& nugget, BaseInstance const& instance, Material const& material, MaterialPass const& pass, bool population) const
+	void RenderForward::ComposePipeline(PipeStateDesc& desc, Nugget const& nugget, BaseInstance const& instance, Material const& material, MaterialPass const& pass, bool population, bool mirrored) const
 	{
 		// The material selects its shaders after the geometry and caller-owned overrides, so it can validate and replace the final stock state.
 		ApplyGeometryPipeline(desc, nugget);
 		ApplyPipeStateOverrides(desc, nugget, instance);
 		pass.SelectPipeline(MaterialPipelineContext{ .m_step_id = m_step_id, .m_material = material, .m_nugget = nugget }, desc);
+
+		// A mirror reverses the winding of every triangle on screen, so the faces that are culled swap
+		if (mirrored)
+		{
+			switch (desc.Get<EPipeState::CullMode>())
+			{
+				case D3D12_CULL_MODE_BACK: desc.Apply(PSO<EPipeState::CullMode>(D3D12_CULL_MODE_FRONT)); break;
+				case D3D12_CULL_MODE_FRONT: desc.Apply(PSO<EPipeState::CullMode>(D3D12_CULL_MODE_BACK)); break;
+				case D3D12_CULL_MODE_NONE: break;
+				default: throw std::runtime_error("Unknown cull mode");
+			}
+		}
 		if (!population)
 			return;
 
@@ -449,9 +352,8 @@ namespace pr::rdr12
 		}
 
 		// Classify the populations before any draws, so the classification can overlap earlier work on the GPU. The classification includes the
-		// reflection guard bands, which are drawn from the same draws.
-		PrepareGuardBands();
-		PrepareCutaway();
+		// reflection's mirror view, so the mirror camera is set up first.
+		PrepareMirror();
 		CullPopulations();
 
 		// Bind the descriptor heaps
@@ -507,12 +409,11 @@ namespace pr::rdr12
 			auto drawlist = m_drawlist.lock();
 			auto alpha_start = boundaries[ESortGroup::Alpha];
 			auto pix_opaque = pix::EventScope<ID3D12GraphicsCommandList>(m_cmd_list.get(), 0xFF7EB8E5, "View3D::Opaque");
-			DrawOpaques(frame, pipe_state, std::span{ *drawlist }.subspan(0, s_cast<size_t>(alpha_start)));
+			DrawOpaques(frame, pipe_state, std::span{ *drawlist }.subspan(0, s_cast<size_t>(alpha_start)), m_populations, 0.0f);
 			if (!kbuf)
 				DrawNuggets(frame, m_cmd_list, pipe_state, std::span{ *drawlist }.subspan(s_cast<size_t>(alpha_start)), alpha_start, ESubPass::Opaque);
 
-			DrawGuardBands(frame, std::span{ *drawlist }.subspan(0, s_cast<size_t>(alpha_start)));
-			DrawCutaway(frame, std::span{ *drawlist }.subspan(0, s_cast<size_t>(alpha_start)));
+			DrawMirror(frame, std::span{ *drawlist }.subspan(0, s_cast<size_t>(alpha_start)));
 		}
 
 		// Render the alpha nuggets
@@ -591,15 +492,12 @@ namespace pr::rdr12
 		auto const& opaque_state = reflections ? m_reflection_pipe_state : m_default_pipe_state;
 		auto const kbuf = static_cast<bool>(wnd().m_alpha_kbuffer);
 
-		// Reflection guard bands redraw the opaques with view instancing, one view per needed band. The needed bands depend on the camera,
-		// so every band count is collected whenever a reflection plane can be projected. See 'ReflectionPlaneNeeded'.
-		auto const guard_bands = kbuf && !All(scn().m_reflection_plane == v4::Zero());
-
-		// The reflection cutaway redraws the opaques with the default state. It is only different from the opaque state when the sidecar is used.
-		auto const cutaway = guard_bands && scn().m_reflection_cutaway_distance > 0.0f && reflections;
+		// The reflection's mirror view redraws the opaques with the default state and reversed culling. Whether it is drawn depends on the camera,
+		// so its states are collected whenever a reflection plane can be projected. See 'ReflectionPlaneNeeded'.
+		auto const mirror = kbuf && !All(scn().m_reflection_plane == v4::Zero());
 
 		// Add the states of one nugget drawn from 'base', with the fill mode variants that 'DrawNugget' applies
-		auto add = [&](PipeStateDesc const& base, Nugget const& nugget, BaseInstance const& instance, bool population)
+		auto add = [&](PipeStateDesc const& base, Nugget const& nugget, BaseInstance const& instance, bool population, bool mirrored)
 		{
 			// Draws without a pass for this step are skipped, as in 'DrawNuggets'
 			auto material_override = FindMaterial(instance);
@@ -609,7 +507,7 @@ namespace pr::rdr12
 				return;
 
 			auto desc = base;
-			ComposePipeline(desc, nugget, instance, material, *pass, population);
+			ComposePipeline(desc, nugget, instance, material, *pass, population, mirrored);
 
 			// The point fill mode is a diagnostic view, so its pipelines are created when first drawn
 			auto const fill_mode = nugget.FillMode() != EFillMode::Default ? nugget.FillMode() : scn().FillMode();
@@ -646,25 +544,13 @@ namespace pr::rdr12
 			}
 		};
 
-		// Add the states of an opaque draw, including its guard band and cutaway variants
-		auto add_opaque = [&](Nugget const& nugget, BaseInstance const& instance, ESortGroup group, bool population)
+		// Add the states of an opaque draw, including its mirror variant
+		auto add_opaque = [&](Nugget const& nugget, BaseInstance const& instance, bool population)
 		{
-			// The guard bands leave out the skybox, as in 'DrawOpaques'. The cutaway draws it.
-			add(opaque_state, nugget, instance, population);
-			if (!guard_bands)
-				return;
-
-			if (cutaway)
-				add(m_default_pipe_state, nugget, instance, population);
-			if (group == ESortGroup::Skybox)
-				return;
-
-			for (int views = 1; views <= 3; ++views)
-			{
-				auto band_state = m_default_pipe_state;
-				band_state.ViewCount(views);
-				add(band_state, nugget, instance, population);
-			}
+			// The mirror view draws every opaque group, including the skybox
+			add(opaque_state, nugget, instance, population, false);
+			if (mirror)
+				add(m_default_pipe_state, nugget, instance, population, true);
 		};
 
 		// Draw list elements use the sub-pass of their sort group. Without a K-buffer, every group draws with the opaque state.
@@ -674,11 +560,11 @@ namespace pr::rdr12
 			{
 				auto const group = dle.m_sort_key.Group();
 				if (!kbuf || group < ESortGroup::Alpha)
-					add_opaque(*dle.m_nugget, *dle.m_instance, group, false);
+					add_opaque(*dle.m_nugget, *dle.m_instance, false);
 				else if (group < ESortGroup::PostAlpha)
-					add(m_alpha_pipe_state, *dle.m_nugget, *dle.m_instance, false);
+					add(m_alpha_pipe_state, *dle.m_nugget, *dle.m_instance, false, false);
 				else
-					add(m_post_alpha_pipe_state, *dle.m_nugget, *dle.m_instance, false);
+					add(m_post_alpha_pipe_state, *dle.m_nugget, *dle.m_instance, false, false);
 			}
 		}
 
@@ -689,7 +575,7 @@ namespace pr::rdr12
 			{
 				PopulationNuggets(proxy, m_step_id, [&](Nugget const& nug, Material const&)
 				{
-					add_opaque(nug, proxy.m_base, pop->m_sort_group, true);
+					add_opaque(nug, proxy.m_base, true);
 				});
 			}
 		}
@@ -779,398 +665,135 @@ namespace pr::rdr12
 		return Dot(plane.xyz, cam_pos.xyz) - plane.w > 0.0f;
 	}
 
-	// Lay out this frame's reflection guard bands, and size their atlas
-	void RenderForward::PrepareGuardBands()
+	// Set up this frame's reflection mirror camera, and size its targets
+	void RenderForward::PrepareMirror()
 	{
-		// The bands are drawn only when the reflection is projected, and in one pass that needs view instancing
+		// The mirror view is drawn only when the reflection is projected. A mirror image needs a perspective camera, whose eye can be mirrored.
 		auto& rp = *m_reflection_plane;
 		rp.m_active = false;
-		rp.m_guard = v2::Zero();
-		rp.m_guard_remap = m4x4::Identity();
-		if (!ReflectionPlaneNeeded() || rdr().Features().Options3.ViewInstancingTier == D3D12_VIEW_INSTANCING_TIER_NOT_SUPPORTED)
+		auto const& cam = scn().m_cam;
+		if (!ReflectionPlaneNeeded() || cam.Orthographic())
 			return;
 
-		// Find how far the side bands must reach. Reflections are seen only along view directions that point down towards the plane. A source seen in
-		// the reflection along such a direction lies along the mirror image of that direction, or below it when the source is nearer, which only
-		// moves it towards the centre of the view. So the side bands must cover the projection of the mirrored downward part of the view frustum.
-		// The frustum's directions form a convex polygon, so clipping it and finding its extent needs only its corners.
-		using Poly = pr::vector<v4, 8, false>;
-		auto clip = [](Poly const& poly, auto&& dist)
-		{
-			// Keep the part of the polygon where 'dist' is not negative. 'dist' must be linear, so edges cross zero where it interpolates to zero.
-			Poly out;
-			for (size_t i = 0, iend = poly.size(); i != iend; ++i)
-			{
-				// Keep inside vertices, and add the crossing point of each edge that crosses the boundary
-				auto const& a = poly[i];
-				auto const& b = poly[(i + 1) % iend];
-				auto const da = dist(a);
-				auto const db = dist(b);
-				if (da >= 0)
-					out.push_back(a);
-				if ((da >= 0) != (db >= 0))
-					out.push_back(a + (b - a) * (da / (da - db)));
-			}
-			return out;
+		// Reflect world positions through the plane: x -> x - 2 (n.x - d) n. The reflection is its own inverse. Drawing the world through
+		// 'w2c * R' shows the main camera what it would see in the mirror, so the mirror camera's camera to world transform is 'R * c2w'.
+		auto const plane = scn().m_reflection_plane;
+		auto const n = plane.w0();
+		auto const d = plane.w;
+		auto const R = m4x4{
+			v4::XAxis() - 2.0f * n.x * n,
+			v4::YAxis() - 2.0f * n.y * n,
+			v4::ZAxis() - 2.0f * n.z * n,
+			v4::Origin() + 2.0f * d * n,
 		};
-		auto need = std::array<float, 3>{}; // How far beyond the top, left and right edges sources are needed, in normalised device units
-		{
-			// Build the view directions through the viewport corners from two depths in front of the camera, which works for both projections.
-			// Reversed depth puts the near plane at 1.
-			auto const& cam = scn().m_cam;
-			auto const s2w = cam.CameraToWorld() * Invert(cam.CameraToScreen());
-			auto const w2s = cam.CameraToScreen() * InvertOrthonormal(cam.CameraToWorld());
-			auto const norm = v4(scn().m_reflection_plane.xyz, 0.0f);
-			Poly dirs;
-			for (auto const& corner : { v2(-1, -1), v2(+1, -1), v2(+1, +1), v2(-1, +1) })
-			{
-				auto const p0 = s2w * v4(corner.x, corner.y, 1.0f, 1.0f);
-				auto const p1 = s2w * v4(corner.x, corner.y, 0.5f, 1.0f);
-				dirs.push_back(p1 / p1.w - p0 / p0.w);
-			}
+		auto const c2w = cam.CameraToWorld();
+		auto const c2s = cam.CameraToScreen();
+		auto const c2w_m = R * c2w;
+		auto const w2c_m = InvertOrthonormal(c2w) * R;
 
-			// Keep the downward directions, mirror them in the plane, and project them as points at infinity. Clipping to |x| <= w (1 + max) both
-			// removes directions behind the camera and caps the side extent. The top extent is capped similarly, beyond any reach of the top band.
-			dirs = clip(dirs, [&](v4 const& d) { return -Dot(d, norm); });
-			Poly proj;
-			for (auto const& d : dirs)
-				proj.push_back(w2s * (d - 2.0f * Dot(d, norm) * norm));
+		// Move the near plane onto the reflection plane, so that everything below it, which the mirror cannot show, is clipped away. 'P' is the plane
+		// in the mirror camera's space, positive above the plane. Depth is reversed, so clip z/w is 1 on the near plane and 0 on the far plane.
+		// Replacing the z row with 'row_w - a * P' makes 'w - z' proportional to the height above the plane, so the near plane becomes the reflection
+		// plane. 'a' is chosen so that the far plane still passes through the far corner of the view on the plane's side, which keeps every visible
+		// point between the near and far planes.
+		auto const row = [](m4x4 const& m, int k) { return v4{ m.x[k], m.y[k], m.z[k], m.w[k] }; };
+		auto const P = Transpose(c2w_m) * v4{ n.x, n.y, n.z, -d };
+		auto const s2c = Invert(c2s);
+		auto const P_clip = Transpose(s2c) * P;
+		auto const Q = s2c * v4{ P_clip.x < 0.0f ? -1.0f : 1.0f, P_clip.y < 0.0f ? -1.0f : 1.0f, 0.0f, 1.0f };
+		auto const row_w = row(c2s, 3);
+		auto const a = Dot(row_w, Q) / Dot(P, Q);
+		if (!(a > 0.0f) || !std::isfinite(a))
+			return;
 
-			proj = clip(proj, [](v4 const& c) { return c.w * (1.0f + ReflectionPlane::GuardSideMax) - c.x; });
-			proj = clip(proj, [](v4 const& c) { return c.w * (1.0f + ReflectionPlane::GuardSideMax) + c.x; });
-			proj = clip(proj, [](v4 const& c) { return c.w * 10.0f - c.y; });
-			for (auto const& c : proj)
-			{
-				// Points on the w = 0 boundary only appear when x and y are zero too, so they add nothing
-				if (c.w <= 0.0f)
-					continue;
+		auto const row_z = row_w - a * P;
+		auto c2s_obl = c2s;
+		c2s_obl.x.z = row_z.x;
+		c2s_obl.y.z = row_z.y;
+		c2s_obl.z.z = row_z.z;
+		c2s_obl.w.z = row_z.w;
 
-				need[0] = std::max(need[0], c.y / c.w - 1.0f);
-				need[1] = std::max(need[1], -c.x / c.w - 1.0f);
-				need[2] = std::max(need[2], +c.x / c.w - 1.0f);
-			}
-		}
-		auto const gx = std::max(need[1], need[2]);
-
-		// Size the bands. The scaled viewport is (sw, sh). The atlas size depends only on the viewport, so it is not recreated as the camera turns.
-		// The atlas is 'sh' rows high. The top band is on the left, spanning the full width of the guarded area at scale 'ts', with its content
-		// against its lower edge. The left and right bands follow, each up to 'bw_max' columns wide. Whole pixel sizes keep each band's edges on
-		// pixel boundaries, so the guard extents are recomputed from them.
+		// Draw the mirror view at the viewport's resolution, so that its pixels map one to one onto the viewport's pixels. A fractional
+		// viewport is covered by rounding up, and the view is scaled to place the viewport's area on that whole number of pixels.
 		auto const& vp = scn().m_viewport;
-		auto const ts = ReflectionPlane::GuardTopScale;
-		auto const sw = std::max(s_cast<int>(std::round(vp.Width * ReflectionPlane::GuardScale)), 1);
-		auto const sh = std::max(s_cast<int>(std::round(vp.Height * ReflectionPlane::GuardScale)), 1);
-		auto const bw_max = std::max(s_cast<int>(std::ceil(sw * ReflectionPlane::GuardSideMax * 0.5f)), 1);
-		auto const wt_max = s_cast<int>(std::ceil((sw + 2 * bw_max) * ts));
-		auto const size = iv2(wt_max + 2 * bw_max, sh);
+		auto const cw = std::max(s_cast<int>(std::ceil(vp.Width)), 1);
+		auto const ch = std::max(s_cast<int>(std::ceil(vp.Height)), 1);
+		auto const sx = vp.Width / cw;
+		auto const sy = vp.Height / ch;
+		auto const remap = m4x4{ v4{ sx, 0, 0, 0 }, v4{ 0, sy, 0, 0 }, v4{ 0, 0, 1, 0 }, v4{ sx - 1.0f, 1.0f - sy, 0, 1 } };
 
-		// Draw only the bands, and the top band rows, that the reflections can need. The top band's unused rows are dropped from its top, and its
-		// width covers the side bands only when they are drawn. The guard extents shrink to match, which also tightens the population cull.
-		auto const sides = need[1] > 0.0f || need[2] > 0.0f;
-		auto const bw = sides ? std::clamp(s_cast<int>(std::ceil(sw * gx * 0.5f)), 1, bw_max) : 0;
-		auto const wt = s_cast<int>(std::ceil((sw + 2 * bw) * ts));
-		auto const top_rows = std::clamp(s_cast<int>(std::ceil(need[0] * sh * ts * 0.5f)), 0, sh);
-		auto const needed = std::array<bool, 3>{ top_rows != 0, sides && need[1] > 0.0f, sides && need[2] > 0.0f };
-		if (!needed[0] && !needed[1] && !needed[2])
-			return;
+		// The camera seen by the shaders. Element transforms are uploaded for the main camera, so 'clip_remap' replaces the main view's
+		// world to clip transform with the mirror's.
+		auto const c2s_m = remap * c2s_obl;
+		rp.m_view.cam.c2w = c2w_m;
+		rp.m_view.cam.c2s = c2s_m;
+		rp.m_view.cam.w2c = w2c_m;
+		rp.m_view.cam.w2s = c2s_m * w2c_m;
+		rp.m_view.clip_remap = rp.m_view.cam.w2s * c2w * s2c;
+		rp.m_mirror_w2s = rp.m_view.cam.w2s;
+		rp.m_mirror_s2w = Invert(c2s_obl * w2c_m);
+		rp.m_mirror_eye = c2w_m.pos;
+		rp.m_mirror_size = iv2(cw, ch);
 
-		// The guarded area, and the map from it to the main view's normalised device coordinates: x = X (1 + gx), y = (Y (2 + gy) + gy) / 2.
-		// Every band is drawn through the same projection, which maps the guarded area to the unit square. Each band's viewport then places it.
-		auto const guard_x = 2.0f * bw / sw;
-		auto const guard_y = needed[0] ? 2.0f * top_rows / (sh * ts) : 0.0f;
-		auto const g2n = Affine2{ .a = 1.0f + guard_x, .b = 0, .tx = 0, .c = 0, .d = 1.0f + 0.5f * guard_y, .ty = 0.5f * guard_y };
-		rp.m_guard = v2(guard_x, guard_y);
-		rp.m_guard_remap = ClipTransform(InvertAffine(g2n));
-
-		// The map from the main view's normalised device coordinates to scaled viewport pixels (u, v)
-		auto const fsw = s_cast<float>(sw);
-		auto const fsh = s_cast<float>(sh);
-		auto const n2u = Affine2{ .a = 0.5f * fsw, .b = 0, .tx = 0.5f * fsw, .c = 0, .d = -0.5f * fsh, .ty = 0.5f * fsh };
-
-		// Place each band in the atlas. The top band is scaled by 'ts', so its left edge (u = -bw) is at x = 0 and the viewport's top edge (v = 0)
-		// is at the bottom row. The side bands are unscaled, so the left band's columns u in [-bw, 0) and the right band's columns u in [sw, sw + bw)
-		// land at the start of their areas. Each map must be a scale and a translation, so that a viewport can express it.
-		auto const band_maps = std::array<Affine2, 3>{
-			Affine2{ .a = ts, .b = 0, .tx = ts * bw, .c = 0, .d = ts, .ty = fsh },
-			Affine2{ .a = 1, .b = 0, .tx = s_cast<float>(wt_max + bw), .c = 0, .d = 1, .ty = 0 },
-			Affine2{ .a = 1, .b = 0, .tx = s_cast<float>(wt_max + bw_max - sw), .c = 0, .d = 1, .ty = 0 },
-		};
-		auto const band_rects = std::array<D3D12_RECT, 3>{
-			D3D12_RECT{ 0, sh - top_rows, wt, sh },
-			D3D12_RECT{ wt_max, 0, wt_max + bw, sh },
-			D3D12_RECT{ wt_max + bw_max, 0, wt_max + bw_max + bw, sh },
-		};
-		auto const band_splats = std::array<float, 3>{ 1.0f / (ReflectionPlane::GuardScale * ts), 1.0f / ReflectionPlane::GuardScale, 1.0f / ReflectionPlane::GuardScale };
-		for (int i = 0; i != 3; ++i)
-		{
-			// The viewport maps the guarded area's X in [-1, 1] to [left, left + width] and Y in [-1, 1] to [top + height, top], so it follows from
-			// the map from guarded area to atlas pixels. The projection passes read the band from its top-left corner, so its source map starts
-			// there, at the centre of the first pixel. Each band pixel's reflection covers as many viewport pixels as the pixel spans.
-			auto& band = rp.m_bands[i];
-			auto const n2p = band_maps[i] * n2u;
-			auto const g2p = n2p * g2n;
-			auto const origin = Affine2{ .a = 1, .b = 0, .tx = s_cast<float>(band_rects[i].left), .c = 0, .d = 1, .ty = s_cast<float>(band_rects[i].top) };
-			band.m_viewport = D3D12_VIEWPORT{ .TopLeftX = g2p.tx - g2p.a, .TopLeftY = g2p.ty + g2p.d, .Width = 2.0f * g2p.a, .Height = -2.0f * g2p.d, .MinDepth = 0.0f, .MaxDepth = 1.0f };
-			band.m_src = InvertAffine(n2p) * origin;
-			band.m_rect = band_rects[i];
-			band.m_splat = std::round(band_splats[i]);
-			assert(band.m_splat >= 1.0f && band.m_splat <= 9.0f && "The projection keys record splat sizes up to 'ReflectionMaxSplat' in reflection_plane.hlsl");
-			band.m_needed = needed[i];
-		}
-
-		// Size the atlas. It matches the main target's formats and sampling, so the scene's pipeline states can draw into it.
+		// Size the textures. They match the main target's formats and sampling, so the scene's pipeline states can draw into them.
 		auto const ms = wnd().MultiSampling();
-		auto const resize = rp.m_band_colour == nullptr || Any(size != rp.m_band_size) || rp.m_band_colour->m_res->GetDesc().SampleDesc.Count != ms.Count;
+		auto const resize = rp.m_mirror_colour == nullptr ||
+			s_cast<int>(rp.m_mirror_colour->m_res->GetDesc().Width) != cw ||
+			s_cast<int>(rp.m_mirror_colour->m_res->GetDesc().Height) != ch ||
+			rp.m_mirror_colour->m_res->GetDesc().SampleDesc.Count != ms.Count;
 		if (resize)
 		{
 			// Colour is written and read through sRGB views, like the main target
 			ResourceFactory factory(rdr());
 			auto const rt_format = wnd().m_rt_props.Format;
 			auto const ds_format = wnd().m_ds_props.Format;
-			auto col_desc = ResDesc::Tex2D(Image{ size.x, size.y, nullptr, rt_format }, 1U, EUsage::RenderTarget)
+			auto col_desc = ResDesc::Tex2D(Image{ cw, ch, nullptr, rt_format }, 1U, EUsage::RenderTarget)
 				.multisamp(ms)
 				.clear(wnd().m_rt_props)
 				.def_state(D3D12_RESOURCE_STATE_RENDER_TARGET);
-			auto dep_desc = ResDesc::Tex2D(Image{ size.x, size.y, nullptr, DepthResourceFormat(ds_format) }, 1U, EUsage::DepthStencil)
+			auto dep_desc = ResDesc::Tex2D(Image{ cw, ch, nullptr, DepthResourceFormat(ds_format) }, 1U, EUsage::DepthStencil)
 				.multisamp(ms)
 				.clear(wnd().m_ds_props)
 				.def_state(D3D12_RESOURCE_STATE_DEPTH_WRITE);
-			rp.m_band_colour = factory.CreateTexture2D(TextureDesc(AutoId, col_desc).rtv_format(ToSRGB(rt_format)).srv_format(ToSRGB(rt_format)).name("ReflectionGuardColour"));
-			rp.m_band_depth = factory.CreateTexture2D(TextureDesc(AutoId, dep_desc).dsv_format(ds_format).srv_format(DepthSrvFormat(ds_format)).name("ReflectionGuardDepth"));
-			rp.m_band_size = size;
+			rp.m_mirror_colour = factory.CreateTexture2D(TextureDesc(AutoId, col_desc).rtv_format(ToSRGB(rt_format)).srv_format(ToSRGB(rt_format)).name("ReflectionMirrorColour"));
+			rp.m_mirror_depth = factory.CreateTexture2D(TextureDesc(AutoId, dep_desc).dsv_format(ds_format).srv_format(DepthSrvFormat(ds_format)).name("ReflectionMirrorDepth"));
 		}
 		rp.m_active = true;
 	}
 
-	// Draw the opaque scene, without the sky, into the reflection guard bands
-	void RenderForward::DrawGuardBands(Frame& frame, std::span<DrawListElement const> opaques)
+	// Draw the opaque scene and the sky through the reflection's mirror camera
+	void RenderForward::DrawMirror(Frame& frame, std::span<DrawListElement const> opaques)
 	{
-		// Clear the atlas. Areas the scene does not cover keep depth 0, which the projection passes ignore.
+		// Clear the mirror view. The sky does not write depth, so where it shows the depth stays 0, which the projection passes treat as sky.
 		auto& rp = *m_reflection_plane;
 		if (!rp.m_active)
 			return;
 
-		auto pix_bands = pix::EventScope<ID3D12GraphicsCommandList>(m_cmd_list.get(), 0xFF5EC8D5, "View3D::ReflectionGuardBands");
-		auto const rtv = rp.m_band_colour->m_rtv.m_cpu;
-		auto const dsv = rp.m_band_depth->m_dsv.m_cpu;
+		auto pix_mirror = pix::EventScope<ID3D12GraphicsCommandList>(m_cmd_list.get(), 0xFF5EC8D5, "View3D::ReflectionMirror");
+		auto const rtv = rp.m_mirror_colour->m_rtv.m_cpu;
+		auto const dsv = rp.m_mirror_depth->m_dsv.m_cpu;
+		auto const viewport = D3D12_VIEWPORT{ .TopLeftX = 0.0f, .TopLeftY = 0.0f, .Width = s_cast<float>(rp.m_mirror_size.x), .Height = s_cast<float>(rp.m_mirror_size.y), .MinDepth = 0.0f, .MaxDepth = 1.0f };
+		auto const scissor = D3D12_RECT{ 0, 0, rp.m_mirror_size.x, rp.m_mirror_size.y };
 		m_cmd_list.ClearRenderTargetView(rtv, frame.bb_main().rt_clear());
 		m_cmd_list.ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, frame.bb_main().ds_depth(), 0);
 		m_cmd_list.OMSetRenderTargets({ &rtv, 1 }, FALSE, &dsv);
-
-		// The needed bands' areas in the main view's normalised device coordinates. The top band includes the corners above the side bands.
-		struct Area { v2 m_lower; v2 m_upper; };
-		auto const gx = rp.m_guard.x;
-		auto const gy = rp.m_guard.y;
-		auto const band_areas = std::array<Area, 3>{
-			Area{ v2(-1.0f - gx, 1.0f), v2(1.0f + gx, 1.0f + gy) },
-			Area{ v2(-1.0f - gx, -1.0f), v2(-1.0f, 1.0f) },
-			Area{ v2(1.0f, -1.0f), v2(1.0f + gx, 1.0f) },
-		};
-
-		// Select the drawlist elements that can appear in a needed band. Elements whose screen bounds cannot be known are always drawn.
-		// Skinned bounds can need a CPU pose evaluation, and the nuggets of one model share a pose, so each model/pose pair is evaluated once.
-		struct PosedBBox { Model const* m_model; Pose const* m_pose; std::optional<BBox> m_bbox; };
-		pr::vector<PosedBBox, 8> posed_bboxes;
-		auto const w2s = scn().m_cam.CameraToScreen() * InvertOrthonormal(scn().m_cam.CameraToWorld());
-		auto in_bands = [&](DrawListElement const& dle)
-		{
-			// Find the element's world bounds, posed if it is skinned
-			auto const& nugget = *dle.m_nugget;
-			auto const& instance = *dle.m_instance;
-			auto const& mbox = nugget.m_model->m_bbox;
-			auto const& i2w = GetO2W(instance);
-			if (!mbox.valid() || !IsAffine(i2w))
-				return true;
-
-			auto bbox = i2w * mbox;
-			if (auto pose = FindPose(instance); pose != nullptr)
-			{
-				// Posed models without a skin, or without pose bounds, can move outside their rest bounds
-				if (!nugget.m_model->m_skin)
-					return true;
-
-				auto iter = std::ranges::find_if(posed_bboxes, [&](PosedBBox const& p) { return p.m_model == nugget.m_model && p.m_pose == pose.get(); });
-				if (iter == posed_bboxes.end())
-				{
-					posed_bboxes.push_back(PosedBBox{ .m_model = nugget.m_model, .m_pose = pose.get(), .m_bbox = rdr().SkinnedModelBBox(*nugget.m_model, *pose.get()) });
-					iter = posed_bboxes.end() - 1;
-				}
-				if (!iter->m_bbox)
-					return true;
-
-				bbox = i2w * *iter->m_bbox;
-			}
-
-			// Bound the element on screen. Bounds that reach behind the camera cannot be bounded this way.
-			auto screen = Area{ v2(+std::numeric_limits<float>::infinity()), v2(-std::numeric_limits<float>::infinity()) };
-			for (int c = 0; c != 8; ++c)
-			{
-				auto const corner = w2s * Corner(bbox, c);
-				if (corner.w <= math::tiny<float>)
-					return true;
-
-				auto const ndc = corner.xy / corner.w;
-				screen.m_lower = Min(screen.m_lower, ndc);
-				screen.m_upper = Max(screen.m_upper, ndc);
-			}
-
-			// Draw the element if it overlaps any needed band
-			for (int i = 0; i != 3; ++i)
-			{
-				auto const& area = band_areas[i];
-				if (rp.m_bands[i].m_needed && All(screen.m_lower <= area.m_upper) && All(screen.m_upper >= area.m_lower))
-					return true;
-			}
-			return false;
-		};
-		rp.m_draw_elements.resize(opaques.size());
-		for (size_t i = 0; i != opaques.size(); ++i)
-			rp.m_draw_elements[i] = in_bands(opaques[i]);
-
-		// Draw the scene once into all the needed bands. The frame constants map the guarded area to the unit square, and view instancing
-		// repeats each draw through each band's viewport, clipped to the band's area of the atlas.
-		pr::vector<D3D12_VIEWPORT, 3, false> viewports;
-		pr::vector<D3D12_RECT, 3, false> scissors;
-		for (auto const& band : rp.m_bands)
-		{
-			// Bands that are not needed are not drawn
-			if (!band.m_needed)
-				continue;
-
-			viewports.push_back(band.m_viewport);
-			scissors.push_back(band.m_rect);
-		}
-		auto band_pipe_state = m_default_pipe_state;
-		band_pipe_state.ViewCount(isize(viewports));
-		m_cmd_list.get()->RSSetViewports(s_cast<UINT>(viewports.size()), viewports.data());
-		m_cmd_list.RSSetScissorRects({ scissors.data(), scissors.size() });
-		m_shader.m_clip_remap = &rp.m_guard_remap;
-		BindFrameResources(m_cmd_list);
-		auto const filter = ReflectionSourceFilter{ .m_elements = rp.m_draw_elements, .m_min_population_radius = scn().m_reflection_min_population_radius, .m_draw_sky = false };
-		DrawOpaques(frame, band_pipe_state, opaques, &filter);
-
-		// Restore the main view for any later draws
-		auto const& vp = scn().m_viewport;
-		m_shader.m_clip_remap = nullptr;
-		BindFrameResources(m_cmd_list);
-		m_cmd_list.RSSetViewports({ &vp, 1 });
-		m_cmd_list.RSSetScissorRects(vp.m_clip);
-	}
-
-	// Set up this frame's reflection cutaway, and size its textures
-	void RenderForward::PrepareCutaway()
-	{
-		// The cutaway is drawn only when the reflection is projected and the scene asks for it
-		auto& rp = *m_reflection_plane;
-		rp.m_cut_active = false;
-		auto const distance = scn().m_reflection_cutaway_distance;
-		if (distance <= 0.0f || !ReflectionPlaneNeeded())
-			return;
-
-		// Find the cutaway distance's depth in the main view. Reversed depth falls from 1 at the near plane to 0 at the far plane, so a distance
-		// outside that range leaves nothing to cut away, or nothing to draw.
-		auto const& cam = scn().m_cam;
-		auto const clip = cam.CameraToScreen() * v4(0.0f, 0.0f, -distance, 1.0f);
-		auto const depth = clip.w > 0.0f ? clip.z / clip.w : 0.0f;
-		if (!(depth > 0.0f && depth < 1.0f))
-			return;
-
-		// Scale clip depth so the cutaway distance lands on the near plane. Nearer points then fall beyond it and are clipped, and the cutaway's
-		// depths are the main view's depths divided by 'depth'.
-		rp.m_cut_scale = depth;
-		auto const depth_remap = m4x4{ v4{ 1, 0, 0, 0 }, v4{ 0, 1, 0, 0 }, v4{ 0, 0, 1.0f / depth, 0 }, v4{ 0, 0, 0, 1 } };
-
-		// Find the cutaway's area in pixels. Each cutaway pixel covers 'CutawaySplat' viewport pixels in each direction, starting from the viewport's
-		// top-left corner. Whole pixel extensions beyond the viewport cover the guard bands' reach, up to the cutaway's limits. The textures are sized
-		// for the largest area, so they depend only on the viewport.
-		auto const& vp = scn().m_viewport;
-		auto const splat = s_cast<float>(ReflectionPlane::CutawaySplat);
-		auto const extend = [&](float reach, float limit, float span)
-		{
-			// The pixels needed to reach 'reach' normalised device units beyond a viewport edge, where 'span' viewport pixels span 2 units
-			return s_cast<int>(std::ceil(std::min(reach, limit) * 0.5f * span / splat));
-		};
-		auto const cw = std::max(s_cast<int>(std::ceil(vp.Width / splat)), 1);
-		auto const ch = std::max(s_cast<int>(std::ceil(vp.Height / splat)), 1);
-		auto const ex = extend(rp.m_guard.x, ReflectionPlane::CutawaySideMax, vp.Width);
-		auto const ey = extend(rp.m_guard.y, ReflectionPlane::CutawayTopMax, vp.Height);
-		auto const size = iv2(cw + 2 * ex, ch + ey);
-		auto const alloc = iv2(
-			cw + 2 * extend(ReflectionPlane::CutawaySideMax, ReflectionPlane::CutawaySideMax, vp.Width),
-			ch + extend(ReflectionPlane::CutawayTopMax, ReflectionPlane::CutawayTopMax, vp.Height)
-		);
-
-		// The area's edges in the main view's normalised device coordinates, and the map from them to the unit square
-		auto const left = -1.0f - 2.0f * ex * splat / vp.Width;
-		auto const right = -1.0f + 2.0f * (cw + ex) * splat / vp.Width;
-		auto const top = 1.0f + 2.0f * ey * splat / vp.Height;
-		auto const bottom = 1.0f - 2.0f * ch * splat / vp.Height;
-		auto const c2n = Affine2{ .a = 0.5f * (right - left), .b = 0, .tx = 0.5f * (right + left), .c = 0, .d = 0.5f * (top - bottom), .ty = 0.5f * (top + bottom) };
-		rp.m_cut_origin = v2(left, top);
-		rp.m_cut_remap = ClipTransform(InvertAffine(c2n)) * depth_remap;
-		rp.m_cut_size = size;
-
-		// Size the textures. They match the main target's formats and sampling, so the scene's pipeline states can draw into them.
-		auto const ms = wnd().MultiSampling();
-		auto const resize = rp.m_cut_colour == nullptr ||
-			s_cast<int>(rp.m_cut_colour->m_res->GetDesc().Width) != alloc.x ||
-			s_cast<int>(rp.m_cut_colour->m_res->GetDesc().Height) != alloc.y ||
-			rp.m_cut_colour->m_res->GetDesc().SampleDesc.Count != ms.Count;
-		if (resize)
-		{
-			// Colour is written and read through sRGB views, like the main target
-			ResourceFactory factory(rdr());
-			auto const rt_format = wnd().m_rt_props.Format;
-			auto const ds_format = wnd().m_ds_props.Format;
-			auto col_desc = ResDesc::Tex2D(Image{ alloc.x, alloc.y, nullptr, rt_format }, 1U, EUsage::RenderTarget)
-				.multisamp(ms)
-				.clear(wnd().m_rt_props)
-				.def_state(D3D12_RESOURCE_STATE_RENDER_TARGET);
-			auto dep_desc = ResDesc::Tex2D(Image{ alloc.x, alloc.y, nullptr, DepthResourceFormat(ds_format) }, 1U, EUsage::DepthStencil)
-				.multisamp(ms)
-				.clear(wnd().m_ds_props)
-				.def_state(D3D12_RESOURCE_STATE_DEPTH_WRITE);
-			rp.m_cut_colour = factory.CreateTexture2D(TextureDesc(AutoId, col_desc).rtv_format(ToSRGB(rt_format)).srv_format(ToSRGB(rt_format)).name("ReflectionCutawayColour"));
-			rp.m_cut_depth = factory.CreateTexture2D(TextureDesc(AutoId, dep_desc).dsv_format(ds_format).srv_format(DepthSrvFormat(ds_format)).name("ReflectionCutawayDepth"));
-		}
-		rp.m_cut_active = true;
-	}
-
-	// Draw the opaque scene and the sky, without everything nearer than the cutaway distance, into the reflection cutaway
-	void RenderForward::DrawCutaway(Frame& frame, std::span<DrawListElement const> opaques)
-	{
-		// Clear the cutaway. The sky does not write depth, so where it shows the depth stays 0, which the projection passes mirror as sky.
-		auto& rp = *m_reflection_plane;
-		if (!rp.m_cut_active)
-			return;
-
-		auto pix_cutaway = pix::EventScope<ID3D12GraphicsCommandList>(m_cmd_list.get(), 0xFF5EC8D5, "View3D::ReflectionCutaway");
-		auto const rtv = rp.m_cut_colour->m_rtv.m_cpu;
-		auto const dsv = rp.m_cut_depth->m_dsv.m_cpu;
-		m_cmd_list.ClearRenderTargetView(rtv, frame.bb_main().rt_clear());
-		m_cmd_list.ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, frame.bb_main().ds_depth(), 0);
-		m_cmd_list.OMSetRenderTargets({ &rtv, 1 }, FALSE, &dsv);
-
-		// Draw every opaque element through the cutaway's projection, which maps its area to the textures and clips away the near scene. The
-		// populations are those culled for the guarded area, which covers the cutaway.
-		auto const viewport = D3D12_VIEWPORT{ .TopLeftX = 0.0f, .TopLeftY = 0.0f, .Width = s_cast<float>(rp.m_cut_size.x), .Height = s_cast<float>(rp.m_cut_size.y), .MinDepth = 0.0f, .MaxDepth = 1.0f };
-		auto const scissor = D3D12_RECT{ 0, 0, rp.m_cut_size.x, rp.m_cut_size.y };
-		rp.m_cut_elements.assign(opaques.size(), 1);
 		m_cmd_list.get()->RSSetViewports(1, &viewport);
 		m_cmd_list.get()->RSSetScissorRects(1, &scissor);
 
-		// The sky's cloud history belongs to the main view's pixels, so the cutaway's sky neither reads nor writes it
+		// Draw everything through the mirror camera. The sky's cloud history belongs to the main view's pixels, so the mirror's sky neither reads
+		// nor writes it. Small populations add little to a reflection, so they are left out.
 		auto sky_history = m_shader.m_sky_history;
 		m_shader.m_sky_history = nullptr;
-		m_shader.m_clip_remap = &rp.m_cut_remap;
+		m_shader.m_view = &rp.m_view;
+		m_mirrored = true;
 		BindFrameResources(m_cmd_list);
-		auto const filter = ReflectionSourceFilter{ .m_elements = rp.m_cut_elements, .m_min_population_radius = scn().m_reflection_min_population_radius, .m_draw_sky = true };
-		DrawOpaques(frame, m_default_pipe_state, opaques, &filter);
+		DrawOpaques(frame, m_default_pipe_state, opaques, m_mirror_populations, scn().m_reflection_min_population_radius);
 
 		// Restore the main view for any later draws
 		auto const& vp = scn().m_viewport;
 		m_shader.m_sky_history = sky_history;
-		m_shader.m_clip_remap = nullptr;
+		m_shader.m_view = nullptr;
+		m_mirrored = false;
 		BindFrameResources(m_cmd_list);
 		m_cmd_list.RSSetViewports({ &vp, 1 });
 		m_cmd_list.RSSetScissorRects(vp.m_clip);
@@ -1196,11 +819,9 @@ namespace pr::rdr12
 			ResourceFactory factory(rdr());
 			auto key_desc = ResDesc::Tex2D(Image{ bb_size.x, bb_size.y, nullptr, DXGI_FORMAT_R32_UINT }, 1U, EUsage::UnorderedAccess).def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
 			auto col_desc = ResDesc::Tex2D(Image{ bb_size.x, bb_size.y, nullptr, DXGI_FORMAT_R16G16B16A16_FLOAT }, 1U, EUsage::UnorderedAccess).def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
-			auto cov_desc = ResDesc::Tex2D(Image{ bb_size.x, bb_size.y, nullptr, DXGI_FORMAT_R8_UNORM }, 1U, EUsage::UnorderedAccess).def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
 			rp.m_key = factory.CreateTexture2D(TextureDesc(AutoId, key_desc).name("ReflectionPlaneKey"));
 			rp.m_raw = factory.CreateTexture2D(TextureDesc(AutoId, col_desc).name("ReflectionPlaneRaw"));
 			rp.m_final = factory.CreateTexture2D(TextureDesc(AutoId, col_desc).name("ReflectionPlane"));
-			rp.m_coverage = factory.CreateTexture2D(TextureDesc(AutoId, cov_desc).name("ReflectionPlaneCoverage"));
 			rp.m_size = bb_size;
 		}
 
@@ -1215,18 +836,12 @@ namespace pr::rdr12
 		bb.Transition(depth, D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
 		if (rp.m_active)
 		{
-			bb.Transition(rp.m_band_colour->m_res.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-			bb.Transition(rp.m_band_depth->m_res.get(), D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
-		}
-		if (rp.m_cut_active)
-		{
-			bb.Transition(rp.m_cut_colour->m_res.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-			bb.Transition(rp.m_cut_depth->m_res.get(), D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
+			bb.Transition(rp.m_mirror_colour->m_res.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			bb.Transition(rp.m_mirror_depth->m_res.get(), D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
 		}
 		bb.Transition(rp.m_key->m_res.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		bb.Transition(rp.m_raw->m_res.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		bb.Transition(rp.m_final->m_res.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-		bb.Transition(rp.m_coverage->m_res.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		bb.Commit();
 
 		UINT const cleared[4] = { 0, 0, 0, 0 };
@@ -1234,15 +849,14 @@ namespace pr::rdr12
 		bb.UAV(rp.m_key->m_res.get());
 		bb.Commit();
 
-		// Describe the sources. The main view is read pixel for pixel. Each guard band is read through its own map, and its pixels each cover
-		// a square of target pixels as wide as one band pixel is in the viewport. The cutaway covers the viewport and the guard bands near it at
-		// lower resolution, and its depths are scaled back to the main view's depths. The bands do not draw the sky, so their empty pixels are ignored.
-		// The colour is read through an sRGB view, which converts it to linear colour. Creating a view does not modify the frame's back buffer,
-		// so it is safe to drop the const.
+		// Describe the sources. Both views are read pixel for pixel; the mirror view's pixels map onto the viewport from its top-left corner.
+		// 's2w' maps each source's normalised
+		// device coordinates to the world position of the surface drawn there. The colour is read through an sRGB view, which converts it to linear
+		// colour. Creating a view does not modify the frame's back buffer, so it is safe to drop the const.
 		struct Source
 		{
 			v4 src0, src1, src2;
-			float kind;
+			m4x4 s2w;
 			D3D12_GPU_DESCRIPTOR_HANDLE colour, depth;
 		};
 		auto colour_srv = D3D12_SHADER_RESOURCE_VIEW_DESC{
@@ -1250,60 +864,31 @@ namespace pr::rdr12
 			.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2DMS,
 			.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
 		};
-		auto const main_depth = wnd().m_heap_view.Add(bb_main.m_depth_srv);
-		auto sources = pr::vector<Source, 5, false>{};
+		auto sources = pr::vector<Source, 2, false>{};
 		sources.push_back(Source{
 			.src0 = v4(2.0f / vp.Width, 0.0f, -1.0f, vp.Width),
 			.src1 = v4(0.0f, -2.0f / vp.Height, 1.0f, vp.Height),
-			.src2 = v4(vp.TopLeftX, vp.TopLeftY, 1.0f, 1.0f),
-			.kind = ReflectionPlane::SourceMain,
+			.src2 = v4(vp.TopLeftX, vp.TopLeftY, 1.0f, 0.0f),
+			.s2w = cam.CameraToWorld() * Invert(cam.CameraToScreen()),
 			.colour = wnd().m_heap_view.Add(const_cast<ID3D12Resource*>(colour), colour_srv),
-			.depth = main_depth,
+			.depth = wnd().m_heap_view.Add(bb_main.m_depth_srv),
 		});
 		if (rp.m_active)
 		{
-			for (auto const& band : rp.m_bands)
-			{
-				// Bands that were not drawn hold no sources
-				if (!band.m_needed)
-					continue;
-
-				auto const& m = band.m_src;
-				auto const w = s_cast<float>(band.m_rect.right - band.m_rect.left);
-				auto const h = s_cast<float>(band.m_rect.bottom - band.m_rect.top);
-				sources.push_back(Source{
-					.src0 = v4(m.a, m.b, m.tx, w),
-					.src1 = v4(m.c, m.d, m.ty, h),
-					.src2 = v4(s_cast<float>(band.m_rect.left), s_cast<float>(band.m_rect.top), band.m_splat, 1.0f),
-					.kind = ReflectionPlane::SourceBand,
-					.colour = wnd().m_heap_view.Add(rp.m_band_colour->m_srv),
-					.depth = wnd().m_heap_view.Add(rp.m_band_depth->m_srv),
-				});
-			}
-		}
-		if (rp.m_cut_active)
-		{
-			// The cutaway's pixels map uniformly onto the main view from its top-left corner, 'CutawaySplat' viewport pixels apart, and each covers
-			// 'CutawayCover' pixels in each direction
-			auto const w = s_cast<float>(rp.m_cut_size.x);
-			auto const h = s_cast<float>(rp.m_cut_size.y);
-			auto const splat = s_cast<float>(ReflectionPlane::CutawaySplat);
 			sources.push_back(Source{
-				.src0 = v4(2.0f * splat / vp.Width, 0.0f, rp.m_cut_origin.x, w),
-				.src1 = v4(0.0f, -2.0f * splat / vp.Height, rp.m_cut_origin.y, h),
-				.src2 = v4(0.0f, 0.0f, s_cast<float>(ReflectionPlane::CutawayCover), rp.m_cut_scale),
-				.kind = ReflectionPlane::SourceCutaway,
-				.colour = wnd().m_heap_view.Add(rp.m_cut_colour->m_srv),
-				.depth = wnd().m_heap_view.Add(rp.m_cut_depth->m_srv),
+				.src0 = v4(2.0f / vp.Width, 0.0f, -1.0f, s_cast<float>(rp.m_mirror_size.x)),
+				.src1 = v4(0.0f, -2.0f / vp.Height, 1.0f, s_cast<float>(rp.m_mirror_size.y)),
+				.src2 = v4(0.0f, 0.0f, ReflectionPlane::MirrorKeyScale, 0.0f),
+				.s2w = rp.m_mirror_s2w,
+				.colour = wnd().m_heap_view.Add(rp.m_mirror_colour->m_srv),
+				.depth = wnd().m_heap_view.Add(rp.m_mirror_depth->m_srv),
 			});
 		}
 
 		// Bind the passes' constants and outputs
 		auto const w2s = cam.CameraToScreen() * InvertOrthonormal(cam.CameraToWorld());
-		auto const s2w = cam.CameraToWorld() * Invert(cam.CameraToScreen());
 		auto const viewport = v4(vp.TopLeftX, vp.TopLeftY, vp.Width, vp.Height);
 		auto cb = ReflectionPlane::Constants{
-			.s2w = s2w,
 			.w2s = w2s,
 			.plane = plane,
 			.viewport = viewport,
@@ -1314,7 +899,6 @@ namespace pr::rdr12
 		m_alp_list.SetComputeRootDescriptorTable(EParam::Key, wnd().m_heap_view.Add(rp.m_key->m_uav));
 		m_alp_list.SetComputeRootDescriptorTable(EParam::Raw, wnd().m_heap_view.Add(rp.m_raw->m_uav));
 		m_alp_list.SetComputeRootDescriptorTable(EParam::Final, wnd().m_heap_view.Add(rp.m_final->m_uav));
-		m_alp_list.SetComputeRootDescriptorTable(EParam::Coverage, wnd().m_heap_view.Add(rp.m_coverage->m_uav));
 
 		// Run each pass over every source, one thread per source pixel in 8x8 groups. Each pass reads what the previous one wrote.
 		for (auto* pso : { rp.m_project.get(), rp.m_write.get() })
@@ -1324,14 +908,13 @@ namespace pr::rdr12
 			for (auto const& src : sources)
 			{
 				// Bind the source and its map
+				cb.s2w = src.s2w;
 				cb.src0 = src.src0;
 				cb.src1 = src.src1;
 				cb.src2 = src.src2;
-				cb.cam.w = src.kind;
 				m_alp_list.SetComputeRoot32BitConstants(EParam::Constants, sizeof(cb) / sizeof(uint32_t), &cb, 0);
 				m_alp_list.SetComputeRootDescriptorTable(EParam::Colour, src.colour);
 				m_alp_list.SetComputeRootDescriptorTable(EParam::Depth, src.depth);
-				m_alp_list.SetComputeRootDescriptorTable(EParam::MainDepth, main_depth);
 				m_alp_list.Dispatch((s_cast<int>(src.src0.w) + 7) / 8, (s_cast<int>(src.src1.w) + 7) / 8, 1);
 			}
 			bb.UAV(rp.m_key->m_res.get());
@@ -1343,29 +926,21 @@ namespace pr::rdr12
 		m_alp_list.SetPipelineState(rp.m_fill.get());
 		m_alp_list.Dispatch((s_cast<int>(vp.Width) + 7) / 8, (s_cast<int>(vp.Height) + 7) / 8, 1);
 		bb.UAV(rp.m_final->m_res.get());
-		bb.UAV(rp.m_coverage->m_res.get());
 		bb.Commit();
 
 		// The alpha draws read the final reflection, and the colour targets return to their normal states
 		bb.Transition(rp.m_final->m_res.get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-		bb.Transition(rp.m_coverage->m_res.get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
 		bb.Transition(colour, D3D12_RESOURCE_STATE_RENDER_TARGET);
 		if (rp.m_active)
 		{
-			bb.Transition(rp.m_band_colour->m_res.get(), D3D12_RESOURCE_STATE_RENDER_TARGET);
-			bb.Transition(rp.m_band_depth->m_res.get(), D3D12_RESOURCE_STATE_DEPTH_WRITE);
-		}
-		if (rp.m_cut_active)
-		{
-			bb.Transition(rp.m_cut_colour->m_res.get(), D3D12_RESOURCE_STATE_RENDER_TARGET);
-			bb.Transition(rp.m_cut_depth->m_res.get(), D3D12_RESOURCE_STATE_DEPTH_WRITE);
+			bb.Transition(rp.m_mirror_colour->m_res.get(), D3D12_RESOURCE_STATE_RENDER_TARGET);
+			bb.Transition(rp.m_mirror_depth->m_res.get(), D3D12_RESOURCE_STATE_DEPTH_WRITE);
 		}
 		bb.Commit();
 
 		rp.m_constants = shaders::fwd::ReflectionPlane{
 			.plane = plane,
 			.viewport = viewport,
-			.guard = v4(rp.m_guard.x, rp.m_guard.y, 0.0f, 0.0f),
 			.enabled = 1,
 		};
 		m_shader.m_reflection_plane = &rp.m_constants;
@@ -1412,13 +987,9 @@ namespace pr::rdr12
 			cmd_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::SkyHistoryOut, wnd().m_heap_view.Add(history.m_tex[0]->m_uav));
 		}
 
-		// Add the projected reflection of the scene's reflection plane and its coverage. They are only read while the reflection constants are set
-		// (see ProjectReflectionPlane). They share one table so that the forward root signature stays within the 64 DWORD limit.
+		// Add the projected reflection of the scene's reflection plane. It is only read while the reflection constants are set (see ProjectReflectionPlane).
 		if (m_shader.m_reflection_plane != nullptr)
-		{
-			Descriptor const srvs[] = {m_reflection_plane->m_final->m_srv, m_reflection_plane->m_coverage->m_srv};
-			cmd_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::ReflectionPlane, wnd().m_heap_view.Add(srvs));
-		}
+			cmd_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::ReflectionPlane, wnd().m_heap_view.Add(m_reflection_plane->m_final->m_srv));
 	}
 
 	// Set up shader resources used by the alpha collection pass.
@@ -1437,140 +1008,122 @@ namespace pr::rdr12
 		cmd_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::AlphaRtAttrs, alpha_rt_attrs);
 	}
 
-	// Classify the scene's populations for the camera and build the population draws.
+	// Classify the scene's populations for the camera and the mirror camera, and build the population draws.
 	void RenderForward::CullPopulations()
 	{
+		// Record the classifications on the opaque command list, which also records the draws that consume them. Each view has its own key,
+		// so that the populations keep separate results for each.
+		auto pix_cull = pix::EventScope<ID3D12GraphicsCommandList>(m_cmd_list.get(), 0xFF5AC8A0, "View3D::PopulationCull");
+		CullPopulations(m_populations, PopulationCameraView(reinterpret_cast<uint64_t>(this), scn().m_cam, scn().m_viewport.Height));
+
+		// The mirror view measures draw distances from the mirrored eye, which is as far from each object as the eye's view of its reflection
+		auto const& rp = *m_reflection_plane;
+		if (rp.m_active)
+			CullPopulations(m_mirror_populations, PopulationProjectionView(reinterpret_cast<uint64_t>(this) + 1, rp.m_mirror_w2s, s_cast<float>(rp.m_mirror_size.y), rp.m_mirror_eye));
+		else
+			m_mirror_populations = PopulationSet{};
+	}
+
+	// Classify the scene's populations for 'view' into 'set', and build its draws
+	void RenderForward::CullPopulations(PopulationSet& set, PopulationViewDesc const& view)
+	{
 		// Population draws reference the classification results, so rebuild both each frame.
-		m_population_lists.resize(0);
-		m_population_dles.resize(0);
-		m_population_draws.resize(0);
+		set.m_lists.resize(0);
+		set.m_dles.resize(0);
+		set.m_draws.resize(0);
+		set.m_elements = {};
 		auto populations = scn().Populations();
 		if (populations.empty())
 			return;
 
-		// Record the classification on the opaque command list, which also records the draws that consume it.
-		auto pix_cull = pix::EventScope<ID3D12GraphicsCommandList>(m_cmd_list.get(), 0xFF5AC8A0, "View3D::PopulationCull");
-		auto view = PopulationCameraView(reinterpret_cast<uint64_t>(this), scn().m_cam, scn().m_viewport.Height);
-		if (auto const& rp = *m_reflection_plane; rp.m_active)
-		{
-			// Widen the frustum to include the reflection guard bands, without changing the projected sizes that select LODs
-			view.m_w2s = rp.m_guard_remap * view.m_w2s;
-		}
-		m_population_lists.reserve(populations.size());
+		// Classify each population. The draws reference the lists, so reserve them first to keep their addresses stable.
+		set.m_lists.reserve(populations.size());
 		for (auto pop : populations)
 		{
-			m_population_lists.push_back(rdr().PopulationCulling().Cull(m_cmd_list, m_upload_buffer, m_gsync, *pop.get(), view, m_step_id));
+			set.m_lists.push_back(rdr().PopulationCulling().Cull(m_cmd_list, m_upload_buffer, m_gsync, *pop.get(), view, m_step_id));
 		}
 
-		// Each (LOD, nugget) draw takes its element constants from the LOD's proxy instance, and its sort group from its population.
-		// 'm_population_lists' no longer changes, so the references are stable.
-		for (auto const& lists : m_population_lists)
+		// Each (LOD, nugget) draw takes its element constants from the LOD's proxy instance, and its sort group from its population
+		std::vector<DrawListElement> dles;
+		std::vector<PopulationDrawRef> draws;
+		for (auto const& lists : set.m_lists)
 		{
 			for (auto const& draw : lists.m_draws)
 			{
 				auto sort_key = draw.m_nugget->m_sort_key;
 				sort_key.Group(lists.m_population->m_sort_group);
-				m_population_dles.push_back(DrawListElement{ .m_sort_key = sort_key, .m_nugget = draw.m_nugget, .m_instance = &draw.m_proxy->m_base });
-				m_population_draws.push_back(PopulationDrawRef{ .m_lists = &lists, .m_draw = &draw });
+				dles.push_back(DrawListElement{ .m_sort_key = sort_key, .m_nugget = draw.m_nugget, .m_instance = &draw.m_proxy->m_base });
+				draws.push_back(PopulationDrawRef{ .m_lists = &lists, .m_draw = &draw });
 			}
 		}
 
 		// Order the draws by sort key so that they can be merged with the drawlist by group. Within a group, draws that share a shader and texture
 		// become adjacent, so they reuse bound descriptors and pipeline state. Draws with equal keys keep their population order.
+		std::vector<int> order(dles.size());
+		std::iota(order.begin(), order.end(), 0);
+		std::ranges::stable_sort(order, {}, [&](int i) { return dles[i].m_sort_key.m_value; });
+		set.m_dles.reserve(order.size());
+		set.m_draws.reserve(order.size());
+		for (auto i : order)
 		{
-			std::vector<int> order(m_population_dles.size());
-			std::iota(order.begin(), order.end(), 0);
-			std::ranges::stable_sort(order, {}, [&](int i) { return m_population_dles[i].m_sort_key.m_value; });
-
-			auto dles = std::move(m_population_dles);
-			auto draws = std::move(m_population_draws);
-			m_population_dles.resize(0);
-			m_population_draws.resize(0);
-			for (auto i : order)
-			{
-				m_population_dles.push_back(dles[i]);
-				m_population_draws.push_back(draws[i]);
-			}
+			set.m_dles.push_back(dles[i]);
+			set.m_draws.push_back(draws[i]);
 		}
 
 		// Upload the element constants of every population draw once. Each population draw selects its entry by position.
-		m_population_elements = !m_population_dles.empty() ? shaders::Forward::UploadElements(m_upload_buffer, scn(), CameraTransforms(scn().m_cam), m_population_dles) : D3D12_GPU_VIRTUAL_ADDRESS{};
+		// The constants are for the main camera. Views drawn through another camera correct them with their clip remap.
+		if (!set.m_dles.empty())
+			set.m_elements = shaders::Forward::UploadElements(m_upload_buffer, scn(), CameraTransforms(scn().m_cam), set.m_dles);
 	}
 
 	// Draw the opaque drawlist elements and the classified populations, merged in sort group order
-	void RenderForward::DrawOpaques(Frame& frame, PipeStateDesc const& pipe_state, std::span<DrawListElement const> opaques, ReflectionSourceFilter const* filter)
+	void RenderForward::DrawOpaques(Frame& frame, PipeStateDesc const& pipe_state, std::span<DrawListElement const> opaques, PopulationSet const& pops, float min_population_radius)
 	{
-		assert(filter == nullptr || filter->m_elements.size() == opaques.size());
-
 		// Draw one sort group at a time: its drawlist elements, then its population draws. Both sequences are sorted by group.
-		auto const pops = std::span<DrawListElement const>{ m_population_dles };
-		for (size_t d = 0, p = 0; d != opaques.size() || p != pops.size();)
+		auto const pop_dles = std::span<DrawListElement const>{ pops.m_dles };
+		for (size_t d = 0, p = 0; d != opaques.size() || p != pop_dles.size();)
 		{
 			// Find the lowest group that has draws remaining
 			auto group = ESortGroup::Max;
 			if (d != opaques.size())
 				group = std::min(group, opaques[d].m_sort_key.Group());
-			if (p != pops.size())
-				group = std::min(group, pops[p].m_sort_key.Group());
+			if (p != pop_dles.size())
+				group = std::min(group, pop_dles[p].m_sort_key.Group());
 
 			// Find the end of the group in both sequences
 			auto d_end = d;
 			auto p_end = p;
 			for (; d_end != opaques.size() && opaques[d_end].m_sort_key.Group() == group; ++d_end) {}
-			for (; p_end != pops.size() && pops[p_end].m_sort_key.Group() == group; ++p_end) {}
+			for (; p_end != pop_dles.size() && pop_dles[p_end].m_sort_key.Group() == group; ++p_end) {}
 
-			// Draw the group's drawlist elements. A filter draws the accepted elements in runs, because the position of each
-			// run in the drawlist selects its element constants.
-			auto const draw = filter == nullptr || filter->m_draw_sky || group != ESortGroup::Skybox;
-			if (draw && filter == nullptr && d_end != d)
-			{
+			// Draw the group's drawlist elements, then its populations
+			if (d_end != d)
 				DrawNuggets(frame, m_cmd_list, pipe_state, opaques.subspan(d, d_end - d), s_cast<int>(d), ESubPass::Opaque);
-			}
-			else if (draw && filter != nullptr)
-			{
-				// Draw each run of consecutive accepted elements
-				for (auto r = d; r != d_end;)
-				{
-					// Skip rejected elements, then find the end of the run
-					for (; r != d_end && filter->m_elements[r] == 0; ++r) {}
-					auto r_end = r;
-					for (; r_end != d_end && filter->m_elements[r_end] != 0; ++r_end) {}
-					if (r_end != r)
-						DrawNuggets(frame, m_cmd_list, pipe_state, opaques.subspan(r, r_end - r), s_cast<int>(r), ESubPass::Opaque);
-
-					r = r_end;
-				}
-			}
-
-			// Draw the group's populations
-			if (draw && p_end != p)
-				DrawPopulations(frame, pipe_state, s_cast<int>(p), s_cast<int>(p_end), filter);
+			if (p_end != p)
+				DrawPopulations(frame, pipe_state, pops, s_cast<int>(p), s_cast<int>(p_end), min_population_radius);
 
 			d = d_end;
 			p = p_end;
 		}
 	}
 
-	// Draw the population draws [beg, end) into the opaque targets.
-	void RenderForward::DrawPopulations(Frame& frame, PipeStateDesc const& pipe_state, int beg, int end, ReflectionSourceFilter const* filter)
+	// Draw the population draws [beg, end) of 'pops' into the opaque targets.
+	void RenderForward::DrawPopulations(Frame& frame, PipeStateDesc const& pipe_state, PopulationSet const& pops, int beg, int end, float min_population_radius)
 	{
 		// Population draws select element constants from their own table, so swap it in, then restore the drawlist's table for later draws.
 		auto pix_population = pix::EventScope<ID3D12GraphicsCommandList>(m_cmd_list.get(), 0xFF5AC8A0, "View3D::Populations");
 		auto drawlist_elements = m_elements;
-		m_elements = m_population_elements;
+		m_elements = pops.m_elements;
 		BindFrameResources(m_cmd_list);
 
-		// Draw the accepted draws in runs, because the position of each run selects its element constants. Without a filter, all draws are one run.
-		auto const dles = std::span<DrawListElement const>{ m_population_dles };
-		auto const draws = std::span<PopulationDrawRef const>{ m_population_draws };
+		// Draw the accepted draws in runs, because the position of each run selects its element constants
+		auto const dles = std::span<DrawListElement const>{ pops.m_dles };
+		auto const draws = std::span<PopulationDrawRef const>{ pops.m_draws };
 		auto accepted = [&](int i)
 		{
-			// Leave out populations that are too small to matter in the filtered view
-			if (filter == nullptr)
-				return true;
-
+			// Leave out populations that are smaller than the minimum radius
 			auto const& ref = draws[i];
-			return ref.m_lists->m_population->m_prototypes[ref.m_draw->m_prototype]->m_bound.w >= filter->m_min_population_radius;
+			return ref.m_lists->m_population->m_prototypes[ref.m_draw->m_prototype]->m_bound.w >= min_population_radius;
 		};
 		for (auto r = beg; r != end;)
 		{
@@ -1654,7 +1207,7 @@ namespace pr::rdr12
 				continue;
 
 			auto const* population = populations.empty() ? nullptr : &populations[s_cast<size_t>(&dle - drawlist.data())];
-			ComposePipeline(desc, nugget, instance, material, *pass, population != nullptr);
+			ComposePipeline(desc, nugget, instance, material, *pass, population != nullptr, m_mirrored);
 
 			if (!frame_resources_bound)
 				bind_frame_resources();

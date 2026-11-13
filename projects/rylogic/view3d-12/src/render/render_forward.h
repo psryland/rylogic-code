@@ -40,17 +40,13 @@ namespace pr::rdr12
 			PopulationViewDraw const* m_draw;
 		};
 
-		// Selects what the reflection's extra sources (guard bands and cutaway) draw
-		struct ReflectionSourceFilter
+		// The populations classified for one view, and their draws
+		struct PopulationSet
 		{
-			// Per opaque drawlist element, non-zero when the element is drawn
-			std::span<uint8_t const> m_elements;
-
-			// Populations whose prototype bounding radius is less than this are not drawn
-			float m_min_population_radius;
-
-			// True when the sky is drawn
-			bool m_draw_sky;
+			std::vector<PopulationViewLists> m_lists; // The classification of each scene population
+			std::vector<DrawListElement> m_dles;      // One element per population draw, referencing the LOD proxies, in sort group order
+			std::vector<PopulationDrawRef> m_draws;   // Parallel to 'm_dles'
+			D3D12_GPU_VIRTUAL_ADDRESS m_elements = {}; // The element constants table for 'm_dles'
 		};
 
 		shaders::Forward m_shader;
@@ -64,10 +60,9 @@ namespace pr::rdr12
 		D3D12_GPU_VIRTUAL_ADDRESS m_elements = {}; // This frame's element constants table, one entry per drawlist element
 		std::unique_ptr<SkyHistory> m_sky_history;
 		std::unique_ptr<ReflectionPlane> m_reflection_plane;
-		std::vector<PopulationViewLists> m_population_lists; // This frame's classification of each scene population
-		std::vector<DrawListElement> m_population_dles;      // One element per population draw, referencing the LOD proxies, in sort group order
-		std::vector<PopulationDrawRef> m_population_draws;   // Parallel to 'm_population_dles'
-		D3D12_GPU_VIRTUAL_ADDRESS m_population_elements = {}; // This frame's element constants table for 'm_population_dles'
+		PopulationSet m_populations;        // This frame's populations classified for the camera
+		PopulationSet m_mirror_populations; // This frame's populations classified for the reflection's mirror camera
+		bool m_mirrored = false;            // True while drawing through a mirror camera, which reverses the winding of every triangle
 	public:
 
 		explicit RenderForward(Scene& scene);
@@ -79,8 +74,9 @@ namespace pr::rdr12
 	private:
 
 		// Compose the pipeline state for drawing 'nugget' of 'instance' with 'pass' of 'material', starting from the sub-pass default in 'desc'.
-		// 'population' selects the population vertex shaders. Issues no commands. Throws if the material cannot be drawn in the sub-pass.
-		void ComposePipeline(PipeStateDesc& desc, Nugget const& nugget, BaseInstance const& instance, Material const& material, MaterialPass const& pass, bool population) const;
+		// 'population' selects the population vertex shaders. 'mirrored' swaps front and back face culling, for views that reverse the winding of triangles.
+		// Issues no commands. Throws if the material cannot be drawn in the sub-pass.
+		void ComposePipeline(PipeStateDesc& desc, Nugget const& nugget, BaseInstance const& instance, Material const& material, MaterialPass const& pass, bool population, bool mirrored) const;
 
 		// Perform the render step
 		void Execute(Frame& frame) override;
@@ -99,18 +95,12 @@ namespace pr::rdr12
 		// targets to project into.
 		bool ReflectionPlaneNeeded() const;
 
-		// Lay out this frame's reflection guard bands, and size their atlas. Call before the populations are culled, which must include the bands.
-		void PrepareGuardBands();
+		// Set up this frame's reflection mirror camera, and size its targets. See 'ReflectionPlane' for what the mirror view is.
+		// Call before the populations are culled, which must include the mirror view.
+		void PrepareMirror();
 
-		// Draw the opaque scene, without the sky, into the reflection guard bands. Call after the opaque pass, while the drawlist is still locked.
-		void DrawGuardBands(Frame& frame, std::span<DrawListElement const> opaques);
-
-		// Set up this frame's reflection cutaway, and size its textures. See 'ReflectionPlane' for what the cutaway is.
-		void PrepareCutaway();
-
-		// Draw the opaque scene and the sky, without everything nearer than the cutaway distance, into the reflection cutaway.
-		// Call after the opaque pass, while the drawlist is still locked.
-		void DrawCutaway(Frame& frame, std::span<DrawListElement const> opaques);
+		// Draw the opaque scene and the sky through the reflection's mirror camera. Call after the opaque pass, while the drawlist is still locked.
+		void DrawMirror(Frame& frame, std::span<DrawListElement const> opaques);
 
 		// Add model nuggets to the draw list for this render step
 		void AddNuggets(BaseInstance const& inst, NuggetPtr nuggets, drawlist_t& drawlist) override;
@@ -121,16 +111,21 @@ namespace pr::rdr12
 		// Set up shader resources used by the alpha collection pass.
 		void BindAlphaResources(Frame& frame, GfxCmdList& cmd_list);
 
-		// Classify the scene's populations for the camera, recording the compute work into the opaque command list, and build the population draws.
+		// Classify the scene's populations for the camera and the mirror camera, recording the compute work into the opaque command list, and build
+		// the population draws.
 		void CullPopulations();
 
-		// Draw the opaque drawlist elements 'opaques' and the classified populations into the opaque targets, merged in sort group order.
-		// Within one sort group, the drawlist elements are drawn before the populations. A non-null 'filter' selects what a reflection source draws.
-		void DrawOpaques(Frame& frame, PipeStateDesc const& pipe_state, std::span<DrawListElement const> opaques, ReflectionSourceFilter const* filter = nullptr);
+		// Classify the scene's populations for 'view' into 'set', and build its draws
+		void CullPopulations(PopulationSet& set, PopulationViewDesc const& view);
 
-		// Draw the population draws [beg, end) into the opaque targets, leaving out those rejected by 'filter' when it is not null.
-		// Restores the frame resources of the step's drawlist afterwards.
-		void DrawPopulations(Frame& frame, PipeStateDesc const& pipe_state, int beg, int end, ReflectionSourceFilter const* filter);
+		// Draw the opaque drawlist elements 'opaques' and the populations in 'pops' into the opaque targets, merged in sort group order.
+		// Within one sort group, the drawlist elements are drawn before the populations. Populations whose prototype bounding radius is less
+		// than 'min_population_radius' are not drawn.
+		void DrawOpaques(Frame& frame, PipeStateDesc const& pipe_state, std::span<DrawListElement const> opaques, PopulationSet const& pops, float min_population_radius);
+
+		// Draw the population draws [beg, end) of 'pops' into the opaque targets, leaving out those with a prototype bounding radius less than
+		// 'min_population_radius'. Restores the frame resources of the step's drawlist afterwards.
+		void DrawPopulations(Frame& frame, PipeStateDesc const& pipe_state, PopulationSet const& pops, int beg, int end, float min_population_radius);
 
 		// Add the nuggets in the draw list to 'cmd_list' for rendering. 'first_index' is the position of 'drawlist[0]' in the step's drawlist.
 		// 'populations' is empty for ordinary draws, or parallel to 'drawlist' for population draws.
