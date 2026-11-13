@@ -6,6 +6,7 @@
 #include <cassert>
 #include <concepts>
 #include <cstdint>
+#include <functional>
 #include <span>
 #include <string>
 #include <type_traits>
@@ -92,6 +93,12 @@ namespace pr::geometry
 		std::string m_uri = {};
 		std::string m_mime_type = {};
 		std::span<uint8_t const> m_data = {};
+
+		// Names immutable image content that 'm_resolve' supplies on demand. References with the same id share the image, so the bytes are only
+		// requested when no texture for the id is loaded yet. 'm_resolve' returns an empty span when the content is unknown, and 'm_uri' then applies.
+		std::string m_content_id = {};
+		std::function<std::span<uint8_t const>()> m_resolve = {};
+
 		int m_texcoord = 0;
 		TexXForm m_uv_transform = {};
 		float m_scale = 1.0f;
@@ -112,13 +119,16 @@ namespace pr::geometry
 			if (!m_uri.empty())
 				return m_uri;
 
+			if (!m_content_id.empty())
+				return m_content_id;
+
 			return std::string("Embedded texture");
 		}
 
-		// Return true when this texture names an external image or provides embedded image bytes.
+		// Return true when this texture names an external image, provides embedded image bytes, or can resolve its content.
 		explicit operator bool() const
 		{
-			return !m_uri.empty() || !m_data.empty();
+			return !m_uri.empty() || !m_data.empty() || (!m_content_id.empty() && m_resolve);
 		}
 	};
 

@@ -143,6 +143,16 @@ public static class RecipeRenderer
 				Biquad.Peaking(Frequency(step.Frequency), Required(step.Db, "db"), q).Process(buffer);
 				return buffer;
 			}
+			case ERecipeStep.Denoise:
+			{
+				// The noise section is located in the audio reaching this step, and must hold at least one analysis window
+				var start = buffer.FrameAt(NonNegative(step.Start, "start"));
+				var end = buffer.FrameAt(Required(step.End, "end"));
+				if (end - start < Denoiser.WindowFrames)
+					throw new InvalidDataException($"The noise section must lie within the sound and be at least {(double)Denoiser.WindowFrames / AudioBuffer.SampleRate:0.###} s long.");
+
+				return Denoiser.Process(buffer, start, end, Positive(step.Db, "db"));
+			}
 			case ERecipeStep.Loop:
 			{
 				var length = buffer.FrameAt(Positive(step.Duration, "duration"));

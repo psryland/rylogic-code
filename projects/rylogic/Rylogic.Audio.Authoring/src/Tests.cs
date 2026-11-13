@@ -74,6 +74,7 @@ public sealed class TestAuthoring
 			new() { Step = ERecipeStep.HighPass, Frequency = 80, Slope = 24 },
 			new() { Step = ERecipeStep.LowPass, Frequency = 8000, Slope = 48 },
 			new() { Step = ERecipeStep.Eq, Frequency = 2000, Db = -3, Q = 2 },
+			new() { Step = ERecipeStep.Denoise, Start = 0, End = 0.5, Db = 12 },
 			new() { Step = ERecipeStep.Loudness, Lufs = -20 },
 			new() { Step = ERecipeStep.Gain, Db = -1 },
 			new() { Step = ERecipeStep.FadeIn, Duration = 0.2, Curve = EFadeCurve.Linear },
@@ -129,6 +130,54 @@ public sealed class TestAuthoring
 		Assert.Equal(rate * 3 / 4, looped.Frames);
 		Assert.Equal((float)(rate * 3 / 4), looped.Samples[0]);
 		Assert.Equal((float)(rate * 3 / 4 - 1), looped.Samples[^1]);
+	}
+
+	/// <summary>Denoise turns down hiss by about its reduction where there is only hiss, leaves a sound clearly above the hiss unchanged, and keeps the length.</summary>
+	[Test]
+	public void DenoiseStep()
+	{
+		// Three seconds of quiet white hiss, the same on both channels, with a loud tone from 1 s to 2 s; the first 0.9 s is hiss only
+		var rate = AudioBuffer.SampleRate;
+		var random = new Random(1);
+		var samples = new float[rate * 3 * 2];
+		for (int i = 0; i != rate * 3; ++i)
+		{
+			// The tone is added over its one-second span
+			var hiss = 0.01 * (random.NextDouble() * 2 - 1);
+			var tone = i >= rate && i < rate * 2 ? 0.3 * Math.Sin(2 * Math.PI * 1000 * i / rate) : 0.0;
+			samples[i * 2] = samples[i * 2 + 1] = (float)(hiss + tone);
+		}
+		var noisy = new AudioBuffer(samples, 2);
+		var clean = RecipeRenderer.Render(noisy, [new() { Step = ERecipeStep.Denoise, Start = 0, End = 0.9, Db = 12 }]);
+
+		// The RMS of the left channel between two times, in seconds
+		static double RmsBetween(AudioBuffer buffer, double from, double to)
+		{
+			// Only the left channel is read; both channels match
+			var sum = 0.0;
+			var first = buffer.FrameAt(from);
+			var last = buffer.FrameAt(to);
+			for (int f = first; f != last; ++f)
+				sum += (double)buffer.Samples[f * 2] * buffer.Samples[f * 2];
+
+			return Math.Sqrt(sum / (last - first));
+		}
+
+		// The length and channels are kept, and shared gains keep identical channels identical
+		Assert.Equal(noisy.Frames, clean.Frames);
+		Assert.Equal(2, clean.Channels);
+		Assert.Equal(clean.Samples[rate * 2], clean.Samples[rate * 2 + 1]);
+
+		// Hiss alone, away from the tone's attack and release, drops by close to 12 dB (a factor of about 0.25)
+		var hiss_ratio = RmsBetween(clean, 2.4, 2.9) / RmsBetween(noisy, 2.4, 2.9);
+		Assert.True(hiss_ratio < 0.35);
+
+		// The tone, far above the hiss, passes almost unchanged
+		var tone_ratio = RmsBetween(clean, 1.2, 1.8) / RmsBetween(noisy, 1.2, 1.8);
+		Assert.Equal(1.0, tone_ratio, 0.02);
+
+		// A noise section shorter than one analysis window is rejected
+		Assert.Throws<InvalidDataException>(() => RecipeRenderer.Render(noisy, [new() { Step = ERecipeStep.Denoise, Start = 0, End = 0.01, Db = 12 }]));
 	}
 
 	/// <summary>Bad parameters are reported with the failing step, and bypassed steps are ignored.</summary>

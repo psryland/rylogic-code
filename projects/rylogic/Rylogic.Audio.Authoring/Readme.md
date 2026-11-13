@@ -87,9 +87,14 @@ are stored in `originals`, because they cannot be downloaded again.
 ## Recipes
 
 A recipe is an ordered list of built-in steps, each of which can be bypassed: `trim`, `cut`, `fade_in`, `fade_out`, `gain`, `loudness`, `high_pass`,
-`low_pass`, `eq` and `loop`. `RecipeRenderer.Render` applies them to 48 kHz float audio. Rendering always starts from the original. A variant may
-start with a reference master, an existing prepared file that stands in for the recipe. The first recipe edit replaces it, so playback in the tool
-always matches the game; bypass every step to hear the original.
+`low_pass`, `eq`, `denoise`, `loop` and `mix`. `RecipeRenderer.Render` applies them to 48 kHz float audio. Rendering always starts from the
+original. A variant may start with a reference master, an existing prepared file that stands in for the recipe. The first recipe edit replaces it, so
+playback in the tool always matches the game; bypass every step to hear the original.
+
+`denoise` removes steady hiss. Set `start` and `end` to a section, at least 43 ms long, that holds only the hiss, and `db` to how far to turn it down.
+About 12 dB sounds natural; much more can make the remaining sound 'watery'. It suits distinct sounds such as calls, clicks and voices, with gaps
+between them. Do not use it on textures that are themselves noise-like, such as wind, rain or surf, because it removes them too; a `low_pass` step
+is better there.
 
 ## Resolving prepared audio
 
