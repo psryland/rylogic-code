@@ -66,20 +66,13 @@ namespace pr::rdr12
 	};
 
 	// The reflection of the opaque scene in the scene's reflection plane, projected each frame by three compute passes (see reflection_plane.hlsl).
-	// The main view is projected pixel for pixel. A second source, the mirror view, is the opaque scene and the sky drawn at half resolution from
+	// The main view is projected pixel for pixel. A second source, the mirror view, is the opaque scene and the sky drawn from
 	// the mirror image of the camera, with the near plane moved onto the reflection plane. It holds the true reflection, so it fills in surfaces
 	// that near objects hide in the main view and objects beyond the edges of the screen.
 	struct RenderForward::ReflectionPlane
 	{
 		// Root parameters of the projection passes. Each view gets its own table, because consecutive heap entries can wrap around the ring.
-		enum class EParam { Constants, Colour, Depth, Key, Raw, Final, Coverage };
-
-		// The mirror view's resolution relative to the viewport, as the size of the square of viewport pixels that each mirror pixel covers
-		static constexpr int MirrorScale = 2;
-
-		// The size of the square of reflection pixels that each mirror pixel covers. It is larger than 'MirrorScale' so that neighbouring squares
-		// overlap and leave no lines of uncovered pixels between them.
-		static constexpr int MirrorSplat = 3;
+		enum class EParam { Constants, Colour, Depth, Key, Raw, Final };
 
 		// The mirror view's keys are scaled by this, so that where the main view and the mirror view see the same surface, the sharper main view wins
 		static constexpr float MirrorKeyScale = 0.95f;
@@ -103,12 +96,11 @@ namespace pr::rdr12
 		D3DPtr<ID3D12PipelineState> m_write;
 		D3DPtr<ID3D12PipelineState> m_fill;
 
-		// The winning depth key per pixel, the raw projected reflection, and the gap-filled reflection and its coverage read by the shaders.
+		// The winning depth key per pixel, the raw projected reflection, and the gap-filled reflection read by the shaders.
 		// All are the size of the back buffer.
 		Texture2DPtr m_key;
 		Texture2DPtr m_raw;
 		Texture2DPtr m_final;
-		Texture2DPtr m_coverage;
 		iv2 m_size;
 
 		// The mirror view's colour and depth, and the drawn size in pixels. They use the main target's formats and sampling, so the scene's
@@ -139,7 +131,6 @@ namespace pr::rdr12
 			, m_key()
 			, m_raw()
 			, m_final()
-			, m_coverage()
 			, m_size()
 			, m_mirror_colour()
 			, m_mirror_depth()
@@ -159,7 +150,6 @@ namespace pr::rdr12
 				.UAV(EUAVReg::u0, 1, D3D12_SHADER_VISIBILITY_ALL, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE)
 				.UAV(EUAVReg::u1, 1, D3D12_SHADER_VISIBILITY_ALL, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE)
 				.UAV(EUAVReg::u2, 1, D3D12_SHADER_VISIBILITY_ALL, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE)
-				.UAV(EUAVReg::u3, 1, D3D12_SHADER_VISIBILITY_ALL, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE)
 				.Create(device, "ReflectionPlaneSig");
 			m_project = ComputePSO(m_sig.get(), shader_code::reflection_plane_project_cs).Create(device, "ReflectionPlaneProjectPSO");
 			m_write = ComputePSO(m_sig.get(), shader_code::reflection_plane_write_cs).Create(device, "ReflectionPlaneWritePSO");
@@ -722,14 +712,13 @@ namespace pr::rdr12
 		c2s_obl.z.z = row_z.z;
 		c2s_obl.w.z = row_z.w;
 
-		// Draw the mirror view at reduced resolution, starting from the viewport's top-left corner. Each mirror pixel covers 'MirrorScale' viewport
-		// pixels in each direction, so the view is scaled to place the viewport's area on the whole number of mirror pixels that covers it.
+		// Draw the mirror view at the viewport's resolution, so that its pixels map one to one onto the viewport's pixels. A fractional
+		// viewport is covered by rounding up, and the view is scaled to place the viewport's area on that whole number of pixels.
 		auto const& vp = scn().m_viewport;
-		auto const scale = s_cast<float>(ReflectionPlane::MirrorScale);
-		auto const cw = std::max(s_cast<int>(std::ceil(vp.Width / scale)), 1);
-		auto const ch = std::max(s_cast<int>(std::ceil(vp.Height / scale)), 1);
-		auto const sx = vp.Width / (scale * cw);
-		auto const sy = vp.Height / (scale * ch);
+		auto const cw = std::max(s_cast<int>(std::ceil(vp.Width)), 1);
+		auto const ch = std::max(s_cast<int>(std::ceil(vp.Height)), 1);
+		auto const sx = vp.Width / cw;
+		auto const sy = vp.Height / ch;
 		auto const remap = m4x4{ v4{ sx, 0, 0, 0 }, v4{ 0, sy, 0, 0 }, v4{ 0, 0, 1, 0 }, v4{ sx - 1.0f, 1.0f - sy, 0, 1 } };
 
 		// The camera seen by the shaders. Element transforms are uploaded for the main camera, so 'clip_remap' replaces the main view's
@@ -829,11 +818,9 @@ namespace pr::rdr12
 			ResourceFactory factory(rdr());
 			auto key_desc = ResDesc::Tex2D(Image{ bb_size.x, bb_size.y, nullptr, DXGI_FORMAT_R32_UINT }, 1U, EUsage::UnorderedAccess).def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
 			auto col_desc = ResDesc::Tex2D(Image{ bb_size.x, bb_size.y, nullptr, DXGI_FORMAT_R16G16B16A16_FLOAT }, 1U, EUsage::UnorderedAccess).def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
-			auto cov_desc = ResDesc::Tex2D(Image{ bb_size.x, bb_size.y, nullptr, DXGI_FORMAT_R8_UNORM }, 1U, EUsage::UnorderedAccess).def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
 			rp.m_key = factory.CreateTexture2D(TextureDesc(AutoId, key_desc).name("ReflectionPlaneKey"));
 			rp.m_raw = factory.CreateTexture2D(TextureDesc(AutoId, col_desc).name("ReflectionPlaneRaw"));
 			rp.m_final = factory.CreateTexture2D(TextureDesc(AutoId, col_desc).name("ReflectionPlane"));
-			rp.m_coverage = factory.CreateTexture2D(TextureDesc(AutoId, cov_desc).name("ReflectionPlaneCoverage"));
 			rp.m_size = bb_size;
 		}
 
@@ -854,7 +841,6 @@ namespace pr::rdr12
 		bb.Transition(rp.m_key->m_res.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		bb.Transition(rp.m_raw->m_res.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		bb.Transition(rp.m_final->m_res.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-		bb.Transition(rp.m_coverage->m_res.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		bb.Commit();
 
 		UINT const cleared[4] = { 0, 0, 0, 0 };
@@ -862,8 +848,8 @@ namespace pr::rdr12
 		bb.UAV(rp.m_key->m_res.get());
 		bb.Commit();
 
-		// Describe the sources. The main view is read pixel for pixel. The mirror view's pixels map uniformly onto the viewport from its top-left
-		// corner, 'MirrorScale' viewport pixels apart, and each covers 'MirrorSplat' pixels in each direction. 's2w' maps each source's normalised
+		// Describe the sources. Both views are read pixel for pixel; the mirror view's pixels map onto the viewport from its top-left corner.
+		// 's2w' maps each source's normalised
 		// device coordinates to the world position of the surface drawn there. The colour is read through an sRGB view, which converts it to linear
 		// colour. Creating a view does not modify the frame's back buffer, so it is safe to drop the const.
 		struct Source
@@ -881,18 +867,17 @@ namespace pr::rdr12
 		sources.push_back(Source{
 			.src0 = v4(2.0f / vp.Width, 0.0f, -1.0f, vp.Width),
 			.src1 = v4(0.0f, -2.0f / vp.Height, 1.0f, vp.Height),
-			.src2 = v4(vp.TopLeftX, vp.TopLeftY, 1.0f, 1.0f),
+			.src2 = v4(vp.TopLeftX, vp.TopLeftY, 1.0f, 0.0f),
 			.s2w = cam.CameraToWorld() * Invert(cam.CameraToScreen()),
 			.colour = wnd().m_heap_view.Add(const_cast<ID3D12Resource*>(colour), colour_srv),
 			.depth = wnd().m_heap_view.Add(bb_main.m_depth_srv),
 		});
 		if (rp.m_active)
 		{
-			auto const scale = s_cast<float>(ReflectionPlane::MirrorScale);
 			sources.push_back(Source{
-				.src0 = v4(2.0f * scale / vp.Width, 0.0f, -1.0f, s_cast<float>(rp.m_mirror_size.x)),
-				.src1 = v4(0.0f, -2.0f * scale / vp.Height, 1.0f, s_cast<float>(rp.m_mirror_size.y)),
-				.src2 = v4(0.0f, 0.0f, s_cast<float>(ReflectionPlane::MirrorSplat), ReflectionPlane::MirrorKeyScale),
+				.src0 = v4(2.0f / vp.Width, 0.0f, -1.0f, s_cast<float>(rp.m_mirror_size.x)),
+				.src1 = v4(0.0f, -2.0f / vp.Height, 1.0f, s_cast<float>(rp.m_mirror_size.y)),
+				.src2 = v4(0.0f, 0.0f, ReflectionPlane::MirrorKeyScale, 0.0f),
 				.s2w = rp.m_mirror_s2w,
 				.colour = wnd().m_heap_view.Add(rp.m_mirror_colour->m_srv),
 				.depth = wnd().m_heap_view.Add(rp.m_mirror_depth->m_srv),
@@ -913,7 +898,6 @@ namespace pr::rdr12
 		m_alp_list.SetComputeRootDescriptorTable(EParam::Key, wnd().m_heap_view.Add(rp.m_key->m_uav));
 		m_alp_list.SetComputeRootDescriptorTable(EParam::Raw, wnd().m_heap_view.Add(rp.m_raw->m_uav));
 		m_alp_list.SetComputeRootDescriptorTable(EParam::Final, wnd().m_heap_view.Add(rp.m_final->m_uav));
-		m_alp_list.SetComputeRootDescriptorTable(EParam::Coverage, wnd().m_heap_view.Add(rp.m_coverage->m_uav));
 
 		// Run each pass over every source, one thread per source pixel in 8x8 groups. Each pass reads what the previous one wrote.
 		for (auto* pso : { rp.m_project.get(), rp.m_write.get() })
@@ -941,12 +925,10 @@ namespace pr::rdr12
 		m_alp_list.SetPipelineState(rp.m_fill.get());
 		m_alp_list.Dispatch((s_cast<int>(vp.Width) + 7) / 8, (s_cast<int>(vp.Height) + 7) / 8, 1);
 		bb.UAV(rp.m_final->m_res.get());
-		bb.UAV(rp.m_coverage->m_res.get());
 		bb.Commit();
 
 		// The alpha draws read the final reflection, and the colour targets return to their normal states
 		bb.Transition(rp.m_final->m_res.get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-		bb.Transition(rp.m_coverage->m_res.get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
 		bb.Transition(colour, D3D12_RESOURCE_STATE_RENDER_TARGET);
 		if (rp.m_active)
 		{
@@ -1004,13 +986,9 @@ namespace pr::rdr12
 			cmd_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::SkyHistoryOut, wnd().m_heap_view.Add(history.m_tex[0]->m_uav));
 		}
 
-		// Add the projected reflection of the scene's reflection plane and its coverage. They are only read while the reflection constants are set
-		// (see ProjectReflectionPlane). They share one table so that the forward root signature stays within the 64 DWORD limit.
+		// Add the projected reflection of the scene's reflection plane. It is only read while the reflection constants are set (see ProjectReflectionPlane).
 		if (m_shader.m_reflection_plane != nullptr)
-		{
-			Descriptor const srvs[] = {m_reflection_plane->m_final->m_srv, m_reflection_plane->m_coverage->m_srv};
-			cmd_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::ReflectionPlane, wnd().m_heap_view.Add(srvs));
-		}
+			cmd_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::ReflectionPlane, wnd().m_heap_view.Add(m_reflection_plane->m_final->m_srv));
 	}
 
 	// Set up shader resources used by the alpha collection pass.

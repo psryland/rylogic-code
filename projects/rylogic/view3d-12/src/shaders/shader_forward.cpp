@@ -57,7 +57,7 @@ namespace pr::rdr12::shaders
 		inline static constexpr auto PopulationPayload = ESRVReg::t26;
 		inline static constexpr auto PopulationSkin = ESRVReg::t27;
 		inline static constexpr auto PopulationDraw = ECBufReg::b8;
-		inline static constexpr auto ReflectionPlane = ESRVReg::t28; // and the coverage in t29
+		inline static constexpr auto ReflectionPlane = ESRVReg::t28;
 		inline static constexpr auto PbrTintMaskTexture = ESRVReg::t30;
 		inline static constexpr auto ProceduralTextures = ESRVReg::t31; // and t32, t33, t34
 	};
@@ -141,7 +141,7 @@ namespace pr::rdr12::shaders
 			.SRV(EReg::PopulationPayload, D3D12_SHADER_VISIBILITY_ALL)
 			.U32<PopulationDraw>(EReg::PopulationDraw)
 			.SRV(EReg::PopulationSkin, D3D12_SHADER_VISIBILITY_VERTEX)
-			.SRV(EReg::ReflectionPlane, 2, D3D12_SHADER_VISIBILITY_PIXEL)
+			.SRV(EReg::ReflectionPlane, 1, D3D12_SHADER_VISIBILITY_PIXEL)
 			.SRV(EReg::PbrTintMaskTexture, 1, D3D12_SHADER_VISIBILITY_PIXEL)
 			.Samp(ESamp::PbrTintMask, 1, D3D12_SHADER_VISIBILITY_PIXEL)
 			.SRV(EReg::ProceduralTextures, ProceduralShader::TextureSlotCount, D3D12_SHADER_VISIBILITY_PIXEL)

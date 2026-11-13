@@ -54,7 +54,7 @@ namespace pr::rdr12::shaders
 			PopulationPayload,
 			PopulationDraw,
 			PopulationSkin,
-			ReflectionPlane, // Table of the reflection texture and its coverage
+			ReflectionPlane, // The projected reflection texture
 			PbrTintMaskTexture,
 			PbrTintMaskSampler,
 			ProceduralTextures, // Table of the procedural pixel family's texture slots, t31..t34

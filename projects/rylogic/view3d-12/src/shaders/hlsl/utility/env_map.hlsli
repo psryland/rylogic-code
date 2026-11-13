@@ -380,11 +380,9 @@ float4 ReflectionPlaneSample(float3 ws_pos, float3 ws_cam, float3 ws_dir, float2
 	if (texel.a <= 0.0f)
 		return float4(0, 0, 0, 0);
 
-	// Only part of the texels around the outlines of low resolution sources is used, so those outlines fade into the other reflection sources
-	float weight = g_reflection_plane_coverage.Load(int3(image_pix, 0));
-
 	// Fade out the reflection as the source's mirror image nears the edge of the screen, because beyond it the reflection is not projected.
 	// Sky texels come from the mirrored sky, which fills the whole reflection, so the environment map continues it without a visible edge.
+	float weight = 1.0f;
 	if (source.w != 0.0f)
 	{
 		// Measure the mirror image's distance to the nearest edge of the viewport in pixels

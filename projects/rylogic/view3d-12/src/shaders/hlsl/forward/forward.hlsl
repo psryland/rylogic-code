@@ -39,7 +39,6 @@ TextureCube<float> g_envmap_distance :register(t21);
 
 // The reflection of the opaque scene in the reflection plane: (linear colour, distance). See reflection_plane.hlsl and 'g_frame.reflection_plane'.
 Texture2D<float4> g_reflection_plane_tex :register(t28);
-Texture2D<float> g_reflection_plane_coverage :register(t29);
 
 // Shadow atlas. The regions of the atlas are described by the shadow views in 'g_shadow_views'.
 Texture2D<float> g_shadow_atlas         :register(t2);
