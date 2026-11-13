@@ -1021,12 +1021,12 @@ public sealed class TestAuthoring
 	[Test]
 	public void CatalogFormatRoundTrips()
 	{
-		// Every kind of value, including a whole-number gain, 'active' and 'retrigger' objects, and text that needs escaping
+		// Every kind of value, including a whole-number gain, a priority, 'active' and 'retrigger' objects, and text that needs escaping
 		const string Text =
 			"{\r\n\t\"schema\": 1,\r\n\t\"sections\": [\r\n" +
 			"\t\t{\r\n\t\t\t\"name\": \"Wind\",\r\n\t\t\t\"sounds\": [\r\n" +
 			"\t\t\t\t{\"id\": \"wind.calm\", \"placement\": \"bed\", \"loop\": true, \"channels\": \"stereo\", \"length_s\": [30, 60], \"load\": \"stream\", \"group\": \"wind\", \"gain\": 1.0, \"active\": {\"times\": [\"dawn\", \"day\"], \"peak\": \"day\"}, \"description\": \"Calm \\\"still\\\" air\"},\r\n" +
-			"\t\t\t\t{\"id\": \"wind.gust\", \"placement\": \"positioned\", \"loop\": false, \"channels\": \"mono\", \"load\": \"memory\", \"range_m\": 26.5, \"group\": \"wind\", \"gain\": 0.08, \"retrigger\": {\"max_per_emitter\": 1, \"when_busy\": \"refuse\"}}\r\n" +
+			"\t\t\t\t{\"id\": \"wind.gust\", \"placement\": \"positioned\", \"loop\": false, \"channels\": \"mono\", \"load\": \"memory\", \"range_m\": 26.5, \"group\": \"wind\", \"gain\": 0.08, \"priority\": 10, \"retrigger\": {\"max_per_emitter\": 1, \"when_busy\": \"refuse\"}}\r\n" +
 			"\t\t\t]\r\n\t\t},\r\n" +
 			"\t\t{\r\n\t\t\t\"name\": \"Lab\",\r\n\t\t\t\"sounds\": [\r\n" +
 			"\t\t\t\t{\"id\": \"lab.radio\", \"placement\": \"bed\", \"loop\": true, \"channels\": \"mono\", \"length_s\": [0.1, 0.25], \"load\": \"stream\", \"group\": \"lab\", \"gain\": 0.58}\r\n" +
@@ -1041,6 +1041,8 @@ public sealed class TestAuthoring
 		Assert.Equal("Calm \"still\" air", sounds[0].Description);
 		Assert.Equal(new LengthRange(0.1, 0.25), sounds[2].LengthS!.Value);
 		Assert.Equal(26.5, sounds[1].RangeM!.Value);
+		Assert.Equal(10, sounds[1].Priority);
+		Assert.Null(sounds[0].Priority);
 		Catalog.Write(path, sounds);
 		Assert.Equal(Text, File.ReadAllText(path));
 	}
@@ -1058,6 +1060,8 @@ public sealed class TestAuthoring
 			Catalog1(BedSound("x").Replace("}", ",\"len\":1}")),
 			Catalog1(BedSound("x").Replace("\"bed\"", "\"positioned\"").Replace("}", ",\"range_m\":5}")),
 			Catalog1(BedSound("x").Replace("}", ",\"range_m\":5}")),
+			Catalog1(BedSound("x").Replace("}", ",\"priority\":101}")),
+			Catalog1(BedSound("x").Replace("}", ",\"priority\":2.5}")),
 			Catalog1($"{BedSound("x")},{BedSound("x")}"),
 			Catalog1(BedSound("X")),
 			Catalog1(BedSound("x")).Replace("\"schema\":1,", ""),

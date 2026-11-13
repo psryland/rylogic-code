@@ -452,6 +452,9 @@ public sealed record CatalogSound
 	/// <summary>The linear gain applied to the sound's audio.</summary>
 	public required double Gain { get; init; }
 
+	/// <summary>How much the sound matters when the game has too few voices for every sound, from 0 to 100 with higher winning. Null for the game's default.</summary>
+	public int? Priority { get; init; }
+
 	/// <summary>When the sound is active, as the JSON object written in the catalog. The authoring tool keeps it but does not interpret it.</summary>
 	public JsonElement? Active { get; init; }
 
@@ -472,6 +475,7 @@ public sealed record CatalogSound
 /// - 'length_s': optional, '[min, max]' seconds wanted for the prepared audio.
 /// - 'range_m': required for a positioned sound and positive; not allowed for a bed.
 /// - 'group': a dotted name like an ID, at most 64 characters. 'gain': a finite number of at least 0.
+/// - 'priority': optional, a whole number from 0 to 100; higher wins when the game has too few voices for every sound.
 /// - 'active' and 'retrigger': optional; JSON objects kept as they are. 'description': optional text for people.
 /// Comments and trailing commas are accepted when reading but are not kept. Sections are written in the order of their first sound, so a section
 /// with no sounds is not kept.
@@ -479,7 +483,7 @@ public sealed record CatalogSound
 public static partial class Catalog
 {
 	/// <summary>The properties a sound may have, in the order they are written.</summary>
-	public static IReadOnlyList<string> Properties { get; } = ["id", "placement", "loop", "channels", "length_s", "load", "range_m", "group", "gain", "active", "retrigger", "description"];
+	public static IReadOnlyList<string> Properties { get; } = ["id", "placement", "loop", "channels", "length_s", "load", "range_m", "group", "gain", "priority", "active", "retrigger", "description"];
 
 	/// <summary>Read the catalog at 'path', in file order. Throws <see cref="InvalidDataException"/> when the catalog breaks the rules.</summary>
 	public static IReadOnlyList<CatalogSound> Read(string path)
@@ -552,6 +556,7 @@ public static partial class Catalog
 			RangeM = sound.TryGetProperty("range_m", out _) ? NumberOf(sound, "range_m", owner) : null,
 			Group = StringOf(sound, "group", owner),
 			Gain = NumberOf(sound, "gain", owner),
+			Priority = sound.TryGetProperty("priority", out var priority) ? priority.ValueKind == JsonValueKind.Number && priority.TryGetInt32(out var whole) ? whole : throw new InvalidDataException($"{owner} has a 'priority' that is not a whole number.") : null,
 			Active = sound.TryGetProperty("active", out var active) ? active.ValueKind == JsonValueKind.Object ? active.Clone() : throw new InvalidDataException($"{owner} has an 'active' that is not an object.") : null,
 			Retrigger = sound.TryGetProperty("retrigger", out var retrigger) ? retrigger.ValueKind == JsonValueKind.Object ? retrigger.Clone() : throw new InvalidDataException($"{owner} has a 'retrigger' that is not an object.") : null,
 			Description = sound.TryGetProperty("description", out _) ? StringOf(sound, "description", owner) : null,
@@ -607,6 +612,8 @@ public static partial class Catalog
 				throw new InvalidDataException($"{owner} has an invalid group '{sound.Group}'; groups are dotted names like IDs.");
 			if (!double.IsFinite(sound.Gain) || sound.Gain < 0)
 				throw new InvalidDataException($"{owner} needs a finite gain of at least 0.");
+			if (sound.Priority is < 0 or > 100)
+				throw new InvalidDataException($"{owner} needs a priority from 0 to 100.");
 			if (sound.LengthS is { } length && !(double.IsFinite(length.Min) && double.IsFinite(length.Max) && 0 <= length.Min && length.Min <= length.Max))
 				throw new InvalidDataException($"{owner} has a length range that is not 0 <= min <= max.");
 		}
@@ -709,6 +716,8 @@ public static partial class Catalog
 
 		parts.Add(Property("group", StringJson(sound.Group)));
 		parts.Add(Property("gain", NumberJson(sound.Gain, "0.0##")));
+		if (sound.Priority is { } priority)
+			parts.Add(Property("priority", priority.ToString(CultureInfo.InvariantCulture)));
 		if (sound.Active is { } active)
 			parts.Add(Property("active", ElementJson(active)));
 		if (sound.Retrigger is { } retrigger)
