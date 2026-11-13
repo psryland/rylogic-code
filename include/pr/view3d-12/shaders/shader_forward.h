@@ -78,9 +78,9 @@ namespace pr::rdr12::shaders
 		// Not owned; the render step that sets it keeps it valid while it renders.
 		fwd::ReflectionPlane const* m_reflection_plane;
 
-		// A transform applied after the camera projection, which moves clip space into a different render target region, or null for none.
-		// It maps clip (x, y) affinely using w, and keeps z and w, so depth testing and clipping are unchanged. Not owned.
-		m4x4 const* m_clip_remap;
+		// A view that replaces the scene camera for the frame constants, or null to use the scene camera. See 'fwd::ViewOverride'.
+		// Not owned; the render step that sets it keeps it valid while it renders.
+		fwd::ViewOverride const* m_view;
 
 		// A null view of a 'StructuredBuffer<float2>' for texture-coordinate lanes that a draw does not use. Reads return zero.
 		Descriptor m_null_texcoord_stream;

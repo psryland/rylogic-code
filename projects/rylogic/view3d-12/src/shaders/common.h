@@ -77,6 +77,15 @@ namespace pr::rdr12
 			static_assert((sizeof(CBufScreenSpace) % 16) == 0);
 			static_assert((sizeof(CBufDiag) % 16) == 0);
 			static_assert((sizeof(CBufDetailNormals) % 16) == 0);
+
+			// A camera that replaces the scene camera in the forward frame constants.
+			// 'cam' is the camera seen by shaders. 'clip_remap' maps the clip positions of per-element transforms, which are uploaded for the scene
+			// camera, into the clip space of 'cam'.
+			struct ViewOverride
+			{
+				Camera cam;
+				m4x4 clip_remap;
+			};
 		}
 		namespace smap
 		{

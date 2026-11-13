@@ -221,17 +221,14 @@ namespace pr::rdr12
 	private:
 
 		D3D12_GRAPHICS_PIPELINE_STATE_DESC m_desc;
-		int m_view_count;
 
 	public:
 
 		PipeStateDesc()
 			:m_desc()
-			,m_view_count()
 		{}
 		PipeStateDesc(D3D12_GRAPHICS_PIPELINE_STATE_DESC const& rhs)
 			:m_desc(rhs)
-			,m_view_count()
 		{}
 
 		// Return a hash of the final state, for lookup only. Equal descriptions have equal hashes.
@@ -241,20 +238,7 @@ namespace pr::rdr12
 		friend bool operator == (PipeStateDesc const& lhs, PipeStateDesc const& rhs)
 		{
 			// Compare the bytes, because the description is plain data with no owned pointers
-			return lhs.m_view_count == rhs.m_view_count && memcmp(&lhs.m_desc, &rhs.m_desc, sizeof(lhs.m_desc)) == 0;
-		}
-
-		// The number of view instances. Zero disables view instancing. Otherwise each draw is rasterised once per view, and view 'i' goes to
-		// viewport and scissor 'i'. Requires device support for view instancing (see D3D12_FEATURE_DATA_D3D12_OPTIONS3::ViewInstancingTier).
-		int ViewCount() const
-		{
-			return m_view_count;
-		}
-		void ViewCount(int count)
-		{
-			// View instancing has a device limit on the number of views
-			assert(count >= 0 && count <= D3D12_MAX_VIEW_INSTANCE_COUNT);
-			m_view_count = count;
+			return memcmp(&lhs.m_desc, &rhs.m_desc, sizeof(lhs.m_desc)) == 0;
 		}
 
 		// Apply changes to the pipeline state description

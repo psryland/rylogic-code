@@ -340,6 +340,7 @@ namespace pr::rdr12
 		{
 			struct SkyHistory;
 			struct ReflectionPlane;
+			struct ViewOverride;
 		}
 	}
 	using ShaderPtr = RefPtr<Shader>;

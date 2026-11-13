@@ -383,25 +383,13 @@ float4 ReflectionPlaneSample(float3 ws_pos, float3 ws_cam, float3 ws_dir, float2
 	// Only part of the texels around the outlines of low resolution sources is used, so those outlines fade into the other reflection sources
 	float weight = g_reflection_plane_coverage.Load(int3(image_pix, 0));
 
-	// Fade out the reflection as its source nears the edge of the rendered area, because beyond it the source is not rendered. The rendered area
-	// includes the guard bands beyond the left, right, and top of the viewport. Sky texels come from the mirrored sky, which is always on screen
-	// when its mirror image is.
+	// Fade out the reflection as the source's mirror image nears the edge of the screen, because beyond it the reflection is not projected.
+	// Sky texels come from the mirrored sky, which fills the whole reflection, so the environment map continues it without a visible edge.
 	if (source.w != 0.0f)
 	{
-		// Measure the source's distance to the nearest edge of the rendered area in viewport pixels
-		float4 clip = mul(source, g_frame.cam.w2s);
-		if (clip.w <= 0.0f)
-			return float4(0, 0, 0, 0);
-
-		float2 guard = g_frame.reflection_plane.guard.xy;
-		float2 ndc = clip.xy / clip.w;
-		float2 edge_x = float2(ndc.x + 1.0f + guard.x, 1.0f + guard.x - ndc.x) * (vp.z * 0.5f);
-		float2 edge_y = float2(ndc.y + 1.0f, 1.0f + guard.y - ndc.y) * (vp.w * 0.5f);
-		float edge = min(min(edge_x.x, edge_x.y), min(edge_y.x, edge_y.y));
-		if (edge <= 0.0f)
-			return float4(0, 0, 0, 0);
-
-		weight *= saturate(edge / ReflectionPlaneEdgeFadePixels);
+		// Measure the mirror image's distance to the nearest edge of the viewport in pixels
+		float2 edge2 = min(image_pix - vp.xy, vp.xy + vp.zw - image_pix);
+		weight *= saturate(min(edge2.x, edge2.y) / ReflectionPlaneEdgeFadePixels);
 	}
 	return float4(texel.rgb, weight);
 }

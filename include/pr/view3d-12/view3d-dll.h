@@ -1516,16 +1516,10 @@ extern "C"
 	VIEW3D_API pr::view3d::Vec4 __stdcall View3D_WindowReflectionPlaneGet(pr::view3d::Window window);
 	VIEW3D_API void __stdcall View3D_WindowReflectionPlaneSet(pr::view3d::Window window, pr::view3d::Vec4 plane);
 
-	// Get/Set the bounding radius below which populations are left out of the reflection's off-screen sources. Reflections of the scene just
-	// beyond the view edges are drawn at low resolution, where small objects add cost but little detail. Zero (the default) draws them all.
+	// Get/Set the bounding radius below which populations are left out of the reflection's mirror view. The mirror view is drawn at low
+	// resolution, where small objects add cost but little detail. Zero (the default) draws them all.
 	VIEW3D_API float __stdcall View3D_WindowReflectionMinPopulationRadiusGet(pr::view3d::Window window);
 	VIEW3D_API void __stdcall View3D_WindowReflectionMinPopulationRadiusSet(pr::view3d::Window window, float radius);
-
-	// Get/Set the camera-space depth within which the reflection's cutaway source leaves out the scene. The cutaway source is the opaque scene
-	// drawn again at low resolution without the parts nearer than this depth, so that surfaces hidden behind near objects can still be reflected.
-	// Zero (the default) disables the cutaway source.
-	VIEW3D_API float __stdcall View3D_WindowReflectionCutawayDistanceGet(pr::view3d::Window window);
-	VIEW3D_API void __stdcall View3D_WindowReflectionCutawayDistanceSet(pr::view3d::Window window, float distance);
 
 	// Enable/Disable the depth buffer
 	VIEW3D_API BOOL __stdcall View3D_DepthBufferEnabledGet(pr::view3d::Window window);

@@ -80,7 +80,7 @@ namespace pr::rdr12::shaders
 		:Shader(rdr)
 		,m_sky_history()
 		,m_reflection_plane()
-		,m_clip_remap()
+		,m_view()
 		,m_null_texcoord_stream()
 	{
 		m_code = ShaderCode
@@ -171,6 +171,7 @@ namespace pr::rdr12::shaders
 	{
 		// Set the frame constants
 		CBufFrame cb0 = {};
+		cb0.clip_remap = m4x4::Identity();
 		SetViewConstants(cb0.cam, scene.m_cam);
 		SetLightingConstants(cb0, scene);
 		SetEnvMapConstants(cb0.env_map, scene.m_global_envmap.get(), scene.m_global_envmap_prev.get(), scene.m_global_envmap_blend, scene.m_global_envmap_parallax_bounds);
@@ -180,14 +181,12 @@ namespace pr::rdr12::shaders
 		if (m_reflection_plane != nullptr)
 			cb0.reflection_plane = *m_reflection_plane;
 
-		// Move the projection into the remapped target region. Shaders that project with the camera transforms follow it automatically,
+		// Replace the camera. Shaders that project with the camera transforms follow it automatically,
 		// and shaders that use the per-element object to screen transform apply 'clip_remap' themselves.
-		cb0.clip_remap = m4x4::Identity();
-		if (m_clip_remap != nullptr)
+		if (m_view != nullptr)
 		{
-			cb0.clip_remap = *m_clip_remap;
-			cb0.cam.c2s = *m_clip_remap * cb0.cam.c2s;
-			cb0.cam.w2s = *m_clip_remap * cb0.cam.w2s;
+			cb0.cam = m_view->cam;
+			cb0.clip_remap = m_view->clip_remap;
 		}
 
 		// Clouds shade the sun when a visible procedural sky has them. Otherwise the zero shadow strength turns cloud shadows off,

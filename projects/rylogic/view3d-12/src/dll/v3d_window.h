@@ -420,14 +420,10 @@ namespace pr::rdr12
 		v4 ReflectionPlane() const;
 		void ReflectionPlane(v4 const& plane);
 
-		// Get/Set the bounding radius below which populations are left out of the reflection's off-screen sources. Reflections of the scene just
-		// beyond the view edges are drawn at low resolution, where small objects add cost but little detail. Zero (the default) draws them all.
+		// Get/Set the bounding radius below which populations are left out of the reflection's mirror view. The mirror view is drawn at low
+		// resolution, where small objects add cost but little detail. Zero (the default) draws them all.
 		float ReflectionMinPopulationRadius() const;
 		void ReflectionMinPopulationRadius(float radius);
-
-		// Get/Set the camera-space depth within which the reflection's cutaway source leaves out the scene. Zero for no cutaway source
-		float ReflectionCutawayDistance() const;
-		void ReflectionCutawayDistance(float distance);
 
 		// The scale of the distances stored in newly captured environment map cubes, derived from the parallax bounds. 0 means no distances.
 		float EnvMapDistanceScale() const;
