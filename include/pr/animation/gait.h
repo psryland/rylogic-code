@@ -16,7 +16,7 @@
 // A '.gait' file is a JSON gait description:
 //
 //  {
-//    "schema_version": 12,
+//    "schema_version": 13,
 //    "families": [{
 //      "name": "quadruped",
 //      "travel": [x, y, z],                // the model-space direction that the body moves in this family's cycles (unit, z = 0). Forward is [0, -1, 0].
@@ -99,6 +99,27 @@
 //
 // A family's up direction says how the body stands. A crawling family stands up along the ground's normal, so it can climb walls. An upright
 // family stands against gravity, so it needs ground that is close to level; its slope limit is the steepest ground on which it can balance.
+//
+// An action family plays a procedural, time-driven action in place, instead of moving. It has only a name and an action:
+//
+//  {
+//    "name": "death",
+//    "action": {
+//      "kind": "collapse" | "punches",
+//      "base": "bipedal",                  // a family without an action. The action starts from and returns to its stance, and uses its posture.
+//      "duration": 1.6,                    // collapse only, > 0. The time, in seconds, from standing to lying on the ground.
+//      "punches": [{                       // punches only, not empty. The sequence of punches, which repeats.
+//        "hand": "left" | "right",         // the side of the arm that punches. The rig must have an arm chain on that side.
+//        "kind": "jab" | "cross" | "hook" | "uppercut" | "body_hook" | "body_jab",
+//        "duration": 0.6                   // > 0. The time, in seconds, for the punch and the return to the guard.
+//      }]
+//    }
+//  }
+//
+// When the gait is read, an action family copies its base family's travel, up, slope limit, medium, wave and cycles (see 'ResolveActions'),
+// and its max speed is zero, because the body stays where it is. A collapse lets the body go limp from the base stance and fall to lie on
+// its side on the ground. A punches action stands with the feet apart in a boxing stance and throws the punches in turn, turning the torso into each
+// and dipping, leaning or stepping as each kind of punch needs.
 #pragma once
 #include "pr/animation/forward.h"
 #include "pr/animation/rig.h"
@@ -107,7 +128,7 @@
 namespace pr::animation
 {
 	// The '.gait' schema version that this code reads and writes
-	inline constexpr int GaitSchemaVersion = 12;
+	inline constexpr int GaitSchemaVersion = 13;
 
 	// The number of harmonics in each bone motion
 	inline constexpr int GaitHarmonics = 2;
@@ -198,6 +219,55 @@ namespace pr::animation
 		float growth = 1.0f;     // >= 0. The ratio of the amplitude at the tail tip to the amplitude at the head end.
 	};
 
+	// The kind of an action family's action. See the top of this file.
+	enum class EActionKind
+	{
+		// Go limp and fall to lie on the ground
+		Collapse,
+
+		// Throw a repeating sequence of punches
+		Punches,
+	};
+
+	// The kind of one punch
+	enum class EPunchKind
+	{
+		// A straight punch with the lead hand
+		Jab,
+
+		// A straight punch with the rear hand, turning the torso further
+		Cross,
+
+		// A horizontal swing at head height, with the elbow out to the side
+		Hook,
+
+		// An upward punch from low to chin height
+		Uppercut,
+
+		// A hook to the body, bending the knees and leaning to the punching side
+		BodyHook,
+
+		// A straight punch to the body, stepping in with the punching side's foot
+		BodyJab,
+	};
+
+	// One punch of a punches action
+	struct Punch
+	{
+		ESide hand = ESide::Left;          // Left or Right. The side of the arm that punches.
+		EPunchKind kind = EPunchKind::Jab;
+		float duration = 0.6f;             // > 0. The time, in seconds, for the punch and the return to the guard.
+	};
+
+	// A procedural action that an action family plays in place. See the top of this file.
+	struct GaitAction
+	{
+		EActionKind kind = EActionKind::Collapse;
+		std::string base;                  // The family without an action that the action starts from and returns to
+		float duration = 1.6f;             // Collapse only, > 0. The time, in seconds, from standing to lying on the ground.
+		std::vector<Punch> punches;        // Punches only, not empty. The sequence of punches, which repeats.
+	};
+
 	// A group of movement cycles that share a posture and a set of walking limbs
 	struct GaitFamily
 	{
@@ -205,10 +275,11 @@ namespace pr::animation
 		v4 travel = -v4::YAxis();          // The model-space direction that the body moves in this family's cycles (unit, z = 0, w = 0)
 		EFamilyUp up = EFamilyUp::Surface;
 		float max_slope = math::constants<float>::tau_by_2; // In (0,pi]. The steepest ground, in radians from level, on which the family can be used.
-		float max_speed = 0.0f;            // > 0. The fastest that the character should move in this family. It may exceed the fastest cycle's speed.
+		float max_speed = 0.0f;            // > 0, or zero for an action family. The fastest that the character should move in this family. It may exceed the fastest cycle's speed.
 		EFamilyMedium medium = EFamilyMedium::Ground;
 		BodyWave wave;
 		std::vector<GaitCycle> cycles;     // Ordered by increasing speed
+		std::optional<GaitAction> action;  // Set for an action family, which plays the action in place. See 'ResolveActions'.
 	};
 
 	// How a character moves. See the top of this file.
@@ -221,6 +292,8 @@ namespace pr::animation
 	inline constexpr std::array<std::string_view, 2> MotionChannelNames = { "rotation", "position" };
 	inline constexpr std::array<std::string_view, 2> FamilyUpNames = { "surface", "gravity" };
 	inline constexpr std::array<std::string_view, 2> FamilyMediumNames = { "ground", "water" };
+	inline constexpr std::array<std::string_view, 2> ActionKindNames = { "collapse", "punches" };
+	inline constexpr std::array<std::string_view, 6> PunchKindNames = { "jab", "cross", "hook", "uppercut", "body_hook", "body_jab" };
 
 	// Evaluate a bone motion at 'phase'
 	inline v4 Evaluate(std::array<Harmonic, GaitHarmonics> const& harmonics, float phase)
@@ -285,6 +358,43 @@ namespace pr::animation
 		return -1;
 	}
 
+	// Return the index of the arm chain of 'rig' on 'side', or -1 if there is none
+	inline int ArmChain(Rig const& rig, ESide side)
+	{
+		// Rigs have few chains
+		for (int c = 0, cend = static_cast<int>(rig.chains.size()); c != cend; ++c)
+		{
+			if (rig.chains[c].role == EChainRole::Arm && rig.chains[c].side == side)
+				return c;
+		}
+		return -1;
+	}
+
+	// Complete each action family of 'gait' from its base family: copy the base's travel, up, slope limit, medium, wave and cycles, and set the
+	// max speed to zero. Throws 'std::runtime_error' if an action's base is missing or is itself an action family. 'ReadGaitDesc' calls this.
+	inline void ResolveActions(GaitDesc& gait)
+	{
+		for (auto& family : gait.families)
+		{
+			// Only action families take their posture from another family
+			if (!family.action)
+				continue;
+
+			auto base = FamilyIndex(gait, family.action->base);
+			if (base < 0 || gait.families[base].action)
+				throw std::runtime_error(std::format("Family '{}' needs a base family without an action, not '{}'", family.name, family.action->base));
+
+			auto const& from = gait.families[base];
+			family.travel = from.travel;
+			family.up = from.up;
+			family.max_slope = from.max_slope;
+			family.max_speed = 0.0f;
+			family.medium = from.medium;
+			family.wave = from.wave;
+			family.cycles = from.cycles;
+		}
+	}
+
 	// Check 'gait' against 'rig'. Returns a description of each problem, or an empty list if the gait is valid.
 	inline std::vector<std::string> Validate(GaitDesc const& gait, Rig const& rig)
 	{
@@ -307,8 +417,49 @@ namespace pr::animation
 				errors.push_back(std::format("{} needs a unit, horizontal travel direction", ctx));
 			if (!(family.max_slope > 0 && family.max_slope <= math::constants<float>::tau_by_2))
 				errors.push_back(std::format("{} has a max slope outside (0,pi]", ctx));
-			if (!(family.max_speed > 0))
+			if (!family.action && !(family.max_speed > 0))
 				errors.push_back(std::format("{} needs a max speed greater than zero", ctx));
+			if (family.action && family.max_speed != 0)
+				errors.push_back(std::format("{} is an action family, so its max speed must be zero", ctx));
+			if (family.action)
+			{
+				// The action needs a base family without an action, and the details for its kind
+				auto const& action = *family.action;
+				auto base = FamilyIndex(gait, action.base);
+				if (base < 0 || gait.families[base].action)
+					errors.push_back(std::format("{} needs a base family without an action, not '{}'", ctx, action.base));
+
+				switch (action.kind)
+				{
+					case EActionKind::Collapse:
+					{
+						if (!(action.duration > 0))
+							errors.push_back(std::format("{} collapses, so it needs a duration greater than zero", ctx));
+
+						break;
+					}
+					case EActionKind::Punches:
+					{
+						if (action.punches.empty())
+							errors.push_back(std::format("{} throws punches, so it needs at least one punch", ctx));
+
+						for (size_t p = 0; p != action.punches.size(); ++p)
+						{
+							// Each punch needs a positive duration and an arm on its side
+							auto const& punch = action.punches[p];
+							if (!(punch.duration > 0))
+								errors.push_back(std::format("{} punch {} needs a duration greater than zero", ctx, p));
+							if (punch.hand == ESide::Centre || ArmChain(rig, punch.hand) < 0)
+								errors.push_back(std::format("{} punch {} needs the left or right hand of an arm chain in the rig", ctx, p));
+						}
+						break;
+					}
+					default:
+					{
+						throw std::runtime_error("Unknown action kind");
+					}
+				}
+			}
 			if (!(family.wave.amplitude >= 0) || !(family.wave.wavelength > 0) || !(family.wave.growth >= 0))
 				errors.push_back(std::format("{} needs a wave with an amplitude >= 0, a wavelength > 0, and a growth >= 0", ctx));
 			if (family.medium == EFamilyMedium::Water && std::any_of(family.cycles.begin(), family.cycles.end(), [](GaitCycle const& c) { return !c.footfalls.empty(); }))
@@ -405,9 +556,49 @@ namespace pr::animation
 		auto const& families = ReadArray(Member(root, "families", "gait"), "gait.families");
 		for (size_t f = 0; f != families.size(); ++f)
 		{
-			// Read the family's name, posture and stance
+			// Read the family's name. An action family has only its action, and takes the rest from its base family (see 'ResolveActions').
 			auto fctx = std::format("gait.families[{}]", f);
 			auto const& fobj = ReadObject(families[f], fctx);
+			if (auto action = fobj.find("action"))
+			{
+				auto actx = fctx + ".action";
+				auto const& aobj = ReadObject(*action, actx);
+				auto& family = gait.families.emplace_back(GaitFamily{ .name = ReadString(Member(fobj, "name", fctx), fctx + ".name") });
+				auto& act = family.action.emplace(GaitAction{
+					.kind = ParseEnum<EActionKind>(ReadString(Member(aobj, "kind", actx), actx + ".kind"), ActionKindNames, actx + ".kind"),
+					.base = ReadString(Member(aobj, "base", actx), actx + ".base"),
+				});
+				switch (act.kind)
+				{
+					case EActionKind::Collapse:
+					{
+						act.duration = ReadFloat(Member(aobj, "duration", actx), actx + ".duration");
+						break;
+					}
+					case EActionKind::Punches:
+					{
+						auto const& punches = ReadArray(Member(aobj, "punches", actx), actx + ".punches");
+						for (size_t p = 0; p != punches.size(); ++p)
+						{
+							auto pctx = std::format("{}.punches[{}]", actx, p);
+							auto const& pobj = ReadObject(punches[p], pctx);
+							act.punches.push_back(Punch{
+								.hand = ParseEnum<ESide>(ReadString(Member(pobj, "hand", pctx), pctx + ".hand"), SideNames, pctx + ".hand"),
+								.kind = ParseEnum<EPunchKind>(ReadString(Member(pobj, "kind", pctx), pctx + ".kind"), PunchKindNames, pctx + ".kind"),
+								.duration = ReadFloat(Member(pobj, "duration", pctx), pctx + ".duration"),
+							});
+						}
+						break;
+					}
+					default:
+					{
+						throw std::runtime_error("Unknown action kind");
+					}
+				}
+				continue;
+			}
+
+			// Read the family's posture and stance
 			auto& family = gait.families.emplace_back(GaitFamily{
 				.name = ReadString(Member(fobj, "name", fctx), fctx + ".name"),
 				.travel = ReadVec(Member(fobj, "travel", fctx), 0, fctx + ".travel"),
@@ -492,6 +683,9 @@ namespace pr::animation
 				}
 			}
 		}
+
+		// Complete the action families from their base families
+		ResolveActions(gait);
 		return gait;
 	}
 
@@ -506,6 +700,36 @@ namespace pr::animation
 		json::Array families;
 		for (auto const& family : gait.families)
 		{
+			// An action family writes only its action, because reading it copies the rest from its base family
+			if (family.action)
+			{
+				auto const& action = *family.action;
+				json::Object obj{ { "kind", EnumName(action.kind, ActionKindNames) }, { "base", action.base } };
+				switch (action.kind)
+				{
+					case EActionKind::Collapse:
+					{
+						obj["duration"] = action.duration;
+						break;
+					}
+					case EActionKind::Punches:
+					{
+						json::Array punches;
+						for (auto const& punch : action.punches)
+							punches.push_back(json::Object{ { "hand", EnumName(punch.hand, SideNames) }, { "kind", EnumName(punch.kind, PunchKindNames) }, { "duration", punch.duration } });
+
+						obj["punches"] = std::move(punches);
+						break;
+					}
+					default:
+					{
+						throw std::runtime_error("Unknown action kind");
+					}
+				}
+				families.push_back(json::Object{ { "name", family.name }, { "action", std::move(obj) } });
+				continue;
+			}
+
 			json::Array cycles;
 			for (auto const& cycle : family.cycles)
 			{
@@ -665,8 +889,51 @@ namespace pr::animation::tests
 		};
 	}
 
+	// 'TestGait' with two action families based on "bipedal": "death" collapses and "fist-fight" throws punches with the rig's only arm
+	inline GaitDesc TestActionGait()
+	{
+		auto gait = TestGait();
+		gait.families.push_back(GaitFamily{ .name = "death", .action = GaitAction{ .kind = EActionKind::Collapse, .base = "bipedal", .duration = 1.6f } });
+		gait.families.push_back(GaitFamily{ .name = "fist-fight", .action = GaitAction{
+			.kind = EActionKind::Punches,
+			.base = "bipedal",
+			.punches = {
+				Punch{ .hand = ESide::Left, .kind = EPunchKind::Jab, .duration = 0.5f },
+				Punch{ .hand = ESide::Left, .kind = EPunchKind::Hook, .duration = 0.6f },
+				Punch{ .hand = ESide::Left, .kind = EPunchKind::Uppercut, .duration = 0.7f },
+				Punch{ .hand = ESide::Left, .kind = EPunchKind::BodyJab, .duration = 0.6f },
+			},
+		} });
+		ResolveActions(gait);
+		return gait;
+	}
+
 	PRUnitTestClass(AnimationGaitTests)
 	{
+		PRUnitTestMethod(ActionFamilies, Quick)
+		{
+			// Action families copy their base's posture, need a valid base and arm, and write only their action
+			auto rig = TestRig();
+			auto gait = TestActionGait();
+			PR_EXPECT(Validate(gait, rig).empty());
+			PR_EXPECT(gait.families[3].max_speed == 0 && gait.families[3].up == EFamilyUp::Gravity && gait.families[3].cycles.size() == 1);
+
+			auto text = json::Write(WriteGaitDesc(gait));
+			PR_EXPECT(text.find("\"base\"") != std::string::npos);
+			auto read = ReadGaitDesc(json::Read(std::string_view(text)));
+			PR_EXPECT(Validate(read, rig).empty());
+			PR_EXPECT(read.families.size() == 5 && read.families[3].action && read.families[3].action->kind == EActionKind::Collapse && read.families[3].action->duration == 1.6f);
+			PR_EXPECT(FEqlAbsolute(read.families[4].travel, v4::XAxis(), 1e-6f) && read.families[4].max_slope == 0.4f);
+			auto const& punches = read.families[4].action->punches;
+			PR_EXPECT(punches.size() == 4 && punches[1].hand == ESide::Left && punches[1].kind == EPunchKind::Hook && punches[2].duration == 0.7f && punches[3].kind == EPunchKind::BodyJab);
+
+			// A right hand has no arm in the test rig, and an action family cannot be a base
+			auto bad = gait;
+			bad.families[4].action->punches[0].hand = ESide::Right;
+			bad.families[3].action->base = "fist-fight";
+			PR_EXPECT(Validate(bad, rig).size() == 2);
+			PR_THROWS(ResolveActions(bad), std::runtime_error);
+		}
 		PRUnitTestMethod(RoundTrip, Quick)
 		{
 			// Writing then reading a gait reproduces it, including stance positions and harmonics
