@@ -2640,6 +2640,20 @@ VIEW3D_API void* __stdcall View3D_ObjectProceduralBufferGet(view3d::Object objec
 	CatchAndReport(View3D_ObjectProceduralBufferGet, , nullptr);
 }
 
+// Replace the texture at 'slot' of every procedural shader with a forward pixel family used by an object's nuggets.
+static_assert(view3d::ProceduralBinding::TextureSlotCount == ProceduralShader::TextureSlotCount);
+VIEW3D_API void __stdcall View3D_ObjectProceduralTextureSet(view3d::Object object, int slot, view3d::Texture tex)
+{
+	try
+	{
+		// The shaders take their own references, so the caller keeps ownership of its texture. The shaders validate the slot.
+		Validate(object);
+		DllLockGuard;
+		Dll().ObjectProceduralTexture(object, slot, Texture2DPtr(tex, true));
+	}
+	CatchAndReport(View3D_ObjectProceduralTextureSet, , );
+}
+
 // Overwrite part of the buffer of every procedural shader used by an object's nuggets.
 VIEW3D_API void __stdcall View3D_ObjectProceduralBufferWrite(view3d::Object object, size_t offset, void const* data, size_t data_size)
 {
@@ -4790,6 +4804,36 @@ VIEW3D_API void __stdcall View3D_TextureResize(view3d::Texture tex, uint64_t wid
 		tex->Resize(width, height, depth_or_array_len);
 	}
 	CatchAndReport(View3D_TextureResize, ,);
+}
+
+// Replace a rectangle of mip 0 in a 2D texture and regenerate its lower mips
+VIEW3D_API void __stdcall View3D_TextureUpdateRegion(view3d::Texture tex, int x, int y, int width, int height, void const* data, size_t data_size)
+{
+	try
+	{
+		// The rectangle must be non-empty, inside the texture, and fully described by 'data'
+		Validate(tex);
+		auto tdesc = tex->TexDesc();
+		if (tdesc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D || tdesc.DepthOrArraySize != 1 || tdesc.SampleDesc.Count != 1)
+			throw std::runtime_error("Region updates require a single-sample, non-array 2D texture");
+		if (x < 0 || y < 0 || width <= 0 || height <= 0 || s_cast<uint64_t>(x) + width > tdesc.Width || s_cast<uint64_t>(y) + height > tdesc.Height)
+			throw std::runtime_error("Texture update region must be non-empty and inside the texture");
+
+		Image src(width, height, data, tdesc.Format);
+		if (data == nullptr || s_cast<int64_t>(src.m_pitch.y) != s_cast<int64_t>(data_size))
+			throw std::runtime_error("Texture update data size does not match the region");
+
+		// Record the copy and the mip regeneration on one graphics command list, so the lower mips are built from the new pixels.
+		// The factory's flush submits both before any frame rendered after this call.
+		DllLockGuard;
+		ResourceFactory factory(Dll().m_rdr);
+		pr::compute::GfxUpdateSubresourceScope update(factory.CmdList(), factory.UploadBuffer(), tex->m_res.get(), 0, 0, 1, D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT, iv3(x, y, 0), iv3(width, height, 1));
+		update.Write(src);
+		update.Commit(pr::compute::EFinalState::Restore);
+		if (tdesc.MipLevels != 1)
+			factory.GenerateMips(tex->m_res.get());
+	}
+	CatchAndReport(View3D_TextureUpdateRegion, ,);
 }
 
 // Return the ref count of 'tex'

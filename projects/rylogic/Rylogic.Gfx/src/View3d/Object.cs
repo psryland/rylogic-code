@@ -787,6 +787,16 @@ namespace Rylogic.Gfx
 			}
 
 			/// <summary>
+			/// Replace the texture at 'slot' (0 to 3) of every procedural shader with a forward pixel family on this object's own nuggets, or unbind it
+			/// with null. Later frames bind the texture at element 'slot' of VIEW3D_PROCEDURAL_TEXTURE_REGISTER, sampled with the stock anisotropic
+			/// wrapping sampler. Unbound slots read zero. The shaders take their own references.</summary>
+			public void ProceduralTextureSet(int slot, Texture? texture)
+			{
+				// View3D adds its own reference, so the caller may dispose its texture afterwards.
+				View3D_ObjectProceduralTextureSet(Handle, slot, texture?.Handle ?? IntPtr.Zero);
+			}
+
+			/// <summary>
 			/// Overwrite part of each distinct slot 0 buffer bound to the procedural shaders on this object's own nuggets, starting at byte 'offset'.
 			/// The copy runs on the graphics queue between the frames already submitted and later frames, so no frame sees a partial write.
 			/// 'offset' and the byte size of 'data' must be multiples of 4, with 'data' not empty, inside every such buffer. Other queues must not

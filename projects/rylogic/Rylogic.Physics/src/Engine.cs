@@ -78,6 +78,15 @@ public sealed class Engine :IDisposable
 		Native.Check(Native.Physics_EngineTerrainSet(Handle, configuration.HasValue ? &value : null));
 	}
 
+	/// <summary>Replace every decal on the engine's terrain between completed frames. Requires terrain; an empty span removes all decals and wakes bodies.</summary>
+	public unsafe void SetTerrainDecals(ReadOnlySpan<TerrainDecal> decals)
+	{
+		// The native call copies the decals, so the pinned span need not outlive it.
+		EnsureOwner();
+		fixed (TerrainDecal* ptr = decals)
+			Native.Check(Native.Physics_EngineTerrainDecalsSet(Handle, ptr, (uint)decals.Length));
+	}
+
 	/// <summary>Replace or disable the cylindrical wall independently of terrain. Checkpoints reject configured world surfaces.</summary>
 	public unsafe void SetCylindricalBoundary(CylindricalBoundaryConfiguration? configuration)
 	{

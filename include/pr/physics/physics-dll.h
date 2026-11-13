@@ -124,6 +124,7 @@ namespace pr::physics
 		AtmosphereStats = 26,
 		WindSea = 27,
 		CylinderShape = 28,
+		TerrainDecal = 29,
 	};
 
 	struct StructHeader
@@ -633,6 +634,19 @@ namespace pr::physics
 		std::int32_t octaves, reserved;
 	};
 
+	// One circular terrain height override, in metres. The surface is 'height' within 'pad_radius' of 'centre' and blends back to the
+	// undecorated surface by 'blend_radius'. 'user' is carried unchanged into local decal blobs. See terrain_decals.hlsli.
+	struct TerrainDecalDesc
+	{
+		Vector2d centre;
+		double pad_radius;
+		double blend_radius;
+		double height;
+		std::uint32_t user;
+		std::uint32_t reserved;
+	};
+	static_assert(sizeof(TerrainDecalDesc) == 48);
+
 	// Complete immutable baseline terrain settings. Zero spacing selects the engine's shared surface-sampling default.
 	struct TerrainDesc
 	{
@@ -1130,6 +1144,11 @@ extern "C"
 	// Replace terrain on the owner thread between frames, or disable it with null. Native checkpoints reject terrain-equipped engines.
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_EngineTerrainSet(pr::physics::EngineHandle engine, pr::physics::TerrainDesc const* terrain);
 
+	// Replace the decals on the engine's terrain between completed frames, keeping its recipe and spacing. 'count' may be zero to remove every decal.
+	// Fails with InvalidArgument for an invalid decal (see Physics_LandscapeWithDecals) including when the engine has no terrain.
+	// Sleeping bodies wake on the next step.
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_EngineTerrainDecalsSet(pr::physics::EngineHandle engine, pr::physics::TerrainDecalDesc const* decals, std::uint32_t count);
+
 	// Replace or disable the independent infinite-height cylindrical boundary between completed frames; null removes it.
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_EngineCylindricalBoundarySet(pr::physics::EngineHandle engine, pr::physics::CylindricalBoundaryDesc const* boundary);
 
@@ -1174,6 +1193,16 @@ extern "C"
 	// The shader may sample any local position with |x| and |y| at most 'radius_m'. Fails with InvalidArgument if the origin is not finite, the
 	// radius is not positive, or that square is not within the landscape's supported coordinate range.
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_LandscapeLocalRecipe(pr::physics::LandscapeHandle landscape, double const* origin_xy, double radius_m, pr::physics::terrain::landscape::shared::BaselineLocalRecipe* recipe);
+
+	// Create a new immutable landscape that is 'source' with its decals replaced by 'decals' ('count' may be zero). Samples of the new landscape
+	// include the decals. Each decal must be finite with 0 <= pad_radius < blend_radius and lie within the supported coordinate range; otherwise this
+	// fails with InvalidArgument. Decal heights should lie within the undecorated surface's height range. Destroy the result with Physics_LandscapeDestroy.
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_LandscapeWithDecals(pr::physics::LandscapeHandle source, pr::physics::TerrainDecalDesc const* decals, std::uint32_t count, pr::physics::LandscapeHandle* landscape);
+
+	// Prepare the single-precision decal blob for BaselineApplyDecalsLocal ('baseline_surface_local.hlsli'), with positions relative to 'origin_xy'.
+	// '*required' receives the blob size in bytes, a multiple of four. The blob is written only when 'capacity' is at least that size; otherwise this
+	// fails with BufferTooSmall and 'buffer' is unchanged, so callers can query the size with a null buffer and zero capacity.
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_LandscapeLocalDecals(pr::physics::LandscapeHandle landscape, double const* origin_xy, void* buffer, std::uint32_t capacity, std::uint32_t* required);
 
 	// Sample 'count' XY positions in metres, given as consecutive (x, y) pairs in 'positions_xy'. Fails with InvalidArgument if any position is
 	// not finite, is outside the landscape's supported coordinate range, or exceeds supported arithmetic; the contents of 'samples' are then undefined.

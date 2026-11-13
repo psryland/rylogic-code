@@ -444,5 +444,89 @@ namespace pr::physics::tests
 			PR_THROWS(source.LocalRecipe({std::numeric_limits<double>::quiet_NaN(), 0}, radius_m), std::invalid_argument);
 		}
 	};
+
+	// Validate terrain decals in the single-precision local evaluator on hardware.
+	PRUnitTestClass(TerrainDecalGpuTests)
+	{
+		// The single-precision local decal blob, applied in a shader, must match the decorated double-precision CPU surface near and far from the world origin.
+		PRUnitTestMethod(LocalDecalsMatchCpuSurface, Quick)
+		{
+			auto& gpu = SharedTestGpu();
+			auto constexpr radius_m = 4096.0;
+
+			// The decal probe binds the blob at t2 after the shared probe inputs.
+			auto code = CompileBaselineProbe(L"CSBaselineLocalDecalProbe", L"cs_6_0", true, true, "baseline_local_probe.hlsl");
+			auto step = ComputeStep{};
+			step.m_sig = RootSig(ERootSigFlags::ComputeOnly).U32<uint32_t>(ECBufReg::b0).SRV(ESRVReg::t0).SRV(ESRVReg::t1).UAV(EUAVReg::u0).SRV(ESRVReg::t2).Create(gpu, "Terrain:LocalDecalSig");
+			step.m_pso = ComputePSO(step.m_sig.get(), ByteCode(code)).Create(gpu, "Terrain:LocalDecalPSO");
+
+			auto failed = 0;
+			auto maximum = Errors{};
+			auto const undecorated = BaselineSurface(ProbeConfig(42u, ERecipe::Default));
+			for (auto origin : {v2d{0, 0}, v2d{731234.5, -642198.25}})
+			{
+				// Overlapping and separate decals of different sizes near the origin, with heights near the ground.
+				auto state = uint32_t{0x51ED270B};
+				auto next = [&state]
+				{
+					state = 1664525u * state + 1013904223u;
+					return (state + 0.5) / 4294967296.0;
+				};
+				auto decals = std::vector<TerrainDecal>{};
+				for (int i = 0; i != 40; ++i)
+				{
+					auto const centre = origin + v2d{(next() * 2 - 1) * 300, (next() * 2 - 1) * 300};
+					auto const pad = 2.0 + next() * 4.0;
+					decals.push_back({.m_centre = centre, .m_pad_radius = pad, .m_blend_radius = pad * (1.5 + next()), .m_height = undecorated.Sample(centre).m_height + (next() - 0.5), .m_user = static_cast<uint32_t>(i)});
+				}
+				auto const surface = undecorated.WithDecals(decals);
+
+				// Float-representable local positions in and around every decal, plus points across the prepared square.
+				auto locals = std::vector<v2d>{};
+				for (auto const& decal : decals)
+				{
+					for (int i = 0; i != 24; ++i)
+					{
+						auto const offset = v2d{(next() * 2 - 1) * decal.m_blend_radius * 1.2, (next() * 2 - 1) * decal.m_blend_radius * 1.2};
+						auto const local = decal.m_centre - origin + offset;
+						locals.push_back({static_cast<float>(local.x), static_cast<float>(local.y)});
+					}
+				}
+				for (int i = 0; i != 64; ++i)
+					locals.push_back({static_cast<float>((next() * 2 - 1) * radius_m), static_cast<float>((next() * 2 - 1) * radius_m)});
+
+				// Compare against the CPU surface at the same world positions.
+				auto world = std::vector<v2d>(locals.size());
+				for (size_t index = 0; index != locals.size(); ++index)
+					world[index] = origin + locals[index];
+
+				auto reference = std::vector<terrain::SurfaceSample>(world.size());
+				surface.Sample(world, reference);
+				auto const blob = surface.LocalDecals(origin);
+				auto results = SampleBaselineGpu(gpu, step, surface.LocalRecipe(origin, radius_m), locals, nullptr, blob);
+				for (size_t index = 0; index != locals.size(); ++index)
+				{
+					// Height and gradient within the local evaluator's gates.
+					auto const& r = results[index];
+					auto ok = r.m_status == 0 && r.m_material_id == reference[index].m_material_id && std::isfinite(r.m_height) && std::isfinite(r.m_dx) && std::isfinite(r.m_dy);
+					auto error = ok ? Errors{std::abs(r.m_height - reference[index].m_height), std::abs(r.m_dx - reference[index].m_gradient_xy.x), std::abs(r.m_dy - reference[index].m_gradient_xy.y)} : Errors{INFINITY, INFINITY, INFINITY};
+					maximum.m_height = std::max(maximum.m_height, error.m_height);
+					maximum.m_dx = std::max(maximum.m_dx, error.m_dx);
+					maximum.m_dy = std::max(maximum.m_dy, error.m_dy);
+					auto accepted = error.m_height <= 0.003 && error.m_dx <= 2e-3 && error.m_dy <= 2e-3;
+					if (!accepted && failed < 8)
+						log_stream() << std::format("Terrain decals FAILED origin=({:.17g},{:.17g}) local=({:.9g},{:.9g}) height={:.9g} dx={:.9g} dy={:.9g}\n",
+							origin.x, origin.y, locals[index].x, locals[index].y, error.m_height, error.m_dx, error.m_dy);
+
+					failed += !accepted;
+				}
+			}
+			log_stream() << std::format("Terrain decals TOTAL failed={} height={:.9g} dx={:.9g} dy={:.9g}\n", failed, maximum.m_height, maximum.m_dx, maximum.m_dy);
+			PR_EXPECT(failed == 0);
+
+			// A surface without decals gives a header-only blob.
+			PR_EXPECT(undecorated.LocalDecals(v2d{0, 0}).size() == shared::BaselineDecalHeaderSize);
+		}
+	};
 }
 #endif

@@ -191,6 +191,7 @@
     <ClInclude Include="$(RylogicRoot)include\pr\physics\terrain\landscape\baseline_types.hlsli" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\terrain\landscape\baseline_surface.hlsli" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\terrain\landscape\baseline_surface_local.hlsli" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\terrain\landscape\terrain_decals.hlsli" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\terrain\landscape\height_bounds.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\algorithm\perlin_noise_derivatives.hlsli" />
     <None Include="$(RylogicRoot)include\pr\physics\terrain\landscape\README.md" />

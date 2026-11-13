@@ -1222,6 +1222,21 @@ namespace pr::physics
 			}
 		}
 
+		// Copy caller decal records into library decals. Validation happens where the decals are applied.
+		std::vector<terrain::landscape::TerrainDecal> ToTerrainDecals(TerrainDecalDesc const* decals, std::uint32_t count)
+		{
+			if (count != 0 && decals == nullptr)
+				throw ApiException(PhysicsStatus::InvalidArgument, "Terrain decals are required when the count is not zero");
+
+			auto result = std::vector<terrain::landscape::TerrainDecal>(count);
+			for (auto i = std::uint32_t{}; i != count; ++i)
+			{
+				auto const& d = decals[i];
+				result[i] = {.m_centre = terrain::v2d{d.centre.x, d.centre.y}, .m_pad_radius = d.pad_radius, .m_blend_radius = d.blend_radius, .m_height = d.height, .m_user = d.user};
+			}
+			return result;
+		}
+
 		PhysicsShapeCommon const& RequireShapeCommon(PhysicsShapeCommon const* common)
 		{
 			auto const& value = RequireStruct(common);
@@ -2445,6 +2460,7 @@ extern "C"
 				case PhysicsStructId::LineShape: *size = sizeof(PhysicsLineShape); break;
 				case PhysicsStructId::TriangleShape: *size = sizeof(PhysicsTriangleShape); break;
 				case PhysicsStructId::CylinderShape: *size = sizeof(PhysicsCylinderShape); break;
+				case PhysicsStructId::TerrainDecal: *size = sizeof(pr::physics::TerrainDecalDesc); break;
 				case PhysicsStructId::BodyDesc: *size = sizeof(PhysicsBodyDesc); break;
 				case PhysicsStructId::BodyState: *size = sizeof(PhysicsBodyState); break;
 				case PhysicsStructId::BodyCommand: *size = sizeof(PhysicsBodyCommand); break;
@@ -2734,6 +2750,31 @@ extern "C"
 			// Commit the presence flag only after source creation succeeds.
 			record.m_engine->Terrain(pr::physics::MakeBaselineSurface(c), c.surface_spacing == 0 ? pr::physics::surface::DefaultSpacing : c.surface_spacing);
 			record.m_has_terrain = true;
+		});
+	}
+
+	// Replace the decals on the engine's terrain between completed frames.
+	PhysicsStatus __stdcall Physics_EngineTerrainDecalsSet(PhysicsEngineHandle engine, pr::physics::TerrainDecalDesc const* decals, std::uint32_t count)
+	{
+		return pr::physics::ApiCall([&]
+		{
+			auto scope = pr::physics::EngineScope(engine);
+			auto& record = *scope;
+			pr::physics::RequireOwner(record);
+			pr::physics::RequireIdle(record);
+			if (!record.m_has_terrain)
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Terrain decals require an engine terrain");
+
+			// The library reports invalid decals as invalid_argument; the engine keeps its current terrain when they are rejected.
+			auto const native = pr::physics::ToTerrainDecals(decals, count);
+			try
+			{
+				record.m_engine->TerrainDecals(native);
+			}
+			catch (std::invalid_argument const& ex)
+			{
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, ex.what());
+			}
 		});
 	}
 
@@ -3081,7 +3122,60 @@ extern "C"
 		});
 	}
 
-	// Sample a batch of positions in order without retaining the caller's buffers.
+	// Create a new landscape that shares 'source''s recipe with a replaced decal set.
+	PhysicsStatus __stdcall Physics_LandscapeWithDecals(pr::physics::LandscapeHandle source, pr::physics::TerrainDecalDesc const* decals, std::uint32_t count, pr::physics::LandscapeHandle* landscape)
+	{
+		// Clear the output first so a failed call never leaves a stale handle for the caller to destroy.
+		if (landscape != nullptr)
+			*landscape = nullptr;
+
+		return pr::physics::ApiCall([&]
+		{
+			if (source == nullptr || landscape == nullptr)
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Source landscape and landscape output are required");
+
+			// Landscapes are immutable, so decorated surfaces are new landscapes rather than edits.
+			auto const native = pr::physics::ToTerrainDecals(decals, count);
+			try
+			{
+				*landscape = new pr::physics::Landscape{source->m_surface.WithDecals(native)};
+			}
+			catch (std::invalid_argument const& ex)
+			{
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, ex.what());
+			}
+		});
+	}
+
+	// Prepare the single-precision decal blob around a caller-chosen origin.
+	PhysicsStatus __stdcall Physics_LandscapeLocalDecals(pr::physics::LandscapeHandle landscape, double const* origin_xy, void* buffer, std::uint32_t capacity, std::uint32_t* required)
+	{
+		return pr::physics::ApiCall([&]
+		{
+			if (landscape == nullptr || origin_xy == nullptr || required == nullptr)
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Landscape, origin, and required-size output are required");
+
+			auto blob = std::vector<std::byte>{};
+			try
+			{
+				blob = landscape->m_surface.LocalDecals(pr::physics::terrain::v2d{origin_xy[0], origin_xy[1]});
+			}
+			catch (std::invalid_argument const& ex)
+			{
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, ex.what());
+			}
+
+			// Report the size before checking the capacity so callers can size their buffer from a failed query.
+			if (blob.size() > std::numeric_limits<std::uint32_t>::max())
+				throw pr::physics::ApiException(PhysicsStatus::InternalError, "Terrain decal blob exceeds 4 GB");
+
+			*required = static_cast<std::uint32_t>(blob.size());
+			if (buffer == nullptr || capacity < blob.size())
+				throw pr::physics::ApiException(PhysicsStatus::BufferTooSmall, "Terrain decal buffer is smaller than the blob");
+
+			memcpy(buffer, blob.data(), blob.size());
+		});
+	}
 	PhysicsStatus __stdcall Physics_LandscapeSample(pr::physics::LandscapeHandle landscape, double const* positions_xy, pr::physics::SurfaceSampleDesc* samples, std::uint32_t count)
 	{
 		return pr::physics::ApiCall([&]

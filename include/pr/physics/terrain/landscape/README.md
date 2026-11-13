@@ -104,6 +104,23 @@ Batch input/output spans must have equal lengths. They are borrowed only during
 the call; order and scalar results are preserved. A failing element can leave an
 already-written prefix, as with scalar iteration.
 
+### Terrain decals
+
+`WithDecals(span<TerrainDecal const>)` returns a copy of the surface with flat
+circular pads applied (for example, building platforms). Each decal is flat at
+`m_height` within `m_pad_radius` of `m_centre`, and eases back to the surface
+with a smoothstep weight `w` by `m_blend_radius`. Overlapping decals combine
+independently of order: with `P = prod(1 - w_i)`, the height is
+`P * h_surface + (1 - P) * sum(w_i * h_i) / sum(w_i)`. Gradients are analytic, so
+`Sample` heights, slopes and normals stay consistent. Decals change only height
+and slope; materials and land weights come from the surface underneath.
+
+`WithDecals` throws `invalid_argument` for non-finite values, a negative pad
+radius, a blend radius not greater than the pad radius, or more than
+`MaxDecalCount` decals. The decal list is part of the surface value; the recipe is
+unchanged. Engine contacts use `Engine::TerrainDecals` (`Physics_EngineTerrainDecalsSet`
+in the DLL), which replaces the decal list of the current terrain.
+
 ## Shader stages
 
 ```hlsl
@@ -279,6 +296,16 @@ RTX 3080 Ti the maxima were 2.0 mm in height and `6e-4` in each gradient compone
 The gates are **3 mm in height** and **1e-3 in gradient**. The exception is the
 `Lattice` stress recipe, whose 0.001 ridge roundness amplifies float error in the
 slope by about 1/roundness (up to `0.07`); its gradient gate is `0.1`.
+
+### Local decals
+
+`surface.LocalDecals(origin_xy)` packs the decals, relative to `origin_xy`, into a
+`ByteAddressBuffer` blob. `terrain_decals.hlsli` describes the layout: a 32-byte
+header, a uniform cell grid, and 32-byte records. After `BaselineEvaluateLocal`,
+call `BaselineApplyDecalsLocal(buffer, offset, local_xy, result)` to apply them
+with the same math as the CPU surface. Points outside the grid are unchanged.
+A surface without decals produces a header-only blob, so consumers can always bind
+one. `TerrainDecalGpuTests` compares the shader result with the CPU surface.
 
 ## Validation
 

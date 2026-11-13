@@ -77,7 +77,8 @@ namespace pr::physics
 		size_t m_shape_count = 0;
 		uint32_t m_max_samples[2] = {}; // Largest per-instance sample count for terrain (0) and cylinder (1) plans in this frame.
 		terrain::landscape::shared::BaselineLocalRecipe m_local_recipe_host; // Single-precision terrain recipe, prepared at construction and uploaded on first use.
-		D3DPtr<ID3D12Resource> m_recipe, m_local_recipe, m_plans, m_patch_buffer, m_instance_buffer, m_status, m_candidates;
+		std::vector<uint32_t> m_local_decals_host; // Single-precision terrain decal blob in the same frame as 'm_local_recipe_host', uploaded with it.
+		D3DPtr<ID3D12Resource> m_recipe, m_local_recipe, m_local_decals, m_plans, m_patch_buffer, m_instance_buffer, m_status, m_candidates;
 		D3DPtr<ID3D12Resource> m_clamp_range_buffer; // StructuredBuffer<GpuDriftClampRange>, one per uploaded body.
 		D3DPtr<ID3D12Resource> m_clamps;             // RWStructuredBuffer<GpuDriftClampPlane>, 'DriftClampSlotsPerInstance' per instance.
 		D3DPtr<ID3D12QueryHeap> m_queries;

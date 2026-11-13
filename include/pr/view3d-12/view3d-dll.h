@@ -981,6 +981,7 @@ namespace pr
 			static constexpr size_t MaxBufferSize = 64 * 1024 * 1024;
 			static constexpr size_t ForwardPixelCount = 3;
 			static constexpr int BufferSlotCount = 2;
+			static constexpr int TextureSlotCount = 4;
 
 			ERenderStep m_rdr_step;
 			void const* m_constants;
@@ -1731,6 +1732,13 @@ extern "C"
 	// borrowed, not AddRef'd: it stays valid only while it remains bound, so pass it straight to View3D_ObjectProceduralBufferSet or AddRef it.
 	VIEW3D_API void* __stdcall View3D_ObjectProceduralBufferGet(pr::view3d::Object object, int slot);
 
+	// Replace the texture at 'slot' (or null to unbind) of every procedural shader with a forward pixel family on the object's own nuggets. 'slot' is in
+	// [0, ProceduralBinding::TextureSlotCount). Later frames bind the texture at element 'slot' of the array at VIEW3D_PROCEDURAL_TEXTURE_REGISTER, where it
+	// is sampled with the stock anisotropic wrapping sampler at VIEW3D_PROCEDURAL_SAMPLER_REGISTER. Unbound slots read zero. The shaders take their own
+	// references; the caller keeps its reference. Throws if the object has no procedural shader with a forward pixel family. Shaders are shared by
+	// reference, so other objects that use the same shader handles also see the change.
+	VIEW3D_API void __stdcall View3D_ObjectProceduralTextureSet(pr::view3d::Object object, int slot, pr::view3d::Texture tex);
+
 	// Overwrite 'data_size' bytes at byte 'offset' of each distinct slot 0 buffer bound to the procedural shaders on the object's own nuggets. The copy runs
 	// on the graphics queue after the frames already submitted and before later frames, so no frame sees a partial write. 'offset' and 'data_size'
 	// must be multiples of 4, with 'data_size' non-zero, inside every such buffer. Other queues must not use the buffers while this work is in flight.
@@ -2122,6 +2130,11 @@ extern "C"
 
 	// Resize this texture to 'size'
 	VIEW3D_API void __stdcall View3D_TextureResize(pr::view3d::Texture tex, uint64_t width, uint32_t height, uint16_t depth_or_array_len);
+
+	// Replace the 'width' x 'height' pixel rectangle at ('x', 'y') in mip 0 of the 2D texture 'tex', then regenerate its lower mips.
+	// 'data' holds tightly packed rows in the texture's pixel format, and 'data_size' must equal the size of the rectangle. The rectangle must lie
+	// inside the texture. The update is submitted to the graphics queue, so frames rendered after this call see the new pixels.
+	VIEW3D_API void __stdcall View3D_TextureUpdateRegion(pr::view3d::Texture tex, int x, int y, int width, int height, void const* data, size_t data_size);
 
 	// Return the ref count of 'tex'
 	VIEW3D_API ULONG __stdcall View3D_TextureRefCount(pr::view3d::Texture tex);

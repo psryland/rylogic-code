@@ -57,6 +57,7 @@ namespace pr::rdr12::shaders
 			ReflectionPlane, // Table of the reflection texture and its coverage
 			PbrTintMaskTexture,
 			PbrTintMaskSampler,
+			ProceduralTextures, // Table of the procedural pixel family's texture slots, t31..t34
 		};
 
 		enum class ESampParam

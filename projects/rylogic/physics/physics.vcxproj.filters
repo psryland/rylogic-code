@@ -494,6 +494,9 @@
     <ClInclude Include="$(RylogicRoot)include\pr\physics\terrain\landscape\baseline_surface_local.hlsli">
       <Filter>src\terrain\landscape</Filter>
     </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\terrain\landscape\terrain_decals.hlsli">
+      <Filter>src\terrain\landscape</Filter>
+    </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\physics\terrain\landscape\baseline_types.hlsli">
       <Filter>src\compute</Filter>
     </ClInclude>

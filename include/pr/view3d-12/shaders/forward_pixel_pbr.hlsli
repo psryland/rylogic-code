@@ -16,7 +16,8 @@
 //   }
 //   VIEW3D_FORWARD_PBR_PIXEL_ENTRY_POINTS(My, MyShade)
 //
-// An overload of ForwardShadePbr also takes a per-fragment roughness scale, for surfaces whose roughness varies within one material.
+// An overload of ForwardShadePbr also takes a per-fragment roughness scale, for surfaces whose roughness varies within one material, and another
+// takes a PbrFragmentDetail, which also fades the procedural surface and adds a per-fragment slope.
 //
 // This generates PSMy, PSMyReflectionAttrs and PSMyAlphaCollect.
 // Compile each with '-T ps_6_6 -HV 2021' and the Rylogic native include directory on the include path, then pass the bytecode to
@@ -47,7 +48,18 @@ PSOut ForwardShadePbr(PSIn In, bool is_front_face)
 PSOut ForwardShadePbr(PSIn In, bool is_front_face, float roughness_scale)
 {
 	// All PBR texture slots read TEXCOORD_0 in this family.
-	return PSForwardPbrImpl(In, is_front_face, roughness_scale);
+	return PSForwardPbrImpl(In, is_front_face, PbrFragmentDetailFromRoughness(roughness_scale));
+}
+
+// Shade a PBR fragment with the stock PBR forward shading, adjusted per fragment by 'detail' (see PbrFragmentDetail).
+// The roughness scale applies as in the overload above. The procedural strength fades the procedural surface's albedo, roughness and slope towards
+// the plain material, and the height gradient adds the fragment's own world-space slope to the normal, after any normal map. Use it for surfaces
+// with local detail that the material does not have, such as a different ground type on part of a terrain. The colour is linear and not yet dithered.
+// Reflection attributes from ForwardPbrReflectionAttrs do not include the detail.
+PSOut ForwardShadePbr(PSIn In, bool is_front_face, PbrFragmentDetail detail)
+{
+	// All PBR texture slots read TEXCOORD_0 in this family.
+	return PSForwardPbrImpl(In, is_front_face, detail);
 }
 
 // Return the RT reflection attributes for a PBR fragment with final colour 'diff'.

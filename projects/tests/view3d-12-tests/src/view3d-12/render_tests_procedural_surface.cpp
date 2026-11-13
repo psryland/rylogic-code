@@ -121,6 +121,52 @@ namespace render_tests
 		Expect(fixture.Image(), 1, 0, 0);
 		fixture.CheckErrors();
 
+		// Procedural texture slots: an unbound slot reads zero, a bound texture is read from its own slot, and unbinding restores zero.
+		auto texture_options = pixel_only;
+		texture_options.m_procedural.m_forward_pixel[0] = {compiled::procedural_pixel_texture_opaque, sizeof(compiled::procedural_pixel_texture_opaque)};
+		texture_options.m_procedural.m_forward_pixel[1] = {compiled::procedural_pixel_texture_reflection_attrs, sizeof(compiled::procedural_pixel_texture_reflection_attrs)};
+		texture_options.m_procedural.m_forward_pixel[2] = {compiled::procedural_pixel_texture_alpha_collect, sizeof(compiled::procedural_pixel_texture_alpha_collect)};
+		auto texture_shader = View3D_ShaderCreate(texture_options);
+		Require(texture_shader != nullptr, "Procedural texture family shader creation failed");
+		fixture.m_shaders.push_back(texture_shader);
+		{
+			// Bind a red texture to slot 2 and a green one to slot 0, which the fixture must not read.
+			fixture.Clear();
+			auto textured = fixture.Quad(10, 0xFFFFFFFF, 45, texture_shader, 0, 0xFF00FF00);
+			Expect(fixture.Image(), 0, 0, 0);
+			auto tex_options = api::TextureOptions{};
+			tex_options.m_format = DXGI_FORMAT_R8G8B8A8_UNORM;
+			tex_options.m_resource_state = D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE;
+			tex_options.m_mips = 1;
+			tex_options.m_multisamp = {1, 0};
+			tex_options.m_t2s = {{1,0,0,0}, {0,1,0,0}, {0,0,1,0}, {0,0,0,1}};
+			auto red_pixel = 0xFF0000FFu;
+			auto green_pixel = 0xFF00FF00u;
+			auto red = View3D_TextureCreate(1, 1, &red_pixel, sizeof(red_pixel), tex_options);
+			auto green = View3D_TextureCreate(1, 1, &green_pixel, sizeof(green_pixel), tex_options);
+			Require(red != nullptr && green != nullptr, "Procedural slot texture creation failed");
+			View3D_ObjectProceduralTextureSet(textured, 2, red);
+			View3D_ObjectProceduralTextureSet(textured, 0, green);
+			View3D_TextureRelease(red);
+			View3D_TextureRelease(green);
+			fixture.CheckErrors();
+			Expect(fixture.Image(), 1, 0, 0);
+			View3D_ObjectProceduralTextureSet(textured, 2, nullptr);
+			fixture.CheckErrors();
+			Expect(fixture.Image(), 0, 0, 0);
+
+			// Out-of-range slots and objects without a pixel family are rejected through the error callback.
+			fixture.m_errors.clear();
+			View3D_ObjectProceduralTextureSet(textured, api::ProceduralBinding::TextureSlotCount, nullptr);
+			Require(!fixture.m_errors.empty(), "An out-of-range procedural texture slot was accepted");
+			fixture.m_errors.clear();
+			fixture.Clear();
+			auto plain = fixture.Quad(10, 0xFFFFFFFF, 45, nullptr, 0, 0xFF00FF00);
+			View3D_ObjectProceduralTextureSet(plain, 0, nullptr);
+			Require(!fixture.m_errors.empty(), "A procedural texture was set on an object without procedural shaders");
+			fixture.m_errors.clear();
+		}
+
 		// The forward pixel model must be one of the published material models.
 		bad = pixel_only;
 		bad.m_procedural.m_forward_pixel_model = static_cast<api::EForwardPixelModel>(7);

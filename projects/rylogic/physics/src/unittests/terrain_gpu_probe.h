@@ -4,6 +4,7 @@
 #include "src/unittests/shared_gpu.h"
 #include "pr/physics/terrain/landscape/baseline_surface.h"
 #include "pr/physics/terrain/landscape/baseline_surface.hlsli"
+#include "pr/physics/terrain/landscape/terrain_decals.hlsli"
 
 namespace pr::physics::tests::terrain_probe
 {
@@ -60,8 +61,9 @@ namespace pr::physics::tests::terrain_probe
 
 	// Execute one bounded synchronous proof batch; resources live until the shared job has completed.
 	// 'Recipe' is the trivially copyable upload type bound at t0, either BaselineRecipe or BaselineLocalRecipe.
+	// A non-empty 'decals' blob is bound at t2 after the results, so 'step' must declare that root parameter.
 	template <typename Recipe>
-	inline std::vector<BaselineResult> SampleBaselineGpu(Gpu& gpu, ComputeStep& step, Recipe const& recipe, std::span<v2d const> positions, double* gpu_ms = nullptr)
+	inline std::vector<BaselineResult> SampleBaselineGpu(Gpu& gpu, ComputeStep& step, Recipe const& recipe, std::span<v2d const> positions, double* gpu_ms = nullptr, std::span<std::byte const> decals = {})
 	{
 		if (positions.size() > 4096)
 			throw std::length_error("Terrain proof batch exceeds 4096 queries");
@@ -87,6 +89,19 @@ namespace pr::physics::tests::terrain_probe
 		*recipe_upload.ptr<Recipe>() = recipe;
 		std::copy(positions.begin(), positions.end(), positions_upload.ptr<v2d>());
 
+		// The decal blob is a whole number of 32-bit words, read as raw bytes by the probe.
+		auto decal_words = static_cast<int>(decals.size() / sizeof(uint32_t));
+		auto decals_buffer = decal_words != 0 ? gpu.CreateResource(ResDesc::Buf<uint32_t>(decal_words, {}), job, "Terrain:Decals") : decltype(recipe_buffer){};
+		if (decal_words != 0)
+		{
+			// Copy the blob through the job's upload heap like the other inputs.
+			auto decals_upload = job.m_upload.Alloc<uint32_t>(decal_words);
+			memcpy(decals_upload.ptr<uint32_t>(), decals.data(), decals.size());
+			job.m_barriers.Transition(decals_buffer.get(), D3D12_RESOURCE_STATE_COPY_DEST).Commit();
+			job.m_cmd_list.CopyBufferRegion(decals_buffer.get(), 0, decals_upload);
+			job.m_barriers.Transition(decals_buffer.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+		}
+
 		// Upload allocations must belong to the job's fence, not a separate resource-creation queue.
 		job.m_barriers.Transition(recipe_buffer.get(), D3D12_RESOURCE_STATE_COPY_DEST);
 		job.m_barriers.Transition(positions_buffer.get(), D3D12_RESOURCE_STATE_COPY_DEST).Commit();
@@ -103,6 +118,9 @@ namespace pr::physics::tests::terrain_probe
 		job.m_cmd_list.AddComputeRootShaderResourceView(recipe_buffer);
 		job.m_cmd_list.AddComputeRootShaderResourceView(positions_buffer);
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(results_buffer);
+		if (decal_words != 0)
+			job.m_cmd_list.AddComputeRootShaderResourceView(decals_buffer);
+
 		job.m_cmd_list.get()->EndQuery(heap.get(), D3D12_QUERY_TYPE_TIMESTAMP, 0);
 		job.m_cmd_list.Dispatch(static_cast<int>((count + 31) / 32), 1, 1);
 		job.m_cmd_list.get()->EndQuery(heap.get(), D3D12_QUERY_TYPE_TIMESTAMP, 1);

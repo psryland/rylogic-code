@@ -223,6 +223,16 @@ namespace pr::physics
 		m_gpu_world_contacts = std::move(replacement);
 	}
 
+	// Replace the decals on the owned terrain, keeping its recipe and spacing.
+	void Engine::TerrainDecals(std::span<terrain::landscape::TerrainDecal const> decals)
+	{
+		// Decals decorate an existing terrain; a replacement surface goes through the ordinary terrain path so caches and wakes stay consistent.
+		if (!m_gpu_world_contacts || !m_gpu_world_contacts->m_surface)
+			throw std::runtime_error("Terrain decals require an engine terrain");
+
+		Terrain(m_gpu_world_contacts->m_surface->WithDecals(decals), m_gpu_world_contacts->m_terrain_spacing);
+	}
+
 	// Preserve the independent terrain source when changing the cylindrical boundary.
 	void Engine::CylindricalBoundary(std::optional<CylindricalBoundaryConfig> boundary)
 	{

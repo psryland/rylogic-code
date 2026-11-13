@@ -503,9 +503,27 @@ float4 DitherOutput(float4 colour, float4 ss_vert)
 	return float4(DitherSrgb8(colour.rgb, uint2(ss_vert.xy), g_frame.output.x, 0), colour.a);
 }
 
-// Direct-lighting PBR pixel shader path using the supplied UV coordinates for each texture slot.
-// 'roughness_scale' multiplies the fully resolved material roughness, including any procedural roughness, before lighting.
-PSOut PSForwardPbrSampledUV(PSIn In, bool is_front_face, float2 base_uv, float2 metallic_uv, float2 roughness_uv, float2 emissive_uv, float2 normal_uv, float roughness_scale)
+// Per-fragment changes to the stock PBR shading, for surfaces whose material varies within one draw.
+struct PbrFragmentDetail
+{
+	float roughness_scale;     // Multiplies the fully resolved material roughness, including any procedural roughness, before lighting.
+	float procedural_strength; // How much the procedural surface changes albedo, roughness and normal, from 0 (not at all) to 1 (fully).
+	float3 height_gradient;    // A world-space height gradient that tilts the normal, added to the procedural gradient. Zero for none.
+};
+
+// Return the fragment detail that only scales the roughness by 'roughness_scale'.
+PbrFragmentDetail PbrFragmentDetailFromRoughness(float roughness_scale)
+{
+	// The procedural surface applies fully and no extra slope is added.
+	PbrFragmentDetail detail;
+	detail.roughness_scale = roughness_scale;
+	detail.procedural_strength = 1.0f;
+	detail.height_gradient = float3(0, 0, 0);
+	return detail;
+}
+
+// Direct-lighting PBR pixel shader path using the supplied UV coordinates for each texture slot. 'detail' adjusts the material per fragment.
+PSOut PSForwardPbrSampledUV(PSIn In, bool is_front_face, float2 base_uv, float2 metallic_uv, float2 roughness_uv, float2 emissive_uv, float2 normal_uv, PbrFragmentDetail detail)
 {
 	// Population LOD transitions discard their dithered pixels first. Ordinary draws keep every pixel.
 	View3DPopulationClipDither(In.dither, In.ss_vert.xy);
@@ -557,17 +575,19 @@ PSOut PSForwardPbrSampledUV(PSIn In, bool is_front_face, float2 base_uv, float2 
 	metallic = saturate(metallic);
 	roughness = clamp(roughness, 0.04f, 1.0f);
 
-	// Procedural surfaces modulate the completed albedo and replace roughness without requiring UV or tangent data.
+	// Procedural surfaces modulate the completed albedo and replace roughness without requiring UV or tangent data. The fragment's procedural
+	// strength fades both changes, and the slope, towards the plain material.
 	ProceduralSurfaceSample procedural = (ProceduralSurfaceSample)0;
-	if (g_pbr.procedural_params0.x != 0.0f)
+	bool has_procedural = g_pbr.procedural_params0.x != 0.0f;
+	if (has_procedural)
 	{
 		procedural = EvaluateProceduralSurface(In.ws_vert, ProceduralFootprint(In.ws_vert));
-		albedo *= procedural.albedo;
-		roughness = clamp(procedural.roughness, 0.04f, 1.0f);
+		albedo *= lerp(float3(1, 1, 1), procedural.albedo, detail.procedural_strength);
+		roughness = clamp(lerp(roughness, procedural.roughness, detail.procedural_strength), 0.04f, 1.0f);
 	}
 
 	// Apply the caller's per-fragment roughness scale last, so it also scales procedural roughness.
-	roughness = clamp(roughness * roughness_scale, 0.04f, 1.0f);
+	roughness = clamp(roughness * detail.roughness_scale, 0.04f, 1.0f);
 
 	// Without a usable normal there is no surface orientation, so leave the material effectively unlit.
 	if (!HasNormals(g_nugget.flags))
@@ -582,8 +602,9 @@ PSOut PSForwardPbrSampledUV(PSIn In, bool is_front_face, float2 base_uv, float2 
 		Out.diff = float4(saturate(albedo + emissive), alpha);
 		return Out;
 	}
-	if (g_pbr.procedural_params0.x != 0.0f)
-		normal = ProceduralWorldNormal(normal, procedural.gradient);
+	// Tilt the normal by the procedural slope and the fragment's own slope. Fragments with neither keep the resolved normal exactly.
+	if (has_procedural || any(detail.height_gradient != 0.0f))
+		normal = ProceduralWorldNormal(normal, detail.procedural_strength * procedural.gradient + detail.height_gradient);
 
 	// Evaluate direct PBR lighting using the shared PBR material lighting helper.
 	float3 view = normalize(g_frame.cam.c2w[3].xyz - In.ws_vert.xyz);
@@ -613,9 +634,9 @@ PSOut PSForwardPbrSampledUV(PSIn In, bool is_front_face, float2 base_uv, float2 
 }
 
 // Direct-lighting PBR pixel shader path shared by concrete fast-path and optional texture-coordinate entry points.
-// 'roughness_scale' multiplies the resolved material roughness; see PSForwardPbrSampledUV.
+// 'detail' adjusts the material per fragment; see PbrFragmentDetail.
 template <typename TIn>
-PSOut PSForwardPbrImpl(TIn In, bool is_front_face, float roughness_scale)
+PSOut PSForwardPbrImpl(TIn In, bool is_front_face, PbrFragmentDetail detail)
 {
 	return PSForwardPbrSampledUV(
 		ToPSIn(In),
@@ -625,14 +646,14 @@ PSOut PSForwardPbrImpl(TIn In, bool is_front_face, float roughness_scale)
 		PbrSlotUV(In, g_pbr.roughness_texcoord, g_pbr.roughness_uv_transform),
 		PbrSlotUV(In, g_pbr.emissive_texcoord, g_pbr.emissive_uv_transform),
 		PbrSlotUV(In, g_pbr.normal_texcoord, g_pbr.normal_uv_transform),
-		roughness_scale);
+		detail);
 }
 
 // Direct-lighting PBR pixel shader path with the material's own roughness.
 template <typename TIn>
 PSOut PSForwardPbrImpl(TIn In, bool is_front_face)
 {
-	return PSForwardPbrImpl(In, is_front_face, 1.0f);
+	return PSForwardPbrImpl(In, is_front_face, PbrFragmentDetailFromRoughness(1.0f));
 }
 
 // Direct-lighting PBR pixel shader path with optional texture-coordinate lanes.

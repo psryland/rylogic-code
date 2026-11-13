@@ -10,6 +10,7 @@
 #include "pr/physics/materials/material.h"
 #include "pr/physics/terrain/landscape/landscape.h"
 #include "pr/physics/terrain/landscape/baseline_surface.hlsli"
+#include "pr/physics/terrain/landscape/terrain_decals.hlsli"
 
 namespace pr::physics::terrain::landscape::tests
 {
@@ -348,6 +349,134 @@ namespace pr::physics::terrain::landscape::tests
 			ExpectNear(f1.get(), expected[1], 1.0e-12);
 			ExpectNear(f2.get(), expected[2], 1.0e-12);
 			ExpectNear(f3.get(), expected[3], 1.0e-12);
+		}
+	};
+
+	PRUnitTestClass(TerrainDecalTests)
+	{
+		// Combine every decal directly with the shared math, without the surface's cell grid, as an independent reference for Sample().
+		static SurfaceSample BruteForceDecals(BaselineSurface const& undecorated, std::span<TerrainDecal const> decals, v2d position)
+		{
+			// Accumulate all decals, including those far away, which add nothing.
+			auto result = undecorated.Sample(position);
+			auto blend = shared::BaselineDecalBlendInit();
+			for (auto const& decal : decals)
+				blend = shared::BaselineDecalAccumulate(blend, position.x - decal.m_centre.x, position.y - decal.m_centre.y, decal.m_pad_radius, decal.m_blend_radius, decal.m_height);
+
+			auto const field = shared::BaselineDecalResolve(blend, shared::BaselineField(result.m_height, result.m_gradient_xy.x, result.m_gradient_xy.y));
+			result.m_height = field.x;
+			result.m_gradient_xy = v2d{field.y, field.z};
+			return result;
+		}
+
+		// A single pad is exactly flat at its height inside the pad, unchanged beyond the blend radius, and continuous across both edges.
+		PRUnitTestMethod(SinglePadIsFlatAndBlendsContinuously, Quick)
+		{
+			auto const undecorated = MakeSurface();
+			auto const centre = v2d{137.5, -281.25};
+			auto const height = undecorated.Sample(centre).m_height + 0.75;
+			auto const decal = TerrainDecal{.m_centre = centre, .m_pad_radius = 4.0, .m_blend_radius = 9.0, .m_height = height, .m_user = 7};
+			auto const surface = undecorated.WithDecals(std::span{&decal, 1});
+			PR_EXPECT(surface.Decals().size() == 1 && surface.Decals()[0].m_user == 7);
+
+			// Inside the pad the height is the decal height with zero slope, and the material is the surface's.
+			for (auto const offset : {v2d{0, 0}, v2d{3.9, 0}, v2d{-2.0, 2.5}, v2d{0, -3.99}})
+			{
+				auto const sample = surface.Sample(centre + offset);
+				PR_EXPECT(std::abs(sample.m_height - height) < 1e-12);
+				PR_EXPECT(Length(sample.m_gradient_xy) < 1e-12);
+				PR_EXPECT(sample.m_material_id == undecorated.Sample(centre + offset).m_material_id);
+			}
+
+			// At and beyond the blend radius the surface is untouched.
+			for (auto const offset : {v2d{9.0, 0}, v2d{0, -9.5}, v2d{20, 20}, v2d{-500, 0}})
+				ExpectNear(surface.Sample(centre + offset), undecorated.Sample(centre + offset), 1e-12);
+
+			// Heights are continuous across both edges, and gradients in the ring match finite differences.
+			auto const step = 1e-6;
+			for (auto const radius : {4.0, 9.0})
+			{
+				auto const inside = surface.Sample(centre + v2d{radius - step, 0}).m_height;
+				auto const outside = surface.Sample(centre + v2d{radius + step, 0}).m_height;
+				PR_EXPECT(std::abs(inside - outside) < 1e-4);
+			}
+			for (auto const offset : {v2d{4.5, 0.5}, v2d{-6.0, 2.0}, v2d{1.0, -8.0}, v2d{5.5, 5.5}})
+			{
+				auto const sample = surface.Sample(centre + offset);
+				auto const fd = FiniteDifferenceGradient(surface, centre + offset, 1e-4);
+				PR_EXPECT(Length(sample.m_gradient_xy - fd) < 1e-4);
+			}
+		}
+
+		// Overlapping pads at one height stay flat where they overlap, and the cell grid gives the same result as combining every decal.
+		PRUnitTestMethod(OverlappingDecalsMatchBruteForce, Quick)
+		{
+			auto const undecorated = MakeSurface();
+
+			// Two overlapping pads with the same height form one flat area.
+			auto const height = undecorated.Sample(v2d{0, 0}).m_height;
+			auto const pair = std::array<TerrainDecal, 2>{
+				TerrainDecal{.m_centre = v2d{-3, 0}, .m_pad_radius = 4, .m_blend_radius = 8, .m_height = height},
+				TerrainDecal{.m_centre = v2d{3, 0}, .m_pad_radius = 4, .m_blend_radius = 8, .m_height = height},
+			};
+			auto const paired = undecorated.WithDecals(pair);
+			for (auto const x : {-6.5, -1.0, 0.0, 2.5, 6.5})
+			{
+				auto const sample = paired.Sample(v2d{x, 0.5});
+				PR_EXPECT(std::abs(sample.m_height - height) < 1e-12);
+				PR_EXPECT(Length(sample.m_gradient_xy) < 1e-12);
+			}
+
+			// Many decals of mixed sizes spread over a wide area, including clusters, exercise the cell grid.
+			auto decals = std::vector<TerrainDecal>{};
+			auto state = uint32_t{0x2545F491};
+			auto next = [&state]
+			{
+				state = 1664525u * state + 1013904223u;
+				return (state + 0.5) / 4294967296.0;
+			};
+			for (int i = 0; i != 300; ++i)
+			{
+				// Half the decals cluster near the origin so cells hold several decals.
+				auto const spread = i % 2 == 0 ? 60.0 : 3000.0;
+				auto const centre = v2d{(next() * 2 - 1) * spread, (next() * 2 - 1) * spread};
+				auto const pad = 1.0 + next() * 6.0;
+				auto const blend = pad + 0.5 + next() * 10.0;
+				decals.push_back({.m_centre = centre, .m_pad_radius = pad, .m_blend_radius = blend, .m_height = undecorated.Sample(centre).m_height + (next() - 0.5) * 2, .m_user = static_cast<uint32_t>(i)});
+			}
+			auto const surface = undecorated.WithDecals(decals);
+			PR_EXPECT(surface.Decals().size() == decals.size());
+			for (int i = 0; i != 2000; ++i)
+			{
+				// Sample mostly near decals, where the grid matters, plus random points anywhere.
+				auto const& anchor = decals[i % decals.size()];
+				auto const position = i % 3 == 0
+					? v2d{(next() * 2 - 1) * 3100, (next() * 2 - 1) * 3100}
+					: anchor.m_centre + v2d{(next() * 2 - 1) * anchor.m_blend_radius * 1.2, (next() * 2 - 1) * anchor.m_blend_radius * 1.2};
+				ExpectNear(surface.Sample(position), BruteForceDecals(undecorated, decals, position), 1e-12);
+			}
+		}
+
+		// An empty decal set restores the undecorated surface; invalid decals are rejected.
+		PRUnitTestMethod(EmptySetAndValidation, Quick)
+		{
+			auto const undecorated = MakeSurface();
+			auto const decal = TerrainDecal{.m_centre = v2d{10, 10}, .m_pad_radius = 2, .m_blend_radius = 5, .m_height = undecorated.Sample(v2d{10, 10}).m_height + 1};
+			auto const cleared = undecorated.WithDecals(std::span{&decal, 1}).WithDecals({});
+			PR_EXPECT(cleared.Decals().empty());
+			ExpectNear(cleared.Sample(v2d{10, 10}), undecorated.Sample(v2d{10, 10}), 1e-12);
+
+			// Pads must be smaller than their blend radius, non-negative, finite, and inside the supported range.
+			auto const nan = std::numeric_limits<double>::quiet_NaN();
+			auto invalid = [&](TerrainDecal d)
+			{
+				PR_THROWS(undecorated.WithDecals(std::span{&d, 1}), std::invalid_argument);
+			};
+			invalid({.m_centre = v2d{0, 0}, .m_pad_radius = 5, .m_blend_radius = 5, .m_height = 0});
+			invalid({.m_centre = v2d{0, 0}, .m_pad_radius = -1, .m_blend_radius = 5, .m_height = 0});
+			invalid({.m_centre = v2d{nan, 0}, .m_pad_radius = 1, .m_blend_radius = 5, .m_height = 0});
+			invalid({.m_centre = v2d{0, 0}, .m_pad_radius = 1, .m_blend_radius = 5, .m_height = nan});
+			invalid({.m_centre = v2d{1e9, 0}, .m_pad_radius = 1, .m_blend_radius = 5, .m_height = 0});
 		}
 	};
 

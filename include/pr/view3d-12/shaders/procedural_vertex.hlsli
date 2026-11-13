@@ -31,6 +31,14 @@
 #define VIEW3D_PROCEDURAL_BUFFER0_REGISTER t14
 #define VIEW3D_PROCEDURAL_BUFFER1_REGISTER t23
 
+// Optional caller-owned textures for forward pixel families only: a 'Texture2D<float4>' array of VIEW3D_PROCEDURAL_TEXTURE_COUNT at this register,
+// sampled with the stock anisotropic wrapping sampler. Empty slots are bound to null views, which read zero, so the whole array may always be declared.
+// e.g. 'Texture2D<float4> g_textures[VIEW3D_PROCEDURAL_TEXTURE_COUNT] : register(VIEW3D_PROCEDURAL_TEXTURE_REGISTER);'
+//      'SamplerState g_texture_sampler : register(VIEW3D_PROCEDURAL_SAMPLER_REGISTER);'
+#define VIEW3D_PROCEDURAL_TEXTURE_REGISTER t31
+#define VIEW3D_PROCEDURAL_TEXTURE_COUNT 4
+#define VIEW3D_PROCEDURAL_SAMPLER_REGISTER s10
+
 // The per-draw index into the step's element constants table. Bind as 'ConstantBuffer<View3DElementIndex>' at the step's element index register.
 // The table is a 'StructuredBuffer' of the step's element type at the step's elements register, with one entry per drawn element.
 // A wrapper typically reads its entry once, e.g. 'static const View3DForwardElement g_nugget = g_elements[g_element.index];'.

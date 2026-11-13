@@ -89,7 +89,7 @@ namespace pr::physics
 
 		// Compile the sample and selection stages, which share one root layout, and the shared dispatch update against its own layout.
 		m_step.m_sig = RootSig(ERootSigFlags::ComputeOnly).U32<Constants>(ECBufReg::b0)
-			.SRV(ESRVReg::t0).SRV(ESRVReg::t1).SRV(ESRVReg::t2).SRV(ESRVReg::t3).SRV(ESRVReg::t4).SRV(ESRVReg::t5).SRV(ESRVReg::t6).SRV(ESRVReg::t7)
+			.SRV(ESRVReg::t0).SRV(ESRVReg::t1).SRV(ESRVReg::t2).SRV(ESRVReg::t3).SRV(ESRVReg::t4).SRV(ESRVReg::t5).SRV(ESRVReg::t6).SRV(ESRVReg::t7).SRV(ESRVReg::t8)
 			.UAV(EUAVReg::u0).UAV(EUAVReg::u1).UAV(EUAVReg::u2).UAV(EUAVReg::u3).UAV(EUAVReg::u4).Create(gpu, "WorldContacts:Signature");
 		m_step.m_pso = ComputePSO(m_step.m_sig.get(), CompileWorldContactKernel(L"CSWorldContacts", shader_cache)).Cache(shader_cache).Create(gpu, "WorldContacts:Contacts");
 		m_samples.m_sig = m_step.m_sig;
@@ -126,6 +126,11 @@ namespace pr::physics
 		// single-precision world coordinates, so 'local' is exactly the sample position and the evaluator adds only single-precision lattice rounding.
 		// Preparing it here reports an unsupported range at construction rather than during a step. A cylinder-only source never evaluates terrain.
 		m_local_recipe_host = m_surface ? m_surface->LocalRecipe({0, 0}, m_surface->Config().m_supported_coordinate_abs_m) : terrain::landscape::shared::BaselineLocalRecipe{};
+
+		// Decals use the same world-origin frame as the local recipe. The blob is a whole number of 32-bit words; see BaselineSurface::LocalDecals.
+		auto const decals = m_surface ? m_surface->LocalDecals({0, 0}) : terrain::landscape::BaselineSurface{}.LocalDecals({0, 0});
+		m_local_decals_host.resize(decals.size() / sizeof(uint32_t));
+		memcpy(m_local_decals_host.data(), decals.data(), decals.size());
 
 		// The shapeless world endpoint participates in solving but not in physical shape sampling.
 		m_endpoint.SetMassProperties(Inertia::Infinite());
@@ -264,6 +269,7 @@ namespace pr::physics
 			auto const recipe = m_surface ? m_surface->Recipe() : terrain::landscape::BaselineSurface{}.Recipe();
 			UploadStream(m_gpu, job, m_recipe, std::span(&recipe, 1), "WorldContacts:Recipe");
 			UploadStream(m_gpu, job, m_local_recipe, std::span<terrain::landscape::shared::BaselineLocalRecipe const>(&m_local_recipe_host, 1), "WorldContacts:LocalRecipe");
+			UploadStream(m_gpu, job, m_local_decals, std::span<uint32_t const>(m_local_decals_host), "WorldContacts:LocalDecals");
 		}
 
 		// Skip infinite-mass bodies and bodies whose collision filter rejects the world. Generate missing plans only when a shape first becomes dynamic.
@@ -454,7 +460,7 @@ namespace pr::physics
 			job.m_cmd_list.SetPipelineState(step->m_pso.get());
 			job.m_cmd_list.SetComputeRootSignature(step->m_sig.get());
 			job.m_cmd_list.AddComputeRoot32BitConstants(constants);
-			for (auto resource : {bodies, shapes, m_recipe.get(), m_plans.get(), m_patch_buffer.get(), m_instance_buffer.get(), sleep_islands, m_local_recipe.get()})
+			for (auto resource : {bodies, shapes, m_recipe.get(), m_plans.get(), m_patch_buffer.get(), m_instance_buffer.get(), sleep_islands, m_local_recipe.get(), m_local_decals.get()})
 				job.m_cmd_list.AddComputeRootShaderResourceView(resource);
 
 			// Bind append destinations and candidate storage after the read-only streams in root-signature order.

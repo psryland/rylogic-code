@@ -29,6 +29,8 @@
 //  - The stock forward resources are declared by this header (for example 'g_frame', 'g_nugget', 'g_lights').
 //  - The procedural constants (VIEW3D_PROCEDURAL_FORWARD_CONSTANTS_REGISTER) and optional buffers (VIEW3D_PROCEDURAL_BUFFER<i>_REGISTER)
 //    are visible to the pixel shader as well as the vertex shader. Declare them in the caller's shader as for the vertex shader.
+//  - The optional procedural textures (VIEW3D_PROCEDURAL_TEXTURE_REGISTER) and their sampler (VIEW3D_PROCEDURAL_SAMPLER_REGISTER) are visible to
+//    the pixel shader only. See 'procedural_vertex.hlsli'.
 //  - b7, t12, t30 and s9 are reserved by the stock shaders and must not be declared.
 //
 // The stock shaders and their structures are internal to View3D and may change with any package version.

@@ -8,6 +8,10 @@
 #include "pr/view3d-12/shaders/shader_ray_cast.h"
 #include "pr/view3d-12/shaders/shader_smap.h"
 #include "pr/view3d-12/resource/resource_factory.h"
+#include "pr/view3d-12/resource/resource_store.h"
+#include "pr/view3d-12/texture/texture_2d.h"
+#include "pr/view3d-12/scene/scene.h"
+#include "pr/view3d-12/main/window.h"
 #include "view3d-12/src/shaders/common.h"
 
 namespace pr::rdr12
@@ -80,6 +84,8 @@ namespace pr::rdr12
 		,m_pixel_family()
 		,m_constants()
 		,m_buffers{buffer}
+		,m_textures()
+		,m_null_texture()
 		,m_constants_gpu()
 		,m_constants_reuse_id()
 		,m_writer()
@@ -110,10 +116,31 @@ namespace pr::rdr12
 			// The family is selected per sub-pass when the pipeline is built, so it is not stored in 'm_code.PS'.
 			m_pixel_family.m_code[i] = OwnByteCode({ pixel_family[i].begin(), pixel_family[i].end() });
 		}
+
+		// Pixel shaders may declare the whole texture table, so empty slots need a valid view that reads zero.
+		if (!pixel_family.empty())
+		{
+			ResourceStore::Access store(rdr);
+			auto null_desc = D3D12_SHADER_RESOURCE_VIEW_DESC{
+				.Format = DXGI_FORMAT_R8G8B8A8_UNORM,
+				.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D,
+				.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+				.Texture2D = { .MostDetailedMip = 0, .MipLevels = 1, .PlaneSlice = 0, .ResourceMinLODClamp = 0 },
+			};
+			m_null_texture = store.Descriptors().Create(nullptr, null_desc);
+		}
 	}
 
 	// Release the writer here, where the factory type is complete. Its destructor waits for any queued write to finish.
-	ProceduralShader::~ProceduralShader() = default;
+	ProceduralShader::~ProceduralShader()
+	{
+		// Return the null texture view to the store. Bound tables hold copies of it, so in-flight frames are not affected.
+		if (m_null_texture)
+		{
+			ResourceStore::Access store(rdr());
+			store.Descriptors().Release(m_null_texture);
+		}
+	}
 
 	// True if this shader replaces the stock vertex shader.
 	bool ProceduralShader::HasVertexShader() const
@@ -171,6 +198,29 @@ namespace pr::rdr12
 			throw std::invalid_argument("Procedural buffer slot is out of range");
 
 		return m_buffers[slot];
+	}
+
+	// Replace the texture bound at 'slot' by later draws.
+	void ProceduralShader::Texture(int slot, Texture2DPtr texture)
+	{
+		// Only pixel shaders read the texture table, and slots outside the fixed range do not exist.
+		if (slot < 0 || slot >= TextureSlotCount)
+			throw std::invalid_argument("Procedural texture slot is out of range");
+		if (!HasPixelFamily())
+			throw std::invalid_argument("Only procedural shaders with a forward pixel family have texture slots");
+
+		// Bound tables hold copies of the texture's view, and the texture defers the release of its resource, so in-flight frames stay valid.
+		m_textures[slot] = texture;
+	}
+
+	// Return the texture bound at 'slot'.
+	Texture2DPtr const& ProceduralShader::Texture(int slot) const
+	{
+		// Slots outside the fixed range do not exist.
+		if (slot < 0 || slot >= TextureSlotCount)
+			throw std::invalid_argument("Procedural texture slot is out of range");
+
+		return m_textures[slot];
 	}
 
 	// Overwrite part of the slot 0 buffer for later frames.
@@ -250,7 +300,7 @@ namespace pr::rdr12
 	}
 
 	// Bind the copied constants and optional buffers through the render-step-specific reserved root slots.
-	void ProceduralShader::SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, Scene const&, CameraTransforms const&, DrawListElement const*)
+	void ProceduralShader::SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, Scene const& scene, CameraTransforms const&, DrawListElement const*)
 	{
 		// Upload the current constants once per upload buffer reuse window. Draws in the same window bind the same copy, which avoids copying and
 		// hashing 1 KB for every draw.
@@ -277,6 +327,18 @@ namespace pr::rdr12
 			{
 				using shaders::fwd::ERootParam;
 				Bind(static_cast<UINT>(ERootParam::CBufProcedural), { static_cast<UINT>(ERootParam::ProceduralBuffer0), static_cast<UINT>(ERootParam::ProceduralBuffer1) });
+
+				// Pixel families may read any texture slot, so the whole table is bound with null views in the empty slots
+				if (HasPixelFamily())
+				{
+					auto srvs = std::array<Descriptor, TextureSlotCount>{};
+					for (int i = 0; i != TextureSlotCount; ++i)
+					{
+						// Each slot uses its texture's view, or the null view when empty
+						srvs[i] = m_textures[i] != nullptr ? m_textures[i]->m_srv : m_null_texture;
+					}
+					cmd_list->SetGraphicsRootDescriptorTable(static_cast<UINT>(ERootParam::ProceduralTextures), scene.wnd().m_heap_view.Add(srvs));
+				}
 				return;
 			}
 			case ERenderStep::RayCast:
@@ -304,7 +366,6 @@ namespace pr::rdr12
 		// Release copied bytecode and constants with the shader handle. The GPU may still be reading the buffers, or running a queued dispatch, from in-flight work.
 		for (auto const& buffer : m_buffers)
 			rdr().DeferRelease(buffer);
-
 
 		rdr().DeferRelease(m_dispatch_pso);
 		rdr().DeferRelease(m_dispatch_sig);

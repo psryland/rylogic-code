@@ -87,6 +87,7 @@ StructuredBuffer<SurfacePatch> patches : register(t4);
 StructuredBuffer<WorldInstance> instances : register(t5);
 StructuredBuffer<GpuSleepIsland> sleep_islands : register(t6);
 ByteAddressBuffer local_recipe : register(t7);
+ByteAddressBuffer local_decals : register(t8);
 RWStructuredBuffer<GpuCollisionCounters> counters : register(u0);
 RWStructuredBuffer<GpuResolveContact> contacts : register(u1);
 RWStructuredBuffer<uint> status : register(u2);
@@ -222,9 +223,11 @@ WorldCandidate EvaluateSample(WorldInstance instance, WorldRange plan, uint ordi
 	{
 		// The terrain is the authoritative procedural field, not a rendered triangle mesh. Evaluate height and derivatives
 		// at the sample's XY, then construct the upward normal to the local tangent plane. The local recipe's origin is the
-		// world origin, so the single-precision sample position is already the evaluator's local coordinate.
+		// world origin, so the single-precision sample position is already the evaluator's local coordinate. Terrain decals
+		// share that origin and replace the height and derivatives where they reach.
 		float4 region_weights;
 		BaselineLocalResult field = BaselineEvaluateLocal(local_recipe, 0, position.xy, region_weights);
+		BaselineApplyDecalsLocal(local_decals, 0, position.xy, field);
 		if (field.m_status != 0)
 			ReportFailure(3, instance, ordinal, field.m_status);
 

@@ -107,6 +107,9 @@ namespace pr::rdr12
 		// Return the buffer at 'slot' of the first procedural shader on the nuggets of 'object', or null if there is none.
 		D3DPtr<ID3D12Resource> ObjectProceduralBuffer(ldraw::LdrObject* object, int slot) const;
 
+		// Replace the texture at 'slot' of every procedural shader with a forward pixel family on the nuggets of 'object', or unbind it with null.
+		void ObjectProceduralTexture(ldraw::LdrObject* object, int slot, Texture2DPtr texture);
+
 		// Overwrite 'data' at byte 'offset' of each distinct slot 0 buffer bound to the procedural shaders on the nuggets of 'object'.
 		void ObjectProceduralBufferWrite(ldraw::LdrObject* object, size_t offset, std::span<std::byte const> data);
 
