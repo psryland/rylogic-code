@@ -317,6 +317,11 @@ float4 SampleEnvMapLevel(float3 dir, float3 dir_prev, float lod)
 // reflection projected from the rendered scene. Pixel-shader variants for such surfaces set it before shading.
 static bool g_reflection_plane_surface = false;
 
+// The share, in [0, 1], of the projected reflection that a surface in the reflection plane shows, before the fade for roughness. Zero leaves only the
+// environment map's direction-only reflection, so such a pixel needs neither the projected reflection nor the march, and an owner whose surfaces
+// are all at zero may stop rendering the projected reflection without changing their look. Pixel-shader variants set it before shading.
+static float g_reflection_plane_weight = 1.0f;
+
 // Stored reflection distances at or above this are mirrored sky (see 'ReflectionSkyDistance' in reflection_plane.hlsl).
 static const float ReflectionPlaneSkyDistance = 60000.0f;
 
@@ -441,19 +446,21 @@ float4 EnvironmentMap(float4 ws_pos, float4 ws_norm, float4 ws_cam, float2 ss_po
 
 	// Surfaces in the reflection plane read nearby reflections from the projected reflection, which already shows nearby objects in place. The
 	// environment map fills only what that misses, mostly the distant scene and the sky, so a direction-only lookup is enough and the march is
-	// skipped. The condition is the same for every pixel of a draw.
+	// skipped. A surface in the plane that shows none of the projected reflection also takes the direction-only lookup, whether or not the
+	// projected reflection is rendered, so stopping its rendering does not change the surface.
 	bool projected = g_reflection_plane_surface && g_frame.reflection_plane.enabled != 0;
+	bool direction_only = projected || (g_reflection_plane_surface && g_reflection_plane_weight <= 0.0f);
 	float3 dir = mirror, dir_prev = mirror;
-	if (!projected)
+	if (!direction_only)
 		EnvMapDirections(ws_pos.xyz, ws_mirror, ss_pos, fresnel, lod, dir, dir_prev);
 
 	float4 col = SampleEnvMap(dir, dir_prev, mirror_dx, mirror_dy);
 
 	// The projected reflection holds only sharp mirror images, so it fades out as the surface becomes rough.
-	if (projected)
+	if (projected && g_reflection_plane_weight > 0.0f)
 	{
 		float4 ppr = ReflectionPlaneSample(ws_pos.xyz, ws_cam.xyz, ws_mirror, ss_pos);
-		col.rgb = lerp(col.rgb, ppr.rgb, ppr.a * saturate(1.0f - 2.0f * roughness));
+		col.rgb = lerp(col.rgb, ppr.rgb, ppr.a * saturate(g_reflection_plane_weight) * saturate(1.0f - 2.0f * roughness));
 	}
 	return lerp(initial_diff, col, fresnel);
 }

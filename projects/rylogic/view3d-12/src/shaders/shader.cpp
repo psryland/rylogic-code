@@ -286,16 +286,20 @@ namespace pr::rdr12
 
 		// Expose the buffer for writing, dispatch, then return it to the state that draws read it in. The transition back also orders the writes before later reads.
 		auto& cmd_list = m_writer->CmdList();
-		::pr::compute::BarrierBatch barriers(cmd_list);
-		barriers.Transition(buffer, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-		barriers.Commit();
-		cmd_list.SetPipelineState(m_dispatch_pso.get());
-		cmd_list.SetComputeRootSignature(m_dispatch_sig.get());
-		cmd_list.SetComputeRootConstantBufferView(0, cbuf);
-		cmd_list.SetComputeRootUnorderedAccessView(1, buffer);
-		cmd_list.Dispatch(groups);
-		barriers.Transition(buffer, D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
-		barriers.Commit();
+		{
+			// The profiling region must close before the flush closes the command list.
+			auto pix_dispatch = ::pr::compute::pix::EventScope<ID3D12GraphicsCommandList>(cmd_list.get(), 0xFF5AC8A0, "View3D::ProceduralDispatch %s", m_name.c_str());
+			::pr::compute::BarrierBatch barriers(cmd_list);
+			barriers.Transition(buffer, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			barriers.Commit();
+			cmd_list.SetPipelineState(m_dispatch_pso.get());
+			cmd_list.SetComputeRootSignature(m_dispatch_sig.get());
+			cmd_list.SetComputeRootConstantBufferView(0, cbuf);
+			cmd_list.SetComputeRootUnorderedAccessView(1, buffer);
+			cmd_list.Dispatch(groups);
+			barriers.Transition(buffer, D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
+			barriers.Commit();
+		}
 		m_writer->FlushToGpu(EGpuFlush::Async);
 	}
 

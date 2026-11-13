@@ -540,6 +540,7 @@ namespace pr::rdr12
 			auto alpha_end = boundaries[ESortGroup::PostAlpha];
 
 			// Use the alpha collect shader and disable depth writes for the alpha pass
+			auto pix_collect = pix::EventScope<ID3D12GraphicsCommandList>(m_alp_list.get(), 0xFFBA84E5, "View3D::AlphaCollect");
 			DrawNuggets(frame, m_alp_list, m_alpha_pipe_state, std::span{ *drawlist }.subspan(s_cast<size_t>(alpha_start), s_cast<size_t>(alpha_end - alpha_start)), alpha_start, ESubPass::Alpha);
 
 			// Only the alpha surfaces read the reflection. Later passes rebind the frame without it.
