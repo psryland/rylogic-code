@@ -564,9 +564,10 @@ function start_add()
 	document.getElementById("sf_id").focus();
 }
 
-// Put a catalog entry into the sound form. The 'active' value has no editor, so it is kept from the entry and sent back unchanged.
+// Put a catalog entry into the sound form. The 'priority', 'active' and 'retrigger' values have no editor, so they are kept from the entry and sent back unchanged.
 let form_active = undefined;
 let form_retrigger = undefined;
+let form_priority = undefined;
 function fill_form(info)
 {
 	// Fields default to blank when there is no entry
@@ -585,7 +586,8 @@ function fill_form(info)
 	f("sf_desc").value = info?.description ?? "";
 	form_active = info?.active;
 	form_retrigger = info?.retrigger;
-	f("sf_active").textContent = [form_active ? `active: ${JSON.stringify(form_active)}` : "", form_retrigger ? `retrigger: ${JSON.stringify(form_retrigger)}` : ""].filter(x => x).join(" ");
+	form_priority = info?.priority;
+	f("sf_active").textContent = [form_priority !== undefined ? `priority: ${form_priority}` : "", form_active ? `active: ${JSON.stringify(form_active)}` : "", form_retrigger ? `retrigger: ${JSON.stringify(form_retrigger)}` : ""].filter(x => x).join(" ");
 	update_form();
 }
 
@@ -626,6 +628,8 @@ function form_sound()
 		sound.length_s = [Number(min !== "" ? min : max), Number(max !== "" ? max : min)];
 	if (positioned)
 		sound.range_m = Number(f("sf_range").value);
+	if (form_priority !== undefined)
+		sound.priority = form_priority;
 	if (form_active)
 		sound.active = form_active;
 	if (form_retrigger)

@@ -35,8 +35,8 @@ A project supplies an `authoring.json` file. Relative paths are resolved against
 
 - `catalog`: the sound definitions, owned by the library. The file has `"schema": 1` and a list of named `sections`, each with its `sounds` in order.
   Each sound has `id`, `placement` (`bed` surrounds the listener; `positioned` comes from a point, must be `mono` and needs `range_m`), `loop`,
-  `channels` (`mono` or `stereo`), `load` (`memory` or `stream`), `group` and `gain`, and optionally `length_s` (`[min, max]`), `active` (an object
-  passed through unchanged) and `description`. Unknown properties are rejected. The authoring tool adds, edits, renames and deletes sounds, writing the
+  `channels` (`mono` or `stereo`), `load` (`memory` or `stream`), `group` and `gain`, and optionally `length_s` (`[min, max]`), `priority` (a whole
+  number from 0 to 100; higher wins when the game has too few voices), `active` and `retrigger` (objects passed through unchanged) and `description`. Unknown properties are rejected. The authoring tool adds, edits, renames and deletes sounds, writing the
   whole file in one standard layout with one line per sound. Renaming a sound renames its preparation file and the reference masters named
   `<id>.*` that only it uses; deleting a sound deletes them. Game code that names a renamed or deleted ID must be changed by hand.
 - `originals`: one `<source-id>.<type>` per recording with a `<source-id>.json` provenance sidecar. FLAC, MP3, Ogg and Opus downloads are kept byte-for-byte;
