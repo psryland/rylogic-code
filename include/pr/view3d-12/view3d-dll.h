@@ -1218,9 +1218,10 @@ namespace pr
 
 		// Supplies the bytes of an image named by an identifier held in a model file.
 		// Model formats that reference textures by id rather than embedding them use this so several
-		// models can share one copy of an image. Return null to report that the id is unknown, in which
-		// case the importer treats the id as a file path instead. The returned bytes must stay valid
-		// until the model creation call that requested them returns.
+		// models can share one copy of an image. An id must name the same image bytes for the lifetime of
+		// the renderer, because a texture already loaded for an id is reused without calling the resolver.
+		// Return null to report that the id is unknown, in which case the importer treats the id as a file
+		// path instead. The returned bytes must stay valid until the model creation call that requested them returns.
 		using ResolveTextureCB = Callback<uint8_t const*(__stdcall*)(void* ctx, char const* texture_id, size_t* size)>;
 
 		using EditObjectCB = Callback<VICount(__stdcall*)(void* ctx,

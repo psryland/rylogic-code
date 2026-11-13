@@ -11,6 +11,7 @@
 #include "pr/view3d-12/material/material_pbr.h"
 #include "pr/view3d-12/material/material_simple.h"
 #include "pr/view3d-12/resource/resource_factory.h"
+#include "pr/view3d-12/resource/resource_store.h"
 #include "pr/view3d-12/resource/stock_resources.h"
 #include "pr/view3d-12/sampler/sampler_desc.h"
 #include "pr/view3d-12/texture/texture_desc.h"
@@ -229,24 +230,75 @@ namespace pr::rdr12
 			return std::string_view(material.m_id);
 		}
 
-		// Create a renderer texture from embedded image bytes.
-		// 'colour_space' tags how the texels should be sampled (Srgb for colour textures, Linear for normal maps / scalar masks).
-		template <typename Material>
-		static Texture2DPtr CreateEmbeddedTexture(ResourceFactory& factory, geometry::TextureRef const& texture, bool has_alpha, EColourSpace colour_space)
+		// Return the identity of the GPU resource for an image named by 'key'.
+		// The colour space is part of the identity because the same image sampled in a different colour space needs a different resource format.
+		static RdrId ImageResourceId(std::span<uint8_t const> key, EColourSpace colour_space)
 		{
-			auto data = texture.m_data;
+			auto colour_space_hash = hash::HashBytes64(&colour_space, &colour_space + 1);
+			return s_cast<RdrId>(hash::HashBytes64(key.data(), key.data() + key.size(), colour_space_hash));
+		}
+
+		// Return a texture that views the live GPU resource 'uri', or null when no such resource is loaded.
+		static Texture2DPtr FindImageTexture(ResourceFactory& factory, RdrId uri, bool has_alpha, std::string_view name)
+		{
+			// The store lock is held until the texture is created, so the resource cannot be released in between.
+			ResourceStore::Access store(factory.rdr());
+			if (store.FindRes(uri) == nullptr)
+				return nullptr;
+
+			return factory.CreateTexture2D(TextureDesc(AutoId, ResDesc()).uri(uri).has_alpha(has_alpha).name(name));
+		}
+
+		// Decode 'data' and create the GPU resource 'uri' with a texture that views it.
+		static Texture2DPtr DecodeImageTexture(ResourceFactory& factory, RdrId uri, std::span<uint8_t const> data, bool has_alpha, std::string_view name, EColourSpace colour_space)
+		{
+			// Decode outside the store lock. If another thread creates the resource first, CreateTexture2D finds it and ignores the decoded data.
 			auto [images, rdesc] = LoadImageData(data, 1, false, 0, &factory.rdr().Features(), colour_space);
 			rdesc.Data = images;
 			rdesc.def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
 
-			auto uri = s_cast<RdrId>(hash::HashBytes64(data.data(), data.data() + data.size()));
-			auto name = texture.name();
 			auto desc = TextureDesc(AutoId, rdesc)
 				.uri(uri)
 				.has_alpha(has_alpha)
 				.name(name);
 
 			return factory.CreateTexture2D(desc);
+		}
+
+		// Create a renderer texture from embedded image bytes.
+		// 'colour_space' tags how the texels should be sampled (Srgb for colour textures, Linear for normal maps / scalar masks).
+		// Textures with identical image bytes and colour space share one GPU resource, which is decoded and uploaded only by the first texture to use it.
+		template <typename Material>
+		static Texture2DPtr CreateEmbeddedTexture(ResourceFactory& factory, geometry::TextureRef const& texture, bool has_alpha, EColourSpace colour_space)
+		{
+			// Embedded images have no name for their content, so the bytes themselves identify the resource.
+			auto uri = ImageResourceId(texture.m_data, colour_space);
+			auto name = texture.name();
+			if (auto existing = FindImageTexture(factory, uri, has_alpha, name))
+				return existing;
+
+			return DecodeImageTexture(factory, uri, texture.m_data, has_alpha, name, colour_space);
+		}
+
+		// Create a renderer texture from image content named by 'texture.m_content_id'.
+		// Textures with the same content id and colour space share one GPU resource, and the bytes are only requested for the first texture to use it.
+		// Returns null when the content is unknown so the caller can try the reference's URI instead.
+		template <typename Material>
+		static Texture2DPtr CreateResolvedTexture(ResourceFactory& factory, geometry::TextureRef const& texture, bool has_alpha, EColourSpace colour_space)
+		{
+			// The content id names immutable content, so a live resource for the id can be reused without requesting or hashing the bytes.
+			auto id = std::span(reinterpret_cast<uint8_t const*>(texture.m_content_id.data()), texture.m_content_id.size());
+			auto uri = ImageResourceId(id, colour_space);
+			auto name = texture.name();
+			if (auto existing = FindImageTexture(factory, uri, has_alpha, name))
+				return existing;
+
+			// Request the bytes only for the first use of the content.
+			auto data = texture.m_resolve();
+			if (data.empty())
+				return nullptr;
+
+			return DecodeImageTexture(factory, uri, data, has_alpha, name, colour_space);
 		}
 
 		// Create a renderer texture from a file path or URI.
@@ -339,8 +391,12 @@ namespace pr::rdr12
 			{
 				slot.m_texture =
 					!texture.m_data.empty() ? CreateEmbeddedTexture<Material>(factory, texture, has_alpha, colour_space) :
-					!texture.m_uri.empty() ? CreateFileTexture<Material>(factory, texture, has_alpha, colour_space) :
+					!texture.m_content_id.empty() && texture.m_resolve ? CreateResolvedTexture<Material>(factory, texture, has_alpha, colour_space) :
 					nullptr;
+
+				// Unknown content falls back to the reference's URI.
+				if (slot.m_texture == nullptr && texture.m_data.empty() && !texture.m_uri.empty())
+					slot.m_texture = CreateFileTexture<Material>(factory, texture, has_alpha, colour_space);
 
 				if (slot.m_texture == nullptr)
 					return {};
@@ -568,13 +624,13 @@ namespace pr::rdr12
 		};
 
 		// Convert a P3D texture into the generic imported-texture reference.
-		// P3D stores an identifier rather than the image itself, so 'resolver' is given the chance to
-		// supply the bytes. Without a resolver, or when the resolver does not know the id, the id is
-		// left as a URI and treated as a file path.
+		// P3D stores an identifier rather than the image itself, so the options' resolver is given the chance to supply the bytes when the image
+		// is first needed. Without a resolver, or when the resolver does not know the id, the id is treated as a file path.
 		static geometry::TextureRef ToTextureRef(geometry::p3d::Texture const& tex, ModelGenerator::CreateOptions const* opts)
 		{
 			geometry::TextureRef ref = {};
 			ref.m_name = tex.m_filepath;
+			ref.m_uri = tex.m_filepath;
 			ref.m_texcoord = tex.m_texcoord;
 			ref.m_uv_transform = tex.m_uv_transform;
 			ref.m_scale = tex.m_scale;
@@ -583,11 +639,16 @@ namespace pr::rdr12
 			ref.m_min_filter = tex.m_min_filter;
 			ref.m_mag_filter = tex.m_mag_filter;
 
+			// Defer the resolver call so images already loaded for the id are not requested again. 'opts' outlives model creation.
 			if (opts != nullptr && opts->m_texture_resolver)
-				ref.m_data = opts->m_texture_resolver(tex.m_filepath);
-
-			if (ref.m_data.empty())
-				ref.m_uri = tex.m_filepath;
+			{
+				ref.m_content_id = tex.m_filepath;
+				ref.m_resolve = [opts, id = tex.m_filepath]()
+				{
+					// Supply the bytes for this reference's content id.
+					return opts->m_texture_resolver(id);
+				};
+			}
 
 			return ref;
 		}

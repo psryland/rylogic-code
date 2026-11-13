@@ -104,9 +104,10 @@ namespace pr::rdr12
 
 			// Resolves a texture identifier held in a model file to the bytes of the image.
 			// Formats that reference textures by id rather than embedding them use this to find the image
-			// data, which lets several models share one copy of a texture. Returning an empty span means
-			// the texture is unavailable, and the importer then falls back to treating the id as a file path.
-			// The returned bytes must stay valid until model creation completes.
+			// data, which lets several models share one copy of a texture. An id must name the same image bytes
+			// for the lifetime of the renderer, because a texture already loaded for an id is reused without
+			// calling the resolver. Returning an empty span means the texture is unavailable, and the importer
+			// then falls back to treating the id as a file path. The returned bytes must stay valid until model creation completes.
 			std::function<std::span<uint8_t const>(std::string_view)> m_texture_resolver = {};
 
 			// Algorithmically generate surface normals. Value is the smoothing angle.

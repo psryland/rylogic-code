@@ -58,6 +58,10 @@ namespace Rylogic.Gfx
 			}
 
 			/// <summary>Create an object from a P3D file</summary>
+			/// <remarks>
+			/// 'texture_resolver' supplies the image bytes for texture ids in the model. An id must name the same bytes for the lifetime of the
+			/// renderer, because a texture already loaded for an id is reused without calling the resolver.
+			/// </remarks>
 			public Object(string name, uint colour, string p3d_filepath, Guid? context_id, Func<string, byte[]?>? texture_resolver = null)
 			{
 				Owned = true;
@@ -67,6 +71,8 @@ namespace Rylogic.Gfx
 				if (Handle == HObject.Zero)
 					throw new Exception($"Failed to create object from p3d model file: '{p3d_filepath}'");
 			}
+
+			/// <summary>Create an object from P3D model data. See the P3D file constructor for the 'texture_resolver' contract.</summary>
 			public Object(string name, uint colour, byte[] p3d_data, Guid? context_id, Func<string, byte[]?>? texture_resolver = null)
 			{
 				Owned = true;
