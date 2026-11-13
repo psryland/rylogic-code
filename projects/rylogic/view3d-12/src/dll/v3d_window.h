@@ -425,6 +425,10 @@ namespace pr::rdr12
 		float ReflectionMinPopulationRadius() const;
 		void ReflectionMinPopulationRadius(float radius);
 
+		// Get/Set the camera-space depth within which the reflection's cutaway source leaves out the scene. Zero for no cutaway source
+		float ReflectionCutawayDistance() const;
+		void ReflectionCutawayDistance(float distance);
+
 		// The scale of the distances stored in newly captured environment map cubes, derived from the parallax bounds. 0 means no distances.
 		float EnvMapDistanceScale() const;
 

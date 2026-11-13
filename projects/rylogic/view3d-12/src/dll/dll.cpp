@@ -1586,6 +1586,30 @@ VIEW3D_API void __stdcall View3D_WindowReflectionMinPopulationRadiusSet(view3d::
 	CatchAndReport(View3D_WindowReflectionMinPopulationRadiusSet, window, );
 }
 
+// Get/Set the camera-space depth within which the reflection's cutaway source leaves out the scene
+VIEW3D_API float __stdcall View3D_WindowReflectionCutawayDistanceGet(view3d::Window window)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		return window->ReflectionCutawayDistance();
+	}
+	CatchAndReport(View3D_WindowReflectionCutawayDistanceGet, window, 0.0f);
+}
+VIEW3D_API void __stdcall View3D_WindowReflectionCutawayDistanceSet(view3d::Window window, float distance)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		window->ReflectionCutawayDistance(distance);
+	}
+	CatchAndReport(View3D_WindowReflectionCutawayDistanceSet, window, );
+}
+
 // Enable/Disable the depth buffer
 VIEW3D_API BOOL __stdcall View3D_DepthBufferEnabledGet(view3d::Window window)
 {

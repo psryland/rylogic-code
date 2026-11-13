@@ -2090,6 +2090,23 @@ namespace pr::rdr12
 		Invalidate();
 	}
 
+	// Get/Set the camera-space depth within which the reflection's cutaway source leaves out the scene
+	float V3dWindow::ReflectionCutawayDistance() const
+	{
+		return m_scene.m_reflection_cutaway_distance;
+	}
+	void V3dWindow::ReflectionCutawayDistance(float distance)
+	{
+		// Negative distances have no meaning
+		if (!(distance >= 0.0f) || !IsFinite(distance))
+			throw std::runtime_error("The reflection cutaway distance must be a finite, non-negative value");
+		if (distance == m_scene.m_reflection_cutaway_distance)
+			return;
+
+		m_scene.m_reflection_cutaway_distance = distance;
+		Invalidate();
+	}
+
 	// The scale of the distances stored in captured cubes. It matches the size of the parallax bounds, so that the 8-bit 'd / (d + S)' encoding
 	// spends most of its precision on distances within the bounds. 0 means the cube stores no distances.
 	float V3dWindow::EnvMapDistanceScale() const

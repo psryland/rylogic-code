@@ -40,14 +40,17 @@ namespace pr::rdr12
 			PopulationViewDraw const* m_draw;
 		};
 
-		// Selects what the reflection guard bands draw. The sky is always left out.
-		struct GuardBandFilter
+		// Selects what the reflection's extra sources (guard bands and cutaway) draw
+		struct ReflectionSourceFilter
 		{
 			// Per opaque drawlist element, non-zero when the element is drawn
 			std::span<uint8_t const> m_elements;
 
 			// Populations whose prototype bounding radius is less than this are not drawn
 			float m_min_population_radius;
+
+			// True when the sky is drawn
+			bool m_draw_sky;
 		};
 
 		shaders::Forward m_shader;
@@ -102,6 +105,13 @@ namespace pr::rdr12
 		// Draw the opaque scene, without the sky, into the reflection guard bands. Call after the opaque pass, while the drawlist is still locked.
 		void DrawGuardBands(Frame& frame, std::span<DrawListElement const> opaques);
 
+		// Set up this frame's reflection cutaway, and size its textures. See 'ReflectionPlane' for what the cutaway is.
+		void PrepareCutaway();
+
+		// Draw the opaque scene and the sky, without everything nearer than the cutaway distance, into the reflection cutaway.
+		// Call after the opaque pass, while the drawlist is still locked.
+		void DrawCutaway(Frame& frame, std::span<DrawListElement const> opaques);
+
 		// Add model nuggets to the draw list for this render step
 		void AddNuggets(BaseInstance const& inst, NuggetPtr nuggets, drawlist_t& drawlist) override;
 
@@ -115,12 +125,12 @@ namespace pr::rdr12
 		void CullPopulations();
 
 		// Draw the opaque drawlist elements 'opaques' and the classified populations into the opaque targets, merged in sort group order.
-		// Within one sort group, the drawlist elements are drawn before the populations. A non-null 'filter' selects what the guard bands draw.
-		void DrawOpaques(Frame& frame, PipeStateDesc const& pipe_state, std::span<DrawListElement const> opaques, GuardBandFilter const* filter = nullptr);
+		// Within one sort group, the drawlist elements are drawn before the populations. A non-null 'filter' selects what a reflection source draws.
+		void DrawOpaques(Frame& frame, PipeStateDesc const& pipe_state, std::span<DrawListElement const> opaques, ReflectionSourceFilter const* filter = nullptr);
 
 		// Draw the population draws [beg, end) into the opaque targets, leaving out those rejected by 'filter' when it is not null.
 		// Restores the frame resources of the step's drawlist afterwards.
-		void DrawPopulations(Frame& frame, PipeStateDesc const& pipe_state, int beg, int end, GuardBandFilter const* filter);
+		void DrawPopulations(Frame& frame, PipeStateDesc const& pipe_state, int beg, int end, ReflectionSourceFilter const* filter);
 
 		// Add the nuggets in the draw list to 'cmd_list' for rendering. 'first_index' is the position of 'drawlist[0]' in the step's drawlist.
 		// 'populations' is empty for ordinary draws, or parallel to 'drawlist' for population draws.

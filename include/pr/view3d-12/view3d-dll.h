@@ -1520,6 +1520,12 @@ extern "C"
 	VIEW3D_API float __stdcall View3D_WindowReflectionMinPopulationRadiusGet(pr::view3d::Window window);
 	VIEW3D_API void __stdcall View3D_WindowReflectionMinPopulationRadiusSet(pr::view3d::Window window, float radius);
 
+	// Get/Set the camera-space depth within which the reflection's cutaway source leaves out the scene. The cutaway source is the opaque scene
+	// drawn again at low resolution without the parts nearer than this depth, so that surfaces hidden behind near objects can still be reflected.
+	// Zero (the default) disables the cutaway source.
+	VIEW3D_API float __stdcall View3D_WindowReflectionCutawayDistanceGet(pr::view3d::Window window);
+	VIEW3D_API void __stdcall View3D_WindowReflectionCutawayDistanceSet(pr::view3d::Window window, float distance);
+
 	// Enable/Disable the depth buffer
 	VIEW3D_API BOOL __stdcall View3D_DepthBufferEnabledGet(pr::view3d::Window window);
 	VIEW3D_API void __stdcall View3D_DepthBufferEnabledSet(pr::view3d::Window window, BOOL enabled);
