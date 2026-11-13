@@ -832,6 +832,17 @@ namespace Rylogic.Gfx
 				set => View3D_WindowReflectionMinPopulationRadiusSet(Handle, value);
 			}
 
+			/// <summary>
+			/// The camera-space depth within which the reflection's cutaway source leaves out the scene. The cutaway source is the opaque scene drawn
+			/// again at low resolution without the parts nearer than this depth, so that surfaces hidden behind near objects can still be reflected.
+			/// Zero (the default) disables the cutaway source.
+			/// </summary>
+			public float ReflectionCutawayDistance
+			{
+				get => View3D_WindowReflectionCutawayDistanceGet(Handle);
+				set => View3D_WindowReflectionCutawayDistanceSet(Handle, value);
+			}
+
 			/// <summary>Show the lighting dialog</summary>
 			public void ShowLightingDlg()
 			{

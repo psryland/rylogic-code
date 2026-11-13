@@ -113,7 +113,26 @@ namespace pr::rdr12
 	struct RenderForward::ReflectionPlane
 	{
 		// Root parameters of the projection passes. Each view gets its own table, because consecutive heap entries can wrap around the ring.
-		enum class EParam { Constants, Colour, Depth, Key, Raw, Final, Coverage };
+		enum class EParam { Constants, Colour, Depth, MainDepth, Key, Raw, Final, Coverage };
+
+		// The source kinds, which the shaders read from 'cam.w'
+		static constexpr float SourceMain = 0.0f;
+		static constexpr float SourceBand = 1.0f;
+		static constexpr float SourceCutaway = 2.0f;
+
+		// The cutaway's resolution relative to the viewport, as the size of the square of viewport pixels that each cutaway pixel covers
+		static constexpr int CutawaySplat = 2;
+
+		// The size of the square of reflection pixels that each cutaway pixel's mirror image covers. It is larger than 'CutawaySplat' so that
+		// neighbouring squares overlap. Where the mirror image is slightly stretched, squares no larger than their spacing leave lines of uncovered
+		// pixels between them, and the sky shows through those lines.
+		static constexpr int CutawayCover = 3;
+
+		// The most the cutaway reaches beyond the viewport's sides and top, in normalised device units. The cutaway also covers the guard bands
+		// near the viewport, so that near objects just beyond the viewport's edges do not hide the reflections of what is behind them. The top band
+		// can reach several viewport heights, which would make a cutaway over all of it too costly to draw.
+		static constexpr float CutawaySideMax = 0.5f;
+		static constexpr float CutawayTopMax = 0.5f;
 
 		// The guard bands' resolution relative to the viewport, the top band's resolution relative to the other bands, and the most the side bands
 		// can reach beyond the viewport in normalised device units. The top band's lower resolution lets it reach further above the viewport.
@@ -182,6 +201,23 @@ namespace pr::rdr12
 		// Per opaque drawlist element, non-zero when the element can appear in a needed band this frame
 		pr::vector<uint8_t> m_draw_elements;
 
+		// The cutaway: the opaque scene and the sky, without everything nearer than the scene's cutaway distance, drawn at low resolution
+		// over the viewport and the parts of the guard bands near it. 'm_cut_size' is the drawn area in pixels, at the top-left of the textures, which
+		// are allocated for the largest area so that turning the camera does not resize them. 'm_cut_origin' is the main view's normalised device
+		// position of the area's top-left corner. 'm_cut_remap' maps the area to the unit square, and scales clip depth so that the cutaway distance
+		// lands on the near plane, which clips away everything nearer. 'm_cut_scale' is the cutaway distance's depth in the main view, which converts
+		// cutaway depths back to main view depths.
+		Texture2DPtr m_cut_colour;
+		Texture2DPtr m_cut_depth;
+		iv2 m_cut_size;
+		v2 m_cut_origin;
+		m4x4 m_cut_remap;
+		float m_cut_scale;
+		bool m_cut_active;
+
+		// Per opaque drawlist element, non-zero when the element is drawn into the cutaway
+		pr::vector<uint8_t> m_cut_elements;
+
 		// The constants for this frame's shaders.
 		shaders::fwd::ReflectionPlane m_constants;
 
@@ -203,6 +239,14 @@ namespace pr::rdr12
 			, m_guard_remap(m4x4::Identity())
 			, m_active()
 			, m_draw_elements()
+			, m_cut_colour()
+			, m_cut_depth()
+			, m_cut_size()
+			, m_cut_origin()
+			, m_cut_remap(m4x4::Identity())
+			, m_cut_scale()
+			, m_cut_active()
+			, m_cut_elements()
 			, m_constants()
 		{
 			// The three passes read and write the same resources, so they share one signature
@@ -210,6 +254,7 @@ namespace pr::rdr12
 				.U32(ECBufReg::b0, sizeof(Constants) / sizeof(uint32_t))
 				.SRV(ESRVReg::t0, 1, D3D12_SHADER_VISIBILITY_ALL, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE)
 				.SRV(ESRVReg::t1, 1, D3D12_SHADER_VISIBILITY_ALL, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE)
+				.SRV(ESRVReg::t2, 1, D3D12_SHADER_VISIBILITY_ALL, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE)
 				.UAV(EUAVReg::u0, 1, D3D12_SHADER_VISIBILITY_ALL, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE)
 				.UAV(EUAVReg::u1, 1, D3D12_SHADER_VISIBILITY_ALL, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE)
 				.UAV(EUAVReg::u2, 1, D3D12_SHADER_VISIBILITY_ALL, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE)
@@ -406,6 +451,7 @@ namespace pr::rdr12
 		// Classify the populations before any draws, so the classification can overlap earlier work on the GPU. The classification includes the
 		// reflection guard bands, which are drawn from the same draws.
 		PrepareGuardBands();
+		PrepareCutaway();
 		CullPopulations();
 
 		// Bind the descriptor heaps
@@ -466,6 +512,7 @@ namespace pr::rdr12
 				DrawNuggets(frame, m_cmd_list, pipe_state, std::span{ *drawlist }.subspan(s_cast<size_t>(alpha_start)), alpha_start, ESubPass::Opaque);
 
 			DrawGuardBands(frame, std::span{ *drawlist }.subspan(0, s_cast<size_t>(alpha_start)));
+			DrawCutaway(frame, std::span{ *drawlist }.subspan(0, s_cast<size_t>(alpha_start)));
 		}
 
 		// Render the alpha nuggets
@@ -547,6 +594,9 @@ namespace pr::rdr12
 		// so every band count is collected whenever a reflection plane can be projected. See 'ReflectionPlaneNeeded'.
 		auto const guard_bands = kbuf && !All(scn().m_reflection_plane == v4::Zero());
 
+		// The reflection cutaway redraws the opaques with the default state. It is only different from the opaque state when the sidecar is used.
+		auto const cutaway = guard_bands && scn().m_reflection_cutaway_distance > 0.0f && reflections;
+
 		// Add the states of one nugget drawn from 'base', with the fill mode variants that 'DrawNugget' applies
 		auto add = [&](PipeStateDesc const& base, Nugget const& nugget, BaseInstance const& instance, bool population)
 		{
@@ -595,12 +645,17 @@ namespace pr::rdr12
 			}
 		};
 
-		// Add the states of an opaque draw, including its guard band variants
+		// Add the states of an opaque draw, including its guard band and cutaway variants
 		auto add_opaque = [&](Nugget const& nugget, BaseInstance const& instance, ESortGroup group, bool population)
 		{
-			// The guard bands leave out the skybox, as in 'DrawOpaques'
+			// The guard bands leave out the skybox, as in 'DrawOpaques'. The cutaway draws it.
 			add(opaque_state, nugget, instance, population);
-			if (!guard_bands || group == ESortGroup::Skybox)
+			if (!guard_bands)
+				return;
+
+			if (cutaway)
+				add(m_default_pipe_state, nugget, instance, population);
+			if (group == ESortGroup::Skybox)
 				return;
 
 			for (int views = 1; views <= 3; ++views)
@@ -990,11 +1045,130 @@ namespace pr::rdr12
 		m_cmd_list.RSSetScissorRects({ scissors.data(), scissors.size() });
 		m_shader.m_clip_remap = &rp.m_guard_remap;
 		BindFrameResources(m_cmd_list);
-		auto const filter = GuardBandFilter{ .m_elements = rp.m_draw_elements, .m_min_population_radius = scn().m_reflection_min_population_radius };
+		auto const filter = ReflectionSourceFilter{ .m_elements = rp.m_draw_elements, .m_min_population_radius = scn().m_reflection_min_population_radius, .m_draw_sky = false };
 		DrawOpaques(frame, band_pipe_state, opaques, &filter);
 
 		// Restore the main view for any later draws
 		auto const& vp = scn().m_viewport;
+		m_shader.m_clip_remap = nullptr;
+		BindFrameResources(m_cmd_list);
+		m_cmd_list.RSSetViewports({ &vp, 1 });
+		m_cmd_list.RSSetScissorRects(vp.m_clip);
+	}
+
+	// Set up this frame's reflection cutaway, and size its textures
+	void RenderForward::PrepareCutaway()
+	{
+		// The cutaway is drawn only when the reflection is projected and the scene asks for it
+		auto& rp = *m_reflection_plane;
+		rp.m_cut_active = false;
+		auto const distance = scn().m_reflection_cutaway_distance;
+		if (distance <= 0.0f || !ReflectionPlaneNeeded())
+			return;
+
+		// Find the cutaway distance's depth in the main view. Reversed depth falls from 1 at the near plane to 0 at the far plane, so a distance
+		// outside that range leaves nothing to cut away, or nothing to draw.
+		auto const& cam = scn().m_cam;
+		auto const clip = cam.CameraToScreen() * v4(0.0f, 0.0f, -distance, 1.0f);
+		auto const depth = clip.w > 0.0f ? clip.z / clip.w : 0.0f;
+		if (!(depth > 0.0f && depth < 1.0f))
+			return;
+
+		// Scale clip depth so the cutaway distance lands on the near plane. Nearer points then fall beyond it and are clipped, and the cutaway's
+		// depths are the main view's depths divided by 'depth'.
+		rp.m_cut_scale = depth;
+		auto const depth_remap = m4x4{ v4{ 1, 0, 0, 0 }, v4{ 0, 1, 0, 0 }, v4{ 0, 0, 1.0f / depth, 0 }, v4{ 0, 0, 0, 1 } };
+
+		// Find the cutaway's area in pixels. Each cutaway pixel covers 'CutawaySplat' viewport pixels in each direction, starting from the viewport's
+		// top-left corner. Whole pixel extensions beyond the viewport cover the guard bands' reach, up to the cutaway's limits. The textures are sized
+		// for the largest area, so they depend only on the viewport.
+		auto const& vp = scn().m_viewport;
+		auto const splat = s_cast<float>(ReflectionPlane::CutawaySplat);
+		auto const extend = [&](float reach, float limit, float span)
+		{
+			// The pixels needed to reach 'reach' normalised device units beyond a viewport edge, where 'span' viewport pixels span 2 units
+			return s_cast<int>(std::ceil(std::min(reach, limit) * 0.5f * span / splat));
+		};
+		auto const cw = std::max(s_cast<int>(std::ceil(vp.Width / splat)), 1);
+		auto const ch = std::max(s_cast<int>(std::ceil(vp.Height / splat)), 1);
+		auto const ex = extend(rp.m_guard.x, ReflectionPlane::CutawaySideMax, vp.Width);
+		auto const ey = extend(rp.m_guard.y, ReflectionPlane::CutawayTopMax, vp.Height);
+		auto const size = iv2(cw + 2 * ex, ch + ey);
+		auto const alloc = iv2(
+			cw + 2 * extend(ReflectionPlane::CutawaySideMax, ReflectionPlane::CutawaySideMax, vp.Width),
+			ch + extend(ReflectionPlane::CutawayTopMax, ReflectionPlane::CutawayTopMax, vp.Height)
+		);
+
+		// The area's edges in the main view's normalised device coordinates, and the map from them to the unit square
+		auto const left = -1.0f - 2.0f * ex * splat / vp.Width;
+		auto const right = -1.0f + 2.0f * (cw + ex) * splat / vp.Width;
+		auto const top = 1.0f + 2.0f * ey * splat / vp.Height;
+		auto const bottom = 1.0f - 2.0f * ch * splat / vp.Height;
+		auto const c2n = Affine2{ .a = 0.5f * (right - left), .b = 0, .tx = 0.5f * (right + left), .c = 0, .d = 0.5f * (top - bottom), .ty = 0.5f * (top + bottom) };
+		rp.m_cut_origin = v2(left, top);
+		rp.m_cut_remap = ClipTransform(InvertAffine(c2n)) * depth_remap;
+		rp.m_cut_size = size;
+
+		// Size the textures. They match the main target's formats and sampling, so the scene's pipeline states can draw into them.
+		auto const ms = wnd().MultiSampling();
+		auto const resize = rp.m_cut_colour == nullptr ||
+			s_cast<int>(rp.m_cut_colour->m_res->GetDesc().Width) != alloc.x ||
+			s_cast<int>(rp.m_cut_colour->m_res->GetDesc().Height) != alloc.y ||
+			rp.m_cut_colour->m_res->GetDesc().SampleDesc.Count != ms.Count;
+		if (resize)
+		{
+			// Colour is written and read through sRGB views, like the main target
+			ResourceFactory factory(rdr());
+			auto const rt_format = wnd().m_rt_props.Format;
+			auto const ds_format = wnd().m_ds_props.Format;
+			auto col_desc = ResDesc::Tex2D(Image{ alloc.x, alloc.y, nullptr, rt_format }, 1U, EUsage::RenderTarget)
+				.multisamp(ms)
+				.clear(wnd().m_rt_props)
+				.def_state(D3D12_RESOURCE_STATE_RENDER_TARGET);
+			auto dep_desc = ResDesc::Tex2D(Image{ alloc.x, alloc.y, nullptr, DepthResourceFormat(ds_format) }, 1U, EUsage::DepthStencil)
+				.multisamp(ms)
+				.clear(wnd().m_ds_props)
+				.def_state(D3D12_RESOURCE_STATE_DEPTH_WRITE);
+			rp.m_cut_colour = factory.CreateTexture2D(TextureDesc(AutoId, col_desc).rtv_format(ToSRGB(rt_format)).srv_format(ToSRGB(rt_format)).name("ReflectionCutawayColour"));
+			rp.m_cut_depth = factory.CreateTexture2D(TextureDesc(AutoId, dep_desc).dsv_format(ds_format).srv_format(DepthSrvFormat(ds_format)).name("ReflectionCutawayDepth"));
+		}
+		rp.m_cut_active = true;
+	}
+
+	// Draw the opaque scene and the sky, without everything nearer than the cutaway distance, into the reflection cutaway
+	void RenderForward::DrawCutaway(Frame& frame, std::span<DrawListElement const> opaques)
+	{
+		// Clear the cutaway. The sky does not write depth, so where it shows the depth stays 0, which the projection passes mirror as sky.
+		auto& rp = *m_reflection_plane;
+		if (!rp.m_cut_active)
+			return;
+
+		auto pix_cutaway = pix::EventScope<ID3D12GraphicsCommandList>(m_cmd_list.get(), 0xFF5EC8D5, "View3D::ReflectionCutaway");
+		auto const rtv = rp.m_cut_colour->m_rtv.m_cpu;
+		auto const dsv = rp.m_cut_depth->m_dsv.m_cpu;
+		m_cmd_list.ClearRenderTargetView(rtv, frame.bb_main().rt_clear());
+		m_cmd_list.ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, frame.bb_main().ds_depth(), 0);
+		m_cmd_list.OMSetRenderTargets({ &rtv, 1 }, FALSE, &dsv);
+
+		// Draw every opaque element through the cutaway's projection, which maps its area to the textures and clips away the near scene. The
+		// populations are those culled for the guarded area, which covers the cutaway.
+		auto const viewport = D3D12_VIEWPORT{ .TopLeftX = 0.0f, .TopLeftY = 0.0f, .Width = s_cast<float>(rp.m_cut_size.x), .Height = s_cast<float>(rp.m_cut_size.y), .MinDepth = 0.0f, .MaxDepth = 1.0f };
+		auto const scissor = D3D12_RECT{ 0, 0, rp.m_cut_size.x, rp.m_cut_size.y };
+		rp.m_cut_elements.assign(opaques.size(), 1);
+		m_cmd_list.get()->RSSetViewports(1, &viewport);
+		m_cmd_list.get()->RSSetScissorRects(1, &scissor);
+
+		// The sky's cloud history belongs to the main view's pixels, so the cutaway's sky neither reads nor writes it
+		auto sky_history = m_shader.m_sky_history;
+		m_shader.m_sky_history = nullptr;
+		m_shader.m_clip_remap = &rp.m_cut_remap;
+		BindFrameResources(m_cmd_list);
+		auto const filter = ReflectionSourceFilter{ .m_elements = rp.m_cut_elements, .m_min_population_radius = scn().m_reflection_min_population_radius, .m_draw_sky = true };
+		DrawOpaques(frame, m_default_pipe_state, opaques, &filter);
+
+		// Restore the main view for any later draws
+		auto const& vp = scn().m_viewport;
+		m_shader.m_sky_history = sky_history;
 		m_shader.m_clip_remap = nullptr;
 		BindFrameResources(m_cmd_list);
 		m_cmd_list.RSSetViewports({ &vp, 1 });
@@ -1043,6 +1217,11 @@ namespace pr::rdr12
 			bb.Transition(rp.m_band_colour->m_res.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 			bb.Transition(rp.m_band_depth->m_res.get(), D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
 		}
+		if (rp.m_cut_active)
+		{
+			bb.Transition(rp.m_cut_colour->m_res.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			bb.Transition(rp.m_cut_depth->m_res.get(), D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
+		}
 		bb.Transition(rp.m_key->m_res.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		bb.Transition(rp.m_raw->m_res.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		bb.Transition(rp.m_final->m_res.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -1055,12 +1234,14 @@ namespace pr::rdr12
 		bb.Commit();
 
 		// Describe the sources. The main view is read pixel for pixel. Each guard band is read through its own map, and its pixels each cover
-		// a square of target pixels as wide as one band pixel is in the viewport. The bands do not draw the sky, so their empty pixels are ignored.
+		// a square of target pixels as wide as one band pixel is in the viewport. The cutaway covers the viewport and the guard bands near it at
+		// lower resolution, and its depths are scaled back to the main view's depths. The bands do not draw the sky, so their empty pixels are ignored.
 		// The colour is read through an sRGB view, which converts it to linear colour. Creating a view does not modify the frame's back buffer,
 		// so it is safe to drop the const.
 		struct Source
 		{
 			v4 src0, src1, src2;
+			float kind;
 			D3D12_GPU_DESCRIPTOR_HANDLE colour, depth;
 		};
 		auto colour_srv = D3D12_SHADER_RESOURCE_VIEW_DESC{
@@ -1068,13 +1249,15 @@ namespace pr::rdr12
 			.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2DMS,
 			.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
 		};
-		auto sources = pr::vector<Source, 4, false>{};
+		auto const main_depth = wnd().m_heap_view.Add(bb_main.m_depth_srv);
+		auto sources = pr::vector<Source, 5, false>{};
 		sources.push_back(Source{
 			.src0 = v4(2.0f / vp.Width, 0.0f, -1.0f, vp.Width),
 			.src1 = v4(0.0f, -2.0f / vp.Height, 1.0f, vp.Height),
-			.src2 = v4(vp.TopLeftX, vp.TopLeftY, 1.0f, 0.0f),
+			.src2 = v4(vp.TopLeftX, vp.TopLeftY, 1.0f, 1.0f),
+			.kind = ReflectionPlane::SourceMain,
 			.colour = wnd().m_heap_view.Add(const_cast<ID3D12Resource*>(colour), colour_srv),
-			.depth = wnd().m_heap_view.Add(bb_main.m_depth_srv),
+			.depth = main_depth,
 		});
 		if (rp.m_active)
 		{
@@ -1091,10 +1274,27 @@ namespace pr::rdr12
 					.src0 = v4(m.a, m.b, m.tx, w),
 					.src1 = v4(m.c, m.d, m.ty, h),
 					.src2 = v4(s_cast<float>(band.m_rect.left), s_cast<float>(band.m_rect.top), band.m_splat, 1.0f),
+					.kind = ReflectionPlane::SourceBand,
 					.colour = wnd().m_heap_view.Add(rp.m_band_colour->m_srv),
 					.depth = wnd().m_heap_view.Add(rp.m_band_depth->m_srv),
 				});
 			}
+		}
+		if (rp.m_cut_active)
+		{
+			// The cutaway's pixels map uniformly onto the main view from its top-left corner, 'CutawaySplat' viewport pixels apart, and each covers
+			// 'CutawayCover' pixels in each direction
+			auto const w = s_cast<float>(rp.m_cut_size.x);
+			auto const h = s_cast<float>(rp.m_cut_size.y);
+			auto const splat = s_cast<float>(ReflectionPlane::CutawaySplat);
+			sources.push_back(Source{
+				.src0 = v4(2.0f * splat / vp.Width, 0.0f, rp.m_cut_origin.x, w),
+				.src1 = v4(0.0f, -2.0f * splat / vp.Height, rp.m_cut_origin.y, h),
+				.src2 = v4(0.0f, 0.0f, s_cast<float>(ReflectionPlane::CutawayCover), rp.m_cut_scale),
+				.kind = ReflectionPlane::SourceCutaway,
+				.colour = wnd().m_heap_view.Add(rp.m_cut_colour->m_srv),
+				.depth = wnd().m_heap_view.Add(rp.m_cut_depth->m_srv),
+			});
 		}
 
 		// Bind the passes' constants and outputs
@@ -1126,9 +1326,11 @@ namespace pr::rdr12
 				cb.src0 = src.src0;
 				cb.src1 = src.src1;
 				cb.src2 = src.src2;
+				cb.cam.w = src.kind;
 				m_alp_list.SetComputeRoot32BitConstants(EParam::Constants, sizeof(cb) / sizeof(uint32_t), &cb, 0);
 				m_alp_list.SetComputeRootDescriptorTable(EParam::Colour, src.colour);
 				m_alp_list.SetComputeRootDescriptorTable(EParam::Depth, src.depth);
+				m_alp_list.SetComputeRootDescriptorTable(EParam::MainDepth, main_depth);
 				m_alp_list.Dispatch((s_cast<int>(src.src0.w) + 7) / 8, (s_cast<int>(src.src1.w) + 7) / 8, 1);
 			}
 			bb.UAV(rp.m_key->m_res.get());
@@ -1151,6 +1353,11 @@ namespace pr::rdr12
 		{
 			bb.Transition(rp.m_band_colour->m_res.get(), D3D12_RESOURCE_STATE_RENDER_TARGET);
 			bb.Transition(rp.m_band_depth->m_res.get(), D3D12_RESOURCE_STATE_DEPTH_WRITE);
+		}
+		if (rp.m_cut_active)
+		{
+			bb.Transition(rp.m_cut_colour->m_res.get(), D3D12_RESOURCE_STATE_RENDER_TARGET);
+			bb.Transition(rp.m_cut_depth->m_res.get(), D3D12_RESOURCE_STATE_DEPTH_WRITE);
 		}
 		bb.Commit();
 
@@ -1290,7 +1497,7 @@ namespace pr::rdr12
 	}
 
 	// Draw the opaque drawlist elements and the classified populations, merged in sort group order
-	void RenderForward::DrawOpaques(Frame& frame, PipeStateDesc const& pipe_state, std::span<DrawListElement const> opaques, GuardBandFilter const* filter)
+	void RenderForward::DrawOpaques(Frame& frame, PipeStateDesc const& pipe_state, std::span<DrawListElement const> opaques, ReflectionSourceFilter const* filter)
 	{
 		assert(filter == nullptr || filter->m_elements.size() == opaques.size());
 
@@ -1313,7 +1520,7 @@ namespace pr::rdr12
 
 			// Draw the group's drawlist elements. A filter draws the accepted elements in runs, because the position of each
 			// run in the drawlist selects its element constants.
-			auto const draw = filter == nullptr || group != ESortGroup::Skybox;
+			auto const draw = filter == nullptr || filter->m_draw_sky || group != ESortGroup::Skybox;
 			if (draw && filter == nullptr && d_end != d)
 			{
 				DrawNuggets(frame, m_cmd_list, pipe_state, opaques.subspan(d, d_end - d), s_cast<int>(d), ESubPass::Opaque);
@@ -1344,7 +1551,7 @@ namespace pr::rdr12
 	}
 
 	// Draw the population draws [beg, end) into the opaque targets.
-	void RenderForward::DrawPopulations(Frame& frame, PipeStateDesc const& pipe_state, int beg, int end, GuardBandFilter const* filter)
+	void RenderForward::DrawPopulations(Frame& frame, PipeStateDesc const& pipe_state, int beg, int end, ReflectionSourceFilter const* filter)
 	{
 		// Population draws select element constants from their own table, so swap it in, then restore the drawlist's table for later draws.
 		auto pix_population = pix::EventScope<ID3D12GraphicsCommandList>(m_cmd_list.get(), 0xFF5AC8A0, "View3D::Populations");
