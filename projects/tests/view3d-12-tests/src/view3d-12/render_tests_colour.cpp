@@ -240,6 +240,43 @@ namespace render_tests
 		std::cout << "PASS emissive scale fade/instance independence: MSAA " << samples << '\n';
 	}
 
+	// Check that a region update replaces texture pixels for later frames and rejects regions the texture cannot hold.
+	void TextureUpdateRegionTests(int samples)
+	{
+		// The fixture quad has zero UVs, so a single-texel texture fully determines its colour.
+		Fixture fixture(samples);
+		auto textured = fixture.Quad(50, 0xFFFFFFFF, 45, nullptr, 0, 0xFFFFFFFF, true);
+		auto texture_options = api::TextureOptions{};
+		texture_options.m_format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		texture_options.m_resource_state = D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE;
+		texture_options.m_mips = 1;
+		texture_options.m_multisamp = {1, 0};
+		texture_options.m_t2s = {{1,0,0,0}, {0,1,0,0}, {0,0,1,0}, {0,0,0,1}};
+		unsigned black = 0xFF000000;
+		auto texture = View3D_TextureCreate(1, 1, &black, sizeof(black), texture_options);
+		Require(texture != nullptr, "Texture creation failed");
+		View3D_ObjectSetTexture(textured, texture, nullptr);
+		Expect(fixture.Image(), 0, 0, 0);
+
+		// The update reaches the frames rendered after it.
+		unsigned white = 0xFFFFFFFF;
+		View3D_TextureUpdateRegion(texture, 0, 0, 1, 1, &white, sizeof(white));
+		fixture.CheckErrors();
+		Expect(fixture.Image(), 1, 1, 1);
+
+		// Regions outside the texture, empty regions, and mismatched data are reported rather than clipped.
+		View3D_TextureUpdateRegion(texture, 1, 0, 1, 1, &white, sizeof(white));
+		View3D_TextureUpdateRegion(texture, 0, 0, 0, 1, &white, sizeof(white));
+		View3D_TextureUpdateRegion(texture, 0, 0, 1, 1, &white, 2 * sizeof(white));
+		Require(fixture.m_errors.size() == 3, "Invalid texture update regions were not all rejected");
+		fixture.m_errors.clear();
+		View3D_TextureRelease(texture);
+
+		// Any GPU validation error fails the fixture.
+		fixture.CheckDebugLayer();
+		std::cout << "PASS texture region update: MSAA " << samples << '\n';
+	}
+
 	// Check that translucent surfaces composite in depth order regardless of add order, and that back faces are still drawn.
 	void AlphaLayeringTests(int samples)
 	{
@@ -286,5 +323,9 @@ namespace pr::unittests::view3d12
 	{
 		render_tests::EmissiveScaleTests(1);
 		render_tests::EmissiveScaleTests(4);
+	}
+	PRUnitTest(View3d12_TextureUpdateRegion, Extended | Serial)
+	{
+		render_tests::TextureUpdateRegionTests(1);
 	}
 }

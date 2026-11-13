@@ -3,6 +3,7 @@
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
 #include "pr/view3d-12/shaders/shader_forward.h"
+#include "pr/view3d-12/shaders/shader_procedural.h"
 #include "pr/view3d-12/scene/scene.h"
 #include "pr/view3d-12/scene/procedural_sky.h"
 #include "pr/view3d-12/render/drawlist_element.h"
@@ -58,6 +59,7 @@ namespace pr::rdr12::shaders
 		inline static constexpr auto PopulationDraw = ECBufReg::b8;
 		inline static constexpr auto ReflectionPlane = ESRVReg::t28; // and the coverage in t29
 		inline static constexpr auto PbrTintMaskTexture = ESRVReg::t30;
+		inline static constexpr auto ProceduralTextures = ESRVReg::t31; // and t32, t33, t34
 	};
 	struct ESamp
 	{
@@ -71,6 +73,7 @@ namespace pr::rdr12::shaders
 		inline static constexpr auto PbrEmissive = ESamReg::s6;
 		inline static constexpr auto PbrNormal = ESamReg::s7;
 		inline static constexpr auto PbrTintMask = ESamReg::s9;
+		inline static constexpr auto ProceduralTextures = SamDescStatic(ESamReg::s10).addr(D3D12_TEXTURE_ADDRESS_MODE_WRAP).filter(D3D12_FILTER_ANISOTROPIC).anisotropy(8).shader_vis(D3D12_SHADER_VISIBILITY_PIXEL);
 	};
 
 	Forward::Forward(Renderer& rdr)
@@ -141,6 +144,8 @@ namespace pr::rdr12::shaders
 			.SRV(EReg::ReflectionPlane, 2, D3D12_SHADER_VISIBILITY_PIXEL)
 			.SRV(EReg::PbrTintMaskTexture, 1, D3D12_SHADER_VISIBILITY_PIXEL)
 			.Samp(ESamp::PbrTintMask, 1, D3D12_SHADER_VISIBILITY_PIXEL)
+			.SRV(EReg::ProceduralTextures, ProceduralShader::TextureSlotCount, D3D12_SHADER_VISIBILITY_PIXEL)
+			.Samp(ESamp::ProceduralTextures)
 			.Create(rdr.d3d(), "ForwardSig");
 
 		// Create the null view bound to unused texture-coordinate lanes. The stride matches the 'float2' elements the shader declares.

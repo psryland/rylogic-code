@@ -53,6 +53,7 @@ public sealed class TestPhysics
 		AssertNativeSize(26, Marshal.SizeOf<Native.AtmosphereStats>());
 		AssertNativeSize(27, Marshal.SizeOf<Native.WindSeaDesc>());
 		AssertNativeSize(28, Marshal.SizeOf<Native.CylinderShape>());
+		AssertNativeSize(29, Marshal.SizeOf<TerrainDecal>());
 		Assert.Equal(32, sizeof(AtmosphereHeatSource));
 		Assert.Equal(16, sizeof(AtmosphereOutsideAir));
 		Assert.Equal(32, sizeof(AtmosphereTracerParticle));

@@ -1193,6 +1193,11 @@ namespace pr::compute
 			Filter = mode;
 			return *this;
 		}
+		constexpr SamDescStatic& anisotropy(UINT max_anisotropy)
+		{
+			MaxAnisotropy = max_anisotropy;
+			return *this;
+		}
 		constexpr SamDescStatic& compare(D3D12_COMPARISON_FUNC comp)
 		{
 			ComparisonFunc = comp;

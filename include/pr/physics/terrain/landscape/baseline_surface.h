@@ -64,12 +64,27 @@ namespace pr::physics::terrain::landscape
 		FractalConfig m_basin_selector = {1.0, 4800.0, 3, 2.0, 0.5};
 	};
 
+	// One circular height override on a baseline surface; see terrain_decals.hlsli for how decals combine with the surface and each other.
+	// Distances are metres. The surface is exactly 'm_height' within 'm_pad_radius' of 'm_centre' (where no other decal reaches) and is unchanged
+	// from 'm_blend_radius' outward. 'm_user' is a caller value that the local decal blob carries unchanged, for example to identify a decal in a shader.
+	struct TerrainDecal
+	{
+		v2d m_centre;
+		double m_pad_radius;
+		double m_blend_radius;
+		double m_height;
+		uint32_t m_user;
+	};
+
 	// Immutable baseline recipe with ordinary CPU queries and a shared stage-neutral shader evaluator.
+	// A surface may carry a set of terrain decals. Sample() includes them; Recipe() and LocalRecipe() describe only the undecorated surface,
+	// and shaders apply LocalDecals() on top (see BaselineApplyDecalsLocal in baseline_surface_local.hlsli).
 	class BaselineSurface
 	{
 	public:
 		using Position = v2d;
 		inline static int constexpr MaxOctaveCount = shared::BaselineMaxOctaveCount;
+		inline static int constexpr MaxDecalCount = 1 << 20;
 
 		// Construct one immutable surface after validating its bounded configuration.
 		explicit BaselineSurface(BaselineSurfaceConfig config = {});
@@ -85,7 +100,20 @@ namespace pr::physics::terrain::landscape
 		// A non-finite origin or a non-positive radius throws invalid_argument; an unsupported square throws out_of_range.
 		shared::BaselineLocalRecipe LocalRecipe(Position origin_xy, double radius_m) const;
 
-		// Sample one world-space XY position in metres, returning double height and dimensionless XY derivatives.
+		// Return a copy of this surface whose decals are 'decals', replacing any existing decals. The copy shares the recipe.
+		// Every decal must be finite, with 0 <= pad radius < blend radius, and its disc must lie within the supported range; otherwise this throws
+		// invalid_argument. Decal heights should lie within the range of the undecorated surface near each decal, because consumers that bound the
+		// surface's height from its recipe (such as the physics engine) assume this.
+		BaselineSurface WithDecals(std::span<TerrainDecal const> decals) const;
+
+		// Return this surface's decals in the order given to WithDecals.
+		std::span<TerrainDecal const> Decals() const noexcept;
+
+		// Prepare the single-precision decal blob for BaselineApplyDecalsLocal, with positions relative to 'origin_xy'. The blob is a whole number of
+		// 32-bit words; see BaselineDecalLocalHeader for its layout. A surface without decals gives a header-only blob that changes nothing.
+		std::vector<std::byte> LocalDecals(Position origin_xy) const;
+
+		// Sample one world-space XY position in metres, returning double height and dimensionless XY derivatives. Decals are included.
 		// Nonfinite coordinates throw invalid_argument; coordinates outside Config()'s square bound throw out_of_range.
 		// Unsupported intermediate arithmetic (including lattice coordinates outside [-2^63, 2^63)) throws runtime_error.
 		SurfaceSample Sample(Position position_xy) const;
@@ -94,7 +122,12 @@ namespace pr::physics::terrain::landscape
 		void Sample(std::span<Position const> positions_xy, std::span<SurfaceSample> samples) const;
 
 	private:
+
+		// Decals indexed by a uniform grid, so each sample visits only nearby decals.
+		struct DecalGrid;
+
 		BaselineSurfaceConfig m_config;
 		shared::BaselineRecipe m_recipe;
+		std::shared_ptr<DecalGrid const> m_decals;
 	};
 }

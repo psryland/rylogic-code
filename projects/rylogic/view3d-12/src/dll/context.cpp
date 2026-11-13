@@ -674,6 +674,24 @@ namespace pr::rdr12
 		});
 	}
 
+	// Replace the texture at 'slot' of every procedural shader with a forward pixel family used by the nuggets of 'object'.
+	void Context::ObjectProceduralTexture(ldraw::LdrObject* object, int slot, Texture2DPtr texture)
+	{
+		// Only pixel families have texture slots. Other procedural shaders on the object, such as its shadow shader, are left unchanged.
+		auto updated = 0;
+		ForEachProceduralShader(object, [&](ProceduralShader& shader)
+		{
+			// Draws recorded after this bind the new texture.
+			if (!shader.HasPixelFamily())
+				return;
+
+			shader.Texture(slot, texture);
+			++updated;
+		});
+		if (updated == 0)
+			throw std::invalid_argument("Object has no procedural shaders with a forward pixel family");
+	}
+
 	// Return the buffer at 'slot' of the first procedural shader used by the nuggets of 'object'.
 	D3DPtr<ID3D12Resource> Context::ObjectProceduralBuffer(ldraw::LdrObject* object, int slot) const
 	{

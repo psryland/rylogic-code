@@ -5,6 +5,7 @@
 #ifndef PR_TERRAIN_BASELINE_SURFACE_LOCAL_HLSLI
 #define PR_TERRAIN_BASELINE_SURFACE_LOCAL_HLSLI
 #include "pr/physics/terrain/landscape/baseline_surface.hlsli"
+#include "pr/physics/terrain/landscape/terrain_decals.hlsli"
 #ifdef __cplusplus
 #error "baseline_surface_local.hlsli is HLSL only. Prepare its recipe with BaselineSurface::LocalRecipe()"
 #endif
@@ -120,5 +121,80 @@ BaselineLocalResult BaselineEvaluateLocal(RecipeBuffer recipe, uint offset, floa
 	float land_share = 1 - composite.m_basin;
 	region_weights = float4(composite.m_plains_weight * land_share, composite.m_hills_weight * land_share, composite.m_mountains_weight * land_share, composite.m_basin);
 	return result;
+}
+
+// One decal read from a local decal blob. Positions are relative to the blob's origin; see BaselineDecalLocalRecord.
+struct BaselineDecalLocal
+{
+	float2 m_centre;
+	float m_pad_radius;
+	float m_blend_radius;
+	float m_height;
+	uint m_user;
+};
+
+// Return the (first, count) index range of the grid cell containing 'local' in the decal blob at byte 'offset' of 'decals'.
+// Every decal whose blend radius reaches 'local' is in that range. The count is zero when no decal can reach 'local'.
+template <typename DecalBuffer>
+uint2 BaselineDecalCell(DecalBuffer decals, uint offset, float2 local)
+{
+	// An empty set has only a header.
+	uint4 a = decals.Load4(offset);
+	uint4 b = decals.Load4(offset + 16);
+	if (a.x == 0)
+		return uint2(0, 0);
+
+	// Points outside the grid, including non-finite points, are beyond every decal.
+	float2 grid = (local - float2(asfloat(b.x), asfloat(b.y))) / asfloat(a.w);
+	if (!(grid.x >= 0 && grid.y >= 0 && grid.x < (float)a.y && grid.y < (float)a.z))
+		return uint2(0, 0);
+
+	// Floating-point rounding can still put 'grid' on the upper edge, so clamp the cell coordinates.
+	uint cell_x = min((uint)grid.x, a.y - 1);
+	uint cell_y = min((uint)grid.y, a.z - 1);
+	return decals.Load2(offset + BaselineDecalHeaderSize + (cell_y * a.y + cell_x) * BaselineDecalCellSize);
+}
+
+// Return the decal at entry 'index' of the index list in the decal blob at byte 'offset' of 'decals'. 'index' comes from BaselineDecalCell.
+template <typename DecalBuffer>
+BaselineDecalLocal BaselineDecalAt(DecalBuffer decals, uint offset, uint index)
+{
+	// Follow the index list entry to its record.
+	uint2 offsets = decals.Load2(offset + 24);
+	uint record = decals.Load(offset + offsets.x + index * 4);
+	uint4 a = decals.Load4(offset + offsets.y + record * BaselineDecalRecordSize);
+	uint2 b = decals.Load2(offset + offsets.y + record * BaselineDecalRecordSize + 16);
+	BaselineDecalLocal decal;
+	decal.m_centre = float2(asfloat(a.x), asfloat(a.y));
+	decal.m_pad_radius = asfloat(a.z);
+	decal.m_blend_radius = asfloat(a.w);
+	decal.m_height = asfloat(b.x);
+	decal.m_user = b.y;
+	return decal;
+}
+
+// Apply the decal blob at byte 'offset' of 'decals' to a local evaluator result at 'local'. The blob and the result must share the same origin.
+// Failed results are unchanged. Region weights and the material are not changed by decals.
+template <typename DecalBuffer>
+void BaselineApplyDecalsLocal(DecalBuffer decals, uint offset, float2 local, inout BaselineLocalResult result)
+{
+	// Only successful samples inside the reach of some decal change.
+	uint2 range = BaselineDecalCell(decals, offset, local);
+	if (result.m_status != 0 || range.y == 0)
+		return;
+
+	// Combine every decal in the cell; decals that do not reach 'local' add nothing.
+	BaselineDecalBlend blend = BaselineDecalBlendInit();
+	for (uint i = 0; i != range.y; ++i)
+	{
+		BaselineDecalLocal decal = BaselineDecalAt(decals, offset, range.x + i);
+		blend = BaselineDecalAccumulate(blend, local.x - decal.m_centre.x, local.y - decal.m_centre.y, decal.m_pad_radius, decal.m_blend_radius, decal.m_height);
+	}
+
+	// Replace the height and derivatives with the decorated field.
+	BaselineField field = BaselineDecalResolve(blend, BaselineField(result.m_height, result.m_dx, result.m_dy));
+	result.m_height = field.x;
+	result.m_dx = field.y;
+	result.m_dy = field.z;
 }
 #endif

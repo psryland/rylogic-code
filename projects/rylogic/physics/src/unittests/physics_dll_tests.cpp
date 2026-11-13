@@ -104,6 +104,9 @@ namespace pr::unittests
 			decltype(&Physics_LandscapeRecipe) LandscapeRecipe;
 			decltype(&Physics_LandscapeLocalRecipe) LandscapeLocalRecipe;
 			decltype(&Physics_LandscapeSample) LandscapeSample;
+			decltype(&Physics_LandscapeWithDecals) LandscapeWithDecals;
+			decltype(&Physics_LandscapeLocalDecals) LandscapeLocalDecals;
+			decltype(&Physics_EngineTerrainDecalsSet) EngineTerrainDecalsSet;
 
 			PhysicsApi()
 				: m_module(__FILE__, L"physics.dll", L"physics.dll")
@@ -186,6 +189,9 @@ namespace pr::unittests
 				, LandscapeRecipe(m_module.Proc<decltype(LandscapeRecipe)>("Physics_LandscapeRecipe"))
 				, LandscapeLocalRecipe(m_module.Proc<decltype(LandscapeLocalRecipe)>("Physics_LandscapeLocalRecipe"))
 				, LandscapeSample(m_module.Proc<decltype(LandscapeSample)>("Physics_LandscapeSample"))
+				, LandscapeWithDecals(m_module.Proc<decltype(LandscapeWithDecals)>("Physics_LandscapeWithDecals"))
+				, LandscapeLocalDecals(m_module.Proc<decltype(LandscapeLocalDecals)>("Physics_LandscapeLocalDecals"))
+				, EngineTerrainDecalsSet(m_module.Proc<decltype(EngineTerrainDecalsSet)>("Physics_EngineTerrainDecalsSet"))
 			{}
 		};
 
@@ -2370,6 +2376,123 @@ namespace pr::unittests
 			PR_EXPECT(api.LandscapeLocalRecipe(landscape, origin.data(), 0.0, &local) == EStatus::InvalidArgument);
 			PR_EXPECT(api.LandscapeLocalRecipe(landscape, origin.data(), 2 * desc.supported_coordinate, &local) == EStatus::InvalidArgument);
 			api.LandscapeDestroy(landscape);
+		}
+	};
+
+	// Verify terrain decals through the DLL: decorated landscapes, local decal blobs, and engine contacts.
+	PRUnitTestClass(PhysicsDllTerrainDecalTests)
+	{
+		// Decorated landscapes and their local decal blobs must match the library, and invalid decals must be rejected.
+		PRUnitTestMethod(DecalsMatchLibrarySurface, Quick)
+		{
+			// Build the reference and DLL landscapes from one configuration and decal set.
+			auto api = PhysicsApi{};
+			auto config = terrain::landscape::BaselineSurfaceConfig{.m_seed = 42};
+			auto const undecorated = terrain::landscape::BaselineSurface(config);
+			auto const descs = std::array<TerrainDecalDesc, 2>{
+				TerrainDecalDesc{.centre = {10, -5}, .pad_radius = 3, .blend_radius = 7, .height = undecorated.Sample({10, -5}).m_height + 1, .user = 3},
+				TerrainDecalDesc{.centre = {14, -2}, .pad_radius = 2, .blend_radius = 6, .height = undecorated.Sample({14, -2}).m_height - 1, .user = 4},
+			};
+			auto decals = std::vector<terrain::landscape::TerrainDecal>{};
+			for (auto const& d : descs)
+				decals.push_back({.m_centre = {d.centre.x, d.centre.y}, .m_pad_radius = d.pad_radius, .m_blend_radius = d.blend_radius, .m_height = d.height, .m_user = d.user});
+
+			auto const reference = undecorated.WithDecals(decals);
+			auto desc = MakeTerrainDesc(config);
+			auto source = LandscapeHandle{};
+			auto landscape = LandscapeHandle{};
+			PR_EXPECT(api.LandscapeCreate(&desc, &source) == EStatus::Success);
+			PR_EXPECT(api.LandscapeWithDecals(source, descs.data(), static_cast<std::uint32_t>(descs.size()), &landscape) == EStatus::Success);
+
+			// Samples inside, between, and beyond the decals agree exactly with the library.
+			auto positions = std::vector<double>{10, -5, 12, -3.5, 14, -2, 17, 1, 40, 40};
+			auto const count = static_cast<std::uint32_t>(positions.size() / 2);
+			auto samples = std::vector<SurfaceSampleDesc>(count);
+			PR_EXPECT(api.LandscapeSample(landscape, positions.data(), samples.data(), count) == EStatus::Success);
+			for (auto i = 0U; i != count; ++i)
+			{
+				// The DLL wraps the library surface, so results are bit-identical.
+				auto const expected = reference.Sample({positions[2 * i + 0], positions[2 * i + 1]});
+				PR_EXPECT(samples[i].height == expected.m_height);
+				PR_EXPECT(samples[i].gradient.x == expected.m_gradient_xy.x && samples[i].gradient.y == expected.m_gradient_xy.y);
+			}
+
+			// A size query reports the blob size, and the copied blob is byte-identical to the library's.
+			auto const origin = std::array<double, 2>{8.5, -4.25};
+			auto required = std::uint32_t{};
+			PR_EXPECT(api.LandscapeLocalDecals(landscape, origin.data(), nullptr, 0, &required) == EStatus::BufferTooSmall);
+			auto const expected_blob = reference.LocalDecals({origin[0], origin[1]});
+			PR_EXPECT(required == expected_blob.size());
+			auto blob = std::vector<std::byte>(required);
+			PR_EXPECT(api.LandscapeLocalDecals(landscape, origin.data(), blob.data(), required, &required) == EStatus::Success);
+			PR_EXPECT(std::memcmp(blob.data(), expected_blob.data(), blob.size()) == 0);
+
+			// Invalid decals fail and leave the output handle null; the source landscape is unaffected.
+			auto rejected = reinterpret_cast<LandscapeHandle>(std::uintptr_t{1});
+			auto bad = descs[0];
+			bad.pad_radius = bad.blend_radius;
+			PR_EXPECT(api.LandscapeWithDecals(source, &bad, 1, &rejected) == EStatus::InvalidArgument);
+			PR_EXPECT(rejected == nullptr);
+			PR_EXPECT(api.LandscapeWithDecals(source, nullptr, 1, &rejected) == EStatus::InvalidArgument);
+			api.LandscapeDestroy(landscape);
+			api.LandscapeDestroy(source);
+		}
+
+		// A raised decal pad must carry bodies: a sphere resting on the pad touches it, though it is far above the undecorated terrain.
+		PRUnitTestMethod(TerrainDecalsChangeContactSurface, Extended)
+		{
+			// Flat terrain makes the expected pad contact independent of seeded terrain grade.
+			auto fix = PhysicsFixture{};
+			auto config = terrain::landscape::BaselineSurfaceConfig{};
+			config.m_regional_base.m_amplitude = config.m_region_selector.m_amplitude = config.m_region_uplift.m_amplitude = 0;
+			config.m_plains.m_amplitude = config.m_hills.m_amplitude = config.m_mountains.m_amplitude = 0;
+			config.m_domain_warp.m_amplitude_m = 0;
+			config.m_uplift_height_m = config.m_mountain_base_height_m = 0;
+			auto desc = MakeTerrainDesc(config);
+			auto const ground = terrain::landscape::BaselineSurface(config).Sample({0, 0}).m_height;
+
+			// Decals need terrain, so setting them first fails.
+			auto const pad = TerrainDecalDesc{.centre = {0, 0}, .pad_radius = 5, .blend_radius = 10, .height = ground + 2};
+			PR_EXPECT(fix.m_api.EngineTerrainDecalsSet(fix.m_engine, &pad, 1) == EStatus::InvalidArgument);
+			PR_EXPECT(fix.m_api.EngineTerrainSet(fix.m_engine, &desc) == EStatus::Success);
+			PR_EXPECT(fix.m_api.EngineTerrainDecalsSet(fix.m_engine, &pad, 1) == EStatus::Success);
+
+			// Place a sphere just into the pad top, two metres above the undecorated ground.
+			auto sphere = SphereShape{.common = MakeCommon(), .radius = 0.5f};
+			sphere.common.header.size = sizeof(sphere);
+			auto shape = ShapeHandle{};
+			PR_EXPECT(fix.m_api.ShapeCreateSphere(fix.m_engine, &sphere, &shape) == EStatus::Success);
+			auto const position = Translation(0, 0, static_cast<float>(ground + 2) + 0.49f);
+			MakeBody(fix.m_api, fix.m_engine, shape, position, EMotionType::Dynamic);
+			PR_EXPECT(fix.m_api.StepEx(fix.m_engine, 1.0f / 60.0f, 0, 4, nullptr, 0) == EStatus::Success);
+
+			// The pad gives an upward contact at about the expected depth.
+			auto required = std::uint32_t{};
+			fix.m_api.EventsCopy(fix.m_engine, nullptr, 0, &required);
+			auto events = std::vector<Event>(required);
+			PR_EXPECT(fix.m_api.EventsCopy(fix.m_engine, events.data(), required, &required) == EStatus::Success);
+			auto contacts = 0;
+			for (auto const& evt : events)
+			{
+				// Only world contacts carry the surface normal.
+				if (evt.type != EEvent::WorldContact)
+					continue;
+
+				++contacts;
+				auto up = evt.body_a == 0 ? evt.normal.z : -evt.normal.z;
+				PR_EXPECT(up > 0.999f);
+				PR_EXPECT(std::isfinite(evt.depth) && evt.depth >= 0 && evt.depth < 0.05f);
+			}
+			PR_EXPECT(contacts > 0);
+
+			// Removing the decals drops the surface back to the ground, two metres below the sphere.
+			PR_EXPECT(fix.m_api.EngineTerrainDecalsSet(fix.m_engine, nullptr, 0) == EStatus::Success);
+			PR_EXPECT(fix.m_api.StepEx(fix.m_engine, 1.0f / 60.0f, 1.0 / 60.0, 4, nullptr, 0) == EStatus::Success);
+			fix.m_api.EventsCopy(fix.m_engine, nullptr, 0, &required);
+			events.resize(required);
+			PR_EXPECT(fix.m_api.EventsCopy(fix.m_engine, events.data(), required, &required) == EStatus::Success);
+			for (auto const& evt : events)
+				PR_EXPECT(evt.type != EEvent::WorldContact);
 		}
 	};
 

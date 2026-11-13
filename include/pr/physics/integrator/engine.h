@@ -295,6 +295,10 @@ namespace pr::physics
 		// Replace or disable the owned static terrain between completed frames. Uses the shared sampling default unless overridden.
 		void Terrain(std::optional<terrain::landscape::BaselineSurface> surface, float spacing = ::pr::physics::surface::DefaultSpacing);
 
+		// Replace the decals on the owned terrain between completed frames, keeping its recipe and spacing. See BaselineSurface::WithDecals.
+		// Like a terrain replacement, this wakes sleeping bodies on the next step. Throws if the engine has no terrain.
+		void TerrainDecals(std::span<terrain::landscape::TerrainDecal const> decals);
+
 		// Replace or disable an inward-facing, infinite-height cylindrical world boundary between completed frames.
 		void CylindricalBoundary(std::optional<CylindricalBoundaryConfig> boundary);
 

@@ -61,3 +61,29 @@ public readonly struct TerrainConfiguration
 		m_reserved = 0;
 	}
 }
+
+
+/// <summary>
+/// A circular flattened pad blended into the terrain, matching TerrainDecalDesc in physics-dll.h.
+/// Inside 'm_pad_radius' the surface height is 'm_height'; it blends smoothly back to the terrain by 'm_blend_radius'.
+/// Callers keep 'm_height' within the terrain's height range; 'm_user' is an opaque caller tag.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+public readonly struct TerrainDecal
+{
+	public readonly Vector2d m_centre;
+	public readonly double m_pad_radius, m_blend_radius, m_height;
+	public readonly uint m_user;
+	private readonly uint m_reserved;
+
+	/// <summary>Specify a decal in world metres. Requires 0 &lt;= pad_radius &lt; blend_radius.</summary>
+	public TerrainDecal(Vector2d centre, double pad_radius, double blend_radius, double height, uint user = 0)
+	{
+		m_centre = centre;
+		m_pad_radius = pad_radius;
+		m_blend_radius = blend_radius;
+		m_height = height;
+		m_user = user;
+		m_reserved = 0;
+	}
+}

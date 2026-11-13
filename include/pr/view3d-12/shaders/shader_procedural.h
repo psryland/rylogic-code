@@ -15,15 +15,20 @@ namespace pr::rdr12
 	// Up to BufferSlotCount optional GPU buffers are bound as raw SRVs, slot 'i' at VIEW3D_PROCEDURAL_BUFFER<i>_REGISTER, for every draw. The caller keeps
 	// their contents valid while frames that use them are in flight; a buffer may be replaced between frames. Slot 0 is the shader's own buffer, which
 	// BufferWrite and BufferDispatch update between frames. Other slots let the shader read buffers owned by other objects.
+	// A shader with a forward pixel family also has TextureSlotCount optional textures, bound as one table at VIEW3D_PROCEDURAL_TEXTURE_REGISTER for its pixel
+	// shaders and sampled with the stock anisotropic wrapping sampler at VIEW3D_PROCEDURAL_SAMPLER_REGISTER. Empty slots hold null views, which read zero.
 	struct ProceduralShader :Shader
 	{
 		static constexpr size_t ConstantsSize = 1024;
 		static constexpr int BufferSlotCount = 2;
+		static constexpr int TextureSlotCount = 4;
 
 		ERenderStep m_rdr_step;
 		ForwardPixelFamily m_pixel_family;
 		std::array<std::byte, ConstantsSize> m_constants;
 		std::array<D3DPtr<ID3D12Resource>, BufferSlotCount> m_buffers;
+		std::array<Texture2DPtr, TextureSlotCount> m_textures;
+		Descriptor m_null_texture; // The view bound to empty texture slots. Only created for shaders with a pixel family.
 		D3D12_GPU_VIRTUAL_ADDRESS m_constants_gpu; // The upload of 'm_constants' that draws bind while 'm_constants_reuse_id' is the upload buffer's ReuseId.
 		int64_t m_constants_reuse_id;              // Zero when 'm_constants_gpu' is not valid for any upload buffer.
 		std::unique_ptr<ResourceFactory> m_writer; // Created by the first buffer update. It persists because a temporary factory waits for the GPU when destroyed.
@@ -59,6 +64,13 @@ namespace pr::rdr12
 
 		// Return the buffer bound at 'slot', in [0, BufferSlotCount), or null for none.
 		D3DPtr<ID3D12Resource> const& Buffer(int slot) const;
+
+		// Replace the texture bound at 'slot', in [0, TextureSlotCount), or unbind it with null. Draws recorded after this call use the new texture.
+		// Only shaders with a forward pixel family have texture slots. 'texture' must rest in a pixel-shader-readable state.
+		void Texture(int slot, Texture2DPtr texture);
+
+		// Return the texture bound at 'slot', in [0, TextureSlotCount), or null for none.
+		Texture2DPtr const& Texture(int slot) const;
 
 		// Overwrite 'data' at byte 'offset' of the slot 0 buffer. The copy runs on the graphics queue after the frames already submitted and before
 		// later frames, so no frame sees a partial write. 'offset' and the size of 'data' must be multiples of 4 that lie within the buffer. The buffer

@@ -19,6 +19,7 @@
 #include <format>
 #include <type_traits>
 #include <cstddef>
+#include <cstring>
 
 #include "pr/common/assert.h"
 #include "pr/math/math.h"
