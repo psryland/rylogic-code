@@ -205,6 +205,7 @@ const STEPS = {
 	high_pass: { label: "High-pass", params: { frequency: "Hz", slope: "slope" }, init: { frequency: 80, slope: 12 } },
 	low_pass: { label: "Low-pass", params: { frequency: "Hz", slope: "slope" }, init: { frequency: 12000, slope: 12 } },
 	eq: { label: "EQ", params: { frequency: "Hz", db: "dB", q: "Q" }, init: { frequency: 1000, db: 0, q: 1 } },
+	denoise: { label: "Denoise", params: { start: "s", end: "s", db: "dB" }, init: { start: 0, end: 0.5, db: 12 } },
 	loop: { label: "Loop", params: { duration: "s" }, init: { duration: 3 } },
 	mix: { label: "Mix", params: { db: "dB" }, init: { db: 0, inputs: [] } },
 };

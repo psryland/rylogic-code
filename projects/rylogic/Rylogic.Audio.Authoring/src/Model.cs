@@ -76,6 +76,12 @@ public enum ERecipeStep
 	/// <summary>Boost or cut 'db' decibels around 'frequency' Hz with bandwidth 'q'.</summary>
 	Eq,
 
+	/// <summary>
+	/// Turn down steady background noise, such as hiss, by up to 'db' decibels (positive). The noise is learned from the section 'start' to 'end'
+	/// seconds, which must hold only noise. See <see cref="Denoiser"/>.
+	/// </summary>
+	Denoise,
+
 	/// <summary>Crossfade the last 'duration' seconds into the start, so the result loops seamlessly. The result is 'duration' seconds shorter.</summary>
 	Loop,
 
@@ -151,6 +157,7 @@ public sealed class RecipeStep
 			ERecipeStep.HighPass => new RecipeStep { Step = step, Frequency = 80, Slope = 12 },
 			ERecipeStep.LowPass => new RecipeStep { Step = step, Frequency = 12000, Slope = 12 },
 			ERecipeStep.Eq => new RecipeStep { Step = step, Frequency = 1000, Db = 0, Q = 1 },
+			ERecipeStep.Denoise => new RecipeStep { Step = step, Start = 0, End = 0.5, Db = 12 },
 			ERecipeStep.Loop => new RecipeStep { Step = step, Duration = 3 },
 			ERecipeStep.Mix => new RecipeStep { Step = step, Db = 0, Inputs = [] },
 			_ => throw new ArgumentOutOfRangeException(nameof(step), step, "Unknown recipe step."),
