@@ -43,8 +43,9 @@
 //  - An action family (see gait.h) plays a timed action on top of its base family's stance, holding the body in place:
 //     - "collapse" plays once over its duration and then holds. The knees buckle as the body sinks, the body topples sideways onto its left side
 //       until it lies flat, and the limbs go limp towards the stance. The arms, legs and head then sag under gravity until they rest on the ground
-//       or reach their joint limits. Every bone keeps within its joint limits. Leaving the family plays the
-//       collapse backwards, so the body stands back up the way it fell, before any other action starts. The feet do not step while collapsed.
+//       or reach their joint limits. The joint limits blend in over the start of the collapse so that the standing pose does not change
+//       suddenly, and every bone keeps within its joint limits after that (see 'CollapseLimitEnd'). Leaving the family plays the collapse
+//       backwards, so the body stands back up the way it fell, before any other action starts. The feet do not step while collapsed.
 //       The family's posture (see 'Locomotion::posture') is its base stance lying on its side.
 //     - "punches" loops its sequence of punches. The feet take a boxing stance with the left foot forward, and the body crouches with its hands
 //       holding a guard in front of the chin. Each punch drives one fist out and back while the torso turns the punching shoulder forward and
@@ -621,8 +622,9 @@ namespace pr::animation
 				m_targets[limb.chain].frame = limb.support == 1.0f ? foot : BlendFrame(HangingFrame(limb), foot, limb.support);
 			}
 			StepPunchFeet();
+			AimPunches();
 
-			// Grasping hands move from their usual goals to their grasps
+			// Grasping hands move from their usual goals, including any punches, to their grasps
 			for (auto const& reach : m_reaches)
 			{
 				auto weight = reach.weight.Value();
@@ -633,7 +635,6 @@ namespace pr::animation
 				auto& frame = m_targets[limb.chain].frame;
 				frame = BlendFrame(frame, GraspFrame(limb, reach.grasp, world_to_model), weight);
 			}
-			AimPunches();
 			StepNecks(dt, world_to_model);
 
 			// Bones that no chain solver poses, such as digits and tails, take their shape from the guide. The guide's model transforms are
@@ -2295,8 +2296,12 @@ namespace pr::animation
 
 				for (auto b : chain.bones)
 				{
-					// Bring the bone along with its parent, which may have sagged
+					// Root bones place the body, so they keep their frames and the rest of the chain sags from them
 					auto const& bone = m_rig.bones[b];
+					if (bone.parent < 0)
+						continue;
+
+					// Bring the bone along with its parent, which may have sagged
 					auto const& parent = m_pose.model[bone.parent];
 					auto& model = m_pose.model[b];
 					model = parent * m_pose.local[b];
@@ -2457,10 +2462,10 @@ namespace pr::animation
 			}
 		}
 
-		// The leg on the side 'side', or null if the rig has none
+		// The first leg on the side 'side', or null if the rig has none
 		LimbState const* LegOn(ESide side) const
 		{
-			// Rigs have at most one leg on each side
+			// Rigs may have several legs on a side, so this picks the first in limb order
 			auto it = std::ranges::find_if(m_limbs, [&](auto const& limb) { auto const& chain = m_rig.chains[limb.chain]; return chain.role == EChainRole::Leg && chain.side == side; });
 			return it != m_limbs.end() ? &*it : nullptr;
 		}
@@ -4313,6 +4318,66 @@ namespace pr::animation::tests
 			PR_EXPECT(foot_start.y - foot_lo > 0.15f * leg.reach);
 			PR_EXPECT(FEqlAbsolute(loco.pose().model[foot].pos, foot_start, 0.02f));
 			PR_EXPECT(FEqlAbsolute(loco.pose().model[hand].pos, start, 0.02f));
+		}
+		PRUnitTestMethod(GraspsOverrulePunches, Quick)
+		{
+			// A hand holding a grasp stays on it while the body throws punches, because the grasp outranks the hand's usual goals
+			auto rig = TestRig();
+			auto gait = TestActionGait();
+			auto fight = FamilyIndex(gait, "fist-fight");
+			auto loco = Locomotion(rig, gait);
+			auto ground = TestGround();
+			auto dt = 1.0f / 60;
+			auto body = BodyState{ .gravity = v4(0, 0, -9.8f, 0) };
+			auto const& arm = loco.limbs()[1];
+			auto hand = rig.chains[arm.chain].bones.back();
+			auto within = Grasp{ .point = v4(0.2f, -1.3f, 0.5f, 1), .palm = v4(-1, 0, 0, 0), .fingers = v4(0, -1, 0, 0) };
+			loco.RequestFamily(fight, 0.5f);
+			loco.SetReach(ESide::Left, within, 0.25f);
+			for (int i = 0; i != 144; ++i)
+				loco.Step(dt, body, ground);
+
+			// Over one pass of the punch sequence, the palm stays on the grasp
+			auto worst = 0.0f;
+			for (int i = 0; i != 144; ++i)
+			{
+				loco.Step(dt, body, ground);
+				worst = std::max(worst, Length(loco.pose().model[hand] * arm.grip - within.point));
+			}
+			PR_EXPECT(loco.family() == fight);
+			PR_EXPECT(worst < 1e-2f);
+		}
+		PRUnitTestMethod(CollapseWithRootChains, Quick)
+		{
+			// A rig whose arm and neck chains start at root bones collapses without a spine bone carrying them. The root bones stay where the topple
+			// puts them, and the rest of each chain sags from them.
+			auto desc = TestRigDesc();
+			auto rest = Rig(desc).rest_model;
+			for (auto name : { "neck", "arm.L" })
+			{
+				// Detach the bone from its parent, keeping it where it was
+				auto b = static_cast<int>(std::ranges::find(desc.bones, std::string_view{name}, &Bone::name) - desc.bones.begin());
+				desc.bones[b].parent = -1;
+				desc.bones[b].rest = rest[b];
+			}
+			auto rig = Rig(desc);
+			auto gait = TestActionGait();
+			auto death = FamilyIndex(gait, "death");
+			auto loco = Locomotion(rig, gait);
+			auto ground = TestGround();
+			auto dt = 1.0f / 60;
+			auto body = BodyState{ .gravity = v4(0, 0, -9.8f, 0) };
+			loco.RequestFamily(death, 0.5f);
+			for (int i = 0; i != 180; ++i)
+				loco.Step(dt, body, ground);
+
+			// The chains stay connected to their roots, and the body lies on the ground
+			PR_EXPECT(loco.family() == death);
+			for (auto [child, root] : { std::pair{ "head", "neck" }, std::pair{ "forearm.L", "arm.L" } })
+				PR_EXPECT(FEqlAbsolute(loco.pose().model[rig.BoneIndex(child)].pos, loco.pose().Tip(rig, rig.BoneIndex(root)), 1e-4f));
+
+			for (auto const& xf : loco.pose().model)
+				PR_EXPECT(xf.pos.z > -0.01f);
 		}
 	};
 }
