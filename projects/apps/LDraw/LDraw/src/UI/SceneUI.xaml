@@ -95,7 +95,9 @@
 		</ResourceDictionary>
 	</UserControl.Resources>
 
-	<Grid>
+	<Grid
+		x:Name="m_scene_host"
+		>
 		<Grid.RowDefinitions>
 			<RowDefinition Height="*"/>
 		</Grid.RowDefinitions>

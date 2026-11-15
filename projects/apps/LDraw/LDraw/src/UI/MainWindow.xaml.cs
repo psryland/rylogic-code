@@ -91,6 +91,13 @@ namespace LDraw
 		}
 		protected override void OnPreviewKeyDown(KeyEventArgs e)
 		{
+			// Toggle fullscreen for the active scene, even when keyboard focus is in another pane of this window
+			if (e.Key == Key.F11 && Keyboard.Modifiers == ModifierKeys.None && ActiveScene is SceneUI scene)
+			{
+				scene.ToggleFullscreen();
+				e.Handled = true;
+			}
+
 			// Handle keyboard shortcuts that may be swallowed by child HWNDs (e.g. the 3D viewport)
 			if (Keyboard.Modifiers == ModifierKeys.Control)
 			{
