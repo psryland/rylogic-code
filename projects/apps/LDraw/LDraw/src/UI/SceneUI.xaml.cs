@@ -13,6 +13,7 @@ using Rylogic.Common;
 using Rylogic.Extn;
 using Rylogic.Gfx;
 using Rylogic.Gui.WPF;
+using Rylogic.Interop.Win32;
 using Rylogic.Maths;
 using Rylogic.Utility;
 
@@ -55,6 +56,8 @@ namespace LDraw.UI
 		}
 		public void Dispose()
 		{
+			// Return the scene control from any fullscreen window so that it is disposed with this scene
+			ExitFullscreen();
 			OtherScenes.Clear();
 			SceneState = null!;
 			SceneView = null!;
@@ -70,6 +73,13 @@ namespace LDraw.UI
 
 			switch (e.Key)
 			{
+				case Key.F11 when Keyboard.Modifiers == ModifierKeys.None:
+				{
+					// Handled here as well as in the main window because a floating scene's window does not route keys through the main window
+					ToggleFullscreen();
+					e.Handled = true;
+					break;
+				}
 				case Key.Space:
 				{
 					// Show the dockable scene manager
@@ -466,6 +476,61 @@ namespace LDraw.UI
 				NotifyPropertyChanged(nameof(AnimationUI));
 			}
 		}
+
+		/// <summary>True while the scene is presented in a borderless window that covers its monitor</summary>
+		public bool IsFullscreen => m_fullscreen != null;
+
+		/// <summary>Toggle borderless fullscreen presentation of this scene</summary>
+		public void ToggleFullscreen()
+		{
+			// Switch to the other presentation
+			if (IsFullscreen)
+				ExitFullscreen();
+			else
+				EnterFullscreen();
+		}
+
+		/// <summary>
+		/// Present this scene in a borderless window that covers the full bounds of the monitor of the scene's current window.
+		/// The existing scene control moves into that window, so the camera, objects, and other scene state are kept. The docking layout and the
+		/// windows that host the scene are not changed. Does nothing if the scene is already fullscreen or is not currently shown in a window.
+		/// </summary>
+		public void EnterFullscreen()
+		{
+			// Fullscreen uses the monitor of the window that currently shows the scene
+			if (IsFullscreen)
+				return;
+			if (Window.GetWindow(this) is not Window owner)
+				return;
+
+			var monitor = User32.MonitorFromWindow(owner.Hwnd());
+
+			// Move the scene control into the fullscreen window. It moves back when that window closes, however it is closed.
+			m_scene_host.Children.Remove(m_scene);
+			m_fullscreen = new SceneFullscreenUI(owner, monitor, m_scene, SceneName);
+			m_fullscreen.Closed += HandleFullscreenClosed;
+			m_fullscreen.Show();
+			NotifyPropertyChanged(nameof(IsFullscreen));
+
+			// Handlers
+			void HandleFullscreenClosed(object? sender, EventArgs e)
+			{
+				// Return the scene control to this scene and restore keyboard focus to it
+				((Window)sender!).Closed -= HandleFullscreenClosed;
+				m_fullscreen = null;
+				m_scene_host.Children.Add(m_scene);
+				m_scene.Scene.Focus();
+				NotifyPropertyChanged(nameof(IsFullscreen));
+			}
+		}
+
+		/// <summary>Return this scene to its normal place in the UI. Does nothing if the scene is not fullscreen.</summary>
+		public void ExitFullscreen()
+		{
+			// Closing the fullscreen window returns the scene control (see 'EnterFullscreen')
+			m_fullscreen?.Close();
+		}
+		private SceneFullscreenUI? m_fullscreen;
 
 		/// <summary>Remove all objects from the scene</summary>
 		public Command ClearScene { get; }
