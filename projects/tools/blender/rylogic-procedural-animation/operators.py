@@ -437,7 +437,7 @@ def _ReportUnmatched(operator: Operator, unmatched: list[str]) -> None:
 
 
 # The rig's editable lists
-_COLLECTIONS = [("CHAINS", "Chains", ""), ("CONTACTS", "Contacts", ""), ("FAMILIES", "Families", ""), ("CYCLES", "Movement Cycles", "")]
+_COLLECTIONS = [("CHAINS", "Chains", ""), ("CONTACTS", "Contacts", ""), ("FAMILIES", "Families", ""), ("PUNCHES", "Punches", "The active family's punches"), ("CYCLES", "Movement Cycles", "")]
 
 
 class RYLOGIC_OT_gait_validate(_ArmatureOperator):
@@ -459,7 +459,7 @@ class RYLOGIC_OT_gait_validate(_ArmatureOperator):
 		if not errors:
 			lines.append("Valid gait")
 			for family in desc["families"]:
-				for cycle in family["cycles"]:
+				for cycle in family.get("cycles", []):
 					steps = ", ".join(f"{f['contact']} @{f['touchdown']:.2f}/{f['duty']:.2f}" for f in cycle["footfalls"])
 					lines.append(f"{family['name']}.{cycle['name']}: speed {cycle['speed']:.3g}, stride {cycle['stride']:.3g}; {steps}")
 
@@ -514,7 +514,7 @@ class RYLOGIC_OT_gait_template(_ArmatureOperator):
 
 
 class RYLOGIC_OT_rig_item_add(_ArmatureOperator):
-	"""Add a chain, contact or movement cycle"""
+	"""Add a chain, contact, family, punch or movement cycle"""
 
 	bl_idname = "rylogic_rig.item_add"
 	bl_label = "Add"
@@ -537,6 +537,11 @@ class RYLOGIC_OT_rig_item_add(_ArmatureOperator):
 				family = rig.families.add()
 				family.name = f"family.{len(rig.families)}"
 				rig.active_family = len(rig.families) - 1
+			case "PUNCHES":
+				if 0 <= rig.active_family < len(rig.families):
+					family = rig.families[rig.active_family]
+					family.punches.add()
+					family.active_punch = len(family.punches) - 1
 			case "CYCLES":
 				cycle = rig.cycles.add()
 				cycle.name = f"cycle.{len(rig.cycles)}"
@@ -548,7 +553,7 @@ class RYLOGIC_OT_rig_item_add(_ArmatureOperator):
 
 
 class RYLOGIC_OT_rig_item_remove(_ArmatureOperator):
-	"""Remove the active chain, contact or movement cycle"""
+	"""Remove the active chain, contact, family, punch or movement cycle"""
 
 	bl_idname = "rylogic_rig.item_remove"
 	bl_label = "Remove"
@@ -572,6 +577,12 @@ class RYLOGIC_OT_rig_item_remove(_ArmatureOperator):
 				if 0 <= rig.active_family < len(rig.families):
 					rig.families.remove(rig.active_family)
 					rig.active_family = max(0, min(rig.active_family, len(rig.families) - 1))
+			case "PUNCHES":
+				if 0 <= rig.active_family < len(rig.families):
+					family = rig.families[rig.active_family]
+					if 0 <= family.active_punch < len(family.punches):
+						family.punches.remove(family.active_punch)
+						family.active_punch = max(0, min(family.active_punch, len(family.punches) - 1))
 			case "CYCLES":
 				if 0 <= rig.active_cycle < len(rig.cycles):
 					rig.cycles.remove(rig.active_cycle)
