@@ -8,6 +8,23 @@
 #include "pr/gui/wingui.h"
 #include "pr/view3d-12/view3d-dll.h"
 
+namespace pr
+{
+	template <> struct Convert<view3d::Vec2, gui::Point>
+	{
+		static view3d::Vec2 Func(gui::Point const& v)
+		{
+			return view3d::Vec2{float(v.x), float(v.y)};
+		}
+	};
+	template <> struct Convert<gui::Point, view3d::Vec2>
+	{
+		static gui::Point Func(view3d::Vec2 const& v)
+		{
+			return gui::Point(long(v.x), long(v.y));
+		}
+	};
+}
 namespace pr::gui
 {
 	struct View3DPanel :Panel
@@ -154,23 +171,6 @@ namespace pr::gui
 			Control::OnWindowPosChange(args);
 			if (!args.m_before && args.IsResize() && !args.Iconic() && args.m_wp->cx > 0 && args.m_wp->cy > 0)
 				View3D_WindowBackBufferSizeSet(m_win, { args.m_wp->cx, args.m_wp->cy }, FALSE);
-		}
-	};
-}
-namespace pr
-{
-	template <> struct Convert<view3d::Vec2, gui::Point>
-	{
-		static view3d::Vec2 Func(gui::Point const& v)
-		{
-			return view3d::Vec2{float(v.x), float(v.y)};
-		}
-	};
-	template <> struct Convert<gui::Point, view3d::Vec2>
-	{
-		static gui::Point Func(view3d::Vec2 const& v)
-		{
-			return gui::Point(long(v.x), long(v.y));
 		}
 	};
 }
