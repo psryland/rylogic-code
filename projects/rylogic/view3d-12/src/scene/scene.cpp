@@ -36,7 +36,8 @@ namespace pr::rdr12
 	Scene::Scene(Window& wnd, std::initializer_list<ERenderStep> rsteps, SceneCamera const& cam)
 		: m_wnd(&wnd)
 		, m_cam(cam)
-		, m_viewport(wnd.BackBufferSize())
+		, m_viewport(wnd.RenderTargetSize())
+		, m_screen_space_shift()
 		, m_instances()
 		, m_gsync_render_steps()
 		, m_render_steps()
@@ -66,8 +67,8 @@ namespace pr::rdr12
 		, m_populations()
 		, m_post_effects(*wnd.m_rdr)
 	{
-		// Initialise the scene camera to match the full window
-		auto bb_size = m_wnd->BackBufferSize();
+		// Initialise the scene camera to match the window's render target
+		auto bb_size = m_wnd->RenderTargetSize();
 		if (Any(bb_size != iv2::Zero()))
 			m_cam.Aspect(1.0f * bb_size.x / bb_size.y);
 
@@ -484,12 +485,16 @@ namespace pr::rdr12
 		//  - 'rs->Execute(frame)' could start a background thread and return immediately. It should add it's not-yet-closed command lists
 		//    to the frame from the main thread before starting.
 
-		// Make sure the scene is up to date
-		OnUpdateScene(*this, { frame.m_prepare, frame.m_upload });
+		// Update view-independent scene content once per frame, in the first view. Later views of the frame see the same scene state.
+		if (frame.m_view == 0)
+		{
+			// Make sure the scene is up to date
+			OnUpdateScene(*this, { frame.m_prepare, frame.m_upload });
 
-		// Record population content changes before any render step reads the populations
-		for (auto& pop : m_populations)
-			pop->Flush(frame.m_prepare, frame.m_upload, wnd().m_heap_view);
+			// Record population content changes before any render step reads the populations
+			for (auto& pop : m_populations)
+				pop->Flush(frame.m_prepare, frame.m_upload, wnd().m_heap_view);
+		}
 
 		// Resolve the lights for this frame before any render step reads them
 		m_dropped_lights = ResolveLights(m_lights, m_frame_lights, m_cam.CameraToWorld(), m_resolved_lights);

@@ -58,7 +58,8 @@ namespace pr::rdr12
 		Texture2DPtr m_default_tex;
 		SamplerPtr m_default_sam;
 		D3D12_GPU_VIRTUAL_ADDRESS m_elements = {}; // This frame's element constants table, one entry per drawlist element
-		std::unique_ptr<SkyHistory> m_sky_history;
+		std::vector<std::unique_ptr<SkyHistory>> m_sky_histories; // The sky history of each window view. Each view sees the sky from its own camera.
+		SkyHistory* m_sky_history = nullptr;                       // The sky history of the view being recorded
 		std::unique_ptr<ReflectionPlane> m_reflection_plane;
 		PopulationSet m_populations;        // This frame's populations classified for the camera
 		PopulationSet m_mirror_populations; // This frame's populations classified for the reflection's mirror camera
@@ -84,8 +85,8 @@ namespace pr::rdr12
 		// Add the pipeline states of the draw list and the scene's populations, for each sub-pass that can draw them
 		void CollectPipelines(std::vector<PipeStateDesc>& descs) const override;
 
-		// Prepare the sky's low cloud history for this frame: size, swap, and clear the history textures, and set the shader's history constants.
-		void PrepareSkyHistory();
+		// Prepare the sky's low cloud history of the frame's view: size, swap, and clear the history textures, and set the shader's history constants.
+		void PrepareSkyHistory(Frame const& frame);
 
 		// Project the opaque scene into the reflection of the scene's reflection plane, recording the work into the alpha command list. Sets the
 		// shader's reflection constants when the reflection is available, otherwise clears them. Call after the opaque pass, before the alpha draws.

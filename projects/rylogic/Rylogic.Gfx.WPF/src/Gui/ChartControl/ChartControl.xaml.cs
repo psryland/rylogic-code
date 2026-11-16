@@ -1158,7 +1158,7 @@ namespace Rylogic.Gui.WPF
 				// handle is known. The size of the back buffer defines the size of the viewport.
 				// So, if we don't have an owning window the viewport will have width/height = 0/0.
 				var viewport = Scene.Window.Viewport;
-				Scene.DesiredPixelAspect = Camera.Aspect * viewport.Height / viewport.Width;
+				Scene.DesiredPixelAspect = Camera.Aspect * viewport.Height * Scene.Window.ViewCount / viewport.Width;
 			}
 
 			// Set the axis range from the camera position
@@ -1201,7 +1201,7 @@ namespace Rylogic.Gui.WPF
 			var sz = SceneBounds;
 			if (sz.Width != 0 && sz.Height != 0)
 			{
-				Scene.DesiredPixelAspect = Range.Aspect * sz.Height / sz.Width;
+				Scene.DesiredPixelAspect = Range.Aspect * sz.Height * Scene.Window.ViewCount / sz.Width;
 				Scene.ActualPixelAspect = Scene.DesiredPixelAspect;
 			}
 

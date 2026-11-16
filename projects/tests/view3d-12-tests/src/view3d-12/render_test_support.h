@@ -82,7 +82,8 @@ namespace render_tests
 		api::Shader CustomShader(bool vertex_only);
 
 		// Read the completed final image on a separate queue after synchronizing the renderer.
-		std::vector<unsigned char> Image();
+		// Rows are tightly packed at the output width, which is ImageSize unless a test resizes the back buffer. 'width' receives the output width.
+		std::vector<unsigned char> Image(int* width = nullptr);
 
 		// Reject GPU debug-layer errors after all bounded render cases have completed.
 		void CheckDebugLayer();

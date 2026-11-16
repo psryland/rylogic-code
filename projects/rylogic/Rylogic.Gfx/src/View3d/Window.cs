@@ -446,6 +446,32 @@ namespace Rylogic.Gfx
 				set => View3D_RayTracingPropertiesSet(Handle, ref value);
 			}
 
+			/// <summary>Side-by-side stereo settings for this window</summary>
+			public StereoProps Stereo
+			{
+				get => View3D_StereoGet(Handle);
+				set => View3D_StereoSet(Handle, ref value);
+			}
+
+			/// <summary>
+			/// The number of views that divide the output horizontally into equal columns.
+			/// The camera aspect ratio describes the image of one view, not the whole output.</summary>
+			public int ViewCount
+			{
+				get
+				{
+					return Stereo.Enabled ? 2 : 1;
+				}
+			}
+
+			/// <summary>
+			/// Show or hide the cursor drawn in both stereo eye views, at 'ss_point' (in window screen space).
+			/// Hide the OS cursor while this is visible, because the OS cursor appears in only one eye.</summary>
+			public void StereoCursor(bool visible, v2 ss_point)
+			{
+				View3D_StereoCursorSet(Handle, visible, ss_point);
+			}
+
 			/// <summary>Whole-screen underwater post effect. Overlays and UI are not affected.</summary>
 			public UnderwaterProps PostEffectUnderwater
 			{

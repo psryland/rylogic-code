@@ -285,7 +285,7 @@ namespace pr::rdr12
 	void SetScreenSpace(TCBuf& cb, BaseInstance const& inst, Scene const& scene, v2 size, bool depth)
 	{
 		auto sz = inst.find<v2>(EInstComp::SSSize);
-		auto rt_size = scene.wnd().BackBufferSize();
+		auto rt_size = scene.wnd().RenderTargetSize();
 		cb.screen_dim = To<v2>(rt_size);
 		cb.size = sz ? *sz : size;
 		cb.depth = depth;

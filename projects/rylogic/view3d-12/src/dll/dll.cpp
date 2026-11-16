@@ -626,6 +626,45 @@ VIEW3D_API void __stdcall View3D_RayTracingPropertiesSet(view3d::Window window, 
 	CatchAndReport(View3D_RayTracingPropertiesSet, window,);
 }
 
+// Get the side-by-side stereo settings for this window.
+VIEW3D_API view3d::StereoProps __stdcall View3D_StereoGet(view3d::Window window)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		return window->Stereo();
+	}
+	CatchAndReport(View3D_StereoGet, window, {});
+}
+
+// Set the side-by-side stereo settings for this window.
+VIEW3D_API void __stdcall View3D_StereoSet(view3d::Window window, view3d::StereoProps const& props)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		window->Stereo(props);
+	}
+	CatchAndReport(View3D_StereoSet, window,);
+}
+
+// Show or hide the stereo cursor and set its position in 'window' screen space.
+VIEW3D_API void __stdcall View3D_StereoCursorSet(view3d::Window window, BOOL visible, view3d::Vec2 ss_point)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		window->StereoCursor(visible != 0, To<v2>(ss_point));
+	}
+	CatchAndReport(View3D_StereoCursorSet, window,);
+}
+
 // Return the scene-owned underwater post effect settings through the stable DLL layout.
 VIEW3D_API view3d::UnderwaterProps __stdcall View3D_PostEffectUnderwaterGet(view3d::Window window)
 {
@@ -2154,7 +2193,8 @@ VIEW3D_API view3d::Vec2 __stdcall View3D_PixelsToNSS(view3d::Window window, view
 	CatchAndReport(View3d_PixelsToNSS, window, {});
 }
 
-// Convert a point between 'window' screen space and normalised screen space
+// Convert a point between 'window' screen space and normalised screen space.
+// With a multi-view layout, normalised screen space is local to the view under the screen point, and NSS points map into the first view.
 VIEW3D_API view3d::Vec2 __stdcall View3D_SSPointToNSSPoint(view3d::Window window, view3d::Vec2 screen)
 {
 	try
@@ -2162,7 +2202,7 @@ VIEW3D_API view3d::Vec2 __stdcall View3D_SSPointToNSSPoint(view3d::Window window
 		Validate(window);
 
 		DllLockGuard;
-		return To<view3d::Vec2>(window->m_scene.m_viewport.SSPointToNSSPoint(To<v2>(screen)));
+		return To<view3d::Vec2>(window->SSPointToViewPoint(To<v2>(screen)).m_nss);
 	}
 	CatchAndReport(View3D_SSPointToNSSPoint, window, view3d::Vec2{});
 }
@@ -2230,9 +2270,11 @@ VIEW3D_API void __stdcall View3D_SSPointToWSRay(view3d::Window window, view3d::V
 		Validate(window);
 
 		DllLockGuard;
-		auto nss_pt = window->m_scene.m_viewport.SSPointToNSSPoint(To<v2>(screen));
+
+		// Cast the ray from the eye of the view under the screen point
+		auto [view, nss_pt] = window->SSPointToViewPoint(To<v2>(screen));
 		auto z = static_cast<float>(window->m_scene.m_cam.FocusDist());
-		auto [pt, dir] = window->m_scene.m_cam.NSSPointToWSRay(v4{ nss_pt, z, 1 });
+		auto [pt, dir] = window->ViewCamera(view).NSSPointToWSRay(v4{ nss_pt, z, 1 });
 		ws_point = To<view3d::Vec4>(pt);
 		ws_direction = To<view3d::Vec4>(dir);
 	}

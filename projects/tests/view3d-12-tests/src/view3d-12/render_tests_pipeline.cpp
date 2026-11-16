@@ -236,8 +236,7 @@ namespace render_tests
 			for (auto position : {v4(0, 0, 10, 1), v4(24, -38, 29, 1)})
 			{
 				auto view = SceneCamera(m4x4::LookAt(position, v4::Origin(), v4::YAxis()), 0.9f, 1.7f, 10.0f, orthographic, 0.1f, 1000.0f);
-				SceneCamera eyes[2];
-				view.Stereo(0.065f, eyes);
+				auto eyes = std::array<SceneCamera, 2>{ view.StereoEye(EEye::Left, 0.065f, 10.0f, 0.85f), view.StereoEye(EEye::Right, 0.065f, 10.0f, 0.85f) };
 				for (auto const& eye : {view, eyes[0], eyes[1]})
 				{
 					auto const camera = CameraTransforms(eye);
@@ -306,6 +305,266 @@ namespace render_tests
 		}
 	}
 
+	// Verify the parallel-axis stereo eye cameras: positions, orientation, and the zero-disparity convergence plane.
+	void StereoEyeTests()
+	{
+		using namespace pr;
+		using namespace pr::rdr12;
+
+		// Use a scene scale far from metres to show the eye maths does not assume a unit
+		auto const separation = 6.5f;
+		auto const convergence = 400.0f;
+		auto const eye_aspect = 1920.0f / 1080.0f;
+		auto const c2w = m4x4::LookAt(v4(120, -80, 300, 1), v4(10, 20, -30, 1), v4::YAxis());
+		auto const logical = SceneCamera(c2w, 0.9f, 2.0f * eye_aspect, 250.0f, false, 0.1f, 10000.0f);
+		auto const left = logical.StereoEye(EEye::Left, separation, convergence, eye_aspect);
+		auto const right = logical.StereoEye(EEye::Right, separation, convergence, eye_aspect);
+
+		// The eyes sit half the separation either side of the logical camera, with its orientation and lens, but the eye's aspect
+		Require(Length(left.CameraToWorld().pos - (c2w.pos - 0.5f * separation * c2w.x)) < 0.0001f, "Left eye position is wrong");
+		Require(Length(right.CameraToWorld().pos - (c2w.pos + 0.5f * separation * c2w.x)) < 0.0001f, "Right eye position is wrong");
+		for (auto const& eye : {left, right})
+		{
+			Require(Length(eye.CameraToWorld().z - c2w.z) < 0.00001f && Length(eye.CameraToWorld().y - c2w.y) < 0.00001f, "Stereo eyes must not toe in");
+			Require(eye.FovY() == logical.FovY() && eye.FocusDist() == logical.FocusDist(), "Stereo eyes must keep the logical lens");
+			Require(std::abs(eye.Aspect() - eye_aspect) < 0.00001, "Stereo eyes must use the eye image aspect");
+		}
+
+		// Project a world point through an eye's full projection to normalised screen space
+		auto project = [](SceneCamera const& eye, v4 ws)
+		{
+			auto clip = eye.CameraToScreen() * eye.WorldToCamera() * ws;
+			return v2(clip.x / clip.w, clip.y / clip.w);
+		};
+
+		// Points on the convergence plane have zero disparity. Nearer points shift right in the left eye, farther points shift left,
+		// by (s/2)/tanX * (1/d - 1/C), with the opposite shift in the right eye.
+		auto const tan_half_fovx = std::tan(0.5f * s_cast<float>(logical.FovY())) * eye_aspect;
+		for (auto [ox, oy, depth] : {std::tuple{0.0f, 0.0f, convergence}, {30.0f, -12.0f, convergence}, {0.0f, 0.0f, 50.0f}, {-20.0f, 9.0f, 2000.0f}})
+		{
+			auto ws = c2w.pos + ox * c2w.x + oy * c2w.y - depth * c2w.z;
+			auto l = project(left, ws);
+			auto r = project(right, ws);
+			auto expected = (0.5f * separation / tan_half_fovx) * (1.0f / depth - 1.0f / convergence);
+			Require(std::abs((l.x - r.x) - 2.0f * expected) < 0.00002f, "Stereo disparity does not match the convergence plane");
+			Require(std::abs(l.y - r.y) < 0.00001f, "Stereo eyes must have no vertical disparity");
+
+			// The camera's NSS helpers must agree with the shifted projection and invert it
+			auto nss = left.WSPointToNSSPoint(ws);
+			Require(std::abs(nss.x - l.x) < 0.00002f && std::abs(nss.y - l.y) < 0.00002f, "WSPointToNSSPoint ignores the lens shift");
+			Require(Length(left.NSSPointToWSPoint(nss) - ws) < 0.01f, "NSSPointToWSPoint does not invert the lens shift");
+		}
+
+		// Orthographic cameras have no depth disparity, so both eyes see the logical image
+		auto ortho = logical;
+		ortho.Orthographic(true);
+		auto const ol = ortho.StereoEye(EEye::Left, separation, convergence, eye_aspect);
+		auto const orr = ortho.StereoEye(EEye::Right, separation, convergence, eye_aspect);
+		auto const ol_c2s = ol.CameraToScreen();
+		auto const or_c2s = orr.CameraToScreen();
+		auto const ol_c2w = ol.CameraToWorld();
+		auto const or_c2w = orr.CameraToWorld();
+		Require(std::memcmp(&ol_c2s, &or_c2s, sizeof(m4x4)) == 0 && std::memcmp(&ol_c2w, &or_c2w, sizeof(m4x4)) == 0, "Orthographic eyes must be identical");
+		Require(std::memcmp(&ol_c2w, &c2w, sizeof(m4x4)) == 0, "Orthographic eyes must use the logical camera");
+	}
+
+	// Render side-by-side stereo through the public API: per-eye sizing and aspect, convergence-plane alignment, symmetric disparity, transparency, SSAO,
+	// ray traced reflections, odd output widths, and toggling back to mono.
+	void StereoRenderTests(int samples)
+	{
+		// A perspective camera at the origin looking down -Z. Each eye sees 100 units of height at the convergence distance, so 1.28 pixels per unit there.
+		Fixture fixture(samples);
+		constexpr float Convergence = 50.0f;
+		constexpr float Separation = 10.0f;
+		// Express the separation as a 65 mm eye separation with 6.5 mm scene units, to cover the millimetre conversion.
+		constexpr float SeparationMm = 65.0f;
+		constexpr float SceneUnitMm = SeparationMm / Separation;
+		constexpr int EyeW = ImageSize / 2;
+		View3D_CameraOrthographicSet(fixture.m_window, FALSE);
+		Require(std::abs(View3D_CameraAspectGet(fixture.m_window) - 1.0f) < 1e-4f, "Mono camera aspect should match the square output");
+		View3D_StereoSet(fixture.m_window, api::StereoProps{ .m_enabled = TRUE, .m_eye_separation_mm = SeparationMm, .m_scene_unit_mm = SceneUnitMm, .m_convergence = Convergence });
+		Require(View3D_StereoGet(fixture.m_window).m_enabled, "Stereo did not enable");
+		Require(std::abs(View3D_CameraAspectGet(fixture.m_window) - 0.5f) < 1e-4f, "Stereo camera aspect should be the eye image aspect");
+		View3D_CameraFovSet(fixture.m_window, api::Vec2{ 2 * std::atan(0.5f), 2 * std::atan(1.0f) });
+		fixture.CheckErrors();
+
+		// The pixel in eye 'eye' at eye-local column 'x' of row 'y'.
+		auto px = [](std::vector<unsigned char> const& image, int width, int eye, int x, int y)
+		{
+			// Eyes are laid out left to right, each 'EyeW' wide.
+			auto const* p = image.data() + (size_t(y) * width + eye * EyeW + x) * 4;
+			return std::array<float, 3>{ Linear(p[0]), Linear(p[1]), Linear(p[2]) };
+		};
+
+		// The scene is symmetric about x = 0 and the eyes are symmetric about the logical camera, so the right eye's image is the mirror of the left eye's.
+		auto expect_mirrored = [&](std::vector<unsigned char> const& image, int width, float tolerance, char const* what)
+		{
+			// Allow a few differing pixels for rasterization ties, but not a missing or offset eye.
+			auto differing = 0;
+			for (auto y = 0; y != ImageSize; ++y)
+			{
+				for (auto x = 0; x != EyeW; ++x)
+				{
+					auto l = px(image, width, 0, x, y);
+					auto r = px(image, width, 1, EyeW - 1 - x, y);
+					for (auto c = 0; c != 3; ++c)
+					{
+						if (std::abs(l[c] - r[c]) <= tolerance)
+							continue;
+
+						++differing;
+						break;
+					}
+				}
+			}
+			if (differing > ImageSize / 2)
+				throw std::runtime_error(std::string(what) + ": eye images are not mirror symmetric (" + std::to_string(differing) + " pixels differ)");
+		};
+
+		// Expect a colour at an eye-local pixel.
+		auto expect_eye = [&](std::vector<unsigned char> const& image, int width, int eye, int x, float r, float g, float b)
+		{
+			// Compare against the linear colour with the same tolerance as 'Expect'.
+			auto actual = px(image, width, eye, x, ImageSize / 2);
+			float expected[] = { r, g, b };
+			for (auto c = 0; c != 3; ++c)
+			{
+				if (std::abs(actual[c] - expected[c]) <= 0.025f)
+					continue;
+
+				throw std::runtime_error("Stereo pixel mismatch: eye " + std::to_string(eye) + " x " + std::to_string(x) + " channel " + std::to_string(c) + ": actual " + std::to_string(actual[c]) + ", expected " + std::to_string(expected[c]));
+			}
+		};
+
+		// A red quad on the convergence plane spans x = +/-10 units, 25.6 pixels, at the same eye-local place in both eyes.
+		// A green quad at half the convergence distance has crossed disparity: its 4 unit half-width appears as 5.1 pixels, and its centre moves
+		// 5 units (6.4 pixels) towards the other eye's side, i.e. right in the left eye and left in the right eye.
+		fixture.Quad(Convergence, 0xFFFF0000, 10);
+		fixture.Quad(Convergence / 2, 0xFF00FF00, 2);
+		auto anim_time = View3D_WindowAnimTimeGet(fixture.m_window);
+		auto width = 0;
+		auto image = fixture.Image(&width);
+		Require(width == ImageSize, "Stereo must not change the output size");
+		Require(View3D_WindowAnimTimeGet(fixture.m_window) == anim_time, "Rendering two eyes advanced the animation clock");
+		expect_mirrored(image, width, 0.05f, "Opaque");
+		expect_eye(image, width, 0, 24, 1, 0, 0);
+		expect_eye(image, width, 0, 40, 0, 1, 0);
+		expect_eye(image, width, 0, 50, 0, 0, 0);
+		expect_eye(image, width, 0, 12, 0, 0, 0);
+		expect_eye(image, width, 1, EyeW - 1 - 40, 0, 1, 0);
+		expect_eye(image, width, 1, EyeW - 1 - 24, 1, 0, 0);
+
+		// A translucent blue quad between the two keeps the halves independent: it tints the red and background, but not the nearer green.
+		fixture.Quad(Convergence * 0.6f, 0x800000FF, 30);
+		image = fixture.Image(&width);
+		expect_mirrored(image, width, 0.05f, "Transparent");
+		auto const a = 128.0f / 255.0f;
+		expect_eye(image, width, 0, 24, 1 - a, 0, a);
+		expect_eye(image, width, 0, 40, 0, 1, 0);
+		expect_eye(image, width, 0, 4, 0, 0, a);
+		expect_eye(image, width, 1, EyeW - 1 - 24, 1 - a, 0, a);
+
+		// Screen space ambient occlusion samples each eye's own depth, so flat interiors far from any occluder are unchanged.
+		View3D_AmbientOcclusionSet(fixture.m_window, api::AmbientOcclusionProps{ .m_enabled = TRUE });
+		image = fixture.Image(&width);
+		expect_eye(image, width, 0, 24, 1 - a, 0, a);
+		expect_eye(image, width, 0, 40, 0, 1, 0);
+		expect_eye(image, width, 1, EyeW - 1 - 24, 1 - a, 0, a);
+		View3D_AmbientOcclusionSet(fixture.m_window, api::AmbientOcclusionProps{ .m_enabled = FALSE });
+
+		// An odd output width gives each eye floor(width / 2) columns and clears the uncovered last column to the background.
+		View3D_WindowBackBufferSizeSet(fixture.m_window, SIZE{ ImageSize + 1, ImageSize }, FALSE);
+		View3D_WindowViewportSet(fixture.m_window, api::Viewport{ 0, 0, ImageSize + 1, ImageSize, 0, 1, ImageSize + 1, ImageSize });
+		Require(std::abs(View3D_CameraAspectGet(fixture.m_window) - 0.5f) < 1e-4f, "Odd output width changed the eye aspect");
+		image = fixture.Image(&width);
+		Require(width == ImageSize + 1, "Back buffer resize was not applied");
+		expect_mirrored(image, width, 0.05f, "Odd width");
+		expect_eye(image, width, 1, EyeW, 0, 0, 0);
+		View3D_WindowBackBufferSizeSet(fixture.m_window, SIZE{ ImageSize, ImageSize }, FALSE);
+		View3D_WindowViewportSet(fixture.m_window, api::Viewport{ 0, 0, ImageSize, ImageSize, 0, 1, ImageSize, ImageSize });
+
+		// The focus and origin points have the disparity of their world depth. With the camera at z = 25 and a focus distance of 40, the origin is at
+		// depth 25 (eye-local x = 38.4 in the left eye) and the focus point at depth 40 (x = 33.6). Their green Y axes rise from those columns.
+		// A focus point that moved with the eye would instead appear at x = 25.6.
+		{
+			// Show only the stock points. Clip planes scale with the focus distance, so restate them in absolute units.
+			fixture.Clear();
+			auto focus_dist = View3D_CameraFocusDistanceGet(fixture.m_window);
+			View3D_CameraFocusDistanceSet(fixture.m_window, 40.0f);
+			View3D_CameraClipPlanesSet(fixture.m_window, 1, 100, api::EClipPlanes::Both);
+			View3D_CameraToWorldSet(fixture.m_window, api::Mat4x4{ {1,0,0,0}, {0,1,0,0}, {0,0,1,0}, {0,0,25,1} });
+			View3D_StockObjectVisibleSet(fixture.m_window, api::EStockObject::FocusPoint | api::EStockObject::OriginPoint, TRUE);
+			image = fixture.Image(&width);
+			View3D_StockObjectVisibleSet(fixture.m_window, api::EStockObject::FocusPoint | api::EStockObject::OriginPoint, FALSE);
+			View3D_CameraToWorldSet(fixture.m_window, api::Mat4x4{ {1,0,0,0}, {0,1,0,0}, {0,0,1,0}, {0,0,0,1} });
+			View3D_CameraFocusDistanceSet(fixture.m_window, focus_dist);
+			View3D_CameraClipPlanesSet(fixture.m_window, 1, 100, api::EClipPlanes::Both);
+
+			// True if any left-eye column in [x0, x1], or its mirror in the right eye, is green in the rows just above the points.
+			auto green_in = [&](int eye, int x0, int x1)
+			{
+				// Mirror the column range for the right eye.
+				for (auto x = x0; x <= x1; ++x)
+				{
+					for (auto y = ImageSize / 2 - 3; y != ImageSize / 2; ++y)
+					{
+						auto c = px(image, width, eye, eye == 0 ? x : EyeW - 1 - x, y);
+						if (c[1] > 0.05f && c[0] < 0.05f && c[2] < 0.05f)
+							return true;
+					}
+				}
+				return false;
+			};
+			for (auto eye = 0; eye != 2; ++eye)
+			{
+				Require(green_in(eye, 37, 40), "Origin point is not at its world depth");
+				Require(green_in(eye, 32, 35), "Focus point is not at its world depth");
+				Require(!green_in(eye, 22, 30), "Focus point moved with the eye camera");
+			}
+		}
+
+		// Ray traced reflections use each eye's camera. A green quad behind the camera, reflected by a mirror on the convergence plane, appears at
+		// depth 110, beyond convergence. Its uncrossed disparity moves it 2.7 units (3.5 pixels) left in the left eye and right in the right eye.
+		if (View3D_WindowRayTracingInfoGet(fixture.m_window).m_available)
+		{
+			// Replace the scene with only the mirror and the hidden reflected quad.
+			fixture.Clear();
+			auto mirror = View3D_ObjectCreateLdrA("*Plane Mirror FF000000 {*Data{90 90} *Reflectivity{1} *o2w{*pos{0 0 -50}}}", FALSE, nullptr, nullptr);
+			Require(mirror != nullptr, "Mirror creation failed");
+			fixture.m_objects.push_back(mirror);
+			View3D_WindowAddObject(fixture.m_window, mirror);
+			fixture.Quad(-10, 0xFF00FF00, 8);
+			View3D_RayTracingPropertiesSet(fixture.m_window, { api::ERayTracingFeature::Reflections, 1 });
+			View3D_WindowRayTracingEnabledSet(fixture.m_window, TRUE);
+			Require(View3D_WindowRayTracingEnabledGet(fixture.m_window), "Ray tracing did not enable");
+			image = fixture.Image(&width);
+			expect_mirrored(image, width, 0.05f, "Ray traced");
+			Require(px(image, width, 0, 26, ImageSize / 2)[1] > 0.1f, "Reflected quad missing at its left eye position");
+			Require(px(image, width, 0, 37, ImageSize / 2)[1] < 0.02f, "Reflected quad has no uncrossed disparity in the left eye");
+			View3D_WindowRayTracingEnabledSet(fixture.m_window, FALSE);
+		}
+		else
+		{
+			auto info = View3D_WindowRayTracingInfoGet(fixture.m_window);
+			std::cout << "SKIP stereo ray traced reflection test: DXR unavailable (requested " << info.m_requested << ", hardware " << info.m_hardware_supported << ")\n";
+		}
+
+		// Disabling stereo restores the mono aspect and one full-width view with no disparity.
+		fixture.Clear();
+		fixture.Quad(Convergence, 0xFFFF0000, 10);
+		fixture.Quad(Convergence / 2, 0xFF00FF00, 2);
+		View3D_StereoSet(fixture.m_window, api::StereoProps{ .m_enabled = FALSE, .m_eye_separation_mm = SeparationMm, .m_scene_unit_mm = SceneUnitMm, .m_convergence = Convergence });
+		Require(std::abs(View3D_CameraAspectGet(fixture.m_window) - 1.0f) < 1e-4f, "Mono camera aspect was not restored");
+		image = fixture.Image(&width);
+		Require(width == ImageSize, "Mono output size changed");
+		Expect(image, 0, 1, 0, 64, 64);
+		Expect(image, 1, 0, 0, 64 + 9, 64);
+		Expect(image, 0, 0, 0, 64 + 20, 64);
+		fixture.CheckErrors();
+		fixture.CheckDebugLayer();
+		std::cout << "PASS side-by-side stereo: sizing, convergence, disparity, transparency, SSAO, odd width, and mono toggle: MSAA " << samples << '\n';
+	}
+
 	// Replace a custom-pixel scene with stock world geometry and a real sky without an intervening render.
 	void SceneHandoffTests(int samples)
 	{
@@ -366,6 +625,15 @@ namespace pr::unittests::view3d12
 	PRUnitTest(View3d12_NormalTransform, Quick)
 	{
 		render_tests::NormalTransformTests();
+	}
+	PRUnitTest(View3d12_StereoEye, Quick)
+	{
+		render_tests::StereoEyeTests();
+	}
+	PRUnitTest(View3d12_StereoRender, Extended | Serial)
+	{
+		render_tests::StereoRenderTests(1);
+		render_tests::StereoRenderTests(4);
 	}
 	PRUnitTest(View3d12_DescriptorBinding, Quick)
 	{

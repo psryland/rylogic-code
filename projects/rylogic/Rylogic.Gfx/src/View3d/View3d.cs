@@ -497,6 +497,7 @@ namespace Rylogic.Gfx
 			Rendering            = 1 << 21,
 			Rendering_RayTracing = Rendering | 1 << 0,
 			Rendering_PostEffects = Rendering | 1 << 2,
+			Rendering_Stereo     = Rendering | 1 << 3,
 
 			_flags_enum = 0,
 
@@ -1182,6 +1183,23 @@ namespace Rylogic.Gfx
 					MaxReflectionBounces = 1,
 				};
 			}
+		}
+
+		/// <summary>Side-by-side stereo settings. The eye separation is in millimetres; the convergence distance is in scene units.</summary>
+		[StructLayout(LayoutKind.Sequential)]
+		public struct StereoProps
+		{
+			/// <summary>Render left and right eye views side by side, each into half of the output</summary>
+			public bool Enabled;
+
+			/// <summary>Distance between the eyes in millimetres. Zero means automatic: one thirtieth of the convergence distance.</summary>
+			public float EyeSeparationMm;
+
+			/// <summary>Length of one scene unit in millimetres, used to convert the eye separation into scene units. Zero means 1000 (scene units are metres).</summary>
+			public float SceneUnitMm;
+
+			/// <summary>Distance from the camera to the zero-disparity plane. Zero means automatic: the camera focus distance.</summary>
+			public float Convergence;
 		}
 
 		/// <summary>Scene-wide shadow rendering settings. A light casts shadows when its 'CastShadow' is greater than zero.</summary>
@@ -2066,6 +2084,9 @@ namespace Rylogic.Gfx
 		[DllImport(Dll)] private static extern void View3D_WindowRayTracingEnabledSet(HWindow window, bool enable);
 		[DllImport(Dll)] private static extern RayTracingProps View3D_RayTracingPropertiesGet(HWindow window);
 		[DllImport(Dll)] private static extern void View3D_RayTracingPropertiesSet(HWindow window, ref RayTracingProps props);
+		[DllImport(Dll)] private static extern StereoProps View3D_StereoGet(HWindow window);
+		[DllImport(Dll)] private static extern void View3D_StereoSet(HWindow window, ref StereoProps props);
+		[DllImport(Dll)] private static extern void View3D_StereoCursorSet(HWindow window, bool visible, v2 ss_point);
 
 		// Get/Set the dimensions of the render target. Note: Not equal to window size for non-96 dpi screens!
 		// In set, if 'width' and 'height' are zero, the RT is resized to the associated window automatically.
@@ -2326,6 +2347,7 @@ namespace Rylogic.Gfx
 		// The x,y components of 'screen' should be in normalised screen space, i.e. (-1,-1)->(1,1)
 		// The z component should be the world space distance from the camera
 		[DllImport(Dll)] private static extern void View3D_NSSPointToWSRay(HWindow window, v4 screen, out v4 ws_point, out v4 ws_direction);
+		[DllImport(Dll)] private static extern void View3D_SSPointToWSRay(HWindow window, v2 screen, out v4 ws_point, out v4 ws_direction);
 
 		// Lights *********************************
 

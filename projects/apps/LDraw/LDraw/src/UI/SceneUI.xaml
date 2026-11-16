@@ -54,6 +54,7 @@
 					<StaticResource	ResourceKey="View3dMenuItem_CullMode"/>
 					<StaticResource	ResourceKey="View3dMenuItem_Lighting"/>
 					<StaticResource	ResourceKey="View3dMenuItem_RayTracing"/>
+					<StaticResource	ResourceKey="View3dMenuItem_Stereo"/>
 				</MenuItem>
 				<MenuItem Header="Diagnostics">
 					<StaticResource	ResourceKey="View3dMenuItem_BoundingBoxes"/>

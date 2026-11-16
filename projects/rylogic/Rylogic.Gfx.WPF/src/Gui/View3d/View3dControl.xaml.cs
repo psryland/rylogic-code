@@ -138,6 +138,29 @@ namespace Rylogic.Gui.WPF
 			Keyboard.Focus(this);
 			base.OnMouseDown(e);
 		}
+		protected override void OnMouseMove(MouseEventArgs e)
+		{
+			// The OS cursor appears in only one eye, so a cursor drawn in every view follows the mouse instead
+			base.OnMouseMove(e);
+			if (Window != null && Window.Stereo.Enabled)
+				Window.StereoCursor(true, e.GetPosition(this).ToV2());
+		}
+		protected override void OnMouseLeave(MouseEventArgs e)
+		{
+			// Hide the stereo cursor once the mouse is no longer over the scene
+			base.OnMouseLeave(e);
+			Window?.StereoCursor(false, v2.Zero);
+		}
+		protected override void OnQueryCursor(QueryCursorEventArgs e)
+		{
+			// Hide the OS cursor in favour of the stereo cursor
+			base.OnQueryCursor(e);
+			if (Window != null && Window.Stereo.Enabled)
+			{
+				e.Cursor = Cursors.None;
+				e.Handled = true;
+			}
+		}
 		protected override void OnRender(DrawingContext dc)
 		{
 			// The control is rendering, update the source
@@ -237,6 +260,14 @@ namespace Rylogic.Gui.WPF
 					{
 						BackgroundColour = Window.BackgroundColour;
 						NotifyPropertyChanged(nameof(BackgroundColour));
+					}
+					if (Bit.AllSet(e.Setting, View3d.ESettings.Rendering_Stereo))
+					{
+						// The stereo cursor replaces the OS cursor only while stereo is enabled
+						if (!Window.Stereo.Enabled)
+							Window.StereoCursor(false, v2.Zero);
+
+						Mouse.UpdateCursor();
 					}
 				}
 				void HandleInvalidated(object? sender, EventArgs e)
@@ -424,17 +455,27 @@ namespace Rylogic.Gui.WPF
 			}
 		}
 
+		/// <summary>The size of the image rendered by each view. Views divide the control horizontally into equal columns.</summary>
+		public Size ViewRenderSize
+		{
+			get
+			{
+				var sz = RenderSize;
+				return new Size(sz.Width / Window.ViewCount, sz.Height);
+			}
+		}
+
 		/// <summary>The current pixel aspect ratio</summary>
 		public double ActualPixelAspect
 		{
 			get
 			{
-				var sz = RenderSize;
+				var sz = ViewRenderSize;
 				return Camera.Aspect * sz.Height / sz.Width;
 			}
 			set
 			{
-				var sz = RenderSize;
+				var sz = ViewRenderSize;
 				if (sz.Width != 0 && sz.Height != 0)
 				{
 					var aspect = (float)(value * sz.Width / sz.Height);

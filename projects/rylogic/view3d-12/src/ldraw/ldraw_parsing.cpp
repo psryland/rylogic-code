@@ -6059,11 +6059,12 @@ namespace pr::rdr12::ldraw
 							throw std::runtime_error("Invalid viewport size");
 						#endif
 
-						// Convert the world space position into a screen space position
+						// Convert the world space position into a screen space position. The camera's lens shift moves the projected position.
 						auto pt_ss = w2c * ob.m_i2w.pos;
 						auto viewarea = main_camera.ViewRectAtDistance(abs(pt_ss.z));
-						pt_ss.x *= ViewPortSize / viewarea.x;
-						pt_ss.y *= ViewPortSize / viewarea.y;
+						auto lens_shift = main_camera.LensShift();
+						pt_ss.x = (pt_ss.x / viewarea.x + 0.5f * lens_shift.x) * ViewPortSize;
+						pt_ss.y = (pt_ss.y / viewarea.y + 0.5f * lens_shift.y) * ViewPortSize;
 						pt_ss.z = static_cast<float>(main_camera.NormalisedDistance(pt_ss.z));
 
 						// The text quad has a scale of 100pt == 1m. For screen space make this 100pt * 96/72 == 133px
@@ -6091,15 +6092,15 @@ namespace pr::rdr12::ldraw
 					// Scale up the view port to reduce floating point precision noise.
 					constexpr int ViewPortSize = 1024;
 
-					// Screen space uses a normalised orthographic projection, with reversed depth to match the main camera
-					obj->m_c2s = m4x4::ProjectionOrthographic(float(ViewPortSize), float(ViewPortSize), 1, -0.01f, true);
-
 					// Update the rendering 'i2w' transform on add-to-scene.
 					obj->OnAddToScene += [](LdrObject& ob, Scene const& scene)
 					{
 						// The 'ob.m_i2w' is a normalised screen space position
 						// (-1,-1,-0) is the lower left corner on the near plane,
 						// (+1,+1,-1) is the upper right corner on the far plane.
+						// Screen space uses a normalised orthographic projection, with reversed depth to match the main camera.
+						// The scene's screen space shift is applied after the projection, so that stereo views see the text at a depth.
+						ob.m_c2s = m4x4::Translation(scene.m_screen_space_shift, 0, 0) * m4x4::ProjectionOrthographic(float(ViewPortSize), float(ViewPortSize), 1, -0.01f, true);
 						auto& main_camera = static_cast<Camera const&>(scene.m_cam);
 						auto c2w = main_camera.CameraToWorld();
 						auto w = 1.0f * scene.m_viewport.ScreenW;
