@@ -1,4 +1,4 @@
-﻿//*********************************************
+//*********************************************
 // View 3d
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
@@ -29,7 +29,7 @@ namespace pr::rdr12::shaders
 	void ArrowHeadGS::SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, Scene const& scene, CameraTransforms const&, DrawListElement const*)
 	{
 		fwd::CBufScreenSpace cb = {
-			.screen_dim = To<v2>(scene.wnd().BackBufferSize()),
+			.screen_dim = To<v2>(scene.wnd().RenderTargetSize()),
 			.size = m_size, // Default if 'size' is not read from 'tex0' in the vertex
 			.depth = m_depth,
 		};

@@ -164,7 +164,7 @@ namespace pr::rdr12
 		, m_alp_list(scene.d3d(), nullptr, "RenderForwardAlpha", EColours::Blue)
 		, m_default_tex(rdr().store().StockTexture(EStockTexture::White))
 		, m_default_sam(rdr().store().StockSampler(EStockSampler::LinearClamp))
-		, m_sky_history(std::make_unique<SkyHistory>())
+		, m_sky_histories()
 		, m_reflection_plane(std::make_unique<ReflectionPlane>(scene.d3d()))
 	{
 		// Create the default PSO description
@@ -360,7 +360,7 @@ namespace pr::rdr12
 		auto des_heaps = { wnd().m_heap_view.get(), wnd().m_heap_samp.get() };
 		m_cmd_list.SetDescriptorHeaps({ des_heaps.begin(), des_heaps.size() });
 		m_alp_list.SetDescriptorHeaps({ des_heaps.begin(), des_heaps.size() });
-		PrepareSkyHistory();
+		PrepareSkyHistory(frame);
 
 		// Set the viewport and scissor rect.
 		auto const& vp = scn().m_viewport;
@@ -581,14 +581,22 @@ namespace pr::rdr12
 		}
 	}
 
-	// Prepare the sky's low cloud history for this frame.
-	void RenderForward::PrepareSkyHistory()
+	// Prepare the sky's low cloud history of the frame's view.
+	void RenderForward::PrepareSkyHistory(Frame const& frame)
 	{
+		// Each view keeps its own history, because a history is only valid for the camera that wrote it
+		if (frame.m_view >= isize(m_sky_histories))
+			m_sky_histories.resize(frame.m_view + 1);
+		if (m_sky_histories[frame.m_view] == nullptr)
+			m_sky_histories[frame.m_view] = std::make_unique<SkyHistory>();
+
+		m_sky_history = m_sky_histories[frame.m_view].get();
+
 		// Blend frames only when a procedural sky is drawn, in a scene whose camera moves smoothly between frames.
 		// Otherwise the shader's history constants are zero, which turns the blending off.
 		auto& history = *m_sky_history;
 		auto const* sky = scn().CloudSky();
-		auto const bb_size = wnd().BackBufferSize();
+		auto const bb_size = wnd().RenderTargetSize();
 		if (sky == nullptr || !scn().m_sky_history || bb_size.x == 0 || bb_size.y == 0)
 		{
 			m_shader.m_sky_history = nullptr;
@@ -657,7 +665,7 @@ namespace pr::rdr12
 		// The reflection needs the K-buffer's separate alpha command list, and is seen only from above the plane
 		auto const& vp = scn().m_viewport;
 		auto const plane = scn().m_reflection_plane;
-		auto const bb_size = wnd().BackBufferSize();
+		auto const bb_size = wnd().RenderTargetSize();
 		auto const cam_pos = scn().m_cam.CameraToWorld().pos;
 		if (!wnd().m_alpha_kbuffer || All(plane == v4::Zero()) || bb_size.x == 0 || bb_size.y == 0 || vp.Width < 1 || vp.Height < 1)
 			return false;
@@ -807,7 +815,7 @@ namespace pr::rdr12
 		auto const& cam = scn().m_cam;
 		auto const& vp = scn().m_viewport;
 		auto const plane = scn().m_reflection_plane;
-		auto const bb_size = wnd().BackBufferSize();
+		auto const bb_size = wnd().RenderTargetSize();
 		auto const cam_pos = cam.CameraToWorld().pos;
 		m_shader.m_reflection_plane = nullptr;
 		if (!ReflectionPlaneNeeded())

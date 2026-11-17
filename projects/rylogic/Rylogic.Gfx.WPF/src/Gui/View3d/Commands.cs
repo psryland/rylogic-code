@@ -55,6 +55,7 @@ namespace Rylogic.Gui.WPF
 			ToggleAntialiasing = Command.Create(this, ToggleAntialiasingInternal);
 			ShowLightingUI = Command.Create(this, ShowLightingUIInternal);
 			ShowRayTracingUI = Command.Create(this, ShowRayTracingUIInternal);
+			ShowStereoUI = Command.Create(this, ShowStereoUIInternal);
 
 			// Diagnostics
 			ToggleShowNormals = Command.Create(this, ToggleShowNormalsInternal);
@@ -601,6 +602,20 @@ namespace Rylogic.Gui.WPF
 			RayTracingUI.Focus();
 		}
 		public View3dRayTracingUI? RayTracingUI { get; private set; }
+
+		/// <inheritdoc/>
+		public ICommand ShowStereoUI { get; private set; } = null!;
+		private void ShowStereoUIInternal()
+		{
+			if (StereoUI == null)
+			{
+				StereoUI = new View3dStereoUI(System.Windows.Window.GetWindow(this), Window);
+				StereoUI.Closed += delegate { StereoUI = null; };
+				StereoUI.Show();
+			}
+			StereoUI.Focus();
+		}
+		public View3dStereoUI? StereoUI { get; private set; }
 
 		/// <inheritdoc/>
 		public ICommand ShowMeasureToolUI { get; private set; } = null!;

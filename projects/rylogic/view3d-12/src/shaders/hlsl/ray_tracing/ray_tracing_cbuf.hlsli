@@ -93,7 +93,7 @@ struct CBufFrame// :reg(b0)
 	// x = aspect, y = vertical FOV, z = focus distance, w = orthographic flag
 	float4 camera;
 
-	// x = near clip, y = far clip
+	// x = near clip, y = far clip, zw = lens shift of the projection centre in normalised screen space
 	float4 clip;
 
 	// x = shadow strength, y = minimum shadow-ray bias

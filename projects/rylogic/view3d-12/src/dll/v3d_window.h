@@ -81,7 +81,14 @@ namespace pr::rdr12
 		PointInstance m_origin_point;    // Origin point graphics
 		Instance      m_bbox_model;      // Bounding box graphics
 		Instance      m_selection_box;   // Selection box graphics
+		Instance      m_stereo_cursor;   // Cursor graphics drawn in every view (see StereoCursor)
 		EStockObject  m_visible_objects; // Visible stock objects
+
+		// Stereo
+		view3d::StereoProps m_stereo;   // Stereo rendering settings
+		bool m_stereo_cursor_visible;   // True if the stereo cursor is drawn
+		v2   m_stereo_cursor_ss;        // The stereo cursor position in output screen space
+		int  m_nav_view;                // The view that the current mouse navigation started in, so drags across a view boundary stay in one view
 
 		// Misc
 		mutable std::string  m_settings;       // Window settings
@@ -186,9 +193,34 @@ namespace pr::rdr12
 		bool FullScreen() const;
 		void FullScreen(bool fullscreen);
 
-		// Get/Set the window viewport
+		// Get/Set the window viewport. This is the viewport of the whole output, which spans every view. Each view uses an equal part of it.
 		view3d::Viewport Viewport() const;
 		void Viewport(view3d::Viewport const& vp);
+
+		// The ratio of the output width to the width of one view. This is 1 for mono output, and about 2 for side-by-side output.
+		float OutputToViewScale() const;
+
+		// Get/Set the stereo rendering settings. Navigation always acts on the logical camera ('m_scene.m_cam'); each eye derives its camera from it.
+		view3d::StereoProps Stereo() const;
+		void Stereo(view3d::StereoProps const& props);
+
+		// The eye separation and convergence distance in use, in scene units, with the zero 'automatic' values resolved
+		v2 StereoSeparationAndConvergence() const;
+
+		// The camera that renders view 'view'. This is the logical camera for mono output, or the eye camera for side-by-side output.
+		SceneCamera ViewCamera(int view) const;
+
+		// Find the view that contains 'ss_point' (in output screen space) and convert the point into that view's normalised screen space
+		struct ViewPoint
+		{
+			int m_view; // The index of the view that contains the point
+			v2 m_nss;   // The point in the view's normalised screen space
+		};
+		ViewPoint SSPointToViewPoint(v2 ss_point) const;
+		ViewPoint SSPointToViewPoint(v2 ss_point, int view) const;
+
+		// Show/Hide a cursor drawn in every view, for outputs where the system cursor is only seen by one eye. 'ss_point' is in output screen space.
+		void StereoCursor(bool visible, v2 ss_point);
 
 		// Enumerate the object collection GUIDs associated with this window
 		void EnumGuids(view3d::EnumGuidsCB enum_guids_cb);
@@ -544,6 +576,13 @@ namespace pr::rdr12
 
 		// Create stock models such as the focus point, origin, etc
 		void CreateStockObjects();
+
+		// Adjust the camera aspect ratio after the view render target size changes from 'old_size'
+		void RescaleCameraAspect(iv2 old_size);
+
+		// Add the window's objects, stock objects, and tools to the scene, as seen by the scene's current camera.
+		// 'logical_cam' is the navigation camera that the scene's current (view) camera derives from.
+		void AddToScene(SceneCamera const& logical_cam);
 
 		// Release state acquired in the constructor body
 		void Teardown();

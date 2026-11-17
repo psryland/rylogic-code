@@ -302,11 +302,12 @@ namespace Rylogic.Gfx
 
 			/// <summary>
 			/// Convert a screen space point into a world space ray from the camera.
-			/// The ray will pass though the screen space point at the focus distance of the camera.</summary>
+			/// The ray will pass though the screen space point at the focus distance of the camera.
+			/// With stereo enabled, the ray starts at the eye of the view under 'screen'.</summary>
 			public (v4 ws_point, v4 ws_direction) SSPointToWSRay(PointF screen)
 			{
-				var nss = SSPointToNSSPoint(screen);
-				return NSSPointToWSRay(new v4(nss.x, nss.y, FocusDist, 1.0f));
+				View3D_SSPointToWSRay(m_window.Handle, new v2(screen.X, screen.Y), out var ws_point, out var ws_direction);
+				return (ws_point, ws_direction);
 			}
 
 			/// <summary>A ray cast from the camera into the scene through client space point 'point_cs'</summary>

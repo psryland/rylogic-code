@@ -514,7 +514,7 @@ namespace Rylogic.Gui.WPF
 		public ICommand DoAspect11 { get; private set; } = null!;
 		private void DoAspect11Internal()
 		{
-			Range.Aspect = Scene.Window.Viewport.Width / Scene.Window.Viewport.Height;
+			Range.Aspect = Scene.Window.Viewport.Width / (Scene.Window.Viewport.Height * Scene.Window.ViewCount);
 			SetCameraFromRange();
 			Invalidate();
 		}
@@ -780,6 +780,9 @@ namespace Rylogic.Gui.WPF
 
 		/// <inheritdoc/>
 		public ICommand ShowRayTracingUI => Scene.ShowRayTracingUI;
+
+		/// <inheritdoc/>
+		public ICommand ShowStereoUI => Scene.ShowStereoUI;
 
 		/// <inheritdoc/>
 		public ICommand ShowMeasureToolUI => Scene.ShowMeasureToolUI;

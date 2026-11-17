@@ -18,7 +18,8 @@ namespace pr::rdr12
 	constexpr int HeapCapacitySamp = 16;
 	constexpr int HeapIdxMsaaRtv = 0;
 	constexpr int HeapIdxMsaaDsv = 0;
-	constexpr int HeapIdxSwapRtv = 1;
+	constexpr int HeapIdxViewRtv = 1;
+	constexpr int HeapIdxSwapRtv = 2;
 
 	// Constructor
 	WindowBase::WindowBase(Renderer& rdr, WndSettings const& settings)
@@ -72,6 +73,8 @@ namespace pr::rdr12
 		, m_frame_ready(::CreateEventExW(nullptr, nullptr, CREATE_EVENT_INITIAL_SET, EVENT_ALL_ACCESS))
 		, m_swap_bb(settings.m_buffer_count)
 		, m_msaa_bb()
+		, m_view_bb()
+		, m_view_layout(EViewLayout::Mono)
 		, m_bb_index()
 		, m_rt_props(settings.m_mode.Format, settings.m_bkgd_colour)
 		, m_ds_props(settings.m_depth_format, 0.0f, 0) // Reversed depth: the far plane is at 0
@@ -173,10 +176,10 @@ namespace pr::rdr12
 			m_swap_bb.resize(0); // callers should use CustomSwapChain().
 		}
 
-		// Create a descriptor heap for the back buffers (swap chain buffers + MSAA RT).
+		// Create a descriptor heap for the back buffers (MSAA RT + view RT + swap chain buffers).
 		D3D12_DESCRIPTOR_HEAP_DESC rtv_heap_desc = {
 			.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV,
-			.NumDescriptors = s_cast<UINT>(1 + m_swap_bb.size()),
+			.NumDescriptors = s_cast<UINT>(HeapIdxSwapRtv + m_swap_bb.size()),
 			.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE,
 		};
 		Check(device->CreateDescriptorHeap(&rtv_heap_desc, __uuidof(ID3D12DescriptorHeap), (void**)m_rtv_heap.address_of()));
@@ -356,12 +359,31 @@ namespace pr::rdr12
 		{
 			bb.Release(*this);
 		}
+
+		// Swap chain render targets
+		if (m_swap_chain != nullptr)
+		{
+			CreateSwapChain(size);
+		}
+
+		RecreateViewTargets(size, multisamp);
+	}
+
+	// Recreate the targets that each view renders into, for an output of 'bb_size'. The output (swap chain) buffers are not changed.
+	// GPU work referencing the old targets must have completed before calling this.
+	void Window::RecreateViewTargets(iv2 bb_size, MultiSamp const* multisamp)
+	{
+		// Release the view-sized targets
 		if (auto& bb = m_msaa_bb; true)
 		{
 			bb.Release(*this);
 		}
+		if (auto& bb = m_view_bb; true)
+		{
+			bb.Release(*this);
+		}
 
-		// The resolved-depth copy is sized to the back buffer, so it is dropped here and recreated
+		// The resolved-depth copy is sized to the view target, so it is dropped here and recreated
 		// on demand by the next pass that needs it.
 		if (m_resolved_depth != nullptr)
 		{
@@ -370,26 +392,107 @@ namespace pr::rdr12
 			m_resolved_depth_format = DXGI_FORMAT_UNKNOWN;
 		}
 
-		// Finished releasing references. Now to create new resources.
-
-		// Swap chain render targets
-		if (m_swap_chain != nullptr)
-		{
-			CreateSwapChain(size);
-		}
-
-		// MSAA render target
+		// The view render targets. Every view renders into these at the same size, one view after another.
+		auto rt_size = RenderTargetSize(bb_size);
 		if (auto& bb = m_msaa_bb; true)
 		{
 			multisamp = multisamp != nullptr ? multisamp : &bb.m_multisamp;
-			bb = CreateRenderTarget(size, *multisamp, m_rt_props, m_ds_props);
-			m_alpha_kbuffer.Resize(rdr(), size, m_rt_props);
+			bb = CreateRenderTarget(rt_size, *multisamp, m_rt_props, m_ds_props);
+			m_alpha_kbuffer.Resize(rdr(), rt_size, m_rt_props);
+		}
+		if (ViewCount() > 1)
+		{
+			m_view_bb = CreateViewTarget(rt_size);
 		}
 
-		// Notify subscribers that the back buffer size has changed.
+		// Notify subscribers that the render target size has changed.
 		// Scenes use this to update viewport dimensions and scissor rects.
-		BackBufferSizeChangedEventArgs args(size, true);
+		BackBufferSizeChangedEventArgs args(rt_size, true);
 		rdr().BackBufferSizeChanged(*this, args);
+	}
+
+	// Get/Set how the output is divided into views
+	EViewLayout Window::ViewLayout() const
+	{
+		return m_view_layout;
+	}
+	void Window::ViewLayout(EViewLayout layout)
+	{
+		if (m_view_layout == layout)
+			return;
+
+		// The view targets depend on the layout, but the output buffers do not. Keeping the output buffers matters when they are
+		// supplied by the caller (see 'CustomSwapChain'), because the window cannot recreate those itself.
+		m_view_layout = layout;
+		if (auto size = BackBufferSize(); size.x > 0 && size.y > 0)
+		{
+			// The last submitted frame may borrow a view target, and the GPU may still reference the targets being replaced
+			m_frame_output = nullptr;
+			m_gsync.AddSyncPoint(rdr().GfxQueue());
+			m_gsync.Wait();
+			m_cmd_alloc_pool.Sweep();
+
+			RecreateViewTargets(size, nullptr);
+		}
+
+		// A presented swap chain may be idle (occluded test presents only), so force a real present of the new layout
+		m_idle = false;
+	}
+
+	// The number of views that each frame records
+	int Window::ViewCount() const
+	{
+		switch (m_view_layout)
+		{
+			case EViewLayout::Mono: return 1;
+			case EViewLayout::SideBySide: return 2;
+			default: throw std::runtime_error("Unknown view layout");
+		}
+	}
+
+	// The size of the target that each view is rendered into
+	iv2 Window::RenderTargetSize() const
+	{
+		return RenderTargetSize(BackBufferSize());
+	}
+	iv2 Window::RenderTargetSize(iv2 bb_size) const
+	{
+		switch (m_view_layout)
+		{
+			case EViewLayout::Mono:
+			{
+				return bb_size;
+			}
+			case EViewLayout::SideBySide:
+			{
+				// Each half rounds down. An odd output width leaves its last column uncovered, which is cleared to the background colour.
+				return iv2{ std::max(1, bb_size.x / 2), bb_size.y };
+			}
+			default:
+			{
+				throw std::runtime_error("Unknown view layout");
+			}
+		}
+	}
+
+	// The position of 'view' within the output
+	iv2 Window::ViewOffset(int view) const
+	{
+		switch (m_view_layout)
+		{
+			case EViewLayout::Mono:
+			{
+				return iv2::Zero();
+			}
+			case EViewLayout::SideBySide:
+			{
+				return iv2{ view * RenderTargetSize().x, 0 };
+			}
+			default:
+			{
+				throw std::runtime_error("Unknown view layout");
+			}
+		}
 	}
 
 	// An auto-reset event that is signalled when the next NewFrame will not block
@@ -453,7 +556,7 @@ namespace pr::rdr12
 			Check(false, "Device does not support MSAA for requested depth stencil format");
 
 		auto queue = rdr().GfxQueue();
-		auto size = BackBufferSize();
+		auto size = RenderTargetSize();
 
 		// Flush any GPU commands that are still in flight
 		m_gsync.AddSyncPoint(queue);
@@ -522,9 +625,52 @@ namespace pr::rdr12
 		m_frame_output = nullptr;
 		++m_frame_number;
 
-		// Get the current swap chain back buffer
+		// The swap chain buffer that this frame is output to
+		auto& bb_swap = BBCount() != 0 ? m_swap_bb[BBIndex()] : BackBuffer::Null();
+
+		// Ensure the back buffer is available for rendering. The swap chain buffer's sync point bounds the number of frames in flight to the
+		// buffer count. The MSAA target is shared by every frame, but all frames run in order on the graphics queue, so the CPU only waits
+		// for it when there is no swap chain buffer to bound the frames in flight. Time the wait so callers can separate it from CPU work.
+		auto wait_start = std::chrono::steady_clock::now();
+		if (bb_swap.m_render_target != nullptr)
+			m_gsync.Wait(bb_swap.m_sync_point);
+		else
+			m_gsync.Wait(m_msaa_bb.m_sync_point);
+
+		m_frame_wait_s = seconds_t(std::chrono::steady_clock::now() - wait_start).count();
+
+		// Bind D2D to the current swap chain render target
+		if (AllSet(m_swap_chain_flags, DXGI_SWAP_CHAIN_FLAG_GDI_COMPATIBLE))
+			m_d2d_dc->SetTarget(bb_swap.m_d2d_target.get());
+
+		// Start recording the first view
+		BeginView(0);
+		return m_frame;
+	}
+
+	// Submit the recorded view and start recording the next view of the same frame
+	Frame& Window::NextView(Frame& frame)
+	{
+		// Views are recorded in order into the window's frame
+		assert(&frame == &m_frame && frame.m_view + 1 < ViewCount());
+		SubmitView(frame);
+
+		// Command allocators handed out from here on belong to the next view, so give them a later sync point than the submitted view's
+		m_gsync.AddSyncPoint(rdr().GfxQueue());
+		BeginView(frame.m_view + 1);
+		return m_frame;
+	}
+
+	// Start recording 'view' of the current frame
+	void Window::BeginView(int view)
+	{
+		// With one view, the scene is resolved straight into the swap chain buffer. With more, each view is resolved
+		// into the view target, which SubmitView copies into the view's part of the swap chain buffer.
 		auto& bb_main = m_msaa_bb;
-		auto& bb_post = BBCount() != 0 ? m_swap_bb[BBIndex()] : BackBuffer::Null();
+		auto& bb_post =
+			ViewCount() > 1 ? m_view_bb :
+			BBCount() != 0 ? m_swap_bb[BBIndex()] :
+			BackBuffer::Null();
 
 		#if PR_DBG_RDR
 		if (bb_post.m_render_target != nullptr)
@@ -536,23 +682,11 @@ namespace pr::rdr12
 		}
 		#endif
 
-		// Ensure the back buffer is available for rendering. The swap chain buffer's sync point bounds the number of frames in flight to the
-		// buffer count. The MSAA target is shared by every frame, but all frames run in order on the graphics queue, so the CPU only waits
-		// for it when there is no swap chain buffer to bound the frames in flight. Time the wait so callers can separate it from CPU work.
-		auto wait_start = std::chrono::steady_clock::now();
-		if (bb_post.m_render_target != nullptr)
-			m_gsync.Wait(bb_post.m_sync_point);
-		else
-			m_gsync.Wait(bb_main.m_sync_point);
-
-		m_frame_wait_s = seconds_t(std::chrono::steady_clock::now() - wait_start).count();
-
-		// Bind D2D to the current swap chain render target
-		if (AllSet(m_swap_chain_flags, DXGI_SWAP_CHAIN_FLAG_GDI_COMPATIBLE))
-			m_d2d_dc->SetTarget(bb_post.m_d2d_target.get());
+		// Each view records its own depth resolve, since each view has its own depth content
+		m_resolved_depth_frame = -1;
 
 		// Create the frame object to be passed to the scenes
-		m_frame.Reset(bb_main, bb_post);
+		m_frame.Reset(bb_main, bb_post, view);
 		auto vp = Viewport(bb_main.rt_size());
 		auto scissor = vp.m_clip[0];
 
@@ -625,26 +759,46 @@ namespace pr::rdr12
 		// Composite transparent scene content before any final overlay.
 		if (bb_post.m_render_target != nullptr)
 			m_alpha_kbuffer.ResolveAlpha(m_frame.m_composite, m_heap_view, bb_post, vp, scissor, m_dither_amount);
-
-		// Return the frame object
-		return m_frame;
 	}
 
-	// Present the frame to the display
-	void Window::Present(Frame& frame, EGpuFlush flush, bool display)
+	// Copy the recorded view into its part of the output, then execute the frame's command lists
+	void Window::SubmitView(Frame& frame)
 	{
-		// Be careful that you never have the message-pump thread wait on the render thread.
-		// For instance, calling IDXGISwapChain1::Present1 (from the render thread) may cause
-		// the render thread to wait on the message-pump thread. When a mode change occurs,
-		// this scenario is possible if Present1 calls ::SetWindowPos() or ::SetWindowStyle()
-		// and either of these methods call ::SendMessage(). In this scenario, if the message-pump
-		// thread has a critical section guarding it or if the render thread is blocked, then the
-		// two threads will deadlock.
-		if (flush == EGpuFlush::DontFlush)
-			return;
+		// Copy a view that was rendered into the view target into its part of the swap chain buffer. Both resources return to
+		// their PRESENT boundary state, so the next view, and the frame's presentation, see them as before.
+		auto& bb_swap = BBCount() != 0 ? m_swap_bb[BBIndex()] : BackBuffer::Null();
+		if (ViewCount() > 1 && bb_swap.m_render_target != nullptr && m_view_bb.m_render_target != nullptr)
+		{
+			auto swap_rt = bb_swap.m_render_target.get();
+			auto view_rt = m_view_bb.m_render_target.get();
+			auto out_size = bb_swap.rt_size();
+			auto view_size = m_view_bb.rt_size();
+			auto offset = ViewOffset(frame.m_view);
+			BarrierBatch bb(frame.m_present);
 
-		// DXGI advances its slot on Present, so retain the target identity before submitting this frame.
-		auto frame_output = BBCount() != 0 ? &m_swap_bb[BBIndex()] : nullptr;
+			// Output pixels that no view covers (e.g. the last column of an odd width) show the background colour
+			if (frame.m_view == 0 && (out_size.x != view_size.x * ViewCount() || out_size.y != view_size.y))
+			{
+				bb.Transition(swap_rt, D3D12_RESOURCE_STATE_RENDER_TARGET);
+				bb.Commit();
+
+				frame.m_present.ClearRenderTargetView(bb_swap.m_rtv, m_rt_props.Color);
+			}
+
+			// Copy the view into place
+			bb.Transition(view_rt, D3D12_RESOURCE_STATE_COPY_SOURCE);
+			bb.Transition(swap_rt, D3D12_RESOURCE_STATE_COPY_DEST);
+			bb.Commit();
+
+			auto src = D3D12_TEXTURE_COPY_LOCATION{ .pResource = view_rt, .Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX, .SubresourceIndex = 0 };
+			auto dst = D3D12_TEXTURE_COPY_LOCATION{ .pResource = swap_rt, .Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX, .SubresourceIndex = 0 };
+			auto box = D3D12_BOX{ .left = 0, .top = 0, .front = 0, .right = s_cast<UINT>(view_size.x), .bottom = s_cast<UINT>(view_size.y), .back = 1 };
+			frame.m_present.CopyTextureRegion(&dst, s_cast<UINT>(offset.x), s_cast<UINT>(offset.y), 0, &src, &box);
+
+			bb.Transition(view_rt, D3D12_RESOURCE_STATE_PRESENT);
+			bb.Transition(swap_rt, D3D12_RESOURCE_STATE_PRESENT);
+			bb.Commit();
+		}
 
 		frame.m_prepare.Close();
 		frame.m_world_depth.Close();
@@ -681,6 +835,29 @@ namespace pr::rdr12
 			frame.m_final_overlay,
 			frame.m_present,
 		});
+	}
+
+	// Present the frame to the display
+	void Window::Present(Frame& frame, EGpuFlush flush, bool display)
+	{
+		// Be careful that you never have the message-pump thread wait on the render thread.
+		// For instance, calling IDXGISwapChain1::Present1 (from the render thread) may cause
+		// the render thread to wait on the message-pump thread. When a mode change occurs,
+		// this scenario is possible if Present1 calls ::SetWindowPos() or ::SetWindowStyle()
+		// and either of these methods call ::SendMessage(). In this scenario, if the message-pump
+		// thread has a critical section guarding it or if the render thread is blocked, then the
+		// two threads will deadlock.
+		if (flush == EGpuFlush::DontFlush)
+			return;
+
+		// Every view must be recorded before the frame is output
+		assert(&frame == &m_frame && frame.m_view + 1 == ViewCount());
+
+		// DXGI advances its slot on Present, so retain the target identity before submitting this frame.
+		auto frame_output = BBCount() != 0 ? &m_swap_bb[BBIndex()] : nullptr;
+
+		// Submit the last view
+		SubmitView(frame);
 
 		// Present with the debug swap chain so that graphics debugging detects a frame
 		if (m_swap_chain_dbg != nullptr && display)
@@ -743,6 +920,9 @@ namespace pr::rdr12
 		auto sync_point = m_gsync.AddSyncPoint(rdr().GfxQueue());
 		frame.bb_main().m_sync_point = sync_point;
 		frame.bb_post().m_sync_point = sync_point;
+		if (frame_output != nullptr)
+			frame_output->m_sync_point = sync_point;
+
 		m_frame_output = frame_output;
 		if (display)
 			++m_bb_index %= BBCount();
@@ -847,6 +1027,34 @@ namespace pr::rdr12
 			bb.m_depth_srv = store.Descriptors().Create(bb.m_depth_stencil.get(), srvdesc);
 		}
 
+		return bb;
+	}
+
+	// Create the 1x target that a view is resolved into before it is copied into the output
+	BackBuffer Window::CreateViewTarget(iv2 size)
+	{
+		auto device = rdr().D3DDevice();
+
+		// The view target stands in for a swap chain buffer, so it has the same format and the same PRESENT boundary state
+		BackBuffer bb(*this, MultiSamp{ 1, 0 });
+		ResDesc rtdesc = ResDesc::Tex2D(Image{ size.x, size.y, nullptr, m_rt_props.Format }, 1U, EUsage::RenderTarget);
+		assert(rtdesc.Check());
+		Check(device->CreateCommittedResource(
+			&HeapProps::Default(), D3D12_HEAP_FLAG_NONE, &rtdesc, D3D12_RESOURCE_STATE_PRESENT,
+			nullptr, __uuidof(ID3D12Resource), (void**)bb.m_render_target.address_of()));
+		DefaultResState(bb.m_render_target.get(), D3D12_RESOURCE_STATE_PRESENT);
+		DebugName(bb.m_render_target, "ViewTarget");
+		bb.m_sync_point = m_gsync.CompletedSyncPoint();
+
+		// Create the RTV as the sRGB sibling, matching the swap chain RTVs
+		D3D12_CPU_DESCRIPTOR_HANDLE rtv_handle = m_rtv_heap->GetCPUDescriptorHandleForHeapStart();
+		auto rtv_size = s_cast<int64_t>(device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV));
+		rtv_handle.ptr += s_cast<size_t>(HeapIdxViewRtv * rtv_size);
+		bb.m_rtv = rtv_handle;
+		bb.m_dsv = {};
+
+		auto rtvdesc = D3D12_RENDER_TARGET_VIEW_DESC{ .Format = ::pr::compute::ToSRGB(m_rt_props.Format), .ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D };
+		device->CreateRenderTargetView(bb.m_render_target.get(), &rtvdesc, bb.m_rtv);
 		return bb;
 	}
 

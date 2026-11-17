@@ -37,6 +37,7 @@ namespace pr::rdr12
 
 		BackBuffer const* m_bb_main; // The back buffer to render the scene to that will be anti-aliased.
 		BackBuffer const* m_bb_post; // The back buffer for post-processing effects (assume main has been rendered into post).
+		int m_view;                  // The index of the window view being recorded. A frame records each view in turn. See Window::ViewCount.
 
 		Frame(ID3D12Device4* device, GpuSync& gsync, GfxCmdAllocPool& cmd_alloc_pool, BackBuffer const& bb_main, BackBuffer const& bb_post)
 			: m_gsync(gsync)
@@ -55,6 +56,7 @@ namespace pr::rdr12
 			, m_post()
 			, m_bb_main(&bb_main)
 			, m_bb_post(&bb_post)
+			, m_view()
 		{
 			m_prepare.Close();
 			m_world_depth.Close();
@@ -74,10 +76,12 @@ namespace pr::rdr12
 		BackBuffer const& bb_main() const { return *m_bb_main; };
 		BackBuffer const& bb_post() const { return *m_bb_post; };
 
-		void Reset(BackBuffer const& bb_main, BackBuffer const& bb_post)
+		// Start recording 'view' of a frame into new command allocators
+		void Reset(BackBuffer const& bb_main, BackBuffer const& bb_post, int view)
 		{
 			m_bb_main = &bb_main;
 			m_bb_post = &bb_post;
+			m_view = view;
 
 			m_prepare.Reset(m_cmd_alloc_pool.Get());
 			m_world_depth.Reset(m_cmd_alloc_pool.Get());

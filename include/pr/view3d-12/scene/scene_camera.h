@@ -29,7 +29,11 @@ namespace pr::rdr12
 		SceneCamera(Camera const& cam);
 		SceneCamera(m4x4 const& c2w, float fovY = pr::constants<double>::tau_by_8, float aspect = 1.0f, float focus_dist = 1.0f, bool orthographic = false, float near_ = 0.01f, float far_ = 100.0f);
 
-		// Return the scene views for the left and right eye in stereoscopic view
-		void Stereo(float separation, SceneCamera (&eye)[Enum<EEye>::NumberOf]) const;
+		// Return the camera for one eye of a parallel-axis stereo pair derived from this (logical) camera.
+		// 'separation' is the distance between the eyes and 'convergence' is the distance to the zero-disparity plane, both in scene units.
+		// The eyes are offset along the camera's x axis and keep its orientation. Each eye's projection is shifted so that points on the
+		// convergence plane project to the same screen position in both eyes. 'eye_aspect' is the width/height ratio of the eye's image.
+		// Orthographic cameras have no depth disparity, so both eyes are the logical camera with 'eye_aspect'.
+		SceneCamera StereoEye(EEye eye, float separation, float convergence, float eye_aspect) const;
 	};
 }

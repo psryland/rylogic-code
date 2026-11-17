@@ -572,8 +572,8 @@ namespace pr::rdr12
 			cb.clip = v4(
 				s_cast<float>(scene.m_cam.Near(false)),
 				s_cast<float>(scene.m_cam.Far(false)),
-				0.0f,
-				0.0f);
+				scene.m_cam.LensShift().x,
+				scene.m_cam.LensShift().y);
 			cb.shadow = v4(0.55f, 0.01f, 0.0f, 0.0f);
 			cb.reflection = v4(1.0f, 0.01f, s_cast<float>(scene.RayTracingProperties().m_max_reflection_bounces), 0.01f);
 			cb.caustic = v4(2.0f, 0.01f, 3.5f, 0.35f);
