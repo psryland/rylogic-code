@@ -31,3 +31,17 @@ between dispatches; otherwise repeated sweeps incorrectly reset the tangent budg
 independent sliding bounds, four-point torsion versus bias-only correction, and a
 default-warm-start sphere held on a ten-degree slope using the exact gravity-balancing
 torque. Keep impact/restitution and resting-contact tests alongside these regressions.
+
+The normal-impulse cache stores the complete identity: body pair, compound-leaf pair
+and body-A-space contact point quantized to 1/64 m. Its hash is only a probe address.
+Each writer claims an empty slot exclusively, including duplicate identities; the
+table has at least twice the contact capacity. Lookup scans the complete probe chain
+and chooses the smallest impulse magnitude, with a raw-bit tie-break, before applying
+the current normal projection and warm-start scale. This prevents multi-field write
+races and makes duplicate selection independent of GPU arrival order.
+
+Contact colouring publishes both overflow and current occupancy. The CPU may record
+an estimated leading colour range separately; one synchronized group completes every
+occupied colour beyond it, so a stale estimate never limits coverage. Overflow runs
+the complete sorted set serially exactly once, in the sweep beginning at colour zero.
+The rigid and articulation-coupled owners and their impulse laws remain separate.

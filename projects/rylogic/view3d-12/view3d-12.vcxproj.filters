@@ -880,7 +880,7 @@
     <None Include="src\shaders\hlsl\utility\env_map.hlsli">
       <Filter>src\shaders\hlsl\utility</Filter>
     </None>
-    <None Include="src\shaders\hlsl\utility\colour_space.hlsli">
+    <None Include="..\..\..\include\pr\view3d-12\shaders\colour_space.hlsli">
       <Filter>src\shaders\hlsl\utility</Filter>
     </None>
     <None Include="src\shaders\hlsl\utility\surface_colour.hlsli">

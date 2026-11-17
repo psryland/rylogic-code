@@ -48,7 +48,7 @@ namespace physics_sandbox
 	}
 
 	// Run embedded unit tests to a console window and exit.
-	// Optional class name filters are passed via 'filter' (substring match on class names).
+	// Optional class patterns or exact 'Class.Method' selectors are passed via 'filter'.
 	int RunUnitTests(std::span<std::string_view const> filter = {})
 	{
 		OpenConsoleOutput();
@@ -317,11 +317,14 @@ int __stdcall WinMain(HINSTANCE, HINSTANCE, LPTSTR lpCmdLine, int)
 		if (autoplay)
 			sandbox.m_steps_remaining = -1;
 
-		// SandboxUI converts wall time into fixed 60 Hz physics ticks. Variable scheduling prevents
-		// the message loop from submitting several catch-up frames before yielding to the viewport.
-		// Rendering targets a high rate so it resumes immediately after the previous vsync completes.
-		loop.AddLoop(60.0, true, [&](double dt) { sandbox.Step(dt); });
-		loop.AddLoop(1000.0, true, [&](double dt) { sandbox.Render(dt); });
+		// SandboxUI alone converts wall time into fixed 60 Hz ticks; a second 60 Hz callback deadline can skip a ready physics tick.
+		// One high-rate variable callback services physics before each render without message-loop catch-up bursts.
+		loop.AddLoop(1000.0, true, [&](double dt)
+		{
+			// Publish pending physics and service the fixed-step accumulator before presenting the next frame.
+			sandbox.Step(dt);
+			sandbox.Render(dt);
+		});
 		loop.AddMessageFilter(sandbox);
 		return loop.Run();
 	}

@@ -130,8 +130,8 @@ namespace pr::physics
 		m_bodies.assign(buffers.m_bodies.begin(), buffers.m_bodies.end());
 		m_contacts.assign(buffers.m_contacts.begin(), buffers.m_contacts.end());
 		m_materials.assign(buffers.m_materials.begin(), buffers.m_materials.end());
-		// Mirror the GPU allocation: contact colours occupy the retained capacity and one trailing element stores the whole-pass overflow flag.
-		m_colours.assign(m_max_contacts + 1, 0);
+		// Mirror the GPU allocation, including the overflow flag and occupied-colour mask.
+		m_colours.assign(m_max_contacts + 2, 0);
 		m_colour_dispatch.assign(MaxColours, {});
 		m_contact_order.resize(m_max_contacts);
 		m_contact_times.assign(m_max_contacts, 1e30f);
@@ -335,5 +335,34 @@ namespace pr::physics
 			contact_order.push_back(static_cast<int>(m_contact_order[order_idx]));
 
 		return EvaluateContactPriority(settings, bodies, contacts, contact_order);
+	}
+
+	// Replay complete per-thread insertions in a chosen arrival order.
+	std::vector<GpuWarmStartEntry> ResolveInteropRunner::StoreWarmStart(std::span<GpuResolveContact const> contacts, int capacity) const
+	{
+		// No bodies means no motion-type reset; only cache identity and stored impulses affect this seam.
+		assert(capacity > 0 && capacity >= 2 * isize(contacts));
+		auto cache = std::vector<GpuWarmStartEntry>(capacity);
+		g = MakeConstants(m_config, 0.0f, 0, std::max(1, isize(contacts)));
+		g.warm_start_capacity = capacity;
+		g_warm_start_curr.assign(SpanOf(cache));
+		for (auto const& contact : contacts)
+			StoreWarmStartImpulse(contact);
+
+		cache.assign(g_warm_start_curr.begin(), g_warm_start_curr.end());
+		return cache;
+	}
+
+	// Read one identity through the production shader's cache lookup.
+	v4 ResolveInteropRunner::LoadWarmStart(std::span<GpuWarmStartEntry const> cache, GpuResolveContact const& contact) const
+	{
+		g = MakeConstants(m_config, 0.0f, 0, 1);
+		g.warm_start_capacity = isize(cache);
+		g_warm_start_prev.assign(cache);
+		auto impulse = float3{};
+		if (!LoadWarmStartImpulse(contact, impulse))
+			return v4::Zero();
+
+		return v4{impulse.x, impulse.y, impulse.z, 0.0f};
 	}
 }

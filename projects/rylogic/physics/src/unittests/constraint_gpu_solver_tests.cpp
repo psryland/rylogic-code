@@ -112,6 +112,1172 @@ namespace pr::physics::tests
 		}
 	}
 
+	// Compare actual descriptor packing with an explicit scalar oracle independent of the public struct layout.
+	PRUnitTestClass(ConstraintAxisPackingTests)
+	{
+		// Map frames and every canonical axis field independently, without copying public object representations.
+		static GpuD6ConstraintDesc ExplicitDescriptor(D6ConstraintDesc const& desc)
+		{
+			// Frame values must remain intact beside the contiguous axis payload.
+			auto expected = GpuD6ConstraintDesc{
+				.frame_a = {.rotation = desc.m_frame_a.m_rotation.xyzw, .position = desc.m_frame_a.m_position},
+				.frame_b = {.rotation = desc.m_frame_b.m_rotation.xyzw, .position = desc.m_frame_b.m_position},
+			};
+			for (auto i = 0; i != 6; ++i)
+			{
+				// Explicit enum mapping does not assume the public enum has the GPU's numeric representation.
+				auto const& source = i < 3 ? desc.m_linear[i] : desc.m_angular[i - 3];
+				auto& target = expected.axes[i];
+				switch (source.m_mode)
+				{
+					case EConstraintAxisMode::Free:
+					{
+						// Select the GPU free-axis value independently of the public enum.
+						target.mode = GpuConstraintAxisMode_Free;
+						break;
+					}
+					case EConstraintAxisMode::Locked:
+					{
+						// Select the GPU locked-axis value independently of the public enum.
+						target.mode = GpuConstraintAxisMode_Locked;
+						break;
+					}
+					case EConstraintAxisMode::Limited:
+					{
+						// Select the GPU limited-axis value independently of the public enum.
+						target.mode = GpuConstraintAxisMode_Limited;
+						break;
+					}
+					case EConstraintAxisMode::Driven:
+					{
+						// Select the GPU driven-axis value independently of the public enum.
+						target.mode = GpuConstraintAxisMode_Driven;
+						break;
+					}
+					default:
+					{
+						// Reject test inputs outside the public axis domain.
+						throw std::invalid_argument("Unknown axis mode in explicit packing oracle");
+					}
+				}
+				target.lower_limit = source.m_limits.m_beg;
+				target.upper_limit = source.m_limits.m_end;
+				target.target_position = source.m_target_position;
+				target.target_velocity = source.m_target_velocity;
+				target.stiffness = source.m_stiffness;
+				target.damping = source.m_damping;
+				target.max_force = source.m_max_force;
+			}
+			return expected;
+		}
+
+		// Every axis position must preserve every mode and distinct finite fields in active and disabled descriptors.
+		PRUnitTestMethod(CanonicalFiniteDescriptorBytes, Quick)
+		{
+			// Vary frames and every scalar so an offset, stride, or linear/angular ordering error changes the packed bytes.
+			auto body = MakeConstraintGpuBody();
+			auto body_ptrs = std::array<RigidBody*, 1>{&body};
+			auto constraints = ConstraintSet{};
+			auto handles = std::array<ConstraintHandle, 4>{};
+			auto const modes = std::array{EConstraintAxisMode::Free, EConstraintAxisMode::Locked, EConstraintAxisMode::Limited, EConstraintAxisMode::Driven};
+			for (auto variant = 0; variant != 4; ++variant)
+			{
+				// Rotate the mode sequence so each of the six canonical positions sees all four public modes.
+				auto const variant_f = static_cast<float>(variant);
+				auto desc = D6ConstraintDesc{
+					.m_frame_a = BodyFrame::FromMatrix(BodyRef::Rigid(body), m4x4::TransformDeg(10.0f + 5.0f * variant_f, 20, -30, v4{1.25f, -2.5f, 3.75f + variant, 1})),
+					.m_frame_b = BodyFrame::FromMatrix(BodyRef::World(), m4x4::TransformDeg(-15, 25.0f + 10.0f * variant_f, 40, v4{-4.5f, 5.25f + variant, -6.75f, 1})),
+					.m_break_force = 100.0f + variant,
+					.m_break_torque = 200.0f + variant,
+					.m_collide_connected = true,
+					.m_enabled = variant % 2 == 0,
+				};
+				for (auto i = 0; i != 6; ++i)
+				{
+					// Distinct values also expose accidental swaps between adjacent float fields.
+					auto& axis = i < 3 ? desc.m_linear[i] : desc.m_angular[i - 3];
+					auto const value = 10.0f * (variant + 1) + i;
+					axis = ConstraintAxisDesc{
+						.m_mode = modes[(variant + i) % 4],
+						.m_limits = {-value - 0.5f, value + 0.75f},
+						.m_target_position = 0.125f * value,
+						.m_target_velocity = -0.375f * value,
+						.m_stiffness = 0.25f * value,
+						.m_damping = 0.5f * value,
+						.m_max_force = 1000.0f + value,
+					};
+				}
+				handles[variant] = constraints.Add(desc);
+			}
+
+			// Observe the actual owning packer, including both frames and all 192 axis bytes in each descriptor.
+			auto const upload = PackGpuConstraints(constraints, BodyRemap(body_ptrs));
+			PR_EXPECT(upload.m_descriptors.size() == handles.size());
+			for (size_t i = 0; i != handles.size(); ++i)
+			{
+				// The scalar reference reads the stored descriptor after normal caller validation.
+				auto const& desc = constraints.Get(handles[i]);
+				auto const expected = ExplicitDescriptor(desc);
+				PR_EXPECT(std::memcmp(&upload.m_descriptors.at(i), &expected, sizeof(expected)) == 0);
+				PR_EXPECT(AllSet(upload.m_endpoints.at(i).flags, GpuConstraintEndpointFlags_Enabled) == desc.m_enabled);
+				PR_EXPECT(upload.m_endpoints.at(i).break_force == desc.m_break_force && upload.m_endpoints.at(i).break_torque == desc.m_break_torque);
+			}
+			log_stream() << std::format("finite_descriptors=4 canonical_axes=24 cpu_axis_bytes={} gpu_axis_bytes={} range_bytes={} three_axis_bytes={} descriptor_bytes={}\n", sizeof(ConstraintAxisDesc), sizeof(GpuConstraintAxisDesc), sizeof(Range<float>), sizeof(std::array<ConstraintAxisDesc, 3>), sizeof(GpuD6ConstraintDesc));
+		}
+
+		// Preserve signed zero, finite extremes, and valid unbounded limits/force bounds without scalar arithmetic.
+		PRUnitTestMethod(SignedZeroAndInfiniteBoundBytes, Quick)
+		{
+			// Ordered one-sided and unbounded intervals are valid public inputs, including for Limited axes.
+			auto body = MakeConstraintGpuBody();
+			auto body_ptrs = std::array<RigidBody*, 1>{&body};
+			auto const infinity = std::numeric_limits<float>::infinity();
+			auto const negative_zero = std::bit_cast<float>(uint32_t{0x80000000});
+			auto desc = D6ConstraintDesc{
+				.m_frame_a = BodyFrame::FromMatrix(BodyRef::Rigid(body), m4x4::TransformDeg(35, -20, 15, v4{-1.25f, 2.5f, -3.75f, 1})),
+				.m_frame_b = BodyFrame::FromMatrix(BodyRef::World(), m4x4::TransformDeg(-25, 30, -10, v4{4.5f, -5.25f, 6.75f, 1})),
+			};
+			for (auto i = 0; i != 6; ++i)
+			{
+				// Alternating zero signs distinguish the linear and angular blocks even when their numeric values compare equal.
+				auto& axis = i < 3 ? desc.m_linear[i] : desc.m_angular[i - 3];
+				axis = ConstraintAxisDesc{
+					.m_mode = EConstraintAxisMode::Limited,
+					.m_limits = {i % 3 == 0 ? -infinity : negative_zero, i % 3 == 2 ? 0.0f : infinity},
+					.m_target_position = i % 2 == 0 ? 0.0f : negative_zero,
+					.m_target_velocity = i % 2 == 0 ? negative_zero : 0.0f,
+					.m_stiffness = negative_zero,
+					.m_damping = 0.0f,
+					.m_max_force = i % 2 == 0 ? infinity : negative_zero,
+				};
+			}
+			auto constraints = ConstraintSet{};
+			auto const handle = constraints.Add(desc);
+			auto upload = PackGpuConstraints(constraints, BodyRemap(body_ptrs));
+			auto expected = ExplicitDescriptor(constraints.Get(handle));
+			PR_EXPECT(std::memcmp(&upload.m_descriptors.at(0), &expected, sizeof(expected)) == 0);
+			PR_EXPECT(std::bit_cast<uint32_t>(upload.m_descriptors[0].axes[0].target_velocity) == 0x80000000U);
+			PR_EXPECT(std::bit_cast<uint32_t>(upload.m_descriptors[0].axes[3].target_velocity) == 0U);
+			PR_EXPECT(std::bit_cast<uint32_t>(upload.m_descriptors[0].axes[0].lower_limit) == 0xff800000U);
+			PR_EXPECT(std::bit_cast<uint32_t>(upload.m_descriptors[0].axes[0].max_force) == 0x7f800000U);
+
+			// A later validated update exercises the same packed slot with the largest and smallest finite float values.
+			for (auto i = 0; i != 6; ++i)
+			{
+				// Packing has no narrower numeric domain than the public descriptor's validation.
+				auto& axis = i < 3 ? desc.m_linear[i] : desc.m_angular[i - 3];
+				axis.m_limits = {-std::numeric_limits<float>::max(), std::numeric_limits<float>::max()};
+				axis.m_target_position = i % 2 == 0 ? std::numeric_limits<float>::max() : std::numeric_limits<float>::min();
+				axis.m_target_velocity = i % 2 == 0 ? -std::numeric_limits<float>::max() : std::numeric_limits<float>::denorm_min();
+				axis.m_stiffness = std::numeric_limits<float>::min();
+				axis.m_damping = std::numeric_limits<float>::max();
+				axis.m_max_force = std::numeric_limits<float>::max();
+			}
+			constraints.Update(handle, desc);
+			upload = PackGpuConstraints(constraints, BodyRemap(body_ptrs));
+			expected = ExplicitDescriptor(constraints.Get(handle));
+			PR_EXPECT(std::memcmp(&upload.m_descriptors.at(0), &expected, sizeof(expected)) == 0);
+			log_stream() << "signed_zero_bits_preserved=1 infinite_limits_and_forces_preserved=1 finite_extremes_match_scalar_oracle=1\n";
+		}
+	};
+
+	// Compare narrow target replacement with full descriptor updates, including native persistent-state behavior.
+	PRUnitTestClass(ConstraintTargetVelocityTests, Serial)
+	{
+		// Apply the same six values through the existing full-descriptor boundary.
+		static void FullUpdate(ConstraintSet& constraints, ConstraintHandle handle, std::array<float, 6> const& values)
+		{
+			// Retain the original descriptor-copy operation as the independent mutation reference.
+			auto desc = constraints.Get(handle);
+			for (auto axis = 0; axis != 3; ++axis)
+			{
+				// Replace the canonical linear and angular slots without altering their other parameters.
+				desc.m_linear[axis].m_target_velocity = values[axis];
+				desc.m_angular[axis].m_target_velocity = values[3 + axis];
+			}
+			constraints.Update(handle, desc);
+		}
+
+		// Compare the packed rigid-slot contract; source pointers intentionally belong to different sets.
+		static void ExpectPacked(GpuConstraintUpload const& actual, GpuConstraintUpload const& expected)
+		{
+			// Packed structures have an explicit GPU layout, unlike potentially padded CPU descriptors.
+			PR_EXPECT(actual.m_descriptors.size() == expected.m_descriptors.size());
+			PR_EXPECT(actual.m_endpoints.size() == expected.m_endpoints.size());
+			for (size_t i = 0; i != std::min(actual.m_descriptors.size(), expected.m_descriptors.size()); ++i)
+			{
+				// Compare all descriptor fields and endpoint flags, not merely the six new targets.
+				PR_EXPECT(std::memcmp(&actual.m_descriptors[i], &expected.m_descriptors[i], sizeof(GpuD6ConstraintDesc)) == 0);
+				PR_EXPECT(std::memcmp(&actual.m_endpoints[i], &expected.m_endpoints[i], sizeof(GpuConstraintEndpoint)) == 0);
+			}
+			PR_EXPECT(actual.m_endpoint_identities == expected.m_endpoint_identities);
+			PR_EXPECT(actual.m_topology_revision == expected.m_topology_revision);
+			PR_EXPECT(actual.m_parameter_revision == expected.m_parameter_revision);
+			PR_EXPECT(actual.m_rigid_active_count == expected.m_rigid_active_count);
+			PR_EXPECT(actual.m_coupled_active_count == expected.m_coupled_active_count);
+			PR_EXPECT(actual.m_breakable_count == expected.m_breakable_count);
+			PR_EXPECT(actual.m_collision_exclusions.m_count == expected.m_collision_exclusions.m_count);
+		}
+
+		// Preserve the full packed descriptor and Update's revision/dirty semantics for changed and identical inputs.
+		PRUnitTestMethod(PackedDescriptorAndRevisionEquivalence, Quick)
+		{
+			// Nondefault frames and axis parameters expose accidental replacement of fields outside the six targets.
+			auto body = MakeConstraintGpuBody();
+			auto body_ptrs = std::array<RigidBody*, 1>{&body};
+			auto const remap = BodyRemap(body_ptrs);
+			auto desc = D6ConstraintDesc{};
+			desc.m_frame_a = BodyFrame::FromMatrix(BodyRef::Rigid(body), m4x4::TransformDeg(10, 20, 30, v4{1, 2, 3, 1}));
+			desc.m_frame_b = BodyFrame::FromMatrix(BodyRef::World(), m4x4::TransformDeg(-20, 15, 5, v4{-2, 1, 4, 1}));
+			desc.m_break_force = 20.75f;
+			desc.m_break_torque = 21.5f;
+			desc.m_collide_connected = true;
+			auto const modes = std::array{EConstraintAxisMode::Free, EConstraintAxisMode::Locked, EConstraintAxisMode::Limited, EConstraintAxisMode::Driven, EConstraintAxisMode::Free, EConstraintAxisMode::Driven};
+			for (auto i = 0; i != 6; ++i)
+			{
+				// Cover every axis mode while retaining distinct limits, drive terms, and force bounds.
+				auto& axis = i < 3 ? desc.m_linear[i] : desc.m_angular[i - 3];
+				axis.m_mode = modes[i];
+				axis.m_limits = {-0.75f, 1.25f};
+				axis.m_target_position = 0.1f * i;
+				axis.m_target_velocity = -0.25f * i;
+				axis.m_stiffness = 2.0f + i;
+				axis.m_damping = 3.0f + i;
+				axis.m_max_force = 10.0f + i;
+			}
+			auto narrow = ConstraintSet{};
+			narrow.Add(desc);
+			auto const handle = narrow.Add(desc);
+			auto full = narrow;
+			auto const values = std::array{
+				std::array<float, 6>{1, 2, 3, 4, 5, 6},
+				std::array<float, 6>{-0.0f, std::numeric_limits<float>::max(), -std::numeric_limits<float>::max(), 7.25f, -8.5f, 9.75f},
+				std::array<float, 6>{-0.0f, std::numeric_limits<float>::max(), -std::numeric_limits<float>::max(), 7.25f, -8.5f, 9.75f},
+			};
+
+			// Inactive descriptors and identical values use the same parameter-update contract as ordinary active changes.
+			for (auto enabled : {true, false})
+			{
+				// Match activation state before each sequence; the second slot alone is changed.
+				narrow.SetEnabled(handle, enabled);
+				full.SetEnabled(handle, enabled);
+				for (auto const& targets : values)
+				{
+					// The repeated final input must still dirty its slot and advance exactly one parameter revision.
+					narrow.ClearDirty();
+					full.ClearDirty();
+					auto const topology = narrow.TopologyRevision();
+					auto const parameters = narrow.ParameterRevision();
+					narrow.SetTargetVelocities(handle, targets);
+					FullUpdate(full, handle, targets);
+					ExpectPacked(PackGpuConstraints(narrow, remap), PackGpuConstraints(full, remap));
+					PR_EXPECT(narrow.TopologyRevision() == topology);
+					PR_EXPECT(narrow.ParameterRevision() == parameters + 1);
+					PR_EXPECT(narrow.Count() == 2 && narrow.CapacitySlots() == 2 && narrow.Contains(handle) && !narrow.IsBroken(handle));
+					auto const ranges = narrow.DirtyRanges();
+					PR_EXPECT(ranges.size() == 1);
+					if (ranges.size() == 1)
+					{
+						// No unchanged neighboring descriptor is dirtied.
+						PR_EXPECT(ranges[0].m_begin == handle.m_index && ranges[0].m_end == handle.m_index + 1);
+					}
+				}
+			}
+		}
+
+		// Reject every nonfinite input position and invalid handle without partially updating values or bookkeeping.
+		PRUnitTestMethod(InvalidRequestsAreAtomic, Quick)
+		{
+			// Reuse a removed slot so a stale handle is distinct from an out-of-range or default handle.
+			auto body = MakeConstraintGpuBody();
+			auto body_ptrs = std::array<RigidBody*, 1>{&body};
+			auto const remap = BodyRemap(body_ptrs);
+			auto desc = D6ConstraintDesc{};
+			desc.m_frame_a.m_body = BodyRef::Rigid(body);
+			auto constraints = ConstraintSet{};
+			auto const stale = constraints.Add(desc);
+			constraints.Remove(stale);
+			auto const handle = constraints.Add(desc);
+			constraints.ClearDirty();
+			auto const original = PackGpuConstraints(constraints, remap);
+			auto const invalid_handles = std::array{ConstraintHandle{}, stale, ConstraintHandle{.m_index = 1000, .m_generation = handle.m_generation}};
+			for (auto invalid_handle : invalid_handles)
+			{
+				// Rejected identities cannot modify the replacement occupying the same slot.
+				auto const values = std::array<float, 6>{101, 102, 103, 104, 105, 106};
+				PR_THROWS(constraints.SetTargetVelocities(invalid_handle, values), std::invalid_argument);
+				ExpectPacked(PackGpuConstraints(constraints, remap), original);
+				PR_EXPECT(constraints.DirtyRanges().empty());
+			}
+
+			// Earlier valid positions differ from stored values, so a late invalid value detects partial mutation.
+			for (auto invalid : {std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity(), -std::numeric_limits<float>::infinity()})
+			{
+				// Exercise all six canonical positions for each nonfinite category.
+				for (auto i = 0; i != 6; ++i)
+				{
+					// Neither descriptor bytes nor either revision may change on rejection.
+					auto values = std::array<float, 6>{101, 102, 103, 104, 105, 106};
+					values[i] = invalid;
+					PR_THROWS(constraints.SetTargetVelocities(handle, values), std::invalid_argument);
+					ExpectPacked(PackGpuConstraints(constraints, remap), original);
+					PR_EXPECT(constraints.DirtyRanges().empty());
+				}
+			}
+		}
+
+		// Preserve native warm retention/reset decisions and the CPU broken latch without a new solver inspection seam.
+		PRUnitTestMethod(WarmStartAndBrokenStateEquivalence, Extended)
+		{
+			// Seed identical nonzero native impulses in two independently owned persistent solvers.
+			auto body = MakeConstraintGpuBody();
+			body.VelocityWS(v8motion{v4::Zero(), v4{1, 0, 0, 0}});
+			auto body_ptrs = std::array<RigidBody*, 1>{&body};
+			auto const remap = BodyRemap(body_ptrs);
+			auto desc = D6ConstraintDesc{};
+			desc.m_frame_a.m_body = BodyRef::Rigid(body);
+			desc.m_linear[0] = MakeConstraintGpuLockedAxis();
+			auto narrow = ConstraintSet{};
+			auto const handle = narrow.Add(desc);
+			auto full = narrow;
+			auto config = EngineConfig{};
+			config.push_out_iterations = 0;
+			config.solver_iterations = 1;
+			config.constraint_warm_start_factor = 0.85f;
+			auto narrow_solver = GpuConstraintSolver{ConstraintTestGpu(), config};
+			auto full_solver = GpuConstraintSolver{ConstraintTestGpu(), config};
+			auto actual = std::array{PackDynamics(body, 0)};
+			auto expected = actual;
+			auto actual_rows = std::array<GpuConstraintRow, GpuConstraintRowsPerBlock>{};
+			auto expected_rows = actual_rows;
+			narrow_solver.Solve(ConstraintTestGpu().m_job, 1.0f / 60.0f, PackGpuConstraints(narrow, remap), actual, {}, actual_rows);
+			full_solver.Solve(ConstraintTestGpu().m_job, 1.0f / 60.0f, PackGpuConstraints(full, remap), expected, {}, expected_rows);
+			PR_EXPECT(std::abs(actual_rows[0].bounds.z) > 1.0e-4f);
+
+			// With no solve iterations, the second frame exposes retained warm impulses and the third exposes their reset.
+			config.solver_iterations = 0;
+			body.VelocityWS(v8motion{});
+			for (auto changed : {false, true})
+			{
+				// Equal targets retain warm state; changed targets must take the same downstream reset path as full Update.
+				auto values = std::array<float, 6>{};
+				values[0] = changed ? 2.0f : 0.0f;
+				narrow.SetTargetVelocities(handle, values);
+				FullUpdate(full, handle, values);
+				actual[0] = expected[0] = PackDynamics(body, 0);
+				narrow_solver.Solve(ConstraintTestGpu().m_job, 1.0f / 60.0f, PackGpuConstraints(narrow, remap), actual, {}, actual_rows);
+				full_solver.Solve(ConstraintTestGpu().m_job, 1.0f / 60.0f, PackGpuConstraints(full, remap), expected, {}, expected_rows);
+				PR_EXPECT(std::memcmp(actual.data(), expected.data(), sizeof(actual)) == 0);
+				PR_EXPECT(std::memcmp(actual_rows.data(), expected_rows.data(), sizeof(actual_rows)) == 0);
+				PR_EXPECT(changed ? std::abs(actual[0].momentum_lin.x) < 1.0e-6f : std::abs(actual[0].momentum_lin.x) > 1.0e-4f);
+				log_stream() << std::format("target_changed={} native_momentum_x={} full_update_momentum_x={}\n", changed, actual[0].momentum_lin.x, expected[0].momentum_lin.x);
+			}
+
+			// Obtain a real broken latch from Engine's completed overload readback, not a manufactured private slot state.
+			auto shape = collision::ShapeSphere{0.25f};
+			auto break_body = RigidBody{&shape, m4x4::Identity(), Inertia::Sphere(shape.m_radius, 1.0f)};
+			break_body.VelocityWS(v8motion{v4::Zero(), v4{5, 0, 0, 0}});
+			desc.m_frame_a.m_body = BodyRef::Rigid(break_body);
+			desc.m_break_force = 10.0f;
+			auto broken = ConstraintSet{};
+			auto const broken_handle = broken.Add(desc);
+			auto break_bodies = std::array<RigidBody*, 1>{&break_body};
+			auto& engine = SharedEngine();
+			ResetEngineForNextTest(engine);
+			engine.Step(Engine::StepInput{.m_bodies = break_bodies, .m_constraints = &broken, .m_elapsed_seconds = 1.0f / 30.0f, .m_substep_count = 4});
+			PR_EXPECT(broken.IsBroken(broken_handle));
+			auto broken_reference = broken;
+			auto const values = std::array<float, 6>{1, 2, 3, 4, 5, 6};
+			broken.SetTargetVelocities(broken_handle, values);
+			FullUpdate(broken_reference, broken_handle, values);
+			auto const packed = PackGpuConstraints(broken, BodyRemap(break_bodies));
+			ExpectPacked(packed, PackGpuConstraints(broken_reference, BodyRemap(break_bodies)));
+			PR_EXPECT(broken.IsBroken(broken_handle) && broken_reference.IsBroken(broken_handle));
+			PR_EXPECT(broken.Get(broken_handle).m_enabled && packed.m_rigid_active_count == 0);
+			PR_EXPECT(!AllSet(packed.m_endpoints[0].flags, GpuConstraintEndpointFlags_Enabled));
+			log_stream() << "broken_after_target_update=1 packed_active=0\n";
+			ResetEngineForNextTest(engine);
+		}
+	};
+
+	// Empty uploads must not transfer retained runtime state between independently owned constraint sets.
+	PRUnitTestClass(ConstraintUploadProvenanceTests, Serial)
+	{
+		// A replacement source must not inherit a broken block merely because it was submitted empty first.
+		PRUnitTestMethod(EmptySourceTransitionClearsBrokenSlots, Quick)
+		{
+			// Break a finite-force world anchor while retaining its GPU block in the solver.
+			auto body = MakeConstraintGpuBody();
+			body.VelocityWS(v8motion{v4::Zero(), v4{5, 0, 0, 0}});
+			auto desc = D6ConstraintDesc{};
+			desc.m_frame_a.m_body = BodyRef::Rigid(body);
+			desc.m_linear[0] = MakeConstraintGpuLockedAxis();
+			desc.m_break_force = 10.0f;
+			auto source_a = ConstraintSet{};
+			auto source_b = ConstraintSet{};
+			source_a.Add(desc);
+			auto body_ptrs = std::array<RigidBody*, 1>{&body};
+			auto config = EngineConfig{};
+			config.push_out_iterations = 0;
+			config.solver_iterations = 1;
+			auto solver = GpuConstraintSolver{ConstraintTestGpu(), config};
+			auto bodies = std::array{PackDynamics(body, 0)};
+			auto blocks = std::array<GpuConstraintBlock, 1>{};
+			solver.Solve(ConstraintTestGpu().m_job, 1.0f / 60.0f, PackGpuConstraints(source_a, BodyRemap(body_ptrs)), bodies, blocks);
+			PR_EXPECT(AllSet(blocks[0].flags, ConstraintBlockFlags_Broken));
+
+			// The empty submission owns no blocks. Its subsequent identical slot is a new source, not a repair of source A.
+			PR_EXPECT(!solver.Upload(ConstraintTestGpu().m_job, PackGpuConstraints(source_b, BodyRemap(body_ptrs))));
+			source_b.Add(desc);
+			body.VelocityWS(v8motion{v4::Zero(), v4{0.01f, 0, 0, 0}});
+			bodies[0] = PackDynamics(body, 0);
+			auto const replacement = PackGpuConstraints(source_b, BodyRemap(body_ptrs));
+			solver.Solve(ConstraintTestGpu().m_job, 1.0f / 60.0f, replacement, bodies, blocks);
+
+			// A cold solver independently proves that this small load is supported rather than broken.
+			auto cold_solver = GpuConstraintSolver{ConstraintTestGpu(), config};
+			auto cold_bodies = std::array{PackDynamics(body, 0)};
+			auto cold_blocks = std::array<GpuConstraintBlock, 1>{};
+			cold_solver.Solve(ConstraintTestGpu().m_job, 1.0f / 60.0f, replacement, cold_bodies, cold_blocks);
+			log_stream() << std::format("empty_source_transition flags={} cold_flags={} momentum_x={} cold_momentum_x={}\n", blocks[0].flags, cold_blocks[0].flags, bodies[0].momentum_lin.x, cold_bodies[0].momentum_lin.x);
+			PR_EXPECT(!AllSet(cold_blocks[0].flags, ConstraintBlockFlags_Broken));
+			PR_EXPECT(Abs(cold_bodies[0].momentum_lin.x) < 1.0e-6f);
+			PR_EXPECT(!AllSet(blocks[0].flags, ConstraintBlockFlags_Broken));
+			PR_EXPECT(FEqlAbsolute(bodies[0].momentum_lin, cold_bodies[0].momentum_lin, 1.0e-6f));
+		}
+	};
+
+	// Observe actual descriptor-copy envelopes and runtime-reset ranges independently of shader compilation.
+	PRUnitTestClass(ConstraintUploadBookkeepingTests, Serial)
+	{
+		// Completed GPU contents immediately after Upload, before any solver dispatch can hide a missing write.
+		struct Snapshot
+		{
+			std::vector<GpuConstraintEndpoint> m_endpoints;
+			std::vector<GpuD6ConstraintDesc> m_descriptors;
+			std::vector<GpuConstraintBlock> m_blocks;
+			std::vector<GpuConstraintRow> m_rows;
+			std::vector<GpuConstraintBreakState> m_breaks;
+		};
+
+		RigidBody m_body = MakeConstraintGpuBody();
+		RigidBody m_other_body = MakeConstraintGpuBody();
+		ConstraintSet m_source_a;
+		ConstraintSet m_source_b;
+		EngineConfig m_config;
+		GpuConstraintSolver m_solver{ConstraintTestGpu(), m_config};
+		GpuConstraintUpload m_upload;
+		std::vector<GpuConstraintBlock> m_seed_blocks;
+		std::vector<GpuConstraintRow> m_seed_rows;
+
+		// Build seven stable synthetic slots with valid endpoint identities and finite break thresholds.
+		TestClass_ConstraintUploadBookkeepingTests()
+		{
+			// Packed streams are the tested boundary; their source pointers identify independent owners.
+			m_upload.m_source = &m_source_a;
+			for (int index = 0; index != 7; ++index)
+			{
+				// Distinct descriptor bytes and generations expose misplaced copies and latch initialization.
+				m_upload.m_endpoints.push_back(GpuConstraintEndpoint{
+					.body_idx_a = 0,
+					.body_idx_b = -1,
+					.flags = GpuConstraintEndpointFlags_Enabled,
+					.generation = static_cast<uint32_t>(index + 1),
+					.break_force = 100.0f,
+					.break_torque = 100.0f,
+				});
+				m_upload.m_endpoint_identities.push_back({BodyRef::Rigid(m_body), BodyRef::World()});
+				auto& descriptor = m_upload.m_descriptors.emplace_back();
+				descriptor.frame_a.rotation = float4{0, 0, 0, 1};
+				descriptor.frame_b.rotation = float4{0, 0, 0, 1};
+				descriptor.frame_b.position.x = static_cast<float>(index);
+				descriptor.axes[0].mode = GpuConstraintAxisMode_Locked;
+				descriptor.axes[0].max_force = 1000.0f;
+			}
+			Capture();
+		}
+
+		// Queue a direct buffer write; no shader reads these diagnostic sentinels.
+		template <typename T> static void WriteBuffer(ID3D12Resource* resource, std::vector<T> const& values)
+		{
+			// The production job supplies the same upload allocator and transition tracker as Upload.
+			auto& job = ConstraintTestGpu().m_job;
+			job.m_barriers.Transition(resource, D3D12_RESOURCE_STATE_COPY_DEST).Commit();
+			auto allocation = job.m_upload.Alloc<T>(isize(values));
+			memcpy(allocation.ptr<T>(), values.data(), values.size() * sizeof(T));
+			job.m_cmd_list.CopyBufferRegion(resource, 0, allocation);
+		}
+
+		// Queue completed-buffer inspection in the same native transaction as the upload.
+		template <typename T> static ReadbackAlloc ReadBuffer(ID3D12Resource* resource, int count)
+		{
+			// Read directly rather than running Prepare, which would recompile and overwrite rows.
+			auto& job = ConstraintTestGpu().m_job;
+			job.m_barriers.Transition(resource, D3D12_RESOURCE_STATE_COPY_SOURCE).Commit();
+			auto allocation = job.m_readback.Alloc<T>(count);
+			job.m_cmd_list.CopyBufferRegion(allocation, resource, 0);
+			return allocation;
+		}
+
+		// Execute Upload and return its actual completed writes, including frame-local break latches.
+		Snapshot Capture()
+		{
+			// All synthetic descriptors have finite thresholds; disabled slots are excluded from active counts.
+			auto const slot_count = isize(m_upload.m_endpoints);
+			m_upload.m_rigid_active_count = std::ranges::count_if(m_upload.m_endpoints, [](auto const& endpoint)
+			{
+				// Only enabled slots contribute independent rigid work.
+				return AllSet(endpoint.flags, GpuConstraintEndpointFlags_Enabled);
+			});
+			m_upload.m_breakable_count = m_upload.m_rigid_active_count;
+			auto& job = ConstraintTestGpu().m_job;
+			PR_EXPECT(m_solver.Upload(job, m_upload));
+			auto endpoints = ReadBuffer<GpuConstraintEndpoint>(m_solver.m_r_endpoints.get(), slot_count);
+			auto descriptors = ReadBuffer<GpuD6ConstraintDesc>(m_solver.m_r_descriptors.get(), slot_count);
+			auto blocks = ReadBuffer<GpuConstraintBlock>(m_solver.m_r_blocks.get(), slot_count);
+			auto rows = ReadBuffer<GpuConstraintRow>(m_solver.m_r_rows.get(), GpuConstraintRowsPerBlock * slot_count);
+			auto breaks = ReadBuffer<GpuConstraintBreakState>(m_solver.BreakOutput().m_states, slot_count);
+			job.Run();
+			return Snapshot{
+				.m_endpoints = {endpoints.ptr<GpuConstraintEndpoint>(), endpoints.ptr<GpuConstraintEndpoint>() + slot_count},
+				.m_descriptors = {descriptors.ptr<GpuD6ConstraintDesc>(), descriptors.ptr<GpuD6ConstraintDesc>() + slot_count},
+				.m_blocks = {blocks.ptr<GpuConstraintBlock>(), blocks.ptr<GpuConstraintBlock>() + slot_count},
+				.m_rows = {rows.ptr<GpuConstraintRow>(), rows.ptr<GpuConstraintRow>() + GpuConstraintRowsPerBlock * slot_count},
+				.m_breaks = {breaks.ptr<GpuConstraintBreakState>(), breaks.ptr<GpuConstraintBreakState>() + slot_count},
+			};
+		}
+
+		// Seed retained GPU bytes without changing host shadows, making every omitted or oversized write observable.
+		std::vector<GpuD6ConstraintDesc> SeedGpu()
+		{
+			// Descriptor sentinels distinguish a real copy of clean interior bytes from merely matching host-side values.
+			auto descriptors = m_upload.m_descriptors;
+			for (int index = 0; index != isize(descriptors); ++index)
+			{
+				// Different finite values make copy bounds visible without relying on uninitialized memory.
+				descriptors[index].frame_b.position.x = -1000.0f - index;
+			}
+			WriteBuffer(m_solver.m_r_descriptors.get(), descriptors);
+
+			// Runtime sentinels prove that gaps between reset runs survive even when descriptor copies span them.
+			m_seed_blocks.assign(descriptors.size(), GpuConstraintBlock{.body_idx_a = 0, .body_idx_b = -1, .colour = MaxColours, .flags = ConstraintBlockFlags_Active});
+			m_seed_rows.assign(descriptors.size() * GpuConstraintRowsPerBlock, GpuConstraintRow{});
+			for (int index = 0; index != isize(m_seed_rows); ++index)
+			{
+				// Each row has a distinct retained impulse so partial or shifted clears cannot pass.
+				m_seed_rows[index].bounds.z = 10.0f + index;
+			}
+			WriteBuffer(m_solver.m_r_blocks.get(), m_seed_blocks);
+			WriteBuffer(m_solver.m_r_rows.get(), m_seed_rows);
+			return descriptors;
+		}
+
+		// Compare exact uploaded bytes, warm-start flags, runtime clears, and break generations.
+		void ExpectWrites(Snapshot const& actual, std::vector<GpuD6ConstraintDesc> const& descriptors, std::initializer_list<int> warm_resets, std::initializer_list<int> runtime_resets)
+		{
+			// Whole-descriptor comparisons also cover padding and untouched fields within the transfer envelope.
+			PR_EXPECT(memcmp(actual.m_descriptors.data(), descriptors.data(), descriptors.size() * sizeof(GpuD6ConstraintDesc)) == 0);
+			for (int index = 0; index != isize(actual.m_endpoints); ++index)
+			{
+				// Copying a clean descriptor must not imply semantic invalidation or a runtime clear.
+				auto const warm_reset = std::ranges::find(warm_resets, index) != warm_resets.end();
+				auto const runtime_reset = std::ranges::find(runtime_resets, index) != runtime_resets.end();
+				auto endpoint = m_upload.m_endpoints[index];
+				endpoint.flags = SetFlag(endpoint.flags, GpuConstraintEndpointFlags_ResetWarmStart, warm_reset);
+				auto const block = runtime_reset ? GpuConstraintBlock{.body_idx_a = -1, .body_idx_b = -1, .colour = MaxColours} : m_seed_blocks[index];
+				auto const break_state = GpuConstraintBreakState{.generation = endpoint.generation, .substep_index = -1};
+				PR_EXPECT(memcmp(&actual.m_endpoints[index], &endpoint, sizeof(endpoint)) == 0);
+				PR_EXPECT(memcmp(&actual.m_blocks[index], &block, sizeof(block)) == 0);
+				PR_EXPECT(memcmp(&actual.m_breaks[index], &break_state, sizeof(break_state)) == 0);
+				for (int axis = 0; axis != GpuConstraintRowsPerBlock; ++axis)
+				{
+					// Every row in a reset slot clears, while all rows in a retained slot remain byte-identical.
+					auto const row_index = index * GpuConstraintRowsPerBlock + axis;
+					auto const row = runtime_reset ? GpuConstraintRow{} : m_seed_rows[row_index];
+					PR_EXPECT(memcmp(&actual.m_rows[row_index], &row, sizeof(row)) == 0);
+				}
+			}
+		}
+
+		// Clean, sparse, boundary, and shrink uploads preserve descriptor envelopes independently of semantic reset flags.
+		PRUnitTestMethod(DescriptorEnvelopeAndExactWarmFlags, Quick)
+		{
+			// A clean upload must not touch persistent descriptors or runtime.
+			auto expected = SeedGpu();
+			ExpectWrites(Capture(), expected, {}, {});
+
+			// Two isolated changes copy the clean interior, but neither outside edge.
+			expected = SeedGpu();
+			m_upload.m_descriptors[2].axes[0].target_velocity += 1.0f;
+			m_upload.m_descriptors[4].axes[0].target_velocity += 1.0f;
+			std::copy(m_upload.m_descriptors.begin() + 2, m_upload.m_descriptors.begin() + 5, expected.begin() + 2);
+			ExpectWrites(Capture(), expected, {2, 4}, {});
+
+			// Independently exercise both end slots and then an envelope covering every slot.
+			for (auto index : {0, 6})
+			{
+				// A single dirty edge must not copy any neighboring sentinel.
+				expected = SeedGpu();
+				m_upload.m_descriptors[index].axes[0].target_velocity += 1.0f;
+				expected[index] = m_upload.m_descriptors[index];
+				ExpectWrites(Capture(), expected, {index}, {});
+			}
+			expected = SeedGpu();
+			m_upload.m_descriptors[0].axes[0].target_velocity += 1.0f;
+			m_upload.m_descriptors[6].axes[0].target_velocity += 1.0f;
+			ExpectWrites(Capture(), m_upload.m_descriptors, {0, 6}, {});
+
+			// A smaller shadow shape seeds the full descriptor copy without resetting equal prefix slots.
+			auto const capacity = m_solver.Stats().m_slot_capacity;
+			for (auto count : {6, 5})
+			{
+				// Include a changed interior slot first, then an entirely equal prefix; neither may shrink away the full-copy seed.
+				m_upload.m_endpoints.resize(count);
+				m_upload.m_endpoint_identities.resize(count);
+				m_upload.m_descriptors.resize(count);
+				SeedGpu();
+				if (count == 6)
+					m_upload.m_descriptors[1].axes[0].target_velocity += 1.0f;
+
+				ExpectWrites(Capture(), m_upload.m_descriptors, count == 6 ? std::initializer_list<int>{1} : std::initializer_list<int>{}, {});
+				PR_EXPECT(m_solver.Stats().m_slot_capacity == capacity);
+			}
+			log_stream() << "descriptor copies: clean; [2,5); [0,1); [6,7); [0,7); shrink [0,6) with only slot1 reset; shrink [0,5) with no resets\n";
+		}
+
+		// Disjoint activation and acknowledged repair clear only their contiguous runs; endpoint changes invalidate exact warm starts.
+		PRUnitTestMethod(SeparateResetRunsAndEndpointSemantics, Quick)
+		{
+			// Retain gaps between three reset runs, including runs touching both ends of the stream.
+			for (auto index : {0, 1, 3, 6})
+			{
+				// Disable these slots in the previous endpoint shadow.
+				m_upload.m_endpoints[index].flags = 0;
+			}
+			Capture();
+			auto expected = SeedGpu();
+			for (auto index : {0, 1, 3, 6})
+			{
+				// Re-activation must clear stale row state and break flags only in these slots.
+				m_upload.m_endpoints[index].flags = GpuConstraintEndpointFlags_Enabled;
+			}
+			ExpectWrites(Capture(), expected, {0, 1, 3, 6}, {0, 1, 3, 6});
+
+			// A body-index remap alone is not a new identity; generation, identity, and threshold changes are semantic.
+			expected = SeedGpu();
+			for (auto& endpoint : m_upload.m_endpoints)
+			{
+				// The same body now occupies packed index one.
+				endpoint.body_idx_a = 1;
+			}
+			m_upload.m_endpoints[0].flags |= GpuConstraintEndpointFlags_ResetWarmStart;
+			++m_upload.m_endpoints[1].generation;
+			m_upload.m_endpoint_identities[2].m_body_a = BodyRef::Rigid(m_other_body);
+			m_upload.m_endpoints[2].body_idx_a = 0;
+			m_upload.m_endpoints[4].break_force += 1.0f;
+			ExpectWrites(Capture(), expected, {0, 1, 2, 4}, {});
+			m_upload.m_endpoints[0].flags &= ~GpuConstraintEndpointFlags_ResetWarmStart;
+
+			// An acknowledged break followed by explicit repair must clear the old broken block.
+			auto breaks = std::vector<GpuConstraintBreakState>(7);
+			breaks[4] = GpuConstraintBreakState{.flags = GpuConstraintBreakFlags_Broken, .generation = m_upload.m_endpoints[4].generation};
+			m_solver.AcknowledgeBreaks(breaks);
+			expected = SeedGpu();
+			ExpectWrites(Capture(), expected, {4}, {4});
+			log_stream() << "runtime resets: [0,2), [3,4), [6,7); endpoint semantic flags only at 0/1/2/4; repaired slot [4,5)\n";
+		}
+
+		// Source replacement resets runtime without unnecessary descriptor copies; capacity replacement initializes all streams.
+		PRUnitTestMethod(SourceAndCapacityReplacement, Quick)
+		{
+			// Identical descriptors under a new source reuse GPU bytes but never inherit runtime.
+			auto expected = SeedGpu();
+			m_upload.m_source = &m_source_b;
+			ExpectWrites(Capture(), expected, {0, 1, 2, 3, 4, 5, 6}, {0, 1, 2, 3, 4, 5, 6});
+
+			// Growing past retained capacity replaces resources and therefore uploads and resets every slot.
+			m_upload.m_endpoints.push_back(m_upload.m_endpoints.back());
+			m_upload.m_endpoint_identities.push_back(m_upload.m_endpoint_identities.back());
+			m_upload.m_descriptors.push_back(m_upload.m_descriptors.back());
+			++m_upload.m_endpoints.back().generation;
+			m_upload.m_descriptors.back().frame_b.position.x = 7.0f;
+			ExpectWrites(Capture(), m_upload.m_descriptors, {0, 1, 2, 3, 4, 5, 6, 7}, {0, 1, 2, 3, 4, 5, 6, 7});
+			PR_EXPECT(m_solver.Stats().m_slot_capacity >= 8);
+
+			// Explicit invalidation remains pending across an empty upload from the same source.
+			expected = SeedGpu();
+			m_solver.InvalidateRuntimeState();
+			PR_EXPECT(!m_solver.Upload(ConstraintTestGpu().m_job, GpuConstraintUpload{.m_source = &m_source_b}));
+			ExpectWrites(Capture(), expected, {0, 1, 2, 3, 4, 5, 6, 7}, {0, 1, 2, 3, 4, 5, 6, 7});
+			log_stream() << "replacement: source resets all without descriptor copy; capacity growth copies/resets all; invalidation survives empty source\n";
+		}
+	};
+
+	// Retained CPU graph work must follow exact endpoint keys without changing runtime reset or GPU colouring behavior.
+	PRUnitTestClass(ConstraintColourReuseTests, Serial)
+	{
+		ConstraintSet m_source_a;
+		ConstraintSet m_source_b;
+		EngineConfig m_config;
+		GpuConstraintSolver m_solver{ConstraintTestGpu(), m_config};
+		GpuConstraintSolver m_reference{ConstraintTestGpu(), m_config};
+		GpuConstraintUpload m_upload;
+
+		// Build a branching packed input that includes a world endpoint.
+		TestClass_ConstraintColourReuseTests()
+		{
+			// Only row preparation and colouring are needed for the native recolouring case.
+			m_config.solver_iterations = 0;
+			m_config.push_out_iterations = 0;
+			m_config.constraint_warm_start_factor = 0.0f;
+			m_upload.m_source = &m_source_a;
+			for (auto [a, b] : std::array<std::pair<int, int>, 6>{{{0, 1}, {1, 2}, {2, 3}, {0, 4}, {4, 5}, {5, -1}}})
+			{
+				// Raw packed streams isolate the existing Upload boundary from front-end packing.
+				m_upload.m_endpoints.push_back({.body_idx_a = a, .body_idx_b = b, .flags = GpuConstraintEndpointFlags_Enabled, .generation = 1, .break_force = std::numeric_limits<float>::infinity(), .break_torque = std::numeric_limits<float>::infinity()});
+				m_upload.m_endpoint_identities.emplace_back();
+				auto& desc = m_upload.m_descriptors.emplace_back();
+				desc.frame_a.rotation = desc.frame_b.rotation = float4{0, 0, 0, 1};
+				desc.axes[0].mode = GpuConstraintAxisMode_Locked;
+				desc.axes[0].max_force = 1000.0f;
+			}
+		}
+
+		// Compare retained CPU work and actual native transfers with a newly built schedule and bound.
+		void Check(char const* name, bool rebuild, std::initializer_list<int> warm_resets = {}, std::initializer_list<int> runtime_resets = {})
+		{
+			// Build scratch is not consumed by rendering or solving; sentinels expose an otherwise invisible redundant CPU rebuild.
+			m_solver.m_body_degrees.push_back(-101);
+			m_solver.m_colour_schedule.m_unsorted.push_back({.slot_idx = -202});
+			auto const retained_slots = isize(m_solver.m_endpoint_shadow);
+			if (retained_slots != 0)
+			{
+				// Only task padding changes, so even an accidental later shader read cannot use an invalid slot or predecessor.
+				auto tasks = m_solver.m_colour_schedule.m_tasks;
+				for (auto& task : tasks)
+				{
+					// A repeated transfer would overwrite this distinct GPU-only marker.
+					task.pad = 73;
+				}
+				if (!tasks.empty())
+					TestClass_ConstraintUploadBookkeepingTests::WriteBuffer(m_solver.m_r_colour_schedule.get(), tasks);
+
+				// Broken-block and impulse sentinels make any hidden warm/runtime reset observable.
+				TestClass_ConstraintUploadBookkeepingTests::WriteBuffer(m_solver.m_r_blocks.get(), std::vector<GpuConstraintBlock>(retained_slots, GpuConstraintBlock{.flags = ConstraintBlockFlags_Broken}));
+				auto rows = std::vector<GpuConstraintRow>(GpuConstraintRowsPerBlock * retained_slots);
+				for (auto& row : rows)
+				{
+					// Every retained canonical row carries the same easily checked impulse.
+					row.bounds.z = 17.0f;
+				}
+				TestClass_ConstraintUploadBookkeepingTests::WriteBuffer(m_solver.m_r_rows.get(), rows);
+			}
+
+			// The reference always rebuilds from the current input and never uses the candidate's endpoint shadow.
+			auto reference = ConstraintColourSchedule{};
+			reference.Build(m_upload.m_endpoints);
+			auto const bound = m_reference.ColourBound(m_upload.m_endpoints);
+			m_upload.m_rigid_active_count = std::ranges::count_if(m_upload.m_endpoints, [](auto const& endpoint)
+			{
+				// Coupled rows remain owned by their separate solver.
+				return AllSet(endpoint.flags, GpuConstraintEndpointFlags_Enabled) && !AllSet(endpoint.flags, GpuConstraintEndpointFlags_Coupled);
+			});
+			m_upload.m_breakable_count = std::ranges::count_if(m_upload.m_endpoints, [](auto const& endpoint)
+			{
+				// Keep the packed count consistent when a test changes a finite threshold.
+				return AllSet(endpoint.flags, GpuConstraintEndpointFlags_Enabled) && (std::isfinite(endpoint.break_force) || std::isfinite(endpoint.break_torque));
+			});
+			auto& job = ConstraintTestGpu().m_job;
+			PR_EXPECT(m_solver.Upload(job, m_upload) == (m_upload.m_rigid_active_count != 0));
+			auto const count = isize(m_upload.m_endpoints);
+			auto const task_count = isize(reference.m_tasks);
+			auto task_read = ReadbackAlloc{};
+			if (task_count != 0)
+				task_read = TestClass_ConstraintUploadBookkeepingTests::ReadBuffer<GpuConstraintColourTask>(m_solver.m_r_colour_schedule.get(), task_count);
+
+			// Complete the real D3D transfers before reading tasks, endpoint flags, or retained runtime.
+			auto endpoints = TestClass_ConstraintUploadBookkeepingTests::ReadBuffer<GpuConstraintEndpoint>(m_solver.m_r_endpoints.get(), count);
+			auto blocks = TestClass_ConstraintUploadBookkeepingTests::ReadBuffer<GpuConstraintBlock>(m_solver.m_r_blocks.get(), count);
+			auto rows = TestClass_ConstraintUploadBookkeepingTests::ReadBuffer<GpuConstraintRow>(m_solver.m_r_rows.get(), GpuConstraintRowsPerBlock * count);
+			job.Run();
+			PR_EXPECT((std::ranges::find(m_solver.m_body_degrees, -101) == m_solver.m_body_degrees.end()) == rebuild);
+			PR_EXPECT((std::ranges::find_if(m_solver.m_colour_schedule.m_unsorted, [](auto const& task)
+			{
+				// Real schedule tasks always refer to nonnegative stable slots.
+				return task.slot_idx == -202;
+			}) == m_solver.m_colour_schedule.m_unsorted.end()) == rebuild);
+			PR_EXPECT(m_solver.m_colour_count == bound);
+			PR_EXPECT(m_solver.m_colour_schedule.m_level_offsets == reference.m_level_offsets);
+			PR_EXPECT(m_solver.m_colour_schedule.m_tasks.size() == reference.m_tasks.size());
+			for (int index = 0; index != task_count; ++index)
+			{
+				// Changed graphs must reach native storage; unchanged graphs must leave the GPU-only padding marker intact.
+				auto expected = reference.m_tasks[index];
+				PR_EXPECT(memcmp(&m_solver.m_colour_schedule.m_tasks[index], &expected, sizeof(expected)) == 0);
+				expected.pad = rebuild ? 0 : 73;
+				PR_EXPECT(memcmp(&task_read.ptr<GpuConstraintColourTask>()[index], &expected, sizeof(expected)) == 0);
+			}
+			for (int index = 0; index != count; ++index)
+			{
+				// The graph decision must not add warm resets or clear previously broken blocks.
+				auto const warm = std::ranges::find(warm_resets, index) != warm_resets.end();
+				auto const reset = std::ranges::find(runtime_resets, index) != runtime_resets.end();
+				PR_EXPECT(AllSet(endpoints.ptr<GpuConstraintEndpoint>()[index].flags, GpuConstraintEndpointFlags_ResetWarmStart) == warm);
+				PR_EXPECT(blocks.ptr<GpuConstraintBlock>()[index].flags == (reset ? 0u : ConstraintBlockFlags_Broken));
+				for (int axis = 0; axis != GpuConstraintRowsPerBlock; ++axis)
+				{
+					// All rows of a cleared slot reset, and all other rows retain their impulse.
+					PR_EXPECT(rows.ptr<GpuConstraintRow>()[index * GpuConstraintRowsPerBlock + axis].bounds.z == (reset ? 0.0f : 17.0f));
+				}
+			}
+			log_stream() << name << " rebuilt=" << rebuild << " slots=" << count << " tasks=" << task_count << " levels=" << reference.LevelCount() << " bound=" << bound << " gpu_tasks_and_runtime_match=1\n";
+		}
+
+		// Non-key parameters and repeated endpoints must not rebuild or retransmit the graph.
+		PRUnitTestMethod(UnchangedAndParameterOnly, Quick)
+		{
+			// Both CPU scratch and GPU-only markers must survive each non-key mutation.
+			Check("initial", true, {0, 1, 2, 3, 4, 5}, {0, 1, 2, 3, 4, 5});
+			Check("unchanged", false);
+			m_upload.m_descriptors[1].axes[0].target_velocity = 0.25f;
+			Check("target", false, {1});
+			m_upload.m_endpoints[2].break_force = 100.0f;
+			Check("threshold", false, {2});
+			++m_upload.m_endpoints[3].generation;
+			Check("generation", false, {3});
+			m_upload.m_endpoints[4].flags |= GpuConstraintEndpointFlags_CollideConnected;
+			Check("collision-flag", false, {4});
+			m_upload.m_endpoints[5].flags |= GpuConstraintEndpointFlags_ResetWarmStart;
+			Check("input-warm-flag", false, {5});
+			m_upload.m_endpoints[5].flags &= ~GpuConstraintEndpointFlags_ResetWarmStart;
+			m_solver.Deactivate();
+			Check("deactivated-resume", false);
+		}
+
+		// Every graph-key dimension and storage replacement must refresh the existing native schedule.
+		PRUnitTestMethod(GraphKeysAndStorageLifecycle, Quick)
+		{
+			// Packed reordering changes indices without changing semantic endpoint identities or warm starts.
+			Check("initial", true, {0, 1, 2, 3, 4, 5}, {0, 1, 2, 3, 4, 5});
+			for (auto& endpoint : m_upload.m_endpoints)
+			{
+				// Apply the same body permutation to both ends of every slot.
+				for (auto* index : {&endpoint.body_idx_a, &endpoint.body_idx_b})
+				{
+					// A consistent permutation leaves physical endpoint identity untouched.
+					if (*index == 0) *index = 5;
+					else if (*index == 5) *index = 0;
+				}
+			}
+			Check("packed-reorder", true);
+			std::swap(m_upload.m_endpoints[0], m_upload.m_endpoints[3]);
+			++m_upload.m_endpoints[0].generation;
+			++m_upload.m_endpoints[3].generation;
+			Check("slot-reorder", true, {0, 3});
+			m_upload.m_endpoints[2].flags &= ~GpuConstraintEndpointFlags_Enabled;
+			Check("disabled", true, {2});
+			m_upload.m_endpoints[2].body_idx_a = 5;
+			Check("disabled-index-a-bound", true);
+			m_upload.m_endpoints[2].body_idx_b = 1;
+			Check("disabled-index-b-bound", true);
+			m_upload.m_endpoints[1].flags |= GpuConstraintEndpointFlags_Coupled;
+			Check("coupled", true, {1});
+			m_upload.m_endpoints[1].flags &= ~GpuConstraintEndpointFlags_Coupled;
+			Check("uncoupled", true, {1});
+
+			// A built empty graph has offsets {0}; it is distinct from an invalidated schedule.
+			for (auto& endpoint : m_upload.m_endpoints)
+			{
+				// Keep slot shape and indices while removing all scheduled tasks.
+				endpoint.flags &= ~GpuConstraintEndpointFlags_Enabled;
+			}
+			Check("built-empty", true, {0, 1, 3, 4, 5});
+			Check("built-empty-reuse", false);
+			for (auto& endpoint : m_upload.m_endpoints)
+			{
+				// Restore active tasks without treating the empty schedule as unbuilt.
+				endpoint.flags |= GpuConstraintEndpointFlags_Enabled;
+			}
+			Check("reactivated", true, {0, 1, 2, 3, 4, 5}, {0, 1, 2, 3, 4, 5});
+			auto full = m_upload;
+			m_upload.m_endpoints.resize(5);
+			m_upload.m_endpoint_identities.resize(5);
+			m_upload.m_descriptors.resize(5);
+			Check("shrink", true);
+			m_upload = full;
+			Check("grow-within-capacity", true, {5}, {5});
+			m_upload.m_endpoints.push_back(m_upload.m_endpoints.back());
+			m_upload.m_endpoint_identities.emplace_back();
+			m_upload.m_descriptors.push_back(m_upload.m_descriptors.back());
+			Check("capacity-replacement", true, {0, 1, 2, 3, 4, 5, 6}, {0, 1, 2, 3, 4, 5, 6});
+			PR_EXPECT(!m_solver.Upload(ConstraintTestGpu().m_job, GpuConstraintUpload{.m_source = &m_source_b}));
+			m_upload.m_source = &m_source_b;
+			Check("source-through-empty", true, {0, 1, 2, 3, 4, 5, 6}, {0, 1, 2, 3, 4, 5, 6});
+			PR_EXPECT(!m_solver.Upload(ConstraintTestGpu().m_job, GpuConstraintUpload{.m_source = &m_source_a}));
+			Check("retained-owner-through-empty", false);
+			m_solver.InvalidateRuntimeState();
+			PR_EXPECT(!m_solver.Upload(ConstraintTestGpu().m_job, GpuConstraintUpload{.m_source = &m_source_b}));
+			Check("invalidated-through-empty", true, {0, 1, 2, 3, 4, 5, 6}, {0, 1, 2, 3, 4, 5, 6});
+		}
+
+		// Acknowledgement changes the shadow before Upload can compare it with a disabled or repaired stream.
+		PRUnitTestMethod(AcknowledgedBreakAndRepair, Quick)
+		{
+			// Disabled upload deliberately matches the already-mutated shadow, exposing a stale retained graph.
+			Check("initial", true, {0, 1, 2, 3, 4, 5}, {0, 1, 2, 3, 4, 5});
+			auto breaks = std::vector<GpuConstraintBreakState>(6);
+			breaks[1] = {.flags = GpuConstraintBreakFlags_Broken, .generation = 1};
+			m_solver.AcknowledgeBreaks(breaks);
+			m_upload.m_endpoints[1].flags &= ~GpuConstraintEndpointFlags_Enabled;
+			Check("acknowledged-disabled", true);
+			m_solver.AcknowledgeBreaks(breaks);
+			Check("repeated-disabled-ack", false);
+			m_upload.m_endpoints[1].flags |= GpuConstraintEndpointFlags_Enabled;
+			Check("repair", true, {1}, {1});
+
+			// An empty stream cannot erase graph invalidation while the last nonempty shadow remains retained.
+			m_solver.AcknowledgeBreaks(breaks);
+			PR_EXPECT(!m_solver.Upload(ConstraintTestGpu().m_job, GpuConstraintUpload{.m_source = &m_source_b}));
+			m_upload.m_endpoints[1].flags &= ~GpuConstraintEndpointFlags_Enabled;
+			Check("acknowledged-empty-disabled", true);
+			m_upload.m_endpoints[1].flags |= GpuConstraintEndpointFlags_Enabled;
+			Check("repair-after-empty", true, {1}, {1});
+			m_solver.AcknowledgeBreaks(breaks);
+			Check("immediate-repair", true, {1}, {1});
+		}
+
+		// Identical CPU graph inputs must still run GPU colouring when current body dynamics change.
+		PRUnitTestMethod(NativeColouringStillRuns, Quick)
+		{
+			// Static participation changes native colours, but neither the schedule nor conservative bound depends on mass.
+			Check("initial", true, {0, 1, 2, 3, 4, 5}, {0, 1, 2, 3, 4, 5});
+			auto previous = std::vector<uint32_t>{};
+			for (auto static_middle : {false, true})
+			{
+				// The reference invalidates every time; the candidate must keep its CPU graph and still match its new native colours.
+				auto bodies = std::vector<GpuRigidBody>{};
+				for (int index = 0; index != 6; ++index)
+				{
+					// Fresh identical body state isolates colour generation from earlier solving.
+					bodies.push_back(PackDynamics(MakeConstraintGpuBody(), index));
+				}
+				if (static_middle)
+					bodies[1].os_com_and_invmass.w = 0.0f;
+
+				// A scratch marker detects CPU rebuilding independently of the completed block colours.
+				m_solver.m_body_degrees.push_back(-101);
+				auto expected_bodies = bodies;
+				auto blocks = std::vector<GpuConstraintBlock>(6);
+				auto expected_blocks = blocks;
+				m_reference.InvalidateRuntimeState();
+				m_solver.Solve(ConstraintTestGpu().m_job, 1.0f / 60.0f, m_upload, bodies, blocks);
+				m_reference.Solve(ConstraintTestGpu().m_job, 1.0f / 60.0f, m_upload, expected_bodies, expected_blocks);
+				PR_EXPECT(std::ranges::find(m_solver.m_body_degrees, -101) != m_solver.m_body_degrees.end());
+				PR_EXPECT(m_solver.Stats().m_dispatch_count > 0);
+				auto colours = std::vector<uint32_t>{};
+				for (int index = 0; index != 6; ++index)
+				{
+					// Match the freshly rebuilt solver's actual shader output at every stable slot.
+					PR_EXPECT(blocks[index].colour == expected_blocks[index].colour);
+					colours.push_back(blocks[index].colour);
+				}
+				if (static_middle)
+					PR_EXPECT(colours != previous);
+
+				// Keep both native vectors in the evidence instead of only a boolean success.
+				log_stream() << "static_middle=" << static_middle << " native_colours=";
+				for (auto colour : colours)
+				{
+					// Slot order is preserved in the retained output.
+					log_stream() << colour << ',';
+				}
+				log_stream() << '\n';
+				previous = colours;
+			}
+		}
+	};
+
+	// The recording bound must cover native serial-order colouring, including its overflow fallback.
+	PRUnitTestClass(ConstraintColourBoundTests, Serial)
+	{
+		// Compare native colours and indirect arguments with an independent serial visit of the completed blocks.
+		std::pair<int, int> Check(char const* name, std::vector<std::pair<int, int>> const& edges, int static_body = -1, std::span<int const> disabled = {}, std::span<int const> coupled = {})
+		{
+			// Exercise the per-colour recorder without changing the engine or benchmark configuration.
+			auto config = EngineConfig{};
+			config.solver_iterations = 1;
+			config.push_out_iterations = 0;
+			config.constraint_warm_start_factor = 0.0f;
+			config.fused_colour_sweep_limit = 0;
+			auto& gpu = ConstraintTestGpu();
+			auto solver = GpuConstraintSolver{gpu, config};
+			auto upload = GpuConstraintUpload{};
+			auto body_count = 0;
+			for (auto [a, b] : edges)
+			{
+				// Raw packed endpoints isolate colouring from the front-end constraint builder.
+				body_count = std::max(body_count, std::max(a, b) + 1);
+				upload.m_endpoints.push_back({.body_idx_a = a, .body_idx_b = b, .flags = GpuConstraintEndpointFlags_Enabled});
+				upload.m_endpoint_identities.emplace_back();
+				auto& descriptor = upload.m_descriptors.emplace_back();
+				descriptor.frame_a.rotation = descriptor.frame_b.rotation = float4{0, 0, 0, 1};
+				descriptor.axes[0].mode = GpuConstraintAxisMode_Locked;
+				descriptor.axes[0].max_force = 1000.0f;
+			}
+			for (auto slot : disabled)
+			{
+				// Disabled slots still participate conservatively in the host bound.
+				upload.m_endpoints[slot].flags = GpuConstraintEndpointFlags_None;
+			}
+			for (auto slot : coupled)
+			{
+				// Coupled slots belong to a different solver and cannot consume rigid colours.
+				upload.m_endpoints[slot].flags |= GpuConstraintEndpointFlags_Coupled;
+			}
+			upload.m_rigid_active_count = std::ranges::count_if(upload.m_endpoints, [](auto const& endpoint)
+			{
+				// Match the packed stream's active independent-rigid count.
+				return AllSet(endpoint.flags, GpuConstraintEndpointFlags_Enabled) && !AllSet(endpoint.flags, GpuConstraintEndpointFlags_Coupled);
+			});
+			auto bodies = std::vector<GpuRigidBody>{};
+			for (int body = 0; body != body_count; ++body)
+			{
+				// Static participation differs from the conservative host assumption.
+				bodies.push_back(PackDynamics(MakeConstraintGpuBody(), body));
+				if (body == static_body)
+					bodies.back().os_com_and_invmass.w = 0.0f;
+			}
+
+			// Read actual shader output, not the C++ shader emulation.
+			auto blocks = std::vector<GpuConstraintBlock>(edges.size());
+			solver.Solve(gpu.m_job, 1.0f / 60.0f, upload, bodies, blocks);
+			auto const bound = solver.m_colour_count;
+			auto masks = std::vector<uint32_t>(body_count, 0u);
+			auto expected = std::vector<uint32_t>(edges.size(), MaxColours);
+			auto overflow = false;
+			auto used_count = 0;
+			auto dynamic = [&](int body)
+			{
+				// World and static endpoints do not restrict the first free colour.
+				return body >= 0 && body != static_body;
+			};
+			for (int slot = 0; slot != isize(edges); ++slot)
+			{
+				// Only participating rows can occupy a colour at an earlier slot.
+				auto const& block = blocks[slot];
+				if (!AllSet(block.flags, ConstraintBlockFlags_Active) || block.velocity_mask == 0u || AllSet(upload.m_endpoints[slot].flags, GpuConstraintEndpointFlags_Coupled))
+					continue;
+
+				auto const [a, b] = edges[slot];
+				auto const used = (dynamic(a) ? masks[a] : 0u) | (dynamic(b) ? masks[b] : 0u);
+				if (~used == 0u)
+				{
+					// The native finish pass clears all assigned colours before its serial fallback.
+					overflow = true;
+					std::ranges::fill(expected, MaxColours);
+					break;
+				}
+				auto const colour = static_cast<uint32_t>(std::countr_zero(~used));
+				expected[slot] = colour;
+				used_count = std::max(used_count, int(colour) + 1);
+				if (dynamic(a))
+					masks[a] |= 1u << colour;
+
+				if (dynamic(b))
+					masks[b] |= 1u << colour;
+			}
+
+			// The bound and fallback must cover every occupied indirect entry; omitted tail entries must be empty.
+			auto state_read = TestClass_ConstraintUploadBookkeepingTests::ReadBuffer<GpuConstraintSolverState>(solver.FrameState(), 1);
+			auto args_read = TestClass_ConstraintUploadBookkeepingTests::ReadBuffer<DispatchArguments>(solver.m_r_colour_dispatch.get(), MaxColours);
+			gpu.m_job.Run();
+			auto const& state = *state_read.ptr<GpuConstraintSolverState>();
+			auto const* args = args_read.ptr<DispatchArguments>();
+			PR_EXPECT(state.failure_slot_plus_one == 0u);
+			PR_EXPECT((state.colour_overflow != 0u) == overflow);
+			PR_EXPECT(bound >= 1 && bound <= MaxColours);
+			PR_EXPECT(overflow ? bound == MaxColours : used_count <= bound);
+			for (int slot = 0; slot != isize(edges); ++slot)
+			{
+				// Native level scheduling must reproduce the independent serial choice at every slot.
+				PR_EXPECT(blocks[slot].colour == expected[slot]);
+			}
+			for (int colour = 0; colour != MaxColours; ++colour)
+			{
+				// Overflow must retain colour zero, and no skipped tail colour may contain work.
+				if (overflow)
+					PR_EXPECT(args[colour].ThreadGroupCountX == (colour == 0 ? 1u : 0u));
+				else if (colour >= bound)
+					PR_EXPECT(args[colour].ThreadGroupCountX == 0u);
+			}
+			log_stream() << name << " slots=" << edges.size() << " bound=" << bound << " serial_count=" << used_count
+				<< " overflow=" << overflow << " recorded_dispatches=" << solver.Stats().m_dispatch_count << '\n';
+			return {bound, used_count};
+		}
+
+		// Deep and branching graphs must remain covered when stable slot order changes.
+		PRUnitTestMethod(DeepBranchingAndReordered, Quick)
+		{
+			// Long chains exercise repeated low-degree slots beyond the fused sweep's normal size.
+			auto edges = std::vector<std::pair<int, int>>{};
+			for (int slot = 0; slot != 300; ++slot)
+			{
+				// Each new edge shares only its preceding chain endpoint.
+				edges.emplace_back(slot, slot + 1);
+			}
+			auto const chain = Check("deep", edges);
+			std::ranges::reverse(edges);
+			Check("deep-reversed", edges);
+
+			// A binary tree and a fixed reordered visit exercise branching and future incident edges.
+			edges.clear();
+			for (int body = 1; body != 64; ++body)
+			{
+				// Parent indices define a tree without imposing its eventual colouring order.
+				edges.emplace_back((body - 1) / 2, body);
+			}
+			Check("branching", edges);
+			auto rng = std::default_random_engine{1234u};
+			std::shuffle(edges.begin(), edges.end(), rng);
+			Check("branching-reordered", edges);
+			PR_EXPECT(chain.first == chain.second);
+		}
+
+		// Parallel, reversed, world, static, disabled and coupled endpoints retain their established participation.
+		PRUnitTestMethod(EndpointParticipation, Quick)
+		{
+			// Repeated endpoint pairs share both masks without requiring a pair cache.
+			Check("parallel-reversed", {{0, 1}, {1, 0}, {0, 1}, {1, 0}, {0, 1}, {1, 0}});
+			Check("world-static-disabled-coupled", {{0, -1}, {0, 1}, {0, 2}, {-1, 0}, {2, 0}, {1, 2}, {2, 1}, {2, 0}, {0, -1}, {0, 2}}, 1, std::array{1, 4, 9}, std::array{2, 7});
+
+			// An empty or entirely coupled stream still permits the colour-zero fallback.
+			auto config = EngineConfig{};
+			auto solver = GpuConstraintSolver{ConstraintTestGpu(), config};
+			PR_EXPECT(solver.ColourBound({}) == 1);
+			auto coupled = std::array{GpuConstraintEndpoint{.body_idx_a = 0, .body_idx_b = 1, .flags = GpuConstraintEndpointFlags_Coupled}};
+			PR_EXPECT(solver.ColourBound(coupled) == 1);
+		}
+
+		// Exhaustion must keep the existing coherent serial pass rather than dropping the overflowing slot.
+		PRUnitTestMethod(OverflowKeepsColourZero, Quick)
+		{
+			// A shared dynamic hub requires more colours than the fixed native mask can represent.
+			auto edges = std::vector<std::pair<int, int>>{};
+			for (int slot = 0; slot != MaxColours + 3; ++slot)
+			{
+				// Distinct leaves prevent unrelated endpoint conflicts from explaining the overflow.
+				edges.emplace_back(0, slot + 1);
+			}
+			Check("overflow-hub", edges);
+			for (auto& edge : edges)
+			{
+				// A world endpoint cannot remove the shared dynamic body's colour exhaustion.
+				edge.second = -1;
+			}
+			Check("overflow-world", edges);
+		}
+	};
+
 	PRUnitTestClass(ConstraintGpuAlgebraRegressionTests)
 	{
 		// Compilation reports the highest failing slot even when colouring later selects the serial fallback.
@@ -410,8 +1576,8 @@ namespace pr::physics::tests
 				body.SetMassProperties(Inertia{1.0f, 1.0f});
 				body.VelocityWS(v8motion{v4::Zero(), v4{initial_speed, initial_speed, 0, 0}});
 				auto desc = D6ConstraintDesc{};
-				desc.m_frame_a = BodyFrame{BodyRef::World(), m4x4::Translation(1.0f, -1.0f, 0.0f)};
-				desc.m_frame_b = BodyFrame{BodyRef::Rigid(body), desc.m_frame_a.m_constraint_to_body};
+				desc.m_frame_a = BodyFrame::FromMatrix(BodyRef::World(), m4x4::Translation(1.0f, -1.0f, 0.0f));
+				desc.m_frame_b = BodyFrame{BodyRef::Rigid(body), desc.m_frame_a.m_rotation, desc.m_frame_a.m_position};
 				desc.m_linear[0] = MakeConstraintGpuLockedAxis(std::numeric_limits<float>::infinity());
 				desc.m_linear[1].m_mode = EConstraintAxisMode::Driven;
 				desc.m_linear[1].m_target_velocity = initial_speed == 0.0f ? 3.0f : 0.0f;
@@ -546,8 +1712,8 @@ namespace pr::physics::tests
 			auto body = MakeConstraintGpuBody();
 			body.SetMassProperties(Inertia{1.0f, 1.0f});
 			auto desc = D6ConstraintDesc{};
-			desc.m_frame_a = BodyFrame{BodyRef::World(), m4x4::Translation(1.0f, -1.0f, 0.0f)};
-			desc.m_frame_b = BodyFrame{BodyRef::Rigid(body), desc.m_frame_a.m_constraint_to_body};
+			desc.m_frame_a = BodyFrame::FromMatrix(BodyRef::World(), m4x4::Translation(1.0f, -1.0f, 0.0f));
+			desc.m_frame_b = BodyFrame{BodyRef::Rigid(body), desc.m_frame_a.m_rotation, desc.m_frame_a.m_position};
 			desc.m_linear[0] = MakeConstraintGpuLockedAxis();
 			desc.m_linear[1] = MakeConstraintGpuLockedAxis();
 			desc.m_linear[1].m_target_position = 0.01f;
@@ -583,8 +1749,8 @@ namespace pr::physics::tests
 				m4x4::Transform(v4::YAxis(), 0.35f, v4{1.0f, -2.0f, 0.5f, 1}),
 				v4{0.2f, -0.1f, 0.3f, 0});
 			auto desc = D6ConstraintDesc{};
-			desc.m_frame_a = BodyFrame{BodyRef::Rigid(body), m4x4::Transform(v4::ZAxis(), -0.2f, v4{0.4f, 0.1f, -0.3f, 1})};
-			desc.m_frame_b = BodyFrame{BodyRef::World(), m4x4::Transform(v4::XAxis(), 0.15f, v4{1.3f, -1.7f, 0.8f, 1})};
+			desc.m_frame_a = BodyFrame::FromMatrix(BodyRef::Rigid(body), m4x4::Transform(v4::ZAxis(), -0.2f, v4{0.4f, 0.1f, -0.3f, 1}));
+			desc.m_frame_b = BodyFrame::FromMatrix(BodyRef::World(), m4x4::Transform(v4::XAxis(), 0.15f, v4{1.3f, -1.7f, 0.8f, 1}));
 			desc.m_linear[0] = MakeConstraintGpuLockedAxis();
 			desc.m_linear[1].m_mode = EConstraintAxisMode::Limited;
 			desc.m_linear[1].m_limits = Range<float>{-0.05f, +0.05f};
@@ -633,8 +1799,8 @@ namespace pr::physics::tests
 			body_b.VelocityWS(v8motion{v4{-0.1f, 0.4f, -0.2f, 0}, v4{-0.6f, 0.8f, -0.3f, 0}});
 
 			auto desc = D6ConstraintDesc{};
-			desc.m_frame_a = BodyFrame{BodyRef::Rigid(body_a), m4x4::Translation(0.4f, 0.2f, -0.1f)};
-			desc.m_frame_b = BodyFrame{BodyRef::Rigid(body_b), m4x4::Translation(0.2f, 0.3f, -0.2f)};
+			desc.m_frame_a = BodyFrame::FromMatrix(BodyRef::Rigid(body_a), m4x4::Translation(0.4f, 0.2f, -0.1f));
+			desc.m_frame_b = BodyFrame::FromMatrix(BodyRef::Rigid(body_b), m4x4::Translation(0.2f, 0.3f, -0.2f));
 			for (int axis = 0; axis != 3; ++axis)
 				desc.m_linear[axis] = MakeConstraintGpuLockedAxis();
 			auto constraints = ConstraintSet{};
@@ -682,8 +1848,8 @@ namespace pr::physics::tests
 				body_b.VelocityWS(v8motion{v4{-0.08f * seed, 0.05f * seed, -0.03f * seed, 0}, v4{-0.15f * seed, 0.12f * seed, -0.06f * seed, 0}});
 
 				auto desc = D6ConstraintDesc{};
-				desc.m_frame_a = BodyFrame{BodyRef::Rigid(body_a), m4x4::Transform(v4::ZAxis(), 0.03f * seed, v4{0.2f, -0.1f, 0.15f, 1})};
-				desc.m_frame_b = BodyFrame{BodyRef::Rigid(body_b), m4x4::Transform(v4::YAxis(), -0.02f * seed, v4{-0.1f, 0.25f, -0.05f, 1})};
+				desc.m_frame_a = BodyFrame::FromMatrix(BodyRef::Rigid(body_a), m4x4::Transform(v4::ZAxis(), 0.03f * seed, v4{0.2f, -0.1f, 0.15f, 1}));
+				desc.m_frame_b = BodyFrame::FromMatrix(BodyRef::Rigid(body_b), m4x4::Transform(v4::YAxis(), -0.02f * seed, v4{-0.1f, 0.25f, -0.05f, 1}));
 				for (int axis = 0; axis != 3; ++axis)
 				{
 					desc.m_linear[axis] = MakeConstraintGpuLockedAxis(5000.0f);
@@ -775,8 +1941,8 @@ namespace pr::physics::tests
 				body_b.VelocityWS(v8motion{transformed_from_base.rot * base_velocity_b.ang, transformed_from_base.rot * base_velocity_b.lin});
 
 				auto desc = D6ConstraintDesc{};
-				desc.m_frame_a = BodyFrame{BodyRef::Rigid(body_a), m4x4::Transform(v4::ZAxis(), +0.17f, v4{+0.3f, -0.2f, +0.1f, 1})};
-				desc.m_frame_b = BodyFrame{BodyRef::Rigid(body_b), m4x4::Transform(v4::YAxis(), -0.11f, v4{-0.2f, +0.25f, -0.15f, 1})};
+				desc.m_frame_a = BodyFrame::FromMatrix(BodyRef::Rigid(body_a), m4x4::Transform(v4::ZAxis(), +0.17f, v4{+0.3f, -0.2f, +0.1f, 1}));
+				desc.m_frame_b = BodyFrame::FromMatrix(BodyRef::Rigid(body_b), m4x4::Transform(v4::YAxis(), -0.11f, v4{-0.2f, +0.25f, -0.15f, 1}));
 				for (int axis = 0; axis != 3; ++axis)
 				{
 					desc.m_linear[axis] = MakeConstraintGpuLockedAxis(5000.0f);
@@ -843,8 +2009,8 @@ namespace pr::physics::tests
 				v4{0.2f, -0.1f, 0.15f, 0});
 			body.MomentumWS(v8force{v4{0.2f, -0.1f, 0.3f, 0}, v4{0.4f, 0.5f, -0.2f, 0}});
 			auto desc = D6ConstraintDesc{};
-			desc.m_frame_a = BodyFrame{BodyRef::Rigid(body), m4x4::Translation(0.25f, -0.15f, 0.1f)};
-			desc.m_frame_b = BodyFrame{BodyRef::World(), m4x4::Translation(0.7f, -0.05f, 0.2f)};
+			desc.m_frame_a = BodyFrame::FromMatrix(BodyRef::Rigid(body), m4x4::Translation(0.25f, -0.15f, 0.1f));
+			desc.m_frame_b = BodyFrame::FromMatrix(BodyRef::World(), m4x4::Translation(0.7f, -0.05f, 0.2f));
 			for (int axis = 0; axis != 3; ++axis)
 				desc.m_linear[axis] = MakeConstraintGpuLockedAxis();
 			auto constraints = ConstraintSet{};
@@ -1226,8 +2392,8 @@ namespace pr::physics::tests
 			body_b.VelocityWS(v8motion{v4{-0.1f, 0.15f, -0.2f, 0}, v4{-0.3f, 0.6f, -0.2f, 0}});
 
 			auto desc = D6ConstraintDesc{};
-			desc.m_frame_a = BodyFrame{BodyRef::Rigid(body_a), m4x4::Translation(0.3f, -0.2f, 0.1f)};
-			desc.m_frame_b = BodyFrame{BodyRef::Rigid(body_b), m4x4::Translation(-0.15f, 0.25f, -0.05f)};
+			desc.m_frame_a = BodyFrame::FromMatrix(BodyRef::Rigid(body_a), m4x4::Translation(0.3f, -0.2f, 0.1f));
+			desc.m_frame_b = BodyFrame::FromMatrix(BodyRef::Rigid(body_b), m4x4::Translation(-0.15f, 0.25f, -0.05f));
 			for (int axis = 0; axis != 3; ++axis)
 			{
 				desc.m_linear[axis] = MakeConstraintGpuLockedAxis(5000.0f);

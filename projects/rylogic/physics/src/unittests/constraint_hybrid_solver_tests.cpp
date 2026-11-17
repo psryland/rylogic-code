@@ -153,8 +153,8 @@ namespace pr::physics::tests
 					v8motion{v4::Zero(), v4{initial_speed, initial_speed, 0, 0}});
 				auto articulation = builder.Build();
 				auto desc = D6ConstraintDesc{};
-				desc.m_frame_a = BodyFrame{BodyRef::World(), m4x4::Translation(1.0f, -1.0f, 0.0f)};
-				desc.m_frame_b = BodyFrame{BodyRef::Link(articulation, root), desc.m_frame_a.m_constraint_to_body};
+				desc.m_frame_a = BodyFrame::FromMatrix(BodyRef::World(), m4x4::Translation(1.0f, -1.0f, 0.0f));
+				desc.m_frame_b = BodyFrame{BodyRef::Link(articulation, root), desc.m_frame_a.m_rotation, desc.m_frame_a.m_position};
 				desc.m_linear[0].m_mode = EConstraintAxisMode::Locked;
 				desc.m_linear[1].m_mode = EConstraintAxisMode::Driven;
 				desc.m_linear[1].m_target_velocity = initial_speed == 0.0f ? 3.0f : 0.0f;
@@ -251,8 +251,8 @@ namespace pr::physics::tests
 			auto const root = builder.AddFloatingRoot(ArticulationLinkDesc{.m_inertia = Inertia{1.0f, 1.0f}});
 			auto articulation = builder.Build();
 			auto desc = D6ConstraintDesc{};
-			desc.m_frame_a = BodyFrame{BodyRef::World(), m4x4::Translation(1.0f, -1.0f, 0.0f)};
-			desc.m_frame_b = BodyFrame{BodyRef::Link(articulation, root), desc.m_frame_a.m_constraint_to_body};
+			desc.m_frame_a = BodyFrame::FromMatrix(BodyRef::World(), m4x4::Translation(1.0f, -1.0f, 0.0f));
+			desc.m_frame_b = BodyFrame{BodyRef::Link(articulation, root), desc.m_frame_a.m_rotation, desc.m_frame_a.m_position};
 			desc.m_linear[0].m_mode = EConstraintAxisMode::Locked;
 			desc.m_linear[1].m_mode = EConstraintAxisMode::Locked;
 			desc.m_linear[1].m_target_position = 0.01f;

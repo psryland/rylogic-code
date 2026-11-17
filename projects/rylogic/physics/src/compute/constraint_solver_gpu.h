@@ -12,6 +12,15 @@ namespace pr::physics
 	struct GpuCoupledConstraintPrepare;
 	struct GpuCoupledConstraintPosition;
 	struct GpuCoupledConstraintVelocity;
+#if PR_UNITTESTS
+	namespace tests
+	{
+		// Native fixtures observe completed uploads and retained graph preparation.
+		struct TestClass_ConstraintUploadBookkeepingTests;
+		struct TestClass_ConstraintColourBoundTests;
+		struct TestClass_ConstraintColourReuseTests;
+	}
+#endif
 
 	// Observable stable-slot storage and dispatch costs for the optional persistent-constraint lane.
 	struct GpuConstraintSolverStats
@@ -42,6 +51,11 @@ namespace pr::physics
 		friend GpuCoupledConstraintPrepare;
 		friend GpuCoupledConstraintPosition;
 		friend GpuCoupledConstraintVelocity;
+#if PR_UNITTESTS
+		friend tests::TestClass_ConstraintUploadBookkeepingTests;
+		friend tests::TestClass_ConstraintColourBoundTests;
+		friend tests::TestClass_ConstraintColourReuseTests;
+#endif
 
 		Gpu& m_gpu;
 		EngineConfig const& m_config;
@@ -76,7 +90,11 @@ namespace pr::physics
 		std::vector<ConstraintEndpointIdentity> m_endpoint_identity_shadow;
 		std::vector<GpuD6ConstraintDesc> m_descriptor_shadow;
 		std::vector<int> m_body_degrees;
+
+		// Empty level offsets mean invalid preparation; a built graph with no tasks has the valid offsets {0}.
 		ConstraintColourSchedule m_colour_schedule;
+
+		// Owner of retained slot shadows and runtime blocks; empty uploads do not transfer their ownership.
 		ConstraintSet const* m_source;
 		int m_capacity;
 		int m_body_capacity;
@@ -133,10 +151,10 @@ namespace pr::physics
 		// Return the current nonempty upload's frame-local solver state, or null when no slot stream was submitted.
 		ID3D12Resource* FrameState();
 
-		// Mirror completed breaks into the endpoint shadow so an immediate explicit repair invalidates stale GPU runtime state.
+		// Mirror completed breaks for the next Upload, preserving repair resets and invalidating changed colour graphs.
 		void AcknowledgeBreaks(std::span<GpuConstraintBreakState const> states);
 
-		// Force the next upload to clear retained blocks after an abandoned or failed frame.
+		// Force the next upload to clear retained blocks and rebuild the colour graph after an abandoned or failed frame.
 		void InvalidateRuntimeState();
 
 		// True when the most recently uploaded set contains enabled independent rigid constraints.

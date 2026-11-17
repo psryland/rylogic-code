@@ -1,5 +1,67 @@
 # Physics sandbox
 
+## Conventional rigid-joint ragdolls
+
+`scenes\rigid_ragdoll_dispersed.json` and `scenes\rigid_ragdoll_pile.json` explicitly use `scene.rigid_ragdolls`.
+Their demo commands are `rigid-ragdoll-dispersed` and `rigid-ragdoll-pile`, distinct from retained articulation demos.
+Each has 100 ten-link ragdolls: 1,000 dynamic rigid bodies, 900 physical connections and 1,800 D6 constraint records,
+plus a static ground body. The authored settings are three substeps, ten velocity iterations and one position iteration.
+This is a conventional rigid-joint approximation, **not reduced-coordinate articulation throughput**. `scene.articulations`
+retains its existing reduced-coordinate meaning and implementation; no environment switch changes either model.
+
+The conventional authoring domain is floating-root trees with unique, parent-before-child link names, centred collision
+shapes, shape-derived positive mass/density, and finite initial frames/motion. The collection currently supports ragdolls
+with optional ground, not mixtures with ordinary bodies, separate constraints, reduced-coordinate trees, water, terrain
+or atmosphere. Connections are positive-X hinges (`serial` with one revolute axis) or `spherical` three-axis connections.
+Hinges retain their initial angle/rate; spherical connections retain their initial unit quaternion and child-joint-frame
+angular velocity. Root velocity is expressed in root coordinates. Child origin motion includes both parent motion and the
+offset of the authored child joint frame. Shape offsets, off-centre mass and explicit inertia overrides are not supported
+by this authoring boundary.
+
+Each connection uses separate hard anchor/limit rows and angular-only drive rows. Spherical `swing_x`, `twist` and `swing_z`
+limits become independent D6 rotation-vector bounds; they do not reproduce an elliptical swing/twist limit law.
+Finite positive damping is required. The child-first actuator receives a negative row impulse, so target velocity
+`-torque/damping` gives child torque `torque - damping*relative_speed`. Torque retains the authored child mass, period,
+phase and per-axis golden-angle phase offset. The native C ABI and managed matrix-authored D6 endpoint APIs remain unchanged.
+
+Rendered conventional scenes automatically use the existing Population renderer at full coverage and one full-detail LOD.
+This adapter accepts **opaque, awake, never-sleeping dynamic boxes/spheres**, followed by optional ground. Each body must
+have one shared unposed model, with no child graphics or per-instance material override. Unsupported presentation inputs
+fail explicitly rather than disappearing or switching to a second rendering path. Other scene types retain their ordinary
+presentation. No bodies, physical contacts or solver iterations are removed by batching.
+
+## Rendered clock diagnostics
+
+Launch with `-profile` to enable the existing profile log. Ordinary scene construction writes no mandatory evidence file.
+An enabled report adds `rigid_ragdoll_profile,dynamic_bodies,physical_joints,constraint_records` after scene loading.
+Runtime rows preserve the original 47 columns and append `steady_time_s` and `discarded_simulation_s`, each to nine decimals.
+The former exposes the existing in-process last-render steady-clock sample, not a calendar timestamp.
+The latter counts scaled elapsed-time clamping and actual excess-whole-tick backlog removal; neither scheduling policy changes.
+
+For rows 5 through 35, use the difference between their steady samples and sum steps/renders/discard over rows 6 through 35.
+Those clock differences include report-publication time; summing the profiler's reset-rebased report durations does not.
+Completed scene time, submitted pending ticks, fractional accumulator phase and render/callback phase have different boundaries.
+Their endpoint residual is not automatically discarded simulation. Recorder load and renderer-free runs do not establish rendered FPS.
+
+GPU prepare/execute/reset phase totals include early substep flushes as well as the final submission and completion.
+The existing flush policy is unchanged; host GPU-wait time is an availability measurement, not a shader-execution timestamp.
+
+## Focused native tests
+
+Build the normal owning project in Debug with `/p:RunUnitTests=false /p:RylogicGeneratePackageOnBuild=false`.
+The shared native runner retains unqualified class-pattern filters and also accepts exact `Class.Method` selectors
+(including for `-exclude:`). Use the full class name printed by the runner, including namespace and `TestClass_` prefix:
+
+```text
+unittests.exe pr::unittests::TestClass_UnitTestSelectorTests.QualifiedMethodsAndUnqualifiedClasses -asserts:stderr -verbose
+physics-sandbox.exe -unittests RigidRagdollAuthoringTests RigidRagdollDriveTests
+```
+
+Qualified selectors do not use substring or wildcard matching. Check that the selected methods actually ran and passed;
+zero selected methods do not establish success. The sandbox writes console output through `CONOUT$`; set `PR_UNITTEST_LOG`
+to retain its test report, and `PR_ASSERTS_TO_STDERR=1` for unattended execution. Per-method results also appear in the normal
+`obj\unittests\<runner>\timings.csv` report.
+
 ## Details panel
 
 The details panel starts hidden and does no value formatting while hidden. Use **View -> Details panel**, or press **D** with the viewport focused,

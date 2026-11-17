@@ -59,10 +59,14 @@ namespace pr::physics::shader_code
 	{
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(sweep_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(sweep_filtered_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(sweep_deferred_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(sweep_deferred_filtered_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(calc_cd_dispatch_cs.h)
 	}
 	ByteCode const sweep(compiled::sweep_cs);
 	ByteCode const sweep_filtered(compiled::sweep_filtered_cs);
+	ByteCode const sweep_deferred(compiled::sweep_deferred_cs);
+	ByteCode const sweep_deferred_filtered(compiled::sweep_deferred_filtered_cs);
 	ByteCode const calc_cd_dispatch(compiled::calc_cd_dispatch_cs);
 
 	// Narrowphase collision detection

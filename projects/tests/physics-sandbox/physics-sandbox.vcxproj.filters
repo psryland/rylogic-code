@@ -441,6 +441,12 @@
     <None Include="scenes\articulation_ragdolls.json">
       <Filter>scenes</Filter>
     </None>
+    <None Include="scenes\rigid_ragdoll_dispersed.json">
+      <Filter>scenes</Filter>
+    </None>
+    <None Include="scenes\rigid_ragdoll_pile.json">
+      <Filter>scenes</Filter>
+    </None>
     <None Include="scenes\articulation_robot_gripper.json">
       <Filter>scenes</Filter>
     </None>

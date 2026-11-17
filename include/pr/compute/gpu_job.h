@@ -167,17 +167,39 @@ namespace pr::compute
 		// Execute the commands recorded so far without waiting, then continue recording into a fresh command list.
 		// The queue executes work in order, so the handle from the next 'Submit' also covers the flushed commands.
 		// Resource-state tracking restarts as it does after 'Submit', so callers must not rely on a non-default state set before the flush.
-		void Flush()
+		// 'profile', when supplied, receives the close, execute and recording-reset durations of this flush.
+		void Flush(RunProfile* profile = nullptr)
 		{
 			// Flushing is part of recording, which is not possible while a submission is pending.
 			if (m_pending_sync_point != 0)
 				throw std::runtime_error("GpuJob::Flush called while a submission is pending");
 
+			auto const timestamp = [profile]
+			{
+				return profile != nullptr ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+			};
+			auto const prepare_beg = timestamp();
+
 			// Execute the recorded prefix, then record later commands with an allocator the GPU is not using.
 			m_barriers.Commit();
 			m_cmd_list.Close();
+			auto const execute_beg = timestamp();
 			ExecuteRecorded();
+			auto const reset_beg = timestamp();
 			ResetRecording();
+
+			// Use the same phase definitions as Submit and Complete, without adding a wait.
+			if (profile != nullptr)
+			{
+				auto const reset_end = timestamp();
+				auto elapsed_ms = [](auto beg, auto end)
+				{
+					return std::chrono::duration<double, std::milli>(end - beg).count();
+				};
+				profile->m_prepare_ms = elapsed_ms(prepare_beg, execute_beg);
+				profile->m_execute_ms = elapsed_ms(execute_beg, reset_beg);
+				profile->m_reset_ms = elapsed_ms(reset_beg, reset_end);
+			}
 		}
 
 		// Wait for a submitted job, then reset command recording for the next submission.

@@ -17,7 +17,10 @@
 #include "pr/physics/collision/broadphase_brute.h"
 #include "pr/physics/shape/shape_builder.h"
 #include "src/compute/physics_types.h"
+#include "src/compute/sweep_gpu.h"
+#include "src/constraint/constraint_gpu.h"
 #include "src/unittests/shared_engine.h"
+#include "src/unittests/shared_gpu.h"
 
 namespace pr::physics::tests
 {
@@ -1319,6 +1322,178 @@ namespace pr::physics::tests
 			engine.Step(1.0f / 60.0f, bodies);
 
 			PR_EXPECT(engine.LastCollisionStats().m_pair_count == 1);
+		}
+	};
+	// Native coverage of the bounded prefix and cooperative continuation, including group-shared end markers.
+	PRUnitTestClass(DeferredSweepTests)
+	{
+		// Compare complete pair identities against a geometric oracle, or verify bounded storage and explicit overflow reporting.
+		static void CheckPairs(int sphere_count, bool filtered, bool sleeping, bool disturbed, bool overflow)
+		{
+			using namespace pr::compute;
+			auto& gpu = SharedTestGpu();
+			auto& job = gpu.m_job;
+			auto config = EngineConfig{};
+			config.broadphase_aabb_margin = 0;
+			auto sweep = GpuSortAndSweep{gpu, config, &SharedTestShaderCache()};
+			auto sphere = collision::ShapeSphere{1.25f};
+			auto slab = collision::ShapeBox{v4{2.0f * sphere_count + 2, 1, 1, 0}};
+			auto outer_slab = collision::ShapeBox{v4{2.0f * sphere_count + 4, 1, 1, 0}};
+			auto shapes = std::array{PackShape(sphere), PackShape(slab), PackShape(outer_slab)};
+			auto bodies = std::vector<GpuRigidBody>{};
+			auto bounds = std::vector<BBox>{};
+			auto endpoints = std::vector<std::pair<float, int>>{};
+			auto awake = std::vector<bool>{};
+			for (int index = 0; index != sphere_count + 2; ++index)
+			{
+				// Adjacent spheres overlap on the main row; every fifth sphere is outside both slabs in Y.
+				auto is_sphere = index < sphere_count;
+				auto fixed = index == sphere_count;
+				auto pose = m4x4::Translation(is_sphere ? 2.0f * index : sphere_count - 1.0f, is_sphere && index % 5 == 0 ? 4.0f : 0.0f, 0);
+				auto body = RigidBody{};
+				body.Shape(is_sphere ? &sphere.m_base : fixed ? &slab.m_base : &outer_slab.m_base, fixed ? std::numeric_limits<float>::infinity() : 1.0f);
+				body.O2W(pose);
+				auto packed = PackDynamics(body, is_sphere ? 0 : fixed ? 1 : 2);
+				auto asleep = sleeping && !fixed && (!is_sphere || index % 3 == 0);
+				if (asleep)
+					packed.state_flags |= ERigidBodyStateFlags_Sleeping;
+
+				packed.sleep.island_id = 0;
+				packed.collision_layer = filtered && is_sphere && index % 2 != 0 ? 2u : 1u;
+				packed.collision_mask = filtered && is_sphere && index % 3 == 0 ? 1u : 3u;
+				if (filtered && index == 7)
+					packed.shape_id = -1;
+
+				bodies.push_back(packed);
+				awake.push_back(!fixed && (!asleep || disturbed));
+				auto box = pose * packed.os_bbox;
+				bounds.push_back(box);
+				endpoints.emplace_back(box.Lower().x, index * 2);
+				endpoints.emplace_back(box.Upper().x, index * 2 + 1);
+			}
+
+			// Stable endpoint order makes end markers at the prefix boundary reproducible.
+			std::ranges::sort(endpoints);
+			auto indices = std::vector<int>{};
+			for (auto const& endpoint : endpoints)
+				indices.push_back(endpoint.second);
+
+			auto excluded = std::array{
+				GpuCollisionExclusion{.body_idx_a_plus_one = 2, .body_idx_b_plus_one = static_cast<uint32_t>(sphere_count + 1)},
+				GpuCollisionExclusion{.body_idx_a_plus_one = static_cast<uint32_t>(sphere_count - 1), .body_idx_b_plus_one = static_cast<uint32_t>(sphere_count + 1)},
+				GpuCollisionExclusion{.body_idx_a_plus_one = static_cast<uint32_t>(sphere_count / 2 + 2), .body_idx_b_plus_one = static_cast<uint32_t>(sphere_count + 2)},
+			};
+			auto exclusions = filtered ? BuildGpuCollisionExclusions({}, excluded) : GpuCollisionExclusionTable{};
+			auto expected = std::set<std::pair<int, int>>{};
+			for (int a = 0; a != isize(bodies); ++a)
+			{
+				for (int b = a + 1; b != isize(bodies); ++b)
+				{
+					// The oracle uses the placement above, not the shader's AABB walk or pair-emission code.
+					auto overlap = b < sphere_count ? b == a + 1 && a % 5 != 0 && b % 5 != 0 : a >= sphere_count || a % 5 != 0;
+					auto allowed = (bodies[a].collision_layer & bodies[b].collision_mask) != 0 && (bodies[b].collision_layer & bodies[a].collision_mask) != 0;
+					auto connected = filtered && ((b == sphere_count && (a == 1 || a == sphere_count - 2)) || (b == sphere_count + 1 && a == sphere_count / 2 + 1));
+					if (overlap && allowed && !connected && bodies[a].shape_id >= 0 && bodies[b].shape_id >= 0 && (awake[a] || awake[b]))
+						expected.emplace(a, b);
+				}
+			}
+
+			// Upload through the existing native sweep owner; only sorting is supplied directly because it is not the changed algorithm.
+			auto upload = [&]<typename Container>(Container const& values, char const* name)
+			{
+				using Value = typename Container::value_type;
+				auto resource = gpu.CreateResource(ResDesc::Buf<Value>(isize(values), {}).usage(EUsage::UnorderedAccess), job, name);
+				job.m_barriers.Transition(resource.get(), D3D12_RESOURCE_STATE_COPY_DEST).Commit();
+				UploadData<Value>(job, resource.get(), std::span<Value const>{values.data(), values.size()});
+				return resource;
+			};
+			auto counters = upload(std::array{GpuCollisionCounters{}}, "Test:SweepCounters");
+			auto r_indices = upload(indices, "Test:SweepBounds");
+			auto r_bounds = upload(bounds, "Test:SweepBoxes");
+			auto r_bodies = upload(bodies, "Test:SweepBodies");
+			auto r_shapes = upload(shapes, "Test:SweepShapes");
+			auto islands = std::array{GpuSleepIsland{}};
+			islands[0].flags = disturbed ? GpuSleepIslandFlags_Disturbed : 0;
+			auto r_islands = upload(islands, "Test:SweepIslands");
+			auto capacity = isize(expected) - (overflow ? 1 : 0);
+			PR_EXPECT(capacity > 0);
+			sweep.Sweep(job, isize(bodies), capacity, counters, r_indices, r_bounds, r_bodies, r_shapes, 1, r_islands, sleeping, exclusions.m_slots);
+			auto counts = job.m_readback.Alloc<GpuCollisionCounters>(1);
+			job.m_barriers.Transition(counters.get(), D3D12_RESOURCE_STATE_COPY_SOURCE).Commit();
+			job.m_cmd_list.CopyBufferRegion(counts, counters.get());
+			auto pairs = std::vector<GpuCollisionPair>(capacity);
+			if (overflow)
+			{
+				// Preserve the populated bounded buffer even though the normal readback reports overflow instead of returning partial success.
+				auto stored = job.m_readback.Alloc<GpuCollisionPair>(capacity);
+				auto pair_buffer = sweep.CollisionPairs();
+				job.m_barriers.Transition(pair_buffer.get(), D3D12_RESOURCE_STATE_COPY_SOURCE).Commit();
+				job.m_cmd_list.CopyBufferRegion(stored, pair_buffer.get());
+				PR_THROWS(sweep.Readback(job, counters, pairs), std::runtime_error);
+				std::copy_n(stored.ptr<GpuCollisionPair>(), capacity, pairs.begin());
+				PR_EXPECT(counts.ptr<GpuCollisionCounters>()->pair_count > capacity);
+			}
+			else
+			{
+				auto result = sweep.Readback(job, counters, pairs);
+				PR_EXPECT(result.size() == expected.size());
+				PR_EXPECT(counts.ptr<GpuCollisionCounters>()->pair_count == isize(expected));
+
+				// Include a marker exactly at the continuation boundary: it can defer an empty suffix but must never add a pair.
+				auto deferred = 0;
+				auto boundary_markers = 0;
+				for (int body = 0; body != isize(bodies); ++body)
+				{
+					auto first = std::ranges::find(indices, 2 * body);
+					auto last = std::ranges::find(indices, 2 * body + 1);
+					if (bodies[body].shape_id >= 0 && last - first > SweepThreadCount)
+						++deferred;
+
+					if (last - first == SweepThreadCount + 1)
+						++boundary_markers;
+				}
+				PR_EXPECT(counts.ptr<GpuCollisionCounters>()->deferred_sweep_count == deferred);
+				if (sphere_count == SweepThreadCount / 2 - 1 || sphere_count == SweepThreadCount / 2)
+					PR_EXPECT(boundary_markers == 1);
+			}
+
+			// Counts alone cannot detect a duplicate that hides an omitted pair.
+			auto actual = std::set<std::pair<int, int>>{};
+			for (auto const& pair : pairs)
+			{
+				auto identity = std::pair{pair.body_idx_a, pair.body_idx_b};
+				PR_EXPECT(expected.contains(identity));
+				PR_EXPECT(actual.insert(identity).second);
+				PR_EXPECT(pair.shape_idx_a == bodies[pair.body_idx_a].shape_id && pair.shape_idx_b == bodies[pair.body_idx_b].shape_id);
+				PR_EXPECT(pair.child_idx_a == 0 && pair.child_idx_b == 0);
+				auto expected_position = bodies[pair.body_idx_b].o2w.pos - bodies[pair.body_idx_a].o2w.pos;
+				expected_position.w = 1;
+				PR_EXPECT(FEqlAbsolute(pair.b2a.pos, expected_position, 1e-5f));
+			}
+			if (!overflow)
+				PR_EXPECT(actual == expected);
+		}
+
+		// End markers just before, at and after the prefix boundary, plus several cooperative windows.
+		PRUnitTestMethod(ExactPairsAcrossPrefixBoundary, Extended)
+		{
+			for (auto count : std::array{SweepThreadCount / 2 - 1, SweepThreadCount / 2, SweepThreadCount / 2 + 1, 150})
+				CheckPairs(count, false, false, false, false);
+		}
+
+		// Filtered continuation must preserve connected-pair, layer, shape and sleeping-island eligibility.
+		PRUnitTestMethod(FilteredSleepingAndDisturbedPairs, Extended)
+		{
+			CheckPairs(150, true, false, false, false);
+			CheckPairs(150, true, true, false, false);
+			CheckPairs(150, true, true, true, false);
+		}
+
+		// A full output must report demand rather than overwrite storage or silently return an incomplete successful set.
+		PRUnitTestMethod(CapacityOverflowIsExplicit, Extended)
+		{
+			CheckPairs(150, false, false, false, true);
+			CheckPairs(150, true, true, false, true);
 		}
 	};
 }

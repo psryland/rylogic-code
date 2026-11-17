@@ -100,7 +100,7 @@ struct View3DPopulationInstance
 	// Rows of the affine instance-to-world transform: 'world[i] = dot(o2w[i], float4(p, 1))'.
 	float4 o2w[3];
 
-	// x = tint colour, packed as 0xAARRGGBB. Multiplies the vertex colour.
+	// x = sRGB tint colour, packed as 0xAARRGGBB. Alpha is linear. Multiplies the vertex colour after decoding RGB.
 	// y = flags, see VIEW3D_POPULATION_FLAG_*.
 	// z = caller payload index, interpreted only by caller shaders.
 	// w = the index of the prototype that this instance places. Instances with an index outside the population's prototypes are not drawn.
@@ -140,6 +140,7 @@ struct View3DPopulationSkinfluence
 };
 
 #ifndef __cplusplus
+#include "pr/view3d-12/shaders/colour_space.hlsli"
 
 // Return the blend of bone 'bone' from the two palettes of 'pose', as rows of a row-major matrix.
 float4x4 View3DPopulationSkinBone(ByteAddressBuffer payload, View3DPopulationSkinPose pose, uint bone)
@@ -246,9 +247,9 @@ float4 View3DPopulationTransformNormal(View3DPopulationInstance inst, float4 n)
 // Return the instance tint as a linear float4.
 float4 View3DPopulationTint(View3DPopulationInstance inst)
 {
-	// Unpack 0xAARRGGBB, matching the renderer's colour packing.
+	// Decode Colour32's sRGB bytes just as ordinary instance tint does; alpha remains a linear coefficient.
 	uint c = inst.info.x;
-	return float4((c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF, (c >> 24) & 0xFF) / 255.0f;
+	return SrgbToLinear(float4((c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF, (c >> 24) & 0xFF) / 255.0f);
 }
 
 // Return true if a pixel of a population entry with dither word 'dither' at screen position 'ss_xy' is drawn.

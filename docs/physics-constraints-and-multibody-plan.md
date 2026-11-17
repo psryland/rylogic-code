@@ -633,7 +633,10 @@ namespace pr::physics
 	struct BodyFrame
 	{
 		BodyRef m_body;
-		m4x4 m_constraint_to_body;
+		quat m_rotation;
+		v4 m_position;
+
+		static BodyFrame FromMatrix(BodyRef body, m4x4 const& constraint_to_body);
 	};
 
 	struct ConstraintAxisDesc
@@ -694,6 +697,10 @@ namespace pr::physics
 Additional API rules:
 
 - Anchors are body-local or link-local, never ambiguous world snapshots.
+- Persistent frames store only a finite unit quaternion and finite position with `w = 1`. Matrix-authored inputs use `BodyFrame::FromMatrix`, which
+  rejects non-rigid matrices before conversion. GPU packing copies these components; CPU matrix consumers reconstruct the transform when needed.
+- `ConstraintSet::Update` reuses frame validation only when every identity, rotation, and position component exactly matches the validated stored value.
+  Changed frames and all other descriptor inputs remain checked before any batch mutation; duplicate handles take their last descriptor.
 - Linear, angular, force, torque, compliance, and damping units are documented independently.
 - Constraint and link handles are generational.
 - Every rigid body has a stable `BodyId`; remapping uses it rather than current vector position.

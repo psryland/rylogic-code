@@ -70,14 +70,8 @@ namespace pr::physics::tests
 				m_body.O2W(m4x4::Transform(Normalise(v4{-1, 1, 2, 0}), -0.19f, v4{1.1f, 0.2f, -0.3f, 1}));
 
 				auto desc = D6ConstraintDesc{};
-				desc.m_frame_a = BodyFrame{
-					BodyRef::Link(m_articulation, m_child),
-					m4x4::Transform(v4::XAxis(), 0.18f, v4{0.12f, -0.08f, 0.16f, 1}),
-				};
-				desc.m_frame_b = BodyFrame{
-					BodyRef::Rigid(m_body),
-					m4x4::Transform(v4::ZAxis(), -0.14f, v4{-0.09f, 0.11f, -0.13f, 1}),
-				};
+				desc.m_frame_a = BodyFrame::FromMatrix(BodyRef::Link(m_articulation, m_child), m4x4::Transform(v4::XAxis(), 0.18f, v4{0.12f, -0.08f, 0.16f, 1}));
+				desc.m_frame_b = BodyFrame::FromMatrix(BodyRef::Rigid(m_body), m4x4::Transform(v4::ZAxis(), -0.14f, v4{-0.09f, 0.11f, -0.13f, 1}));
 				desc.m_linear[0].m_mode = EConstraintAxisMode::Locked;
 				desc.m_linear[0].m_max_force = 120.0f;
 				desc.m_linear[1].m_mode = EConstraintAxisMode::Limited;
@@ -171,10 +165,7 @@ namespace pr::physics::tests
 		void SetFixtureWorldEndpoint(CoupledPrepareFixture& fixture)
 		{
 			auto desc = fixture.m_constraints.Get(fixture.m_constraint);
-			desc.m_frame_b = BodyFrame{
-				.m_body = BodyRef::World(),
-				.m_constraint_to_body = m4x4::Transform(v4::ZAxis(), -0.14f, v4{1.01f, 0.31f, -0.43f, 1}),
-			};
+			desc.m_frame_b = BodyFrame::FromMatrix(BodyRef::World(), m4x4::Transform(v4::ZAxis(), -0.14f, v4{1.01f, 0.31f, -0.43f, 1}));
 			fixture.m_constraints.Update(fixture.m_constraint, desc);
 		}
 

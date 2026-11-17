@@ -17,6 +17,7 @@ namespace physics_sandbox
 			.style('+', ES_MULTILINE | ES_READONLY | WS_VSCROLL)
 			.text(L"(no scene loaded)"))
 		, m_pinned(false)
+		, m_window_pos_change_id()
 	{
 		// Use a fixed-width font for alignment
 		auto font = ::CreateFontW(-12, 0, 0, 0, FW_NORMAL, 0, 0, 0,
@@ -24,19 +25,28 @@ namespace physics_sandbox
 			CLEARTYPE_QUALITY, FIXED_PITCH | FF_MODERN, L"Consolas");
 		::SendMessageW(m_text, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
 
-		// Position the pin button in the top-right corner of the panel
-		WindowPosChange += [&](Control&, WindowPosEventArgs const& args)
-		{
-			if (args.m_before) return;
-			auto cx = args.m_wp->cx;
-			::SetWindowPos(m_btn_pin, HWND_TOP, cx - 32, 2, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
-		};
-
 		// Toggle pin state when the button is clicked
 		m_btn_pin.Click += [&](Button&, pr::gui::EmptyArgs const&)
 		{
 			TogglePin();
 		};
+
+		// Position the pin button in the top-right corner of the panel.
+		// Attach to the base last, so constructor failure cannot retain a callback referring to destroyed members.
+		m_window_pos_change_id = WindowPosChange += [&](Control&, WindowPosEventArgs const& args)
+		{
+			// Layout runs after the new panel bounds are known.
+			if (args.m_before) return;
+
+			auto cx = args.m_wp->cx;
+			::SetWindowPos(m_btn_pin, HWND_TOP, cx - 32, 2, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
+		};
+	}
+
+	DetailsPanel::~DetailsPanel()
+	{
+		// Retire only our layout callback before member destruction; base teardown events remain available to other observers.
+		WindowPosChange -= m_window_pos_change_id;
 	}
 
 	void DetailsPanel::TogglePin()

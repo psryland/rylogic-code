@@ -63,6 +63,7 @@ namespace pr::physics
 			double m_articulation_unpack_ms = 0;
 			int m_substep_count = 0;
 			int m_submission_count = 0;
+			int m_flush_count = 0; // Submitted prefixes covered by the final submission's completion handle.
 			int m_wait_count = 0;
 			int m_readback_copy_count = 0;
 		};

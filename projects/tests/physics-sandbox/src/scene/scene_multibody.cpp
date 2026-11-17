@@ -20,6 +20,26 @@ namespace physics_sandbox
 			std::vector<LinkRecord> m_links;
 		};
 
+		// Derive mass properties in the owning body frame from an immutable collision shape.
+		physics::Inertia ShapeInertia(scene_loader::BodyDesc const& body, collision::Shape const& shape, m4x4 const& shape_to_body)
+		{
+			if (!body.density && !(body.mass > 0.0f))
+				return physics::Inertia::Infinite();
+
+			auto mass_properties = physics::CalcMassProperties(shape, body.density.value_or(1.0f), body.mass_distribution);
+			if (!body.density)
+				mass_properties.m_mass = body.mass;
+
+			// Convert the origin-measured shape tensor to its centre of mass, then express that distribution in the body frame.
+			auto inertia = physics::Inertia{mass_properties.m_os_unit_inertia, mass_properties.m_mass};
+			if (LengthSq(mass_properties.m_centre_of_mass) != 0.0f)
+				inertia = physics::Translate(inertia, mass_properties.m_centre_of_mass, physics::ETranslateInertia::TowardCoM);
+
+			inertia = physics::Rotate(inertia, shape_to_body.rot);
+			inertia.CoM((shape_to_body * mass_properties.m_centre_of_mass.w1()).w0());
+			return inertia;
+		}
+
 		// Derive articulation-link inertia from the same collision-shape mass properties used by rigid bodies.
 		physics::Inertia LinkInertia(scene_loader::ArticulationChildDesc const& link, collision::Shape const* shape)
 		{
@@ -28,22 +48,7 @@ namespace physics_sandbox
 			if (shape == nullptr)
 				throw std::runtime_error(pr::FmtS("Articulation link '%s' has neither collision shape nor inertia", link.m_body.name.c_str()));
 
-			auto const& body = link.m_body;
-			if (!body.density && !(body.mass > 0.0f))
-				return physics::Inertia::Infinite();
-
-			auto mass_properties = physics::CalcMassProperties(*shape, body.density.value_or(1.0f), body.mass_distribution);
-			if (!body.density)
-				mass_properties.m_mass = body.mass;
-
-			// Convert the origin-measured shape tensor to its centre of mass, then express that physical distribution in the link frame.
-			auto inertia = physics::Inertia{mass_properties.m_os_unit_inertia, mass_properties.m_mass};
-			if (LengthSq(mass_properties.m_centre_of_mass) != 0.0f)
-				inertia = physics::Translate(inertia, mass_properties.m_centre_of_mass, physics::ETranslateInertia::TowardCoM);
-
-			inertia = physics::Rotate(inertia, link.m_shape_to_link.rot);
-			inertia.CoM((link.m_shape_to_link * mass_properties.m_centre_of_mass.w1()).w0());
-			return inertia;
+			return ShapeInertia(link.m_body, *shape, link.m_shape_to_link);
 		}
 
 		// Convert one parsed link into the immutable descriptor consumed by ArticulationBuilder.
@@ -190,10 +195,7 @@ namespace physics_sandbox
 				}
 			}
 
-			return physics::BodyFrame{
-				.m_body = body_ref,
-				.m_constraint_to_body = constraint_to_body,
-			};
+			return physics::BodyFrame::FromMatrix(body_ref, constraint_to_body);
 		}
 
 		// Append one parsed constraint through its strongly typed public descriptor.
@@ -272,6 +274,152 @@ namespace physics_sandbox
 					throw std::runtime_error("Unknown JSON constraint type");
 				}
 			}
+		}
+	}
+
+	// Build the conventional rigid-joint model directly from authored frames and initial motion.
+	void Scene::BuildRigidRagdolls(scene_loader::SceneDesc const& scene_desc, std::span<collision::Shape const* const> shapes)
+	{
+		if (scene_desc.rigid_ragdolls.empty())
+			return;
+
+		if (!scene_desc.bodies.empty() || !scene_desc.articulations.empty() || !scene_desc.constraints.empty() || scene_desc.water || scene_desc.terrain || scene_desc.atmosphere)
+			throw std::runtime_error("Rigid ragdoll scenes require only ragdolls and optional ground");
+
+		auto expected_shapes = 0;
+		for (auto const& ragdoll : scene_desc.rigid_ragdolls)
+			expected_shapes += 1 + isize(ragdoll.m_links);
+
+		if (isize(shapes) != expected_shapes)
+			throw std::runtime_error("Rigid ragdoll shapes do not match the authored body count");
+
+		// No later allocation may move a body after its identity is captured by a persistent constraint.
+		m_body.reserve(expected_shapes + (scene_desc.ground ? 1 : 0));
+		m_rigid_ragdoll_joints.reserve(expected_shapes - scene_desc.rigid_ragdolls.size());
+		auto shape_index = 0;
+		for (auto tree_index = 0; tree_index != isize(scene_desc.rigid_ragdolls); ++tree_index)
+		{
+			auto const& source = scene_desc.rigid_ragdolls[tree_index];
+			auto const first_body = isize(m_body);
+			auto add_body = [&](scene_loader::BodyDesc const& desc, m4x4 const& pose, v8motion velocity, int link_index)
+			{
+				// Preserve the original centred shape, shape-derived inertia, collision filter and sleep policy.
+				auto const* shape = shapes[shape_index++];
+				auto const inertia = ShapeInertia(desc, *shape, m4x4::Identity());
+				if (LengthSq(inertia.CoM()) != 0.0f)
+					throw std::runtime_error("Rigid ragdoll shapes require their centre of mass at the body origin");
+
+				auto body = Body(nullptr, shape, pose, inertia);
+				body.VelocityWS(pose.rot * velocity.ang, pose.rot * velocity.lin);
+				body.CollisionFilter(desc.collision_layer, desc.collision_mask);
+				body.NeverSleep(source.m_never_sleep);
+				if (source.m_sleeping)
+					body.Sleep();
+
+				body.m_colour = desc.colour.value_or(LinkColour(tree_index, link_index));
+				m_body.push_back(std::move(body));
+				return inertia.Mass();
+			};
+			add_body(source.m_root, source.m_root_to_world, source.m_root_velocity, 0);
+
+			auto dof_offset = 0;
+			for (auto link_index = 0; link_index != isize(source.m_links); ++link_index)
+			{
+				// Resolve the local parent namespace before building the child's exact initial pose and body-frame velocity.
+				auto const& link = source.m_links[link_index];
+				auto parent_index = link.m_parent_name == source.m_root.name ? 0 : -1;
+				if (link.m_body.name == source.m_root.name)
+					throw std::runtime_error("Rigid ragdoll link names must be unique");
+
+				for (auto i = 0; i != link_index; ++i)
+				{
+					if (source.m_links[i].m_body.name == link.m_body.name)
+						throw std::runtime_error("Rigid ragdoll link names must be unique");
+					if (source.m_links[i].m_body.name == link.m_parent_name)
+						parent_index = i + 1;
+				}
+				if (parent_index == -1)
+					throw std::runtime_error("Rigid ragdoll parent must precede its child");
+
+				auto const parent = first_body + parent_index;
+				auto const child = isize(m_body);
+				auto const child_to_parent = link.m_joint_to_parent * m4x4::Transform(link.m_initial_rotation, v4::Origin()) * InvertOrthonormal(link.m_joint_to_child);
+				auto const pose = m_body[parent].O2W() * child_to_parent;
+				auto const velocity = InvertOrthonormal(child_to_parent) * m_body[parent].VelocityOS() + link.m_joint_to_child * v8motion{link.m_initial_angular_velocity, v4::Zero()};
+				auto const child_mass = add_body(link.m_body, pose, velocity, link_index + 1);
+
+				// Keep hard anchor/limit rows separate from child-first angular-only actuator rows.
+				auto anchor = physics::D6ConstraintDesc{
+					.m_frame_a = physics::BodyFrame::FromMatrix(physics::BodyRef::Rigid(m_body[parent]), link.m_joint_to_parent),
+					.m_frame_b = physics::BodyFrame::FromMatrix(physics::BodyRef::Rigid(m_body[child]), link.m_joint_to_child),
+					.m_collide_connected = link.m_collide_parent,
+				};
+				for (auto& axis : anchor.m_linear)
+					axis.m_mode = physics::EConstraintAxisMode::Locked;
+
+				auto dof_count = 0;
+				switch (link.m_joint_type)
+				{
+					case scene_loader::RigidRagdollLinkDesc::EJointType::Spherical:
+					{
+						for (auto axis = 0; axis != 3; ++axis)
+							anchor.m_angular[axis] = {.m_mode = physics::EConstraintAxisMode::Limited, .m_limits = link.m_limits[axis]};
+
+						dof_count = 3;
+						break;
+					}
+					case scene_loader::RigidRagdollLinkDesc::EJointType::Hinge:
+					{
+						anchor.m_angular[0] = {.m_mode = physics::EConstraintAxisMode::Limited, .m_limits = link.m_limits[0]};
+						anchor.m_angular[1].m_mode = physics::EConstraintAxisMode::Locked;
+						anchor.m_angular[2].m_mode = physics::EConstraintAxisMode::Locked;
+						dof_count = 1;
+						break;
+					}
+					default: { throw std::runtime_error("Unknown rigid ragdoll joint type"); }
+				}
+				auto actuator = physics::D6ConstraintDesc{
+					.m_frame_a = anchor.m_frame_b,
+					.m_frame_b = anchor.m_frame_a,
+					.m_collide_connected = true,
+				};
+				for (auto axis = 0; axis != dof_count; ++axis)
+					actuator.m_angular[axis] = {.m_mode = physics::EConstraintAxisMode::Driven, .m_damping = link.m_damping};
+
+				m_rigid_ragdoll_joints.push_back(RigidRagdollJoint{
+					.m_parent = parent,
+					.m_child = child,
+					.m_dof_count = dof_count,
+					.m_dof_offset = dof_offset,
+					.m_amplitude = source.m_actuation.m_torque_per_kg * child_mass,
+					.m_actuation = source.m_actuation,
+					.m_anchor = m_constraints.Add(anchor),
+					.m_actuator = m_constraints.Add(actuator),
+				});
+				dof_offset += dof_count;
+			}
+		}
+	}
+
+	// Update only actuator target velocities; anchors and validated endpoint frames retain their stored representation.
+	void Scene::ApplyRagdollActuation(double time_s)
+	{
+		constexpr auto golden_angle = 2.39996323f;
+		for (auto const& joint : m_rigid_ragdoll_joints)
+		{
+			// Child-first frame A receives the negative row impulse: -tau/d gives child torque tau-d*relative_speed.
+			auto const& actuator = m_constraints.Get(joint.m_actuator);
+			auto target_velocities = std::array{
+				actuator.m_linear[0].m_target_velocity, actuator.m_linear[1].m_target_velocity, actuator.m_linear[2].m_target_velocity,
+				actuator.m_angular[0].m_target_velocity, actuator.m_angular[1].m_target_velocity, actuator.m_angular[2].m_target_velocity,
+			};
+			auto const cycle = static_cast<float>(std::fmod(time_s / joint.m_actuation.m_period_s, 1.0)) * constants<float>::tau;
+			for (auto axis = 0; axis != joint.m_dof_count; ++axis)
+			{
+				auto const torque = joint.m_amplitude * std::sin(cycle + joint.m_actuation.m_phase + golden_angle * static_cast<float>(joint.m_dof_offset + axis));
+				target_velocities[3 + axis] = -torque / actuator.m_angular[axis].m_damping;
+			}
+			m_constraints.SetTargetVelocities(joint.m_actuator, target_velocities);
 		}
 	}
 
@@ -420,6 +568,135 @@ namespace physics_sandbox::tests
 		}
 	}
 
+	// Protect the conventional model's child-frame drive sign and narrow target-velocity updates.
+	PRUnitTestClass(RigidRagdollDriveTests)
+	{
+		PRUnitTestMethod(PreservesPoseAndInternalHingeDrive, Extended)
+		{
+			auto source = scene_loader::RigidRagdollDesc{};
+			source.m_name = "drive";
+			source.m_root_to_world = m4x4::TransformDeg(0.0f, 0.0f, 45.0f, v4::Origin());
+			source.m_never_sleep = true;
+			source.m_root.name = "parent";
+			source.m_root.mass = 3.0f;
+			source.m_root.box_dimensions = v4{1, 1, 1, 0};
+			source.m_actuation = {.m_torque_per_kg = 2.0f, .m_period_s = 1.0f, .m_phase = constants<float>::tau_by_4};
+			auto child = scene_loader::RigidRagdollLinkDesc{};
+			child.m_body.name = "child";
+			child.m_body.mass = 2.0f;
+			child.m_body.box_dimensions = v4{1, 1, 1, 0};
+			child.m_parent_name = "parent";
+			child.m_limits[0] = {-1.0f, +1.0f};
+			child.m_damping = 0.5f;
+			source.m_links.push_back(child);
+			auto scene_desc = scene_loader::SceneDesc{};
+			scene_desc.gravity = v4::Zero();
+			scene_desc.physics_substeps = 3;
+			scene_desc.physics_solver_iterations = 10;
+			scene_desc.physics_position_iterations = 1;
+			scene_desc.rigid_ragdolls.push_back(source);
+			auto scene = Scene(nullptr);
+			scene.LoadScene(scene_desc);
+			PR_EXPECT(scene.m_body.size() == 2 && scene.m_articulation.empty() && scene.m_constraints.Count() == 2);
+			PR_EXPECT(FEql(scene.m_body[1].O2W(), source.m_root_to_world));
+
+			// A rotated common origin isolates internal torque from contact, orbital momentum and world-axis mistakes.
+			auto const& actuator = scene.m_constraints.Get(scene.m_rigid_ragdoll_joints[0].m_actuator);
+			for (auto const& axis : actuator.m_linear)
+				PR_EXPECT(axis.m_mode == physics::EConstraintAxisMode::Free);
+
+			PR_EXPECT(actuator.m_angular[1].m_mode == physics::EConstraintAxisMode::Free && actuator.m_angular[2].m_mode == physics::EConstraintAxisMode::Free);
+			scene.Step(1.0 / 60.0);
+			auto const axis_ws = source.m_root_to_world.x;
+			PR_EXPECT(Dot3(scene.m_body[1].VelocityWS().ang, axis_ws) > 0.0f);
+			PR_EXPECT(Dot3(scene.m_body[0].VelocityWS().ang, axis_ws) < 0.0f);
+			PR_EXPECT(Length(scene.m_body[0].MomentumWS().ang + scene.m_body[1].MomentumWS().ang) < 1.0e-4f);
+		}
+
+		PRUnitTestMethod(PreservesExistingActuationTargets, Extended)
+		{
+			auto make_link = [](std::string name, std::string parent, float mass, scene_loader::RigidRagdollLinkDesc::EJointType joint_type)
+			{
+				auto link = scene_loader::RigidRagdollLinkDesc{};
+				link.m_body.name = std::move(name);
+				link.m_body.mass = mass;
+				link.m_body.box_dimensions = v4{1, 1, 1, 0};
+				link.m_parent_name = std::move(parent);
+				link.m_joint_type = joint_type;
+				link.m_damping = 0.5f;
+				link.m_limits.fill({-0.75f, +0.75f});
+				return link;
+			};
+			auto source = scene_loader::RigidRagdollDesc{};
+			source.m_name = "targets";
+			source.m_root_to_world = m4x4::TransformDeg(10, 20, 30, v4::Origin());
+			source.m_never_sleep = true;
+			source.m_root.name = "root";
+			source.m_root.mass = 4.0f;
+			source.m_root.box_dimensions = v4{1, 1, 1, 0};
+			source.m_links = {
+				make_link("hinge", "root", 2.0f, scene_loader::RigidRagdollLinkDesc::EJointType::Hinge),
+				make_link("sphere", "hinge", 3.0f, scene_loader::RigidRagdollLinkDesc::EJointType::Spherical),
+			};
+			source.m_actuation = {.m_torque_per_kg = 1.5f, .m_period_s = 1.3f, .m_phase = 0.3f};
+			auto scene_desc = scene_loader::SceneDesc{};
+			scene_desc.rigid_ragdolls.push_back(source);
+			auto scene = Scene(nullptr);
+			scene.LoadScene(scene_desc);
+			PR_EXPECT(scene.m_rigid_ragdoll_joints.size() == 2 && scene.m_articulation.empty());
+
+			// Inactive nonzero targets and distinct axis damping expose unintended clearing or wrong-axis reads.
+			for (auto const& joint : scene.m_rigid_ragdoll_joints)
+			{
+				auto desc = scene.m_constraints.Get(joint.m_actuator);
+				for (auto axis = 0; axis != 3; ++axis)
+				{
+					desc.m_linear[axis].m_target_velocity = 11.0f + axis;
+					desc.m_angular[axis].m_target_velocity = -21.0f - axis;
+					if (axis < joint.m_dof_count)
+						desc.m_angular[axis].m_damping *= 1.0f + 0.25f * axis;
+				}
+				scene.m_constraints.Update(joint.m_actuator, desc);
+			}
+			auto reference = scene.m_constraints;
+			for (auto time_s : {0.0, 0.137, 2.351, 2.351})
+			{
+				// Compare against the retained full-descriptor law across a cycle boundary and a repeated timestamp.
+				scene.m_constraints.ClearDirty();
+				reference.ClearDirty();
+				for (auto const& joint : scene.m_rigid_ragdoll_joints)
+				{
+					auto desc = reference.Get(joint.m_actuator);
+					auto const cycle = static_cast<float>(std::fmod(time_s / joint.m_actuation.m_period_s, 1.0)) * constants<float>::tau;
+					for (auto axis = 0; axis != joint.m_dof_count; ++axis)
+					{
+						auto const torque = joint.m_amplitude * std::sin(cycle + joint.m_actuation.m_phase + 2.39996323f * static_cast<float>(joint.m_dof_offset + axis));
+						desc.m_angular[axis].m_target_velocity = -torque / desc.m_angular[axis].m_damping;
+					}
+					reference.Update(joint.m_actuator, desc);
+				}
+				scene.ApplyRagdollActuation(time_s);
+				PR_EXPECT(scene.m_constraints.TopologyRevision() == reference.TopologyRevision());
+				PR_EXPECT(scene.m_constraints.ParameterRevision() == reference.ParameterRevision());
+				auto const ranges = scene.m_constraints.DirtyRanges();
+				PR_EXPECT(ranges.size() == scene.m_rigid_ragdoll_joints.size());
+				for (size_t i = 0; i != scene.m_rigid_ragdoll_joints.size(); ++i)
+				{
+					auto const& joint = scene.m_rigid_ragdoll_joints[i];
+					auto const& actual = scene.m_constraints.Get(joint.m_actuator);
+					auto const& expected = reference.Get(joint.m_actuator);
+					PR_EXPECT(i < ranges.size() && ranges[i].m_begin == joint.m_actuator.m_index && ranges[i].m_end == joint.m_actuator.m_index + 1);
+					for (auto axis = 0; axis != 3; ++axis)
+					{
+						PR_EXPECT(std::memcmp(&actual.m_linear[axis].m_target_velocity, &expected.m_linear[axis].m_target_velocity, sizeof(float)) == 0);
+						PR_EXPECT(std::memcmp(&actual.m_angular[axis].m_target_velocity, &expected.m_angular[axis].m_target_velocity, sizeof(float)) == 0);
+						PR_EXPECT(actual.m_angular[axis].m_damping == expected.m_angular[axis].m_damping);
+					}
+				}
+			}
+		}
+	};
+
 	PRUnitTestClass(SceneMultibodyConstructionTests)
 	{
 		PRUnitTestMethod(ConvertsWorldFramesAndRejectsInvalidReferences, Quick)
@@ -432,7 +709,7 @@ namespace physics_sandbox::tests
 			auto const frame_to_world = m4x4::Translation(5.0f, 7.0f, 11.0f);
 			auto const resolved = ResolveFrame(scene, scene_desc, {}, RigidFrame("body", scene_loader::ConstraintFrameDesc::ESpace::World, frame_to_world));
 			auto const expected = InvertOrthonormal(scene.m_body[0].O2W()) * frame_to_world;
-			PR_EXPECT(Length(resolved.m_constraint_to_body.pos - expected.pos) < 1.0e-6f);
+			PR_EXPECT(Length(resolved.m_position - expected.pos) < 1.0e-6f);
 
 			// Unknown and ambiguous names must fail before a persistent BodyRef can capture the wrong object.
 			PR_THROWS(ResolveFrame(scene, scene_desc, {}, RigidFrame("missing")), std::exception);

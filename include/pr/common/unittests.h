@@ -37,6 +37,7 @@ namespace pr::unittests
 //  Per-class shared state (e.g. a GPU device or engine) should be registered with 'TestFramework::AddClassFixture' so it is released after the class.
 //  Runner arguments: '-flags:<expression>' (e.g. Quick), '-exclude:<pattern>', '-threads:<count>' (0 = one per processor), '-verbose',
 //  '-asserts:stderr' (report assertion failures to stderr instead of dialogs, for unattended runs), and class name filters.
+//  'Class.Method' selects an exact method using the full class name printed by the runner, including its namespace and TestClass_ prefix.
 //  Each run writes the duration of every test to '<repo>/obj/unittests/<runner>/timings.csv' and lists the slowest tests.
 #pragma once
 #include <type_traits>
@@ -549,7 +550,7 @@ namespace pr::unittests
 		// Write one line per test, rather than only failures and the summary
 		bool wordy = false;
 
-		// Class-name patterns (see 'MatchTestFilter'). A test runs when its class matches any filter (or there are no filters) and no exclude.
+		// Class-name patterns or exact 'Class.Method' selectors. Inclusion matches any selector; exclusions override inclusion.
 		std::vector<std::string_view> filters = {};
 		std::vector<std::string_view> excludes = {};
 
@@ -564,7 +565,7 @@ namespace pr::unittests
 	};
 
 	// Parse the standard unit test command line into 'options'.
-	// Supports '-verbose', '-exclude:<pattern>', '-flags:<expression>', '-threads:<count>', '-asserts:stderr'. Any other argument is a class filter.
+	// Supports '-verbose', '-exclude:<selector>', '-flags:<expression>', '-threads:<count>', '-asserts:stderr'. Other arguments select classes or exact methods.
 	// Returns false, after writing a message to 'err', when an argument is invalid.
 	inline bool TryParseUnitTestCommandLine(std::span<char* const> args, UnitTestOptions& options, std::ostream& err)
 	{
@@ -784,6 +785,16 @@ namespace pr::unittests
 		}
 	}
 
+	// Match an existing class pattern or an exact qualified method name, without treating method names as class substrings.
+	inline bool MatchTestSelector(UnitTestItem const& test, std::string_view selector)
+	{
+		auto const separator = selector.find('.');
+		if (separator == std::string_view::npos)
+			return MatchTestFilter(test.m_class->name(), selector);
+
+		return selector.substr(0, separator) == impl::TestClassName(*test.m_class) && selector.substr(separator + 1) == test.m_name;
+	}
+
 	// Run the registered tests selected by 'options'.
 	// Test classes run on a pool of worker threads, one class per worker at a time, with tests in a class running in order on the same thread.
 	// Classes with any 'Serial' test run afterwards on the calling thread, with nothing else running. Returns 0 if all selected tests pass.
@@ -807,17 +818,16 @@ namespace pr::unittests
 				return c != 0 ? c < 0 : strcmp(lhs.m_name, rhs.m_name) < 0;
 			});
 
-			// Select the tests that pass the flag and class-name filters.
+			// Select the tests that pass the flags and class or exact-method selectors.
 			auto selected = std::vector<UnitTestItem const*>{};
 			auto skipped = 0;
 			for (auto const& test : TestFramework::Tests)
 			{
 				// A filter expression requires all its flags, while separate expressions are alternatives.
-				auto const class_name = std::string_view(test.m_class->name());
 				auto const included =
 					(options.flags.empty() || std::ranges::any_of(options.flags, [&](auto required) { return HasAllUnitTestFlags(test.m_flags, required); })) &&
-					(options.filters.empty() || std::ranges::any_of(options.filters, [&](auto const& f) { return MatchTestFilter(class_name, f); })) &&
-					!std::ranges::any_of(options.excludes, [&](auto const& f) { return MatchTestFilter(class_name, f); });
+					(options.filters.empty() || std::ranges::any_of(options.filters, [&](auto const& f) { return MatchTestSelector(test, f); })) &&
+					!std::ranges::any_of(options.excludes, [&](auto const& f) { return MatchTestSelector(test, f); });
 				if (included)
 					selected.push_back(&test);
 				else

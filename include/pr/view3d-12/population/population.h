@@ -48,7 +48,7 @@ namespace pr::rdr12
 		// Rows of the affine instance-to-world transform: 'world[i] = Dot(o2w[i], p.w1())'.
 		v4 o2w[3];
 
-		// Multiplies the vertex colour.
+		// sRGB tint bytes with linear alpha. Multiplies the vertex colour after decoding RGB.
 		Colour32 tint;
 
 		// See EPopulationInstanceFlags.

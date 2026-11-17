@@ -402,6 +402,7 @@
     </ClCompile>
     <ClCompile Include="src\maths\dependecy_check_new_math.cpp" />
     <ClCompile Include="src\gui\message_loop_tests.cpp" />
+    <ClCompile Include="src\view3d\instance_tests.cpp" />
     <ClCompile Include="src\hlsl\bounding_box_tests.cpp" />
     <ClCompile Include="src\hlsl\closest_point_tests.cpp" />
     <ClCompile Include="src\hlsl\core_tests.cpp" />

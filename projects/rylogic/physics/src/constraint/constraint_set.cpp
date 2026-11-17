@@ -17,6 +17,7 @@ namespace pr::physics
 		// Validate one endpoint-local constraint frame.
 		void ValidateFrame(BodyFrame const& frame)
 		{
+			// Each endpoint kind owns a distinct identity domain.
 			switch (frame.m_body.m_type)
 			{
 				case EConstraintBodyType::World:
@@ -47,8 +48,15 @@ namespace pr::physics
 				}
 			}
 
-			if (!IsFinite(frame.m_constraint_to_body) || !IsAffine(frame.m_constraint_to_body) || !IsOrthonormal(frame.m_constraint_to_body))
-				throw std::invalid_argument("Constraint frame must be a finite orthonormal affine transform");
+			// Persistent frames cannot carry scale, nonfinite components, or a non-point position.
+			if (!IsFinite(frame.m_rotation.xyzw) || !IsNormalised(frame.m_rotation.xyzw) || !IsFinite(frame.m_position) || frame.m_position.w != 1.0f)
+				throw std::invalid_argument("Constraint frame requires a finite unit quaternion and position with w = 1");
+		}
+
+		// Compare every identity and transform component without accepting a nearby or sign-flipped quaternion.
+		bool SameFrame(BodyFrame const& lhs, BodyFrame const& rhs)
+		{
+			return lhs.m_body == rhs.m_body && All(lhs.m_rotation.xyzw == rhs.m_rotation.xyzw) && All(lhs.m_position == rhs.m_position);
 		}
 
 		// Validate one D6 axis descriptor and every value that can enter solver arithmetic.
@@ -126,12 +134,18 @@ namespace pr::physics
 	}
 
 	// Validate a descriptor before it can enter persistent storage.
-	void ConstraintSet::Validate(D6ConstraintDesc const& desc)
+	void ConstraintSet::Validate(D6ConstraintDesc const& desc, D6ConstraintDesc const* previous)
 	{
-		ValidateFrame(desc.m_frame_a);
-		ValidateFrame(desc.m_frame_b);
+		// Only exact copies of stored validated frames can bypass the frame input boundary.
+		if (previous == nullptr || !SameFrame(desc.m_frame_a, previous->m_frame_a))
+			ValidateFrame(desc.m_frame_a);
+
+		if (previous == nullptr || !SameFrame(desc.m_frame_b, previous->m_frame_b))
+			ValidateFrame(desc.m_frame_b);
+
 		if (desc.m_frame_a.m_body.IsWorld() && desc.m_frame_b.m_body.IsWorld())
 			throw std::invalid_argument("A constraint cannot connect world space to itself");
+
 		if (!desc.m_frame_a.m_body.IsWorld() && desc.m_frame_a.m_body == desc.m_frame_b.m_body)
 			throw std::invalid_argument("A constraint cannot connect an endpoint to itself");
 
@@ -216,8 +230,9 @@ namespace pr::physics
 			throw std::invalid_argument("Constraint update handle and descriptor counts differ");
 		for (size_t i = 0; i != handles.size(); ++i)
 		{
-			Validate(descs[i]);
-			Require(handles[i]);
+			// Compare against the original stored value even for duplicate handles; no proposed entry is trusted before commit.
+			auto const& slot = Require(handles[i]);
+			Validate(descs[i], &slot.m_desc);
 		}
 
 		// Replace the descriptors. A changed endpoint body changes the topology, which forces the solver to recompute its colouring.
@@ -231,6 +246,29 @@ namespace pr::physics
 			m_topology_revision += topology_changed ? 1 : 0;
 		}
 		m_parameter_revision += handles.empty() ? 0 : 1;
+	}
+
+	// Replace only the six existing target velocities of a live descriptor.
+	void ConstraintSet::SetTargetVelocities(ConstraintHandle handle, std::array<float, 6> const& target_velocities)
+	{
+		// Reject the entire request before changing any target or revision.
+		auto& slot = Require(handle);
+		for (auto value : target_velocities)
+		{
+			// Target values have no application-specific magnitude limit, but must be finite.
+			if (!std::isfinite(value))
+				throw std::invalid_argument("Constraint target velocities must be finite");
+		}
+
+		// Preserve every other descriptor field and the slot's identity, topology, and broken latch.
+		for (auto axis = 0; axis != 3; ++axis)
+		{
+			// The fixed input uses linear XYZ followed by angular XYZ.
+			slot.m_desc.m_linear[axis].m_target_velocity = target_velocities[axis];
+			slot.m_desc.m_angular[axis].m_target_velocity = target_velocities[3 + axis];
+		}
+		slot.m_dirty = true;
+		++m_parameter_revision;
 	}
 
 	// Enable or disable a persistent descriptor without changing topology.

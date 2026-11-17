@@ -24,7 +24,14 @@ struct cbSweep
 	int body_count;
 	int sleeping_enabled;
 	int sleep_island_count;
+	int deferred_group_count;
+	int pad0;
+	int pad1;
+	int pad2;
 };
+
+// Limit serial work per thread; cooperative groups finish longer intervals.
+static const int SweepSerialWalkLength = SweepThreadCount;
 
 // Optional constants for the filtered entry point. Keeping these in b1 lets the ordinary entry point retain its exact root contract.
 struct cbSweepFilter
@@ -41,6 +48,7 @@ ConstantBuffer<cbSweepFilter> resource(g_filter, b1);
 RWStructuredBuffer<GpuCollisionCounters> resource(g_counters, u0);
 RWStructuredBuffer<GpuCollisionPair> resource(g_collision_pairs, u1);
 RWStructuredBuffer<DispatchArguments> resource(g_dispatch_args, u2);
+RWStructuredBuffer<GpuDeferredSweep> resource(g_deferred_sweeps, u3);
 StructuredBuffer<GpuRigidBody> resource(g_bodies, t0);
 StructuredBuffer<int> resource(g_aabb_idx, t1);
 StructuredBuffer<BBox> resource(g_aabb_box, t2);
@@ -201,6 +209,24 @@ odr bool StorePair(int rbA_idx, int rbB_idx, in_(GpuRigidBody) rb, in_(GpuRigidB
 	return true;
 }
 
+// Test a start bound encountered within body A's interval. Returns false when pair capacity is exhausted.
+odr bool SweepCandidate(int rbA_idx, in_(GpuRigidBody) rb, int payload, bool filter_connected)
+{
+	if ((payload & 1) == 1)
+		return true;
+
+	// Reject disjoint cached bounds before loading the candidate body's larger state.
+	int rbB_idx = payload >> 1;
+	if (!CachedBoundsOverlap(rbA_idx, rbB_idx))
+		return true;
+
+	GpuRigidBody other_rb = g_bodies[rbB_idx];
+	if (other_rb.shape_id < 0 || ArticulationSelfCollisionExcluded(rbA_idx, rbB_idx, rb, other_rb))
+		return true;
+
+	return StorePair(rbA_idx, rbB_idx, rb, other_rb, filter_connected);
+}
+
 // Enumerate overlaps for one bound using the selected connected-body filtering mode.
 odr void SweepBound(int3 dtid, bool filter_connected)
 {
@@ -234,27 +260,64 @@ odr void SweepBound(int3 dtid, bool filter_connected)
 	// Get the index value that ends our search
 	int end_idx = g_aabb_idx[idx] | 1;
 
-	// Search for overlaps on this axis.
-	// Walk forward from this body's start bound until our end bound is reached.
-	// Check all encountered start bounds for 3D AABB overlap.
-	for (++idx; idx != bounds_count && g_aabb_idx[idx] != end_idx; ++idx)
+	// Walk a bounded prefix, checking each encountered start bound for 3D overlap.
+	int start_bound = idx;
+	int walk_limit = min(bounds_count, idx + 1 + SweepSerialWalkLength);
+	for (++idx; idx != walk_limit && g_aabb_idx[idx] != end_idx; ++idx)
 	{
-		int payload = g_aabb_idx[idx];
-		if ((payload & 1) == 1)
-			continue; // Skip 'end' bounds
+		if (!SweepCandidate(rbA_idx, rb, g_aabb_idx[idx], filter_connected))
+			return;
+	}
 
-		int rbB_idx = payload >> 1;
-		
-		GpuRigidBody other_rb = g_bodies[rbB_idx];
-		if (other_rb.shape_id < 0 || ArticulationSelfCollisionExcluded(rbA_idx, rbB_idx, rb, other_rb))
-			continue;
-		
-		// If intersection on all three axes, add a pair to the output buffer.
-		// Canonicalise pair so lower body index is always 'a'.
-		if (CachedBoundsOverlap(rbA_idx, rbB_idx))
+	// Every start bound can defer at most once, so body_count slots suffice.
+	if (idx == walk_limit && idx != bounds_count)
+	{
+		uint slot;
+		InterlockedAdd(g_counters[0].deferred_sweep_count, 1, slot);
+		GpuDeferredSweep deferred;
+		deferred.start_bound = start_bound;
+		deferred.resume_bound = idx;
+		g_deferred_sweeps[slot] = deferred;
+	}
+}
+
+// The swept body's end bound within the cooperative group's current window.
+groupshared int gs_walk_end;
+
+// Finish deferred intervals one group-wide window at a time, retaining every candidate exactly once.
+odr void SweepDeferredWalks(int group_id, int group_index, bool filter_connected)
+{
+	int bounds_count = 2 * g.body_count;
+	int deferred_count = min(g_counters[0].deferred_sweep_count, g.body_count);
+	for (int item = group_id; item < deferred_count; item += g.deferred_group_count)
+	{
+		// Recover the body and its end marker from the original start bound.
+		GpuDeferredSweep deferred = g_deferred_sweeps[item];
+		int payload_a = g_aabb_idx[deferred.start_bound];
+		int rbA_idx = payload_a >> 1;
+		int end_idx = payload_a | 1;
+		GpuRigidBody rb = g_bodies[rbA_idx];
+		for (int base = deferred.resume_bound; base < bounds_count; base += SweepThreadCount)
 		{
-			if (!StorePair(rbA_idx, rbB_idx, rb, other_rb, filter_connected))
-				return;
+			// The unique end marker determines which lanes still belong to this interval.
+			if (group_index == 0)
+				gs_walk_end = bounds_count;
+
+			GroupMemoryBarrierWithGroupSync();
+			int pos = base + group_index;
+			int payload = pos < bounds_count ? g_aabb_idx[pos] : end_idx;
+			if (pos < bounds_count && payload == end_idx)
+				gs_walk_end = pos;
+
+			GroupMemoryBarrierWithGroupSync();
+			int walk_end = gs_walk_end;
+			if (pos < walk_end)
+				SweepCandidate(rbA_idx, rb, payload, filter_connected);
+
+			// All lanes finish reading the marker before the next window resets it.
+			GroupMemoryBarrierWithGroupSync();
+			if (walk_end != bounds_count)
+				break;
 		}
 	}
 }
@@ -271,6 +334,20 @@ numthreads(CSSweepFiltered, SweepThreadCount, 1, 1)
 void CSSweepFiltered(int3 dtid : SV_DispatchThreadID)
 {
 	SweepBound(dtid, true);
+}
+
+// Finish deferred walks without connected-body filtering.
+numthreads(CSSweepDeferred, SweepThreadCount, 1, 1)
+void CSSweepDeferred(int3 gid : SV_GroupID, int gi : SV_GroupIndex)
+{
+	SweepDeferredWalks(gid.x, gi, false);
+}
+
+// Finish deferred walks with the connected-body collision-exclusion table.
+numthreads(CSSweepDeferredFiltered, SweepThreadCount, 1, 1)
+void CSSweepDeferredFiltered(int3 gid : SV_GroupID, int gi : SV_GroupIndex)
+{
+	SweepDeferredWalks(gid.x, gi, true);
 }
 
 // This shader is dispatched with 1 thread. It calculates the number of thread groups needed for the collision detection

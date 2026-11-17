@@ -781,7 +781,7 @@ namespace pr
 		struct PopulationInstance
 		{
 			Vec4 m_o2w[3];                      // Rows of the affine instance-to-world transform: world[i] = dot(m_o2w[i], (p,1)).
-			Colour m_tint;                      // Multiplies the vertex colour.
+			Colour m_tint;                      // sRGB ARGB bytes with linear alpha; multiplies vertex colour after decoding RGB.
 			EPopulationInstanceFlags m_flags;
 			uint32_t m_payload;                 // Caller payload index, interpreted only by caller shaders.
 			uint32_t m_prototype;               // The index of the instance's prototype in the population. Instances with an invalid index are not drawn.

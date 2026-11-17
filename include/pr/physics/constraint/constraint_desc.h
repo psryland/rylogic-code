@@ -72,7 +72,12 @@ namespace pr::physics
 	struct BodyFrame
 	{
 		BodyRef m_body = BodyRef::World();
-		m4x4 m_constraint_to_body = m4x4::Identity();
+		// Constraint-to-endpoint rigid transform: unit quaternion and finite position with w = 1.
+		quat m_rotation = quat::Identity();
+		v4 m_position = v4::Origin();
+
+		// Construct from a finite orthonormal affine matrix; reject scale, shear, reflection, and projective transforms.
+		static BodyFrame FromMatrix(BodyRef body, m4x4 const& constraint_to_body);
 	};
 
 	// Configuration for one D6 translational or rotational axis.

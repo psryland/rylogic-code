@@ -18,7 +18,7 @@ float SampleCloudShadow(float4 ws_pos, float4 ws_to_light)
 
 #include "view3d-12/src/shaders/hlsl/lighting/phong_lighting.hlsli"
 #include "view3d-12/src/shaders/hlsl/forward/kbuffer.hlsli"
-#include "view3d-12/src/shaders/hlsl/utility/colour_space.hlsli"
+#include "pr/view3d-12/shaders/colour_space.hlsli"
 #include "view3d-12/src/shaders/hlsl/utility/surface_colour.hlsli"
 
 ConstantBuffer<CBufFrame> g_frame : register(b0);

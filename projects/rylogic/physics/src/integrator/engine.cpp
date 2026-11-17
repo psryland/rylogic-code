@@ -85,13 +85,30 @@ namespace pr::physics
 			{
 				auto run_profile = GpuJob::RunProfile{};
 				auto run = job.Submit(&run_profile);
-				profile.m_gpu_prepare_ms = run_profile.m_prepare_ms;
-				profile.m_gpu_execute_ms = run_profile.m_execute_ms;
+				profile.m_gpu_prepare_ms += run_profile.m_prepare_ms;
+				profile.m_gpu_execute_ms += run_profile.m_execute_ms;
 				return run;
 			}
 			else
 			{
 				return job.Submit();
+			}
+		}
+		// Submit a recorded prefix while retaining its cost in the complete step's phase totals.
+		void FlushGpuJob(GpuJob& job, Engine::StepProfile& profile)
+		{
+			++profile.m_flush_count;
+			if constexpr (PR_PHYSICS_PROFILE != 0)
+			{
+				auto run_profile = GpuJob::RunProfile{};
+				job.Flush(&run_profile);
+				profile.m_gpu_prepare_ms += run_profile.m_prepare_ms;
+				profile.m_gpu_execute_ms += run_profile.m_execute_ms;
+				profile.m_gpu_reset_ms += run_profile.m_reset_ms;
+			}
+			else
+			{
+				job.Flush();
 			}
 		}
 		void CompleteGpuJob(GpuJob& job, GpuJob::RunHandle& run, Engine::StepProfile& profile)
@@ -100,11 +117,11 @@ namespace pr::physics
 			++profile.m_wait_count;
 			auto run_profile = GpuJob::RunProfile{};
 			job.Complete(run, &run_profile);
-			profile.m_gpu_wait_ms = run_profile.m_wait_ms;
+			profile.m_gpu_wait_ms += run_profile.m_wait_ms;
 			if constexpr (PR_PHYSICS_PROFILE != 0)
 			{
 				// The remaining job phases are profiled only in profiling builds.
-				profile.m_gpu_reset_ms = run_profile.m_reset_ms;
+				profile.m_gpu_reset_ms += run_profile.m_reset_ms;
 				profile.m_gpu_run_ms =
 					profile.m_gpu_prepare_ms +
 					profile.m_gpu_execute_ms +
@@ -178,6 +195,8 @@ namespace pr::physics
 		double pix_time_s = 0;
 		// Opt-in PIX diagnostics share the submitted job's fence, never a separate synchronization round trip.
 		std::vector<ReadbackAlloc> pix_resolve_counts;
+		// Keep every substep's mask alive until the frame's final fence completes.
+		std::vector<ReadbackAlloc> occupied_colours;
 		bool emit_collisions = true;
 		bool read_collision_events = false;
 	};
@@ -634,6 +653,7 @@ namespace pr::physics
 		m_selective_refresh_hold_steps = 0;
 		m_selective_refresh_previous_contact_count = 0;
 		m_colour_sweep_contact_estimate = std::numeric_limits<int>::max();
+		m_gpu_resolver->m_colour_head = MaxColours;
 	}
 
 	// Evolve the physics objects forward in time and resolve any collisions.
@@ -815,6 +835,9 @@ namespace pr::physics
 
 		// An unknown count (no completed readback) selects the per-colour form so a large first frame never runs in a single thread group.
 		m_colour_sweep_contact_estimate = m_last_collision_stats.m_max_contacts != 0 ? m_last_collision_stats.m_contact_count : std::numeric_limits<int>::max();
+		if (m_last_collision_stats.m_max_contacts == 0)
+			m_gpu_resolver->m_colour_head = MaxColours;
+
 		m_last_collision_stats = {};
 		{
 			// Keep the step marker balanced even if command recording fails before submission. Each flushed segment carries its own marker,
@@ -1089,7 +1112,7 @@ namespace pr::physics
 				if (substep_index != 0)
 				{
 					pix_step.reset();
-					m_gpu->m_job.Flush();
+					FlushGpuJob(m_gpu->m_job, m_last_step_profile);
 					pix_step.emplace(m_gpu->m_job.m_cmd_list.get(), 0xFF45BCF2, "Physics::Step");
 				}
 
@@ -1589,6 +1612,25 @@ namespace pr::physics
 		auto* coupled_contact_solver = m_coupled_contacts_active ? m_gpu_coupled_contact_solver.get() : nullptr;
 		m_gpu_resolver->m_colour_sweep = ColourSweepFor(m_config, std::min(m_config.max_collision_pairs, m_colour_sweep_contact_estimate));
 		m_gpu_resolver->Resolve(m_gpu->m_job, dt, body_count, rigid_body_count, m_config.max_collision_pairs, dispatch, counters, contacts, bodies, m_materials->span(), 1.0f, -1, -1, 1.0f, false, constraint_solver, coupled_constraint_solver, coupled_contact_solver, false, substep_index);
+		switch (m_gpu_resolver->m_colour_sweep)
+		{
+			case EColourSweep::PerColour:
+			{
+				// The pending frame owns these allocations; they are read only after its existing completion wait.
+				auto occupied_colours = m_gpu->m_job.m_readback.Alloc(sizeof(uint32_t), alignof(uint32_t));
+				m_gpu_resolver->CopyOccupiedColours(m_gpu->m_job, occupied_colours);
+				m_pending_step.m_buffers->occupied_colours.push_back(std::move(occupied_colours));
+				break;
+			}
+			case EColourSweep::Fused:
+			{
+				break;
+			}
+			default:
+			{
+				throw std::logic_error("Unknown contact colour sweep");
+			}
+		}
 		if (m_gpu_constraint_solver != nullptr)
 			m_gpu_constraint_solver->DetectBreakage(m_gpu->m_job, dt, substep_index, body_count, bodies);
 
@@ -1813,6 +1855,16 @@ namespace pr::physics
 			auto const sort_partitions = (sort_keys + partition_size - 1) / partition_size;
 			pr::compute::pix::CompletedDetailMarker("Physics::ResolveCounts engine=%p time_s=%.9f substep=%d pairs=%d contacts=%d groups_x=%u groups_y=%u groups_z=%u sort_keys=%d sort_partitions=%d",
 				this, buffers.pix_time_s, substep, counts->pair_count, counts->contact_count, dispatch->ThreadGroupCountX, dispatch->ThreadGroupCountY, dispatch->ThreadGroupCountZ, sort_keys, sort_partitions);
+		}
+		// Estimate the next head from all completed substeps. A spare colour accommodates small growth; the complete tail covers any larger growth.
+		if (!buffers.occupied_colours.empty())
+		{
+			auto occupied = 0u;
+			for (auto const& allocation : buffers.occupied_colours)
+				occupied |= *allocation.ptr<uint32_t>();
+
+			auto constexpr spare_colours = 1;
+			m_gpu_resolver->m_colour_head = std::min(MaxColours, (32 - std::countl_zero(occupied)) + spare_colours);
 		}
 		{
 			auto profile_scope = ProfileScope<&Engine::StepProfile::m_readback_access_ms>(m_last_step_profile);

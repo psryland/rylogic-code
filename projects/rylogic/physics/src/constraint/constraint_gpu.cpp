@@ -10,33 +10,52 @@ namespace pr::physics
 {
 	namespace
 	{
-		// Convert one public D6 axis descriptor without changing its canonical enum values.
-		GpuConstraintAxisDesc PackAxis(ConstraintAxisDesc const& axis)
-		{
-			return GpuConstraintAxisDesc{
-				.mode = static_cast<int>(axis.m_mode),
-				.lower_limit = axis.m_limits.m_beg,
-				.upper_limit = axis.m_limits.m_end,
-				.target_position = axis.m_target_position,
-				.target_velocity = axis.m_target_velocity,
-				.stiffness = axis.m_stiffness,
-				.damping = axis.m_damping,
-				.max_force = axis.m_max_force,
-			};
-		}
+		// Axis transfer requires identical scalar representations, no padding, and the same canonical enum values.
+		// Range<float> contributes its two stored endpoints; its methods and static members are not part of the transfer.
+		static_assert(std::is_standard_layout_v<ConstraintAxisDesc> && std::is_standard_layout_v<GpuConstraintAxisDesc> && std::is_standard_layout_v<Range<float>>);
+		static_assert(std::is_trivially_copyable_v<ConstraintAxisDesc> && std::is_trivially_copyable_v<GpuConstraintAxisDesc> && std::is_trivially_copyable_v<Range<float>>);
+		static_assert(sizeof(float) == 4 && sizeof(int) == 4 && sizeof(Range<float>) == 8);
+		static_assert(sizeof(ConstraintAxisDesc) == 32 && sizeof(GpuConstraintAxisDesc) == 32);
+		static_assert(std::is_same_v<decltype(ConstraintAxisDesc::m_mode), EConstraintAxisMode>);
+		static_assert(std::is_same_v<decltype(ConstraintAxisDesc::m_limits), Range<float>>);
+		static_assert(std::is_same_v<std::underlying_type_t<EConstraintAxisMode>, decltype(GpuConstraintAxisDesc::mode)>);
+		static_assert(std::is_same_v<decltype(Range<float>::m_beg), decltype(GpuConstraintAxisDesc::lower_limit)>);
+		static_assert(std::is_same_v<decltype(Range<float>::m_end), decltype(GpuConstraintAxisDesc::upper_limit)>);
+		static_assert(std::is_same_v<decltype(ConstraintAxisDesc::m_target_position), decltype(GpuConstraintAxisDesc::target_position)>);
+		static_assert(std::is_same_v<decltype(ConstraintAxisDesc::m_target_velocity), decltype(GpuConstraintAxisDesc::target_velocity)>);
+		static_assert(std::is_same_v<decltype(ConstraintAxisDesc::m_stiffness), decltype(GpuConstraintAxisDesc::stiffness)>);
+		static_assert(std::is_same_v<decltype(ConstraintAxisDesc::m_damping), decltype(GpuConstraintAxisDesc::damping)>);
+		static_assert(std::is_same_v<decltype(ConstraintAxisDesc::m_max_force), decltype(GpuConstraintAxisDesc::max_force)>);
+		static_assert(offsetof(Range<float>, m_beg) == 0 && offsetof(Range<float>, m_end) == 4);
+		static_assert(offsetof(ConstraintAxisDesc, m_mode) == 0 && offsetof(GpuConstraintAxisDesc, mode) == 0);
+		static_assert(offsetof(ConstraintAxisDesc, m_limits) + offsetof(Range<float>, m_beg) == 4 && offsetof(GpuConstraintAxisDesc, lower_limit) == 4);
+		static_assert(offsetof(ConstraintAxisDesc, m_limits) + offsetof(Range<float>, m_end) == 8 && offsetof(GpuConstraintAxisDesc, upper_limit) == 8);
+		static_assert(offsetof(ConstraintAxisDesc, m_target_position) == 12 && offsetof(GpuConstraintAxisDesc, target_position) == 12);
+		static_assert(offsetof(ConstraintAxisDesc, m_target_velocity) == 16 && offsetof(GpuConstraintAxisDesc, target_velocity) == 16);
+		static_assert(offsetof(ConstraintAxisDesc, m_stiffness) == 20 && offsetof(GpuConstraintAxisDesc, stiffness) == 20);
+		static_assert(offsetof(ConstraintAxisDesc, m_damping) == 24 && offsetof(GpuConstraintAxisDesc, damping) == 24);
+		static_assert(offsetof(ConstraintAxisDesc, m_max_force) == 28 && offsetof(GpuConstraintAxisDesc, max_force) == 28);
+		static_assert(static_cast<int>(EConstraintAxisMode::Free) == GpuConstraintAxisMode_Free && GpuConstraintAxisMode_Free == 0);
+		static_assert(static_cast<int>(EConstraintAxisMode::Locked) == GpuConstraintAxisMode_Locked && GpuConstraintAxisMode_Locked == 1);
+		static_assert(static_cast<int>(EConstraintAxisMode::Limited) == GpuConstraintAxisMode_Limited && GpuConstraintAxisMode_Limited == 2);
+		static_assert(static_cast<int>(EConstraintAxisMode::Driven) == GpuConstraintAxisMode_Driven && GpuConstraintAxisMode_Driven == 3);
+		static_assert(std::is_same_v<decltype(D6ConstraintDesc::m_linear), std::array<ConstraintAxisDesc, 3>>);
+		static_assert(std::is_same_v<decltype(D6ConstraintDesc::m_angular), std::array<ConstraintAxisDesc, 3>>);
+		static_assert(sizeof(std::array<ConstraintAxisDesc, 3>) == 3 * sizeof(ConstraintAxisDesc) && GpuConstraintRowsPerBlock == 6);
+		static_assert(std::is_same_v<decltype(GpuD6ConstraintDesc::axes), GpuConstraintAxisDesc[6]>);
 
 		// Preserve linear XYZ followed by angular XYZ so runtime rows have stable canonical identities.
 		GpuD6ConstraintDesc PackDescriptor(D6ConstraintDesc const& desc)
 		{
+			// Frames retain their explicit conversion; only the axis payload has the guarded shared representation.
 			auto packed = GpuD6ConstraintDesc{
-				.frame_a = PackGpuTransform(desc.m_frame_a.m_constraint_to_body),
-				.frame_b = PackGpuTransform(desc.m_frame_b.m_constraint_to_body),
+				.frame_a = {.rotation = desc.m_frame_a.m_rotation.xyzw, .position = desc.m_frame_a.m_position},
+				.frame_b = {.rotation = desc.m_frame_b.m_rotation.xyzw, .position = desc.m_frame_b.m_position},
 			};
-			for (int axis = 0; axis != 3; ++axis)
-			{
-				packed.axes[axis] = PackAxis(desc.m_linear[axis]);
-				packed.axes[3 + axis] = PackAxis(desc.m_angular[axis]);
-			}
+
+			// The guards above prove each contiguous three-axis block is 96 bytes without padding or scalar conversion.
+			std::memcpy(&packed.axes[0], desc.m_linear.data(), sizeof(desc.m_linear));
+			std::memcpy(&packed.axes[3], desc.m_angular.data(), sizeof(desc.m_angular));
 			return packed;
 		}
 

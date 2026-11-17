@@ -51,20 +51,19 @@ namespace pr::physics
 	};
 
 	// Stable-identity remap and body access for one packed simulation step.
+	// Borrowed objects and their identities must remain valid while the remap is used. Identity lookup is expected constant-time.
 	struct BodyRemap
 	{
 	private:
 
-		std::vector<RigidBody*> m_bodies;
-		std::vector<Articulation*> m_articulations;
-		// Packed indices keyed by stable identity and sorted by identity. A remap is built every step, so sorted vectors avoid a heap allocation per object.
-		std::vector<std::pair<uint64_t, int>> m_rigid_indices;
-		std::vector<std::pair<uint64_t, int>> m_articulation_indices;
+		// Each domain stores its identity and borrowed pointer once. Insertion order supplies the packed index without a second index value.
+		pr::vector_hash_map<uint64_t, RigidBody*> m_bodies;
+		pr::vector_hash_map<uint64_t, Articulation*> m_articulations;
 		std::vector<int> m_articulation_link_offsets;
 
 	public:
 
-		// Build a remap and reject null pointers, invalid identities, duplicate objects, or malformed links before submission.
+		// Build a remap and reject null pointers, invalid identities, or duplicates before submission.
 		explicit BodyRemap(std::span<RigidBody* const> bodies, std::span<Articulation* const> articulations = {});
 
 		// Resolve a stable endpoint to its current object owner and packed proxy index.

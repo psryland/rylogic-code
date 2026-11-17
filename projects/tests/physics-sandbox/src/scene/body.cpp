@@ -55,18 +55,28 @@ namespace physics_sandbox
 	// Position the graphics at the rigid body location and update sleep visualisation
 	void Body::UpdateGfx()
 	{
+		// Batched bodies have no individual graphics object to update.
 		if (m_gfx)
 		{
+			// Keep shape placement separate from rigid-body motion.
 			m_gfx->O2W(m_o2w * m_gfx_o2b);
 
-			auto const colour = DisplayColour(m_priority_colour_enabled ? m_priority_colour : m_colour, Sleeping(), m_sleeping_transparency);
+			// Apply the same effective appearance used by batched presentation.
+			auto const colour = RenderColour();
 			if (colour != m_applied_colour)
 			{
+				// Avoid repeating unchanged object tint updates.
 				m_applied_colour = colour;
 				m_gfx->GroupTint(Colour32White, "");
 				m_gfx->Colour(false, colour, "");
 			}
 		}
+	}
+
+	Colour32 Body::RenderColour() const
+	{
+		// Both presentation paths honour the same priority override and sleep-opacity policy.
+		return DisplayColour(m_priority_colour_enabled ? m_priority_colour : m_colour, Sleeping(), m_sleeping_transparency);
 	}
 
 	// Keep the selected opacity policy for subsequent shape and contact-priority graphics updates.

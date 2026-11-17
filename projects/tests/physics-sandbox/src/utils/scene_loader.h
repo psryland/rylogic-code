@@ -220,6 +220,49 @@ namespace physics_sandbox::scene_loader
 		bool m_never_sleep = false;
 	};
 
+	// Sinusoidal internal torque per child mass, with a fixed phase offset for each driven joint axis.
+	struct RagdollActuationDesc
+	{
+		float m_torque_per_kg = 0.0f;
+		float m_period_s = 1.0f;
+		float m_phase = 0.0f;
+	};
+
+	// A conventional rigid-body connection, not a reduced-coordinate articulation joint.
+	struct RigidRagdollLinkDesc
+	{
+		enum class EJointType { Hinge, Spherical };
+
+		BodyDesc m_body;
+		std::string m_parent_name;
+		EJointType m_joint_type = EJointType::Hinge;
+		m4x4 m_joint_to_parent = m4x4::Identity();
+		m4x4 m_joint_to_child = m4x4::Identity();
+		quat m_initial_rotation = quat::Identity();
+		v4 m_initial_angular_velocity = v4::Zero();
+		std::array<Range<float>, 3> m_limits = {
+			physics::ConstraintAxisDesc{}.m_limits,
+			physics::ConstraintAxisDesc{}.m_limits,
+			physics::ConstraintAxisDesc{}.m_limits,
+		};
+		float m_damping = 0.0f;
+		bool m_collide_parent = false;
+	};
+
+	// A floating collection of shaped rigid bodies joined by hard D6 anchors/limits and angular-only actuators.
+	// Spherical connections use independent rotation-vector bounds, not a reduced-coordinate swing/twist ellipse.
+	struct RigidRagdollDesc
+	{
+		std::string m_name;
+		m4x4 m_root_to_world = m4x4::Identity();
+		v8motion m_root_velocity = {};
+		BodyDesc m_root;
+		std::vector<RigidRagdollLinkDesc> m_links;
+		bool m_sleeping = false;
+		bool m_never_sleep = false;
+		RagdollActuationDesc m_actuation;
+	};
+
 	// Describes one persistent rigid, articulation-link, or mixed constraint.
 	struct ConstraintDesc
 	{
@@ -416,6 +459,9 @@ namespace physics_sandbox::scene_loader
 		// Reduced-coordinate trees and persistent constraints in the scene
 		std::vector<ArticulationDesc> articulations;
 		std::vector<ConstraintDesc> constraints;
+
+		// Explicit conventional-model authoring; never changes the meaning of 'articulations'.
+		std::vector<RigidRagdollDesc> rigid_ragdolls;
 	};
 
 	// Read a 3-element JSON array as a position vector (w=1) or direction vector (w=0).

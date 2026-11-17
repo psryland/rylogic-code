@@ -61,14 +61,8 @@ namespace pr::physics::tests
 			D6ConstraintDesc Description()
 			{
 				auto desc = D6ConstraintDesc{};
-				desc.m_frame_a = BodyFrame{
-					.m_body = BodyRef::Link(m_articulation, m_child),
-					.m_constraint_to_body = m4x4::Transform(v4::XAxis(), 0.16f, v4{0.11f, -0.07f, 0.14f, 1}),
-				};
-				desc.m_frame_b = BodyFrame{
-					.m_body = BodyRef::Rigid(m_body),
-					.m_constraint_to_body = m4x4::Transform(v4::ZAxis(), -0.12f, v4{-0.08f, 0.10f, -0.11f, 1}),
-				};
+				desc.m_frame_a = BodyFrame::FromMatrix(BodyRef::Link(m_articulation, m_child), m4x4::Transform(v4::XAxis(), 0.16f, v4{0.11f, -0.07f, 0.14f, 1}));
+				desc.m_frame_b = BodyFrame::FromMatrix(BodyRef::Rigid(m_body), m4x4::Transform(v4::ZAxis(), -0.12f, v4{-0.08f, 0.10f, -0.11f, 1}));
 				desc.m_linear[0].m_mode = EConstraintAxisMode::Locked;
 				desc.m_linear[0].m_max_force = 160.0f;
 				desc.m_linear[1].m_mode = EConstraintAxisMode::Limited;
@@ -153,14 +147,8 @@ namespace pr::physics::tests
 				m_body.VelocityWS(v8motion{v4{0.02f, -0.03f, 0.04f, 0}, v4{-0.05f, 0.07f, 0.01f, 0}});
 
 				auto desc = D6ConstraintDesc{};
-				desc.m_frame_a = BodyFrame{
-					.m_body = BodyRef::Link(m_articulation, m_child),
-					.m_constraint_to_body = m4x4::Translation(v4{0.1f, -0.05f, 0.08f, 1}),
-				};
-				desc.m_frame_b = BodyFrame{
-					.m_body = BodyRef::Rigid(m_body),
-					.m_constraint_to_body = m4x4::Translation(v4{-0.06f, 0.04f, -0.03f, 1}),
-				};
+				desc.m_frame_a = BodyFrame::FromMatrix(BodyRef::Link(m_articulation, m_child), m4x4::Translation(v4{0.1f, -0.05f, 0.08f, 1}));
+				desc.m_frame_b = BodyFrame::FromMatrix(BodyRef::Rigid(m_body), m4x4::Translation(v4{-0.06f, 0.04f, -0.03f, 1}));
 				desc.m_linear[0].m_mode = EConstraintAxisMode::Locked;
 				desc.m_linear[0].m_max_force = 120.0f;
 				desc.m_angular[2].m_mode = EConstraintAxisMode::Locked;

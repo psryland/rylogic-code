@@ -23,7 +23,9 @@
 #include <format>
 #include <chrono>
 #include <cstdio>
+#include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <cassert>
 #include <atomic>
 #include <cmath>
@@ -41,6 +43,7 @@
 #include "pr/algorithm/algorithm.h"
 #include "pr/str/to_string.h"
 #include "pr/container/vector.h"
+#include "pr/container/vector_hash_map.h"
 #include "pr/container/byte_data.h"
 #include "pr/math/math.h"
 #include "pr/collision/collision.h"

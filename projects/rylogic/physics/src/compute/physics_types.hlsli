@@ -356,6 +356,7 @@ struct GpuWarmStartEntry
 	int body_idx_a;
 	int body_idx_b;
 	uint child_key; // Packed (child_idx_a << 16) | child_idx_b, disambiguating leaves of the same body pair.
+	int4 point_key; // Quantised body-A contact point completes the identity represented by the hash.
 	float4 impulse; // Cached physical impulse in body A space.
 };
 
@@ -600,8 +601,15 @@ struct GpuCollisionCounters
 {
 	int pair_count; // The number of potentially colliding objects
 	int contact_count; // The number of contact points found
-	int pad0;
+	int deferred_sweep_count; // The number of broadphase walks handed from one thread to a cooperative thread group
 	int pad1;
+};
+
+// A broadphase walk that was too long for one thread. Both offsets refer to the sorted bound list.
+struct GpuDeferredSweep
+{
+	int start_bound;
+	int resume_bound;
 };
 
 // Frame-constant spatial force restored before every internal GPU substep.

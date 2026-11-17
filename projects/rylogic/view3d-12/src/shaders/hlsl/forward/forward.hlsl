@@ -103,7 +103,7 @@ float SampleCloudShadow(float4 ws_pos, float4 ws_to_light)
 #include "view3d-12/src/shaders/hlsl/lighting/phong_lighting.hlsli"
 #include "view3d-12/src/shaders/hlsl/lighting/pbr.hlsli"
 #include "view3d-12/src/shaders/hlsl/ray_tracing/ray_tracing.hlsli"
-#include "view3d-12/src/shaders/hlsl/utility/colour_space.hlsli"
+#include "pr/view3d-12/shaders/colour_space.hlsli"
 #include "view3d-12/src/shaders/hlsl/utility/env_map.hlsli"
 #include "view3d-12/src/shaders/hlsl/forward/procedural_surface.hlsli"
 #include "pr/hlsl/camera.hlsli"

@@ -5,7 +5,7 @@
 #ifndef PR_VIEW3D_SHADER_COLOUR_SPACE_HLSLI
 #define PR_VIEW3D_SHADER_COLOUR_SPACE_HLSLI
 
-// Convert sRGB-encoded colour channels to linear values.
+// Convert sRGB-encoded colour channels to linear values, matching Colour32-to-Colour conversion.
 float3 SrgbToLinear(float3 srgb)
 {
 	float3 x = saturate(srgb);
