@@ -560,6 +560,40 @@ namespace render_tests
 		Expect(image, 0, 1, 0, 64, 64);
 		Expect(image, 1, 0, 0, 64 + 9, 64);
 		Expect(image, 0, 0, 0, 64 + 20, 64);
+
+		// Changing the layout must keep caller-supplied output buffers (see 'View3D_WindowCustomSwapChain'), which the window cannot recreate itself.
+		{
+			// A window without a swap chain, rendering into a texture that stands in for an externally owned output, such as a WPF D3DImage front buffer
+			auto window = View3D_WindowCreate(nullptr, api::WindowOptions().error_cb({&fixture.m_errors, ReportError}).back_colour(0xFF000000).multisamp(samples).name("CustomOutput"));
+			Require(window != nullptr, "View3D_WindowCreate without a HWND failed");
+			auto destroy = pr::Scope<void>([&] { View3D_WindowGSyncWait(window); View3D_WindowDestroy(window); });
+			auto options = api::TextureOptions{};
+			options.m_format = DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
+			options.m_usage = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+			options.m_resource_state = D3D12_RESOURCE_STATE_PRESENT;
+			options.m_clear_value.Format = options.m_format;
+			options.m_mips = 1;
+			options.m_multisamp = {1, 0};
+			options.m_t2s = {{1,0,0,0}, {0,1,0,0}, {0,0,1,0}, {0,0,0,1}};
+			auto output = api::TexturePtr(View3D_TextureCreate(ImageSize, ImageSize, nullptr, 0, options));
+			fixture.CheckErrors();
+			auto output_tex = output.get();
+			View3D_WindowCustomSwapChain(window, 1, &output_tex);
+
+			// Toggle stereo on and off, rendering after each change, without any resize.
+			for (auto enabled : { TRUE, FALSE })
+			{
+				View3D_StereoSet(window, api::StereoProps{ .m_enabled = enabled, .m_eye_separation_mm = SeparationMm, .m_scene_unit_mm = SceneUnitMm, .m_convergence = Convergence });
+				auto bb_size = View3D_WindowBackBufferSizeGet(window);
+				Require(bb_size.cx == ImageSize && bb_size.cy == ImageSize, "Changing the stereo layout released the custom output buffer");
+				View3D_WindowRender(window);
+				View3D_WindowGSyncWait(window);
+				fixture.CheckErrors();
+				auto frame = View3D_WindowFrameOutputGet(window);
+				Require(frame.m_render_target != nullptr && frame.m_dim.cx == ImageSize, "No frame rendered into the custom output buffer after a stereo change");
+			}
+			View3D_WindowCustomSwapChain(window, 0, nullptr);
+		}
 		fixture.CheckErrors();
 		fixture.CheckDebugLayer();
 		std::cout << "PASS side-by-side stereo: sizing, convergence, disparity, transparency, SSAO, odd width, and mono toggle: MSAA " << samples << '\n';

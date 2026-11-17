@@ -359,6 +359,21 @@ namespace pr::rdr12
 		{
 			bb.Release(*this);
 		}
+
+		// Swap chain render targets
+		if (m_swap_chain != nullptr)
+		{
+			CreateSwapChain(size);
+		}
+
+		RecreateViewTargets(size, multisamp);
+	}
+
+	// Recreate the targets that each view renders into, for an output of 'bb_size'. The output (swap chain) buffers are not changed.
+	// GPU work referencing the old targets must have completed before calling this.
+	void Window::RecreateViewTargets(iv2 bb_size, MultiSamp const* multisamp)
+	{
+		// Release the view-sized targets
 		if (auto& bb = m_msaa_bb; true)
 		{
 			bb.Release(*this);
@@ -368,7 +383,7 @@ namespace pr::rdr12
 			bb.Release(*this);
 		}
 
-		// The resolved-depth copy is sized to the back buffer, so it is dropped here and recreated
+		// The resolved-depth copy is sized to the view target, so it is dropped here and recreated
 		// on demand by the next pass that needs it.
 		if (m_resolved_depth != nullptr)
 		{
@@ -377,16 +392,8 @@ namespace pr::rdr12
 			m_resolved_depth_format = DXGI_FORMAT_UNKNOWN;
 		}
 
-		// Finished releasing references. Now to create new resources.
-
-		// Swap chain render targets
-		if (m_swap_chain != nullptr)
-		{
-			CreateSwapChain(size);
-		}
-
 		// The view render targets. Every view renders into these at the same size, one view after another.
-		auto rt_size = RenderTargetSize(size);
+		auto rt_size = RenderTargetSize(bb_size);
 		if (auto& bb = m_msaa_bb; true)
 		{
 			multisamp = multisamp != nullptr ? multisamp : &bb.m_multisamp;
@@ -414,10 +421,22 @@ namespace pr::rdr12
 		if (m_view_layout == layout)
 			return;
 
-		// The view targets depend on the layout, so recreate them as for a resize
+		// The view targets depend on the layout, but the output buffers do not. Keeping the output buffers matters when they are
+		// supplied by the caller (see 'CustomSwapChain'), because the window cannot recreate those itself.
 		m_view_layout = layout;
 		if (auto size = BackBufferSize(); size.x > 0 && size.y > 0)
-			BackBufferSize(size, true);
+		{
+			// The last submitted frame may borrow a view target, and the GPU may still reference the targets being replaced
+			m_frame_output = nullptr;
+			m_gsync.AddSyncPoint(rdr().GfxQueue());
+			m_gsync.Wait();
+			m_cmd_alloc_pool.Sweep();
+
+			RecreateViewTargets(size, nullptr);
+		}
+
+		// A presented swap chain may be idle (occluded test presents only), so force a real present of the new layout
+		m_idle = false;
 	}
 
 	// The number of views that each frame records

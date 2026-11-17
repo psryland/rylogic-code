@@ -196,6 +196,9 @@ namespace pr::rdr12
 		// Create the 1x target that a view is resolved into before it is copied into the output
 		BackBuffer CreateViewTarget(iv2 size);
 
+		// Recreate the targets that each view renders into, for an output of 'bb_size'. 'multisamp' == nullptr keeps the current MSAA setting.
+		void RecreateViewTargets(iv2 bb_size, MultiSamp const* multisamp);
+
 		// The size of each view's render target for an output of 'bb_size'
 		iv2 RenderTargetSize(iv2 bb_size) const;
 
