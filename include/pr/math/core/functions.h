@@ -4382,7 +4382,8 @@ namespace pr::math
 	}
 
 	// Create a random vector with length on interval [min_length, max_length]
-	template <VectorType Vec, typename Rng = std::default_random_engine>
+	// Scalar bounds for a 2D matrix select the rotation-angle overload instead.
+	template <VectorType Vec, typename Rng = std::default_random_engine> requires (!(IsRank2<Vec> && vector_traits<Vec>::dimension == 2))
 	constexpr Vec pr_vectorcall Random(Rng& rng, typename vector_traits<Vec>::element_t min_length, typename vector_traits<Vec>::element_t max_length) noexcept
 	{
 		using vt = vector_traits<Vec>;

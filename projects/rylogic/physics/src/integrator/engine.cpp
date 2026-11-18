@@ -2274,18 +2274,22 @@ namespace pr::physics
 	}
 
 	// Deleter implementations
+	template <>
 	void Deleter<GpuBuffers>::operator()(GpuBuffers* buffers) const
 	{
 		delete buffers;
 	}
+	template <>
 	void Deleter<EngineBufferCache>::operator()(EngineBufferCache* cache) const
 	{
 		delete cache;
 	}
+	template <>
 	void Deleter<MaterialMap>::operator()(MaterialMap* map) const
 	{
 		delete map;
 	}
+	template <>
 	void Deleter<Gpu>::operator()(Gpu* gpu) const
 	{
 		delete gpu;
