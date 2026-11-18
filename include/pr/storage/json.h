@@ -82,59 +82,27 @@ namespace pr::json
 		vals_t values;
 
 		Array() = default;
-		Array(std::initializer_list<Value> values_)
-			: values(values_)
-		{}
+		Array(std::initializer_list<Value> values_);
+
+		// Members that use 'values' are defined after 'Value', because they need it to be a complete type
 
 		// Array interface
-		bool empty() const
-		{
-			return values.size() == 0;
-		}
-		size_t size() const
-		{
-			return values.size();
-		}
+		bool empty() const;
+		size_t size() const;
 
 		// RAnged based for interation
 		using citer_t = vals_t::const_iterator;
 		using miter_t = vals_t::iterator;
-		citer_t begin() const
-		{
-			return values.begin();
-		}
-		citer_t end() const
-		{
-			return values.end();
-		}
+		citer_t begin() const;
+		citer_t end() const;
 
 		// Append items to the array
-		void push_back(Value&& value)
-		{
-			values.push_back(std::move(value));
-
-			if (values.size() == values.capacity())
-				values.reserve(values.capacity() * GrowRate);
-		}
-		void push_back(Value const& value)
-		{
-			values.push_back(value);
-
-			if (values.size() == values.capacity())
-				values.reserve(values.capacity() * GrowRate);
-		}
+		void push_back(Value&& value);
+		void push_back(Value const& value);
 
 		// Access the value associated with 'index'
-		Value const& operator [] (size_t index) const
-		{
-			if (index >= values.size()) return NullValue();
-			return values[index];
-		}
-		Value& operator[](size_t index)
-		{
-			values.resize(std::max<size_t>(values.size(), index + 1));
-			return values[index];
-		}
+		Value const& operator [] (size_t index) const;
+		Value& operator[](size_t index);
 	};
 	struct Object
 	{
@@ -195,22 +163,12 @@ namespace pr::json
 		};
 		using citer_t = Iter<keys_t::const_iterator, vals_t::const_iterator>;
 		using miter_t = Iter<keys_t::iterator, vals_t::iterator>;
-		citer_t begin() const
-		{
-			return citer_t{ keys.begin(), values.begin() };
-		}
-		miter_t begin()
-		{
-			return miter_t{ keys.begin(), values.begin() };
-		}
-		citer_t end() const
-		{
-			return citer_t{ keys.end(), values.end() };
-		}
-		miter_t end()
-		{
-			return miter_t{ keys.end(), values.end() };
-		}
+
+		// Members that use 'values' are defined after 'Value', because they need it to be a complete type
+		citer_t begin() const;
+		miter_t begin();
+		citer_t end() const;
+		miter_t end();
 
 		// Find 'key' in the object and return its index
 		size_t index_of(std::string_view key) const
@@ -220,52 +178,16 @@ namespace pr::json
 		}
 
 		// Access the value associated with 'index'
-		Value const& operator [] (size_t index) const
-		{
-			if (index >= values.size()) return NullValue();
-			return values[index];
-		}
-		Value& operator[](size_t index)
-		{
-			if (index >= values.size()) throw std::out_of_range("Index out of range");
-			return values[index];
-		}
+		Value const& operator [] (size_t index) const;
+		Value& operator[](size_t index);
 
 		// Access the value associated with 'key'
-		Value const& operator [] (std::string_view key) const
-		{
-			auto idx = index_of(key);
-			return (*this)[idx];
-		}
-		Value& operator[](std::string_view key)
-		{
-			auto idx = index_of(key);
-			if (idx == keys.size())
-			{
-				idx = keys.size();
-				keys.push_back(std::string{ key });
-				values.push_back(NullValue());
-
-				if (keys.size() == keys.capacity())
-				{
-					keys.reserve(keys.capacity() * GrowRate);
-					values.reserve(values.capacity() * GrowRate);
-				}
-			}
-			return (*this)[idx];
-		}
+		Value const& operator [] (std::string_view key) const;
+		Value& operator[](std::string_view key);
 
 		// Look for an item. Returns nullptr if not found
-		Value const* find(std::string_view key) const
-		{
-			auto idx = index_of(key);
-			return idx < keys.size() ? &values[idx] : nullptr;
-		}
-		Value* find(std::string_view key)
-		{
-			auto idx = index_of(key);
-			return idx < keys.size() ? &values[idx] : nullptr;
-		}
+		Value const* find(std::string_view key) const;
+		Value* find(std::string_view key);
 	};
 
 	// Variant type
@@ -1136,6 +1058,116 @@ namespace pr::json
 
 		result.resize(out - result.data());
 		return result;
+	}
+
+	// Initializer list constructor for arrays
+	inline Array::Array(std::initializer_list<Value> values_)
+		: values(values_)
+	{
+		// Outside the class because copying the items needs 'Value' to be defined
+	}
+
+	// Array interface
+	inline bool Array::empty() const
+	{
+		return values.size() == 0;
+	}
+	inline size_t Array::size() const
+	{
+		return values.size();
+	}
+	inline Array::citer_t Array::begin() const
+	{
+		return values.begin();
+	}
+	inline Array::citer_t Array::end() const
+	{
+		return values.end();
+	}
+	inline void Array::push_back(Value&& value)
+	{
+		values.push_back(std::move(value));
+
+		if (values.size() == values.capacity())
+			values.reserve(values.capacity() * GrowRate);
+	}
+	inline void Array::push_back(Value const& value)
+	{
+		values.push_back(value);
+
+		if (values.size() == values.capacity())
+			values.reserve(values.capacity() * GrowRate);
+	}
+	inline Value const& Array::operator [] (size_t index) const
+	{
+		if (index >= values.size()) return NullValue();
+		return values[index];
+	}
+	inline Value& Array::operator[](size_t index)
+	{
+		values.resize(std::max<size_t>(values.size(), index + 1));
+		return values[index];
+	}
+
+	// Object interface
+	inline Object::citer_t Object::begin() const
+	{
+		return citer_t{ keys.begin(), values.begin() };
+	}
+	inline Object::miter_t Object::begin()
+	{
+		return miter_t{ keys.begin(), values.begin() };
+	}
+	inline Object::citer_t Object::end() const
+	{
+		return citer_t{ keys.end(), values.end() };
+	}
+	inline Object::miter_t Object::end()
+	{
+		return miter_t{ keys.end(), values.end() };
+	}
+	inline Value const& Object::operator [] (size_t index) const
+	{
+		if (index >= values.size()) return NullValue();
+		return values[index];
+	}
+	inline Value& Object::operator[](size_t index)
+	{
+		if (index >= values.size()) throw std::out_of_range("Index out of range");
+		return values[index];
+	}
+	inline Value const& Object::operator [] (std::string_view key) const
+	{
+		auto idx = index_of(key);
+		return (*this)[idx];
+	}
+	inline Value& Object::operator[](std::string_view key)
+	{
+		// Missing keys are appended with a null value
+		auto idx = index_of(key);
+		if (idx == keys.size())
+		{
+			idx = keys.size();
+			keys.push_back(std::string{ key });
+			values.push_back(NullValue());
+
+			if (keys.size() == keys.capacity())
+			{
+				keys.reserve(keys.capacity() * GrowRate);
+				values.reserve(values.capacity() * GrowRate);
+			}
+		}
+		return (*this)[idx];
+	}
+	inline Value const* Object::find(std::string_view key) const
+	{
+		auto idx = index_of(key);
+		return idx < keys.size() ? &values[idx] : nullptr;
+	}
+	inline Value* Object::find(std::string_view key)
+	{
+		auto idx = index_of(key);
+		return idx < keys.size() ? &values[idx] : nullptr;
 	}
 
 	// Initializer list constructor for objects

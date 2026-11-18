@@ -1,0 +1,104 @@
+﻿<Window
+	x:Class="Rylogic.Gui.WPF.View3dStereoUI"
+	xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+	xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+	xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+	xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+	mc:Ignorable="d"
+	Title="Stereo SBS"
+	WindowStartupLocation="CenterOwner"
+	SizeToContent="WidthAndHeight"
+	ResizeMode="CanResizeWithGrip"
+	MinWidth="420"
+	MinHeight="180"
+	>
+	<Grid>
+		<Grid.RowDefinitions>
+			<RowDefinition Height="*"/>
+			<RowDefinition Height="Auto"/>
+		</Grid.RowDefinitions>
+
+		<StackPanel
+			Grid.Row="0"
+			Margin="12"
+			>
+			<CheckBox
+				Content="Render side-by-side stereo (left eye on the left)"
+				IsChecked="{Binding Enabled, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+				Margin="0,0,0,8"
+				/>
+			<Grid
+				Margin="16,0,0,8"
+				>
+				<Grid.ColumnDefinitions>
+					<ColumnDefinition Width="Auto"/>
+					<ColumnDefinition Width="100"/>
+				</Grid.ColumnDefinitions>
+				<Grid.RowDefinitions>
+					<RowDefinition Height="Auto"/>
+					<RowDefinition Height="Auto"/>
+					<RowDefinition Height="Auto"/>
+				</Grid.RowDefinitions>
+				<TextBlock
+					Grid.Row="0"
+					Grid.Column="0"
+					Text="Eye separation (mm):"
+					VerticalAlignment="Center"
+					Margin="0,0,8,4"
+					/>
+				<TextBox
+					Grid.Row="0"
+					Grid.Column="1"
+					Text="{Binding EyeSeparationMm, Mode=TwoWay, UpdateSourceTrigger=LostFocus, ValidatesOnExceptions=True}"
+					Margin="0,0,0,4"
+					/>
+				<TextBlock
+					Grid.Row="1"
+					Grid.Column="0"
+					Text="Scene unit length (mm):"
+					VerticalAlignment="Center"
+					Margin="0,0,8,4"
+					/>
+				<TextBox
+					Grid.Row="1"
+					Grid.Column="1"
+					Text="{Binding SceneUnitMm, Mode=TwoWay, UpdateSourceTrigger=LostFocus, ValidatesOnExceptions=True}"
+					Margin="0,0,0,4"
+					/>
+				<TextBlock
+					Grid.Row="2"
+					Grid.Column="0"
+					Text="Convergence distance (scene units):"
+					VerticalAlignment="Center"
+					Margin="0,0,8,4"
+					/>
+				<TextBox
+					Grid.Row="2"
+					Grid.Column="1"
+					Text="{Binding Convergence, Mode=TwoWay, UpdateSourceTrigger=LostFocus, ValidatesOnExceptions=True}"
+					Margin="0,0,0,4"
+					/>
+			</Grid>
+			<TextBlock
+				Text="Eye separation is a physical distance, typically about 63 mm. The scene unit length converts it to scene units: 1000 for metres, 1 for millimetres. Zero means automatic: a separation of one thirtieth of the convergence distance, metre scene units, and convergence at the camera focus distance. Objects at the convergence distance appear at screen depth."
+				TextWrapping="Wrap"
+				MaxWidth="400"
+				HorizontalAlignment="Left"
+				/>
+		</StackPanel>
+
+		<StackPanel
+			Grid.Row="1"
+			Orientation="Horizontal"
+			HorizontalAlignment="Right"
+			Margin="8"
+			>
+			<Button
+				Content="Close"
+				IsDefault="True"
+				MinWidth="80"
+				Command="{Binding Accept}"
+				/>
+		</StackPanel>
+	</Grid>
+</Window>

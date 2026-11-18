@@ -228,6 +228,7 @@ namespace LDraw
 			Ambient = new Colour32(0xFF808080);
 			Shadows = new ShadowData();
 			RayTracing = new RayTracingData();
+			Stereo = new StereoData();
 			AmbientOcclusion = 0f;
 		}
 
@@ -285,6 +286,13 @@ namespace LDraw
 		{
 			get => get<RayTracingData>(nameof(RayTracing));
 			set => set(nameof(RayTracing), value);
+		}
+
+		/// <summary>Side-by-side stereo settings for this scene</summary>
+		public StereoData Stereo
+		{
+			get => get<StereoData>(nameof(Stereo));
+			set => set(nameof(Stereo), value);
 		}
 
 		/// <summary>Screen-space ambient occlusion strength for this scene (0 = off). See View3d.AmbientOcclusionProps.Strength</summary>
@@ -521,6 +529,67 @@ namespace LDraw
 		{
 			FromView3dFeatures(props.Features);
 			MaxReflectionBounces = props.MaxReflectionBounces;
+		}
+	}
+
+	/// <summary>Per-scene side-by-side stereo settings (mirrors View3d.StereoProps as a SettingsSet for persistence)</summary>
+	public class StereoData :SettingsSet<StereoData>
+	{
+		public StereoData()
+		{
+			Enabled = false;
+			EyeSeparationMm = 0f;
+			SceneUnitMm = 0f;
+			Convergence = 0f;
+		}
+
+		/// <summary>True if the scene renders a side-by-side stereo pair</summary>
+		public bool Enabled
+		{
+			get => get<bool>(nameof(Enabled));
+			set => set(nameof(Enabled), value);
+		}
+
+		/// <summary>The distance between the eyes in millimetres (0 = automatic). See View3d.StereoProps.EyeSeparationMm</summary>
+		public float EyeSeparationMm
+		{
+			get => get<float>(nameof(EyeSeparationMm));
+			set => set(nameof(EyeSeparationMm), value);
+		}
+
+		/// <summary>The length of one scene unit in millimetres (0 = metres). See View3d.StereoProps.SceneUnitMm</summary>
+		public float SceneUnitMm
+		{
+			get => get<float>(nameof(SceneUnitMm));
+			set => set(nameof(SceneUnitMm), value);
+		}
+
+		/// <summary>The distance to the zero-disparity plane in scene units (0 = automatic). See View3d.StereoProps.Convergence</summary>
+		public float Convergence
+		{
+			get => get<float>(nameof(Convergence));
+			set => set(nameof(Convergence), value);
+		}
+
+		/// <summary>Convert the persisted stereo settings to View3D stereo properties</summary>
+		public View3d.StereoProps ToStereoProps()
+		{
+			return new View3d.StereoProps
+			{
+				Enabled = Enabled,
+				EyeSeparationMm = EyeSeparationMm,
+				SceneUnitMm = SceneUnitMm,
+				Convergence = Convergence,
+			};
+		}
+
+		/// <summary>Copy View3D stereo properties into the persisted stereo settings</summary>
+		public void FromStereoProps(View3d.StereoProps props)
+		{
+			Enabled = props.Enabled;
+			EyeSeparationMm = props.EyeSeparationMm;
+			SceneUnitMm = props.SceneUnitMm;
+			Convergence = props.Convergence;
 		}
 	}
 

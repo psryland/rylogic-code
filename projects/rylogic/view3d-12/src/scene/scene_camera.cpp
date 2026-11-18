@@ -30,19 +30,33 @@ namespace pr::rdr12
 		,m_shadow_max_caster_dist(4.0f * focus_dist)
 	{}
 
-	// Return the scene views for the left and right eye in stereoscopic view
-	void SceneCamera::Stereo(float separation, SceneCamera (&eye)[Enum<EEye>::NumberOf]) const
+	// Return the camera for one eye of a parallel-axis stereo pair derived from this (logical) camera.
+	SceneCamera SceneCamera::StereoEye(EEye eye, float separation, float convergence, float eye_aspect) const
 	{
-		auto const& c2w = CameraToWorld();
-		auto sep = 0.5f * separation * c2w.x;
-		auto focus_point = FocusPoint();
-		auto lc2w = m4x4::LookAt(c2w.pos - sep, focus_point, c2w.y);
-		auto rc2w = m4x4::LookAt(c2w.pos + sep, focus_point, c2w.y);
+		// Both eyes keep the logical field of view and focus distance, but use the eye image's aspect ratio
+		auto cam = *this;
+		cam.Aspect(eye_aspect);
+		if (Orthographic())
+			return cam;
 
-		auto fovY = FovY();
-		auto aspect = Aspect();
-		auto orthographic = Orthographic();
-		eye[(int)EEye::Left ] = SceneCamera(lc2w, s_cast<float>(fovY), s_cast<float>(aspect), Length(lc2w.pos - focus_point), orthographic);
-		eye[(int)EEye::Right] = SceneCamera(rc2w, s_cast<float>(fovY), s_cast<float>(aspect), Length(rc2w.pos - focus_point), orthographic);
+		// The eye sits half the separation to the side of the logical camera, with the same orientation (no toe-in)
+		auto sign = 0.0f;
+		switch (eye)
+		{
+			case EEye::Left: { sign = -1.0f; break; }
+			case EEye::Right: { sign = +1.0f; break; }
+			default: throw std::runtime_error("Unknown eye");
+		}
+		auto c2w = CameraToWorld();
+		c2w.pos += (sign * 0.5f * separation) * c2w.x;
+		cam.CameraToWorld(c2w, false);
+
+		// A point on the logical view axis at the convergence distance is offset by -sign*s/2 in the eye's camera space,
+		// which projects to -sign*(s/2)/(C*tanX) in normalised screen space. Shift the projection by the opposite amount so it lands at 0.
+		PR_ASSERT(PR_DBG_RDR, convergence > 0, "Stereo convergence distance must be positive");
+		auto tan_half_fovx = std::tan(0.5 * cam.FovY()) * eye_aspect;
+		auto shift = s_cast<float>(sign * 0.5 * separation / (convergence * tan_half_fovx));
+		cam.LensShift(v2(shift, 0.0f));
+		return cam;
 	}
 }

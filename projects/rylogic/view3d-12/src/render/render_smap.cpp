@@ -78,7 +78,6 @@ namespace pr::rdr12
 		, m_cache()
 		, m_element_views()
 		, m_dirty()
-		, m_frame_number()
 		, m_max_dirty()
 		, m_volatile()
 		, m_casters()
@@ -436,12 +435,14 @@ namespace pr::rdr12
 		// Describe the scene camera. Directional light cascades cover depth ranges of this view, and the size of the
 		// view of each point or spot light on screen chooses the resolution of its shadow views.
 		auto const& cam = scn().m_cam;
+		// The shadow camera's view is centred, so a lens-shifted view is covered conservatively by widening it, as for 'Camera::ViewFrustum'.
 		auto const tan_half_fovy = s_cast<float>(std::tan(cam.FovY() * 0.5));
+		auto const lens_grow = v2(1.0f + std::abs(cam.LensShift().x), 1.0f + std::abs(cam.LensShift().y));
 		auto const camera = ShadowCamera{
 			.m_c2w = cam.CameraToWorld(),
 			.m_near = s_cast<float>(cam.Near(false)),
 			.m_far = s_cast<float>(cam.Far(false)),
-			.m_view_size = cam.Orthographic() ? cam.ViewRectAtDistance(cam.FocusDist()) : v2(2.0f * tan_half_fovy * s_cast<float>(cam.Aspect()), 2.0f * tan_half_fovy),
+			.m_view_size = lens_grow * (cam.Orthographic() ? cam.ViewRectAtDistance(cam.FocusDist()) : v2(2.0f * tan_half_fovy * s_cast<float>(cam.Aspect()), 2.0f * tan_half_fovy)),
 			.m_viewport_height = scn().m_viewport.Height,
 			.m_orthographic = cam.Orthographic(),
 		};
@@ -534,7 +535,8 @@ namespace pr::rdr12
 		// Directional cascades after the first are rendered only on their turn. Their texels are coarse and they are far from the camera, so a few
 		// frames of delay is not visible. Cascade 'c' takes its turn when the frame number modulo the interval is 'c - 1' modulo the interval,
 		// which spreads the cascades across frames, including after a change of camera or settings that moves every cascade at once.
-		++m_frame_number;
+		// The window's frame number is used so that every view of a frame refreshes the same cascades.
+		auto const frame_number = s_cast<uint64_t>(wnd().FrameNumber());
 		auto deferred = uint32_t(0);
 		m_max_dirty = view_count;
 		if (auto const interval = m_settings.m_far_cascade_refresh_interval; interval > 1)
@@ -553,7 +555,7 @@ namespace pr::rdr12
 				auto const turn = s_cast<uint64_t>((view.m_face - 1) % interval);
 				++turns[s_cast<size_t>(turn)];
 				++far_count;
-				if (m_frame_number % interval == turn)
+				if (frame_number % interval == turn)
 					continue;
 
 				deferred |= 1U << v;

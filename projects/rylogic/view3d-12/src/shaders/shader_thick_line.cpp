@@ -1,4 +1,4 @@
-﻿//*********************************************
+//*********************************************
 // View 3d
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
@@ -29,7 +29,7 @@ namespace pr::rdr12::shaders
 	{
 		fwd::CBufScreenSpace cb = {};
 		cb.size = v2(m_width, m_width);
-		cb.screen_dim = To<v2>(scene.wnd().BackBufferSize());
+		cb.screen_dim = To<v2>(scene.wnd().RenderTargetSize());
 		cb.depth = false;
 		auto gpu_address = upload.Add(cb, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, true).VirtualAddress();
 		cmd_list->SetGraphicsRootConstantBufferView((UINT)fwd::ERootParam::CBufScreenSpace, gpu_address);
@@ -53,7 +53,7 @@ namespace pr::rdr12::shaders
 	{
 		fwd::CBufScreenSpace cb = {};
 		cb.size = v2(m_width, m_width);
-		cb.screen_dim = To<v2>(scene.wnd().BackBufferSize());
+		cb.screen_dim = To<v2>(scene.wnd().RenderTargetSize());
 		cb.depth = false;
 		auto gpu_address = upload.Add(cb, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, true).VirtualAddress();
 		cmd_list->SetGraphicsRootConstantBufferView((UINT)fwd::ERootParam::CBufScreenSpace, gpu_address);

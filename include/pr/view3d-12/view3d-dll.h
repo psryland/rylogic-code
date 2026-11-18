@@ -545,6 +545,7 @@ namespace pr
 			Rendering            = 1 << 21,
 			Rendering_RayTracing = Rendering | 1 << 0,
 			Rendering_PostEffects = Rendering | 1 << 2,
+			Rendering_Stereo     = Rendering | 1 << 3,
 
 			_flags_enum = 0,
 
@@ -572,6 +573,20 @@ namespace pr
 		{
 			ERayTracingFeature m_features;
 			int m_max_reflection_bounces;
+		};
+		struct StereoProps
+		{
+			// True to render side-by-side stereo: the left eye view in the left half of the output, the right eye view in the right half.
+			BOOL m_enabled;
+
+			// The distance between the eyes, in millimetres. Zero means automatic: one thirtieth of the convergence distance.
+			float m_eye_separation_mm;
+
+			// The length of one scene unit, in millimetres. Converts 'm_eye_separation_mm' into scene units. Zero means 1000 (scene units are metres).
+			float m_scene_unit_mm;
+
+			// The distance from the camera to the plane that appears at screen depth (zero disparity), in scene units. Zero means the camera focus distance.
+			float m_convergence;
 		};
 		struct RayTracingInfo
 		{
@@ -1340,6 +1355,14 @@ extern "C"
 	VIEW3D_API pr::view3d::RayTracingProps __stdcall View3D_RayTracingPropertiesGet(pr::view3d::Window window);
 	VIEW3D_API void __stdcall View3D_RayTracingPropertiesSet(pr::view3d::Window window, pr::view3d::RayTracingProps const& props);
 
+	// Get/Set the side-by-side stereo settings. Stereo uses two eye views composed side by side into one output.
+	VIEW3D_API pr::view3d::StereoProps __stdcall View3D_StereoGet(pr::view3d::Window window);
+	VIEW3D_API void __stdcall View3D_StereoSet(pr::view3d::Window window, pr::view3d::StereoProps const& props);
+
+	// Show or hide the stereo cursor. The cursor is drawn on the zero-disparity plane at the view-local position of 'ss_point' (in 'window' screen space).
+	// Applications hide the OS cursor while stereo is enabled and forward mouse positions here.
+	VIEW3D_API void __stdcall View3D_StereoCursorSet(pr::view3d::Window window, BOOL visible, pr::view3d::Vec2 ss_point);
+
 	// Get/Set the per-window underwater post effect properties
 	VIEW3D_API pr::view3d::UnderwaterProps __stdcall View3D_PostEffectUnderwaterGet(pr::view3d::Window window);
 	VIEW3D_API BOOL __stdcall View3D_PostEffectUnderwaterSet(pr::view3d::Window window, pr::view3d::UnderwaterProps const& props);
@@ -1632,7 +1655,8 @@ extern "C"
 	// Convert lengths in pixels (X and Y) into lengths in normalised screen space
 	VIEW3D_API pr::view3d::Vec2 __stdcall View3D_PixelsToNSS(pr::view3d::Window window, pr::view3d::Vec2 pixels);
 
-	// Convert a point between 'window' screen space and normalised screen space
+	// Convert a point between 'window' screen space and normalised screen space.
+	// With a multi-view layout (e.g. stereo), normalised screen space is local to the view under 'screen', and NSS points map into the first view.
 	VIEW3D_API pr::view3d::Vec2 __stdcall View3D_SSPointToNSSPoint(pr::view3d::Window window, pr::view3d::Vec2 screen);
 	VIEW3D_API pr::view3d::Vec2 __stdcall View3D_NSSPointToSSPoint(pr::view3d::Window window, pr::view3d::Vec2 nss_point);
 

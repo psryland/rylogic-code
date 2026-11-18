@@ -359,6 +359,13 @@
 		DataContext="{Binding View3dCMenuContext}"
 		Name="View3dMenuItem_RayTracing"
 		/>
+	<MenuItem x:Key="View3dMenuItem_Stereo" x:Shared="False"
+		Header="Stereo SBS..."
+		StaysOpenOnClick="False"
+		Command="{Binding ShowStereoUI}"
+		DataContext="{Binding View3dCMenuContext}"
+		Name="View3dMenuItem_Stereo"
+		/>
 	<MenuItem x:Key="View3dMenuItem_Animation" x:Shared="False"
 		Header="Animation..."
 		StaysOpenOnClick="False"
@@ -539,6 +546,7 @@
 			<StaticResource ResourceKey="View3dMenuItem_CullMode"/>
 			<StaticResource ResourceKey="View3dMenuItem_Lighting"/>
 			<StaticResource ResourceKey="View3dMenuItem_RayTracing"/>
+			<StaticResource ResourceKey="View3dMenuItem_Stereo"/>
 		</MenuItem>
 		<MenuItem Header="Diagnostics">
 			<StaticResource	ResourceKey="View3dMenuItem_ShowNormals"/>
@@ -710,6 +718,7 @@
 			<StaticResource ResourceKey="View3dMenuItem_CullMode"/>
 			<StaticResource ResourceKey="View3dMenuItem_Lighting"/>
 			<StaticResource ResourceKey="View3dMenuItem_RayTracing"/>
+			<StaticResource ResourceKey="View3dMenuItem_Stereo"/>
 		</MenuItem>
 		<MenuItem Header="Diagnostics">
 			<StaticResource	ResourceKey="View3dMenuItem_ShowNormals"/>

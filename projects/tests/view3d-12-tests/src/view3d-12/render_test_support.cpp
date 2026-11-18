@@ -205,7 +205,7 @@ namespace render_tests
 		return shader;
 	}
 
-	std::vector<unsigned char> Fixture::Image()
+	std::vector<unsigned char> Fixture::Image(int* width)
 	{
 		View3D_WindowRender(m_window);
 		View3D_WindowGSyncWait(m_window);
@@ -274,9 +274,14 @@ namespace render_tests
 		unsigned char* mapped{};
 		D3D12_RANGE range{0, static_cast<SIZE_T>(size)};
 		Check(readback->Map(0, &range, reinterpret_cast<void**>(&mapped)));
-		std::vector<unsigned char> pixels(ImageSize * ImageSize * 4);
-		for (auto y = 0; y != ImageSize; ++y)
-			std::memcpy(pixels.data() + y * ImageSize * 4, mapped + footprint.Offset + y * footprint.Footprint.RowPitch, ImageSize * 4);
+		auto const image_w = static_cast<int>(desc.Width);
+		auto const image_h = static_cast<int>(desc.Height);
+		std::vector<unsigned char> pixels(size_t(image_w) * image_h * 4);
+		for (auto y = 0; y != image_h; ++y)
+			std::memcpy(pixels.data() + size_t(y) * image_w * 4, mapped + footprint.Offset + y * footprint.Footprint.RowPitch, size_t(image_w) * 4);
+
+		if (width != nullptr)
+			*width = image_w;
 
 		readback->Unmap(0, nullptr);
 		if (bgra)

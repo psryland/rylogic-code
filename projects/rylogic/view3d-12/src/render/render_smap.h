@@ -68,7 +68,6 @@ namespace pr::rdr12
 		ShadowViewCache m_cache;          // The content of the atlas regions rendered in earlier frames
 		pr::vector<uint32_t> m_element_views; // Per draw list element, a bit mask of the views that can see it
 		uint32_t m_dirty;                 // Bit mask of the views to render this frame
-		uint64_t m_frame_number;          // Counts prepared frames. Chooses which far cascades may refresh their content this frame
 		int m_max_dirty;                  // The most views that can render in one frame with the current views and far cascade refresh interval
 		std::unordered_set<Nugget const*> m_volatile; // Nuggets drawn with a custom vertex shader. Views that see them are rendered every frame
 		pr::vector<PopulationCaster> m_casters; // The scene's populations for the current frame. Valid from 'Prepare' until the next frame.

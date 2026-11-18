@@ -274,6 +274,17 @@ namespace LDraw.UI
 						return;
 					}
 
+					// Stereo changes (either replacement of the StereoData object, or any inner field change that bubbles up)
+					if (e.Key == nameof(SceneStateData.Stereo) || ReferenceEquals(e.SettingSet, SceneState.Stereo))
+					{
+						if (!m_syncing_stereo)
+						{
+							using var sync = Scope.Create(() => m_syncing_stereo = true, () => m_syncing_stereo = false);
+							SceneView.Scene.Window.Stereo = SceneState.Stereo.ToStereoProps();
+						}
+						return;
+					}
+
 					switch (e.Key)
 					{
 						case nameof(SceneStateData.Chart):
@@ -331,6 +342,14 @@ namespace LDraw.UI
 							SceneState.RayTracing.Enabled = SceneView.Scene.Window.RayTracingEnabled;
 						}
 					}
+					if (Bit.AllSet(e.Setting, View3d.ESettings.Rendering_Stereo))
+					{
+						if (!m_syncing_stereo)
+						{
+							using var sync = Scope.Create(() => m_syncing_stereo = true, () => m_syncing_stereo = false);
+							SceneState.Stereo.FromStereoProps(SceneView.Scene.Window.Stereo);
+						}
+					}
 					if (Bit.AllSet(e.Setting, View3d.ESettings.Rendering_PostEffects))
 					{
 						if (!m_syncing_lighting)
@@ -344,6 +363,7 @@ namespace LDraw.UI
 		} = null!;
 		private bool m_syncing_lighting;
 		private bool m_syncing_ray_tracing;
+		private bool m_syncing_stereo;
 
 		/// <summary>The 3d part of the scene (i.e. the chart control)</summary>
 		public ChartControl SceneView

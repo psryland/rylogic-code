@@ -172,9 +172,10 @@ float3 DiagnosticColour(uint seed)
 // Convert the dispatch pixel to a world-space camera ray using the same camera convention as View3D's raster path.
 RayDesc MakeCameraRay(uint2 pixel, uint2 dim)
 {
+	// The lens shift moves the projection centre away from the middle of the image, so remove it to find the point on the unshifted view.
 	float2 nss = float2(
 		(2.0f * (pixel.x + 0.5f) / dim.x) - 1.0f,
-		1.0f - (2.0f * (pixel.y + 0.5f) / dim.y));
+		1.0f - (2.0f * (pixel.y + 0.5f) / dim.y)) - g_frame.clip.zw;
 
 	float half_height = g_frame.camera.z * tan(0.5f * g_frame.camera.y);
 	float half_width = g_frame.camera.x * half_height;
@@ -232,9 +233,10 @@ float LoadDepth(uint2 pixel)
 // Reconstruct the visible raster position in world space.
 float3 WorldPosition(uint2 pixel, uint2 dim, float depth)
 {
+	// The lens shift moves the projection centre away from the middle of the image, so remove it to find the point on the unshifted view.
 	float2 nss = float2(
 		(2.0f * (pixel.x + 0.5f) / dim.x) - 1.0f,
-		1.0f - (2.0f * (pixel.y + 0.5f) / dim.y));
+		1.0f - (2.0f * (pixel.y + 0.5f) / dim.y)) - g_frame.clip.zw;
 
 	float4 ws_pos = mul(float4(nss, depth, 1.0f), g_frame.s2w);
 	return ws_pos.xyz / ws_pos.w;

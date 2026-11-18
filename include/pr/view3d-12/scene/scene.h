@@ -45,6 +45,7 @@ namespace pr::rdr12
 		Window*          m_wnd;              // The controlling window
 		SceneCamera      m_cam;              // Represents the camera properties used to project onto the screen
 		Viewport         m_viewport;         // Represents the rectangular area on the back buffer that this scene covers (modify this variable if you want. Use the methods tho. Remember clip regions)
+		float            m_screen_space_shift; // Horizontal offset, in normalised screen space, for content drawn in screen space. Gives screen overlays a depth in stereo views. Zero for mono views
 		InstCont         m_instances;        // Instances added to this scene for rendering.
 		std::list<GpuSync> m_gsync_render_steps; // Stable, distinct timelines for configured self-submitting steps; outlive m_render_steps
 		RenderStepCont   m_render_steps;     // The stages of rendering the scene

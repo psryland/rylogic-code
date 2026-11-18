@@ -188,6 +188,7 @@ namespace pr
 		double         m_fovY;              // Field of view in the Y direction
 		double         m_focus_dist;        // Distance from the c2w position to the focus, down the z axis
 		double         m_aspect;            // Aspect ratio = width/height
+		v2             m_lens_shift;        // Offset of the projection centre in normalised screen space units. Zero for a symmetric projection
 		double         m_near;              // The near plane as a multiple of the focus distance
 		double         m_far;               // The near plane as a multiple of the focus distance
 		double         m_accuracy_scale;    // Scale factor for high accuracy control
@@ -219,6 +220,7 @@ namespace pr
 			, m_fovY(m_default_fovY)
 			, m_focus_dist(focus_dist)
 			, m_aspect(aspect)
+			, m_lens_shift()
 			, m_near(near_)
 			, m_far(far_)
 			, m_accuracy_scale(0.1)
@@ -252,14 +254,22 @@ namespace pr
 		}
 
 		// Return a projection transform. Depth is reversed: the near plane maps to depth 1 and the far plane maps to depth 0.
+		// The camera's lens shift (see LensShift) offsets the projected image in normalised screen space.
 		m4x4 CameraToScreen(double near_clip, double far_clip, double aspect, double fovY, double focus_dist) const
 		{
 			// Swapping the clip planes reverses the depth range. Floating point depth has most of its precision near 0,
 			// which balances the perspective divide's loss of precision with distance.
 			auto height = 2.0 * focus_dist * std::tan(fovY * 0.5);
-			return m_orthographic
+			auto c2s = m_orthographic
 				? m4x4::ProjectionOrthographic(s_cast<float>(height*aspect), s_cast<float>(height), s_cast<float>(far_clip), s_cast<float>(near_clip), true)
 				: m4x4::ProjectionPerspectiveFOV(s_cast<float>(fovY), s_cast<float>(aspect), s_cast<float>(far_clip), s_cast<float>(near_clip), true);
+
+			// Shift in clip space by 'shift * w' so that, after the perspective divide, every point moves by exactly 'shift' in normalised screen space.
+			// Depth is unaffected, so the result is an off-axis (asymmetric) projection.
+			if (m_lens_shift.x != 0 || m_lens_shift.y != 0)
+				c2s = m4x4::Translation(m_lens_shift.x, m_lens_shift.y, 0.0f) * c2s;
+
+			return c2s;
 		}
 		m4x4 CameraToScreen(double near_clip, double far_clip) const
 		{
@@ -281,10 +291,10 @@ namespace pr
 		{
 			auto half_height = m_focus_dist * std::tan(m_fovY * 0.5);
 
-			// Calculate the point in camera space
+			// Calculate the point in camera space, removing the lens shift so the symmetric projection can be inverted
 			v4 point = {};
-			point.x = s_cast<float>(nss_point.x * m_aspect * half_height);
-			point.y = s_cast<float>(nss_point.y * half_height);
+			point.x = s_cast<float>((nss_point.x - m_lens_shift.x) * m_aspect * half_height);
+			point.y = s_cast<float>((nss_point.y - m_lens_shift.y) * half_height);
 			if (!m_orthographic)
 			{
 				auto sz = s_cast<float>(nss_point.z / m_focus_dist);
@@ -314,6 +324,8 @@ namespace pr
 				point.x *= sz;
 				point.y *= sz;
 			}
+			point.x += m_lens_shift.x;
+			point.y += m_lens_shift.y;
 			point.z = -cam.z;
 			point.w = 1.0f;
 			return point;
@@ -330,7 +342,7 @@ namespace pr
 			{
 				auto hheight = m_focus_dist * std::tan(m_fovY * 0.5);
 				auto hwidth = m_aspect * hheight;
-				ws_point = m_c2w.pos + (s_cast<float>(nss_point.x * hwidth) * m_c2w.x) + (s_cast<float>(nss_point.y * hheight) * m_c2w.y);
+				ws_point = m_c2w.pos + (s_cast<float>((nss_point.x - m_lens_shift.x) * hwidth) * m_c2w.x) + (s_cast<float>((nss_point.y - m_lens_shift.y) * hheight) * m_c2w.y);
 				ws_direction = -m_c2w.z;
 			}
 			else
@@ -526,6 +538,18 @@ namespace pr
 			m_moved = true;
 		}
 
+		// Get/Set the offset of the projection centre, in normalised screen space units (i.e. the full view width/height is 2).
+		// A non-zero shift gives an off-axis projection: the view direction is unchanged but the image is translated on the screen.
+		v2 LensShift() const
+		{
+			return m_lens_shift;
+		}
+		void LensShift(v2 shift)
+		{
+			m_lens_shift = shift;
+			m_moved = true;
+		}
+
 		// Get/Set the locks on camera motion
 		ELockMask LockMask() const
 		{
@@ -569,9 +593,14 @@ namespace pr
 			// Note: the frustum is stored with the apex (i.e. camera position) on the +Z axis at 'zfar'
 			// and the far plane at (0,0,0). However, the 'Intersect_LineToFrustum' function allows for this
 			// meaning clipping can be done in camera space assuming the frustum apex is at (0,0,0)
-			return Orthographic()
-				? Frustum::MakeOrtho(ViewRectAtDistance(m_focus_dist))
-				: Frustum::MakeFA(s_cast<float>(m_fovY), s_cast<float>(m_aspect), s_cast<float>(zfar));
+			// Frustums are symmetric, so a lens shift is covered conservatively by widening the frustum to include the shifted view.
+			auto grow = v2(1.0f + std::abs(m_lens_shift.x), 1.0f + std::abs(m_lens_shift.y));
+			if (Orthographic())
+				return Frustum::MakeOrtho(ViewRectAtDistance(m_focus_dist) * grow);
+
+			auto fovY = 2.0 * std::atan(std::tan(0.5 * m_fovY) * grow.y);
+			auto aspect = m_aspect * grow.x / grow.y;
+			return Frustum::MakeFA(s_cast<float>(fovY), s_cast<float>(aspect), s_cast<float>(zfar));
 		}
 		Frustum ViewFrustum() const
 		{

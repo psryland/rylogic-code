@@ -46,6 +46,340 @@ namespace pr::rdr12
 			throw std::runtime_error("Window pointer is null");
 	}
 
+	// Off-screen resources for rendering environment map faces. Creating these is far more expensive than a capture, so they are kept between captures.
+	// Each face capture is submitted without waiting for the GPU. Work on the shared graphics queue runs in submission order, and every command list
+	// starts from the resources' default states, so later submissions that reuse the target, the scratch texture, or a cube are correctly ordered.
+	struct EnvMapCaptureResources
+	{
+		// The capture target is written through an sRGB view, so the stored bytes are sRGB encoded and can be copied directly into an sRGB cube
+		static constexpr DXGI_FORMAT Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+
+		// The format of distance cubes. 16 bits avoid visible steps where reflections meet the captured surfaces.
+		static constexpr DXGI_FORMAT DistanceFormat = DXGI_FORMAT_R16_UNORM;
+
+		// Root parameters of the distance pass, see 'env_map_distance.hlsl'
+		enum class EDistanceParam { Constants, Colour, Depth, Face, Distance };
+		struct DistanceConstants
+		{
+			m4x4 s2c; // Screen to camera space for the face camera
+			v4 info;  // x = face size in pixels, y = distance scale
+		};
+
+		ResourceFactory m_factory;          // Records the face copies and mip generation. It is kept so that captures do not wait for the GPU.
+		int m_face_size;                    // Pixels per face edge
+		Colour m_bkgd_colour;               // The clear colour, which is also the render target's optimised clear value
+		Window m_wnd;                       // Single-sample off-screen window that renders the faces
+		Texture2DPtr m_target;              // The window's render target
+		D3DPtr<ID3D12Resource> m_scratch;   // Full-mip copy of the most recently rendered face
+		D3DPtr<ID3D12Resource> m_scratch_distance; // Full-mip distances of the most recently rendered face
+		UINT m_mips;                        // The number of mips in each face
+		Scene m_scene;                      // The scene used to render the faces
+		Window::GpuViewHeap m_view_heap;    // Shader-visible views for the distance pass. Retired by the capture window's frames.
+		D3DPtr<ID3D12RootSignature> m_distance_sig; // Root signature of the distance pass
+		D3DPtr<ID3D12PipelineState> m_distance_pso; // Pipeline state of the distance pass
+
+		EnvMapCaptureResources(Renderer& rdr, int face_size, Colour bkgd_colour)
+			: m_factory(rdr, EResourceFactoryLifetime::Retained)
+			, m_face_size(face_size)
+			, m_bkgd_colour(bkgd_colour)
+			, m_wnd(rdr, Settings(rdr, face_size, bkgd_colour))
+			, m_target()
+			, m_scratch()
+			, m_scratch_distance()
+			, m_mips()
+			, m_scene(m_wnd)
+			, m_view_heap(64, m_wnd.m_gsync)
+			, m_distance_sig()
+			, m_distance_pso()
+		{
+			// Create the pass that copies a face and stores each texel's distance in a separate texture
+			auto device = rdr.D3DDevice();
+			m_distance_sig = ::pr::compute::RootSig(::pr::compute::ERootSigFlags::ComputeOnly)
+				.U32(hlsl::ECBufReg::b0, sizeof(DistanceConstants) / sizeof(uint32_t))
+				.SRV(hlsl::ESRVReg::t0, 1, D3D12_SHADER_VISIBILITY_ALL, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE)
+				.SRV(hlsl::ESRVReg::t1, 1, D3D12_SHADER_VISIBILITY_ALL, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE)
+				.UAV(hlsl::EUAVReg::u0, 1, D3D12_SHADER_VISIBILITY_ALL, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE)
+				.UAV(hlsl::EUAVReg::u1, 1, D3D12_SHADER_VISIBILITY_ALL, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE)
+				.Create(device, "EnvMapDistanceSig");
+			m_distance_pso = ::pr::compute::ComputePSO(m_distance_sig.get(), shader_code::env_map_distance_cs)
+				.Create(device, "EnvMapDistancePSO");
+
+			// Create the render target and make it the window's only back buffer
+			auto target_desc = TextureDesc(AutoId, ResDesc::Tex2D(Image{face_size, face_size, nullptr, Format}, 1U, EUsage::RenderTarget).clear(m_wnd.m_rt_props));
+			target_desc.rtv_format(ToSRGB(Format));
+			m_target = m_factory.CreateTexture2D(target_desc);
+
+			// Mip generation supports only single 2D textures, so each face is copied into a full-mip 2D texture before it is copied into the cube.
+			// The texture allows unordered access so that mips are generated in place.
+			m_scratch = m_factory.CreateResource(ResDesc::Tex2D(Image{face_size, face_size, nullptr, Format}, 0, EUsage::UnorderedAccess), "EnvMapCaptureFace");
+			m_scratch_distance = m_factory.CreateResource(ResDesc::Tex2D(Image{face_size, face_size, nullptr, DistanceFormat}, 0, EUsage::UnorderedAccess), "EnvMapCaptureDistance");
+			m_mips = m_scratch->GetDesc().MipLevels;
+			m_factory.FlushToGpu(EGpuFlush::Block);
+
+			auto target = BackBuffer(m_wnd, MultiSamp(1), m_target.get(), nullptr);
+			m_wnd.CustomSwapChain(std::span{&target, 1});
+		}
+		EnvMapCaptureResources(EnvMapCaptureResources const&) = delete;
+		EnvMapCaptureResources& operator=(EnvMapCaptureResources const&) = delete;
+		~EnvMapCaptureResources()
+		{
+			// Captures are submitted without waiting, and members are released before the factory. Wait for the captures before releasing what they use.
+			m_factory.Wait(m_factory.FlushToGpu(EGpuFlush::Async));
+		}
+
+		// Window settings for a square, single-sample, off-screen target
+		static WndSettings Settings(Renderer& rdr, int face_size, Colour bkgd_colour)
+		{
+			auto settings = WndSettings(nullptr, true, rdr.Settings()).Size(face_size, face_size);
+			settings.m_mode.Format = Format;
+			settings.m_multisamp = MultiSamp(1);
+			settings.m_bkgd_colour = bkgd_colour;
+			settings.m_name = "EnvMapCapture";
+			return settings;
+		}
+
+		// The orientation of every captured cube. View3D cameras are right-handed, but the DX cube face layout is left-handed.
+		// Faces are rendered in a world mirrored in Z, which makes the face cameras right-handed, and sampling applies the same mirror.
+		static m4x4 CubeToWorld()
+		{
+			return m4x4{ v4::XAxis(), v4::YAxis(), -v4::ZAxis(), v4::Origin() };
+		}
+
+		// Return the capture resources for 'wnd', recreating them if the face size or the window's clear colour has changed
+		static EnvMapCaptureResources& Get(V3dWindow& wnd, int face_size)
+		{
+			// Recreating waits for in-flight captures, because the destructor waits for them
+			auto bkgd_colour = wnd.m_wnd.BkgdColour();
+			auto& res = wnd.m_envmap_capture;
+			if (res == nullptr || res->m_face_size != face_size || res->m_bkgd_colour != bkgd_colour)
+			{
+				res = nullptr;
+				res = std::make_unique<EnvMapCaptureResources>(*wnd.m_rdr, face_size, bkgd_colour);
+			}
+			return *res;
+		}
+
+		// Throw unless 'cube' can receive captures, and return its face size
+		static int ValidateCube(TextureCube const& cube)
+		{
+			// Captures copy sRGB encoded faces and every mip, so the cube must be a square RGBA8 sRGB cube with a full mip chain
+			auto desc = cube.m_res->GetDesc();
+			if (desc.Width != desc.Height || desc.DepthOrArraySize != 6 || desc.Format != ToSRGB(Format))
+				throw std::runtime_error("Environment map capture requires a square RGBA8 sRGB cube map");
+
+			auto face_size = s_cast<int>(desc.Width);
+			auto mips = UINT(1);
+			for (auto size = face_size; size > 1; size /= 2)
+				++mips;
+
+			if (desc.MipLevels != mips)
+				throw std::runtime_error("Environment map capture requires a cube map with a full mip chain");
+
+			return face_size;
+		}
+
+		// Render face 'face' of 'cube' from the cube's centre, using the lighting, render state, and objects of 'src'. The work is submitted to the GPU without waiting.
+		// The caller sets the cube's orientation to 'CubeToWorld()', and its centre and distance scale. A positive distance scale stores distances in 'cube.m_distance',
+		// which is created if needed.
+		void CaptureFace(V3dWindow& src, TextureCube& cube, int face)
+		{
+			// Copy the lighting and render state from the source scene. The capture has no environment map, so it cannot reflect itself.
+			// Objects flagged 'EnvMapCaptureExclude' are not rendered into the capture. The flag is per object; children do not inherit it.
+			m_scene.m_inst_exclude = EInstFlag::EnvMapCaptureExclude;
+			m_scene.m_sky_history = false; // Each face looks a different way, so the sky has no previous frame to blend with.
+			m_scene.m_lights = src.m_scene.m_lights;
+			m_scene.m_ambient = src.m_scene.m_ambient;
+			m_scene.m_global_fill_mode = src.m_scene.m_global_fill_mode;
+			m_scene.m_pso = src.m_scene.m_pso;
+			m_scene.Shadows(src.EnvMapCaptureShadows());
+			m_scene.m_cam = src.m_scene.m_cam;
+			m_scene.m_cam.Orthographic(false);
+			m_scene.m_cam.Aspect(1.0);
+			m_scene.m_cam.FovY(2.0 * std::atan(1.0));
+
+			// Look along the mirrored major axis. Each face lists its DX major axis and the world directions of increasing U and V. Image up is the opposite of increasing V.
+			struct FaceAxes { v4 major, u, v; };
+			static FaceAxes const face_axes[] =
+			{
+				{ +v4::XAxis(), -v4::ZAxis(), -v4::YAxis() },
+				{ -v4::XAxis(), +v4::ZAxis(), -v4::YAxis() },
+				{ +v4::YAxis(), +v4::XAxis(), +v4::ZAxis() },
+				{ -v4::YAxis(), +v4::XAxis(), -v4::ZAxis() },
+				{ +v4::ZAxis(), +v4::XAxis(), -v4::YAxis() },
+				{ -v4::ZAxis(), -v4::XAxis(), -v4::YAxis() },
+			};
+			auto const mirror = CubeToWorld();
+			auto const& axes = face_axes[face];
+			auto forward = mirror * axes.major;
+			auto right = mirror * axes.u;
+			auto up = -(mirror * axes.v);
+			m_scene.m_cam.CameraToWorld(m4x4{ right, up, -forward, cube.m_centre });
+
+			// Render the source window's objects from the face camera. A sky-only capture skips every object outside the 'Skybox' sort group.
+			// The draw lists are cleared afterwards so that captured objects can be freed between captures.
+			m_scene.ClearDrawlists();
+			for (auto& obj : src.m_objects)
+			{
+				// Add the object, unless the capture wants only the sky
+				if (src.m_envmap_capture_sky_only && obj->m_sko.Group() != ESortGroup::Skybox)
+					continue;
+
+				obj->AddToScene(m_scene);
+			}
+
+			auto& frame = m_wnd.NewFrame();
+			m_scene.Render(frame);
+			m_wnd.Present(frame, EGpuFlush::Async);
+			m_scene.ClearDrawlists();
+
+			// Copy the rendered face into the scratch texture and generate its mips.
+			// Mip generation averages the sRGB encoded values, which slightly darkens high-contrast detail in the blurrier mips.
+			// Mips also average the stored distances, which blurs distances across silhouettes in the blurrier mips.
+			auto* rendered = m_wnd.FrameOutput().m_render_target.get();
+			auto& cmd_list = m_factory.CmdList();
+			auto const store_distance = cube.m_distance_scale > 0.0f;
+			auto pix_face = std::optional<pix::EventScope<ID3D12GraphicsCommandList>>(std::in_place, cmd_list.get(), 0xFF90EE90, "EnvMapCapture::FaceCopy");
+			if (store_distance)
+			{
+				// Give the cube a distance cube the first time it stores distances. It has the same size and mips as the colour cube.
+				if (cube.m_distance == nullptr)
+				{
+					auto tdesc = TextureDesc(AutoId, ResDesc::TexCube(Image{m_face_size, m_face_size, nullptr, DistanceFormat}, 0)).name("EnvMapDistance");
+					cube.m_distance = m_factory.CreateTextureCube(tdesc);
+				}
+
+				// Copy the colour and store distances with a compute pass. Its output views are untyped-load free, so any device can run it.
+				auto* depth = m_wnd.m_msaa_bb.m_depth_stencil.get();
+				BarrierBatch barriers(cmd_list);
+				barriers.Transition(rendered, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+				barriers.Transition(depth, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+				barriers.Transition(m_scratch.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, 0);
+				barriers.Transition(m_scratch_distance.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, 0);
+				barriers.Commit();
+
+				// Bind the pass. Each view gets its own table, because consecutive heap entries can wrap around the ring.
+				cmd_list.SetComputeRootSignature(m_distance_sig.get());
+				cmd_list.SetPipelineState(m_distance_pso.get());
+				auto heaps = { m_view_heap.get() };
+				cmd_list.SetDescriptorHeaps({ heaps.begin(), heaps.size() });
+
+				auto cb = DistanceConstants{
+					.s2c = Invert(m_scene.m_cam.CameraToScreen()),
+					.info = v4(s_cast<float>(m_face_size), cube.m_distance_scale, 0, 0),
+				};
+				cmd_list.SetComputeRoot32BitConstants(EDistanceParam::Constants, sizeof(cb) / sizeof(uint32_t), &cb, 0);
+
+				auto colour_srv = D3D12_SHADER_RESOURCE_VIEW_DESC{
+					.Format = Format,
+					.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D,
+					.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+					.Texture2D = { .MostDetailedMip = 0, .MipLevels = 1, .PlaneSlice = 0, .ResourceMinLODClamp = 0.0f },
+				};
+				cmd_list.SetComputeRootDescriptorTable(EDistanceParam::Colour, m_view_heap.Add(rendered, colour_srv));
+
+				auto depth_srv = colour_srv;
+				depth_srv.Format = m_wnd.ResolvedDepthSrvFormat();
+				cmd_list.SetComputeRootDescriptorTable(EDistanceParam::Depth, m_view_heap.Add(depth, depth_srv));
+
+				auto face_uav = D3D12_UNORDERED_ACCESS_VIEW_DESC{
+					.Format = Format,
+					.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D,
+					.Texture2D = { .MipSlice = 0, .PlaneSlice = 0 },
+				};
+				cmd_list.SetComputeRootDescriptorTable(EDistanceParam::Face, m_view_heap.Add(m_scratch.get(), face_uav));
+
+				auto distance_uav = face_uav;
+				distance_uav.Format = DistanceFormat;
+				cmd_list.SetComputeRootDescriptorTable(EDistanceParam::Distance, m_view_heap.Add(m_scratch_distance.get(), distance_uav));
+
+				// One thread per texel, in 8x8 groups
+				auto groups = s_cast<UINT>((m_face_size + 7) / 8);
+				cmd_list.Dispatch(groups, groups, 1);
+				barriers.UAV(m_scratch.get());
+				barriers.UAV(m_scratch_distance.get());
+				barriers.Commit();
+			}
+			else
+			{
+				BarrierBatch barriers(cmd_list);
+				barriers.Transition(rendered, D3D12_RESOURCE_STATE_COPY_SOURCE);
+				barriers.Transition(m_scratch.get(), D3D12_RESOURCE_STATE_COPY_DEST);
+				barriers.Commit();
+
+				auto dst = D3D12_TEXTURE_COPY_LOCATION{ .pResource = m_scratch.get(), .Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX, .SubresourceIndex = 0 };
+				auto src_loc = D3D12_TEXTURE_COPY_LOCATION{ .pResource = rendered, .Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX, .SubresourceIndex = 0 };
+				cmd_list.CopyTextureRegion(&dst, 0, 0, 0, &src_loc, nullptr);
+			}
+			pix_face.reset();
+			{
+				// Measure the mip generation separately from the face copy and the cube copy.
+				auto pix_mips = pix::EventScope<ID3D12GraphicsCommandList>(cmd_list.get(), 0xFF90EE90, "EnvMapCapture::Mips");
+				m_factory.GenerateMips(m_scratch.get());
+				if (store_distance)
+					m_factory.GenerateMips(m_scratch_distance.get());
+			}
+
+			// Copy every mip of the face into the cube, and its distances into the distance cube. Cube subresources are ordered by face (array slice), then mip.
+			{
+				auto pix_copy = pix::EventScope<ID3D12GraphicsCommandList>(cmd_list.get(), 0xFF90EE90, "EnvMapCapture::CubeCopy");
+				BarrierBatch barriers(cmd_list);
+				barriers.Transition(m_scratch.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
+				barriers.Transition(cube.m_res.get(), D3D12_RESOURCE_STATE_COPY_DEST);
+				if (store_distance)
+				{
+					barriers.Transition(m_scratch_distance.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
+					barriers.Transition(cube.m_distance->m_res.get(), D3D12_RESOURCE_STATE_COPY_DEST);
+				}
+				barriers.Commit();
+
+				for (UINT mip = 0; mip != m_mips; ++mip)
+				{
+					auto dst = D3D12_TEXTURE_COPY_LOCATION{ .pResource = cube.m_res.get(), .Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX, .SubresourceIndex = mip + s_cast<UINT>(face) * m_mips };
+					auto src_loc = D3D12_TEXTURE_COPY_LOCATION{ .pResource = m_scratch.get(), .Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX, .SubresourceIndex = mip };
+					cmd_list.CopyTextureRegion(&dst, 0, 0, 0, &src_loc, nullptr);
+					if (!store_distance)
+						continue;
+
+					dst.pResource = cube.m_distance->m_res.get();
+					src_loc.pResource = m_scratch_distance.get();
+					cmd_list.CopyTextureRegion(&dst, 0, 0, 0, &src_loc, nullptr);
+				}
+			}
+			m_factory.FlushToGpu(EGpuFlush::Async);
+		}
+	};
+
+	// A time-sliced environment map. It renders one face per update into a capture cube. When the capture cube is complete,
+	// it becomes the current cube, and the old current cube becomes the previous cube that the new one fades in over.
+	struct EnvMapProbeResources
+	{
+		static constexpr int FadeSteps = 5; // Updates from a cube's completion until it fully replaces the previous cube
+
+		int m_face_size;                      // Pixels per face edge
+		std::array<TextureCubePtr, 3> m_cubes; // The previous, current, and capture cubes, in that order
+		int m_face;                            // The next face to render into the capture cube
+		int m_fade;                            // Updates since the current cube was completed, up to 'FadeSteps'
+		int m_complete;                        // The number of complete cubes, up to 2
+
+		EnvMapProbeResources(Renderer& rdr, int face_size)
+			: m_face_size(face_size)
+			, m_cubes()
+			, m_face()
+			, m_fade()
+			, m_complete()
+		{
+			// Create the cubes in the format captures require, with the capture orientation
+			ResourceFactory factory(rdr);
+			for (auto& cube : m_cubes)
+			{
+				auto tdesc = TextureDesc(AutoId, ResDesc::TexCube(Image{face_size, face_size, nullptr, ToSRGB(EnvMapCaptureResources::Format)}, 0)).name("EnvMapProbe");
+				cube = factory.CreateTextureCube(tdesc);
+				cube->m_cube2w = EnvMapCaptureResources::CubeToWorld();
+			}
+			factory.FlushToGpu(EGpuFlush::Block);
+		}
+	};
+
 	// View3d Window ****************************
 	V3dWindow::V3dWindow(Renderer& rdr, HWND hwnd, view3d::WindowOptions const& opts)
 		: m_rdr(&rdr)
@@ -59,7 +393,12 @@ namespace pr::rdr12
 		, m_origin_point()
 		, m_bbox_model()
 		, m_selection_box()
+		, m_stereo_cursor()
 		, m_visible_objects()
+		, m_stereo()
+		, m_stereo_cursor_visible(false)
+		, m_stereo_cursor_ss()
+		, m_nav_view(0)
 		, m_settings()
 		, m_anim_data()
 		, m_ht_rays()
@@ -87,8 +426,8 @@ namespace pr::rdr12
 			// - Don't observe the Context sources store for changes. The context handles this for us.
 			ReportError += opts.m_error_cb;
 
-			// Set the initial aspect ratio
-			auto rt_area = m_wnd.BackBufferSize();
+			// Set the initial aspect ratio from the size of the image that each view renders
+			auto rt_area = m_wnd.RenderTargetSize();
 			if (LengthSq(rt_area) != 0)
 				m_scene.m_cam.Aspect(rt_area.x / float(rt_area.y));
 
@@ -354,18 +693,20 @@ namespace pr::rdr12
 		if (sz.x < 0) sz.x = 0;
 		if (sz.y < 0) sz.y = 0;
 
+		// Resize the render target, preserving the camera's aspect relative to the image that each view renders
+		auto old_size = m_wnd.RenderTargetSize();
+		m_wnd.BackBufferSize(sz, force_recreate);
+		RescaleCameraAspect(old_size);
+	}
+
+	// Adjust the camera aspect ratio after the view render target size changes from 'old_size'
+	void V3dWindow::RescaleCameraAspect(iv2 old_size)
+	{
 		// Before resize, the old aspect is: Aspect0 = scale * Width0 / Height0
 		// After resize, the new aspect is: Aspect1 = scale * Width1 / Height1
-
-		// Save the current camera aspect ratio
-		auto old_size = m_wnd.BackBufferSize();
+		// Preserving 'scale' keeps any deliberate stretch that the caller applied to the camera.
 		auto old_aspect = m_scene.m_cam.Aspect();
-
-		// Resize the render target
-		m_wnd.BackBufferSize(sz, force_recreate);
-
-		// Adjust the camera aspect ratio to preserve it
-		auto new_size = m_wnd.BackBufferSize();
+		auto new_size = m_wnd.RenderTargetSize();
 		auto new_aspect = (new_size.x == 0 || new_size.y == 0) ? 1.0f : new_size.x / float(new_size.y);
 		auto scale = old_size.x * old_size.y != 0 ? old_aspect * old_size.y / float(old_size.x) : 1.0f;
 		auto aspect = scale * new_aspect;
@@ -382,25 +723,130 @@ namespace pr::rdr12
 		m_wnd.FullScreen(fullscreen);
 	}
 
-	// Get/Set the scene viewport
+	// Get/Set the output viewport. The scene viewport is the part of it used by one view, because each view renders into its own target.
 	view3d::Viewport V3dWindow::Viewport() const
 	{
+		// Scale horizontally by the ratio of output width to view width. Views round down, so an odd output width is not exactly 'ViewCount' views wide.
 		auto& vp = m_scene.m_viewport;
+		auto n = OutputToViewScale();
 		return view3d::Viewport{
-			.m_x = vp.TopLeftX,
+			.m_x = vp.TopLeftX * n,
 			.m_y = vp.TopLeftY,
-			.m_width = vp.Width,
+			.m_width = vp.Width * n,
 			.m_height = vp.Height,
 			.m_min_depth = vp.MinDepth,
 			.m_max_depth = vp.MaxDepth,
-			.m_screen_w = vp.ScreenW,
+			.m_screen_w = s_cast<int>(std::lround(vp.ScreenW * n)),
 			.m_screen_h = vp.ScreenH,
 		};
 	}
 	void V3dWindow::Viewport(view3d::Viewport const& vp)
 	{
-		m_scene.m_viewport.Set(vp.m_x, vp.m_y, vp.m_width, vp.m_height, vp.m_screen_w, vp.m_screen_h, vp.m_min_depth, vp.m_max_depth);
+		// Map the output viewport into one view. See 'Viewport()'.
+		auto n = OutputToViewScale();
+		m_scene.m_viewport.Set(vp.m_x / n, vp.m_y, vp.m_width / n, vp.m_height, s_cast<int>(std::lround(vp.m_screen_w / n)), vp.m_screen_h, vp.m_min_depth, vp.m_max_depth);
 		OnSettingsChanged(this, view3d::ESettings::Scene_Viewport);
+	}
+
+	// The ratio of the output width to the width of one view
+	float V3dWindow::OutputToViewScale() const
+	{
+		// Without an output size (e.g. before the first resize), assume the output is exactly 'ViewCount' views wide.
+		auto out_w = m_wnd.BackBufferSize().x;
+		auto view_w = m_wnd.RenderTargetSize().x;
+		return out_w > 0 && view_w > 0 ? s_cast<float>(out_w) / view_w : s_cast<float>(m_wnd.ViewCount());
+	}
+
+	// Get/Set the stereo rendering settings
+	view3d::StereoProps V3dWindow::Stereo() const
+	{
+		return m_stereo;
+	}
+	void V3dWindow::Stereo(view3d::StereoProps const& props)
+	{
+		// Negative distances have no meaning. Zero selects the automatic value.
+		if (props.m_eye_separation_mm < 0 || props.m_scene_unit_mm < 0 || props.m_convergence < 0)
+			throw std::runtime_error("Stereo eye separation, scene unit length, and convergence must not be negative");
+
+		m_stereo = props;
+
+		// Changing the layout recreates the view targets, which resets the scene viewport to whole pixels.
+		// Restore the caller's output viewport afterwards, since its screen units may differ from pixels.
+		auto layout = props.m_enabled ? EViewLayout::SideBySide : EViewLayout::Mono;
+		if (m_wnd.ViewLayout() != layout)
+		{
+			auto output_vp = Viewport();
+			auto old_size = m_wnd.RenderTargetSize();
+			m_wnd.ViewLayout(layout);
+			RescaleCameraAspect(old_size);
+			Viewport(output_vp);
+		}
+
+		OnSettingsChanged(this, view3d::ESettings::Rendering_Stereo);
+		Invalidate();
+	}
+
+	// The eye separation and convergence distance in use, both in scene units
+	v2 V3dWindow::StereoSeparationAndConvergence() const
+	{
+		// Resolve the automatic values, and convert the separation from millimetres to scene units
+		auto convergence = m_stereo.m_convergence > 0 ? m_stereo.m_convergence : s_cast<float>(m_scene.m_cam.FocusDist());
+		auto unit_mm = m_stereo.m_scene_unit_mm > 0 ? m_stereo.m_scene_unit_mm : 1000.0f;
+		auto separation = m_stereo.m_eye_separation_mm > 0 ? m_stereo.m_eye_separation_mm / unit_mm : convergence / 30.0f;
+		return v2(separation, convergence);
+	}
+
+	// The camera that renders view 'view'
+	SceneCamera V3dWindow::ViewCamera(int view) const
+	{
+		switch (m_wnd.ViewLayout())
+		{
+			case EViewLayout::Mono:
+			{
+				return m_scene.m_cam;
+			}
+			case EViewLayout::SideBySide:
+			{
+				// The left eye renders into the left half of the output
+				auto sep_conv = StereoSeparationAndConvergence();
+				auto eye = view == 0 ? EEye::Left : EEye::Right;
+				return m_scene.m_cam.StereoEye(eye, sep_conv.x, sep_conv.y, static_cast<float>(m_scene.m_cam.Aspect()));
+			}
+			default:
+			{
+				throw std::runtime_error("Unknown view layout");
+			}
+		}
+	}
+
+	// Find the view that contains 'ss_point' and convert the point into that view's normalised screen space
+	V3dWindow::ViewPoint V3dWindow::SSPointToViewPoint(v2 ss_point) const
+	{
+		// Views divide the output screen space into equal columns, so the column under the point gives the view. Points outside the output use the nearest view.
+		auto view_w = m_scene.m_viewport.ScreenW;
+		auto view = view_w > 0 ? s_cast<int>(std::floor(ss_point.x / view_w)) : 0;
+		view = std::clamp(view, 0, m_wnd.ViewCount() - 1);
+		return SSPointToViewPoint(ss_point, view);
+	}
+	V3dWindow::ViewPoint V3dWindow::SSPointToViewPoint(v2 ss_point, int view) const
+	{
+		// Move the point into the view's own screen space
+		auto local = v2(ss_point.x - view * m_scene.m_viewport.ScreenW, ss_point.y);
+		return ViewPoint{
+			.m_view = view,
+			.m_nss = m_scene.m_viewport.SSPointToNSSPoint(local),
+		};
+	}
+
+	// Show/Hide a cursor drawn in every view
+	void V3dWindow::StereoCursor(bool visible, v2 ss_point)
+	{
+		if (m_stereo_cursor_visible == visible && All(m_stereo_cursor_ss == ss_point))
+			return;
+
+		m_stereo_cursor_visible = visible;
+		m_stereo_cursor_ss = ss_point;
+		Invalidate();
 	}
 
 	// Enumerate the object collection GUIDs associated with this window
@@ -704,6 +1150,92 @@ namespace pr::rdr12
 		// Notify of a render about to happen
 		OnRendering(this);
 
+		// Place the stereo cursor on the zero-disparity plane, so that it appears at the same position in every view
+		if (m_stereo_cursor_visible)
+		{
+			auto convergence = StereoSeparationAndConvergence().y;
+			auto vp = SSPointToViewPoint(m_stereo_cursor_ss);
+			auto cam = ViewCamera(vp.m_view);
+			auto pt = std::get<0>(cam.NSSPointToWSRay(v4{ vp.m_nss, convergence, 1 }));
+			auto sz = 0.02f * cam.ViewRectAtDistance(convergence).y;
+			auto c2w = cam.CameraToWorld();
+			m_stereo_cursor.m_i2w = m4x4{ sz * c2w.x, sz * c2w.y, sz * c2w.z, pt };
+		}
+
+		// Render each view with its own camera. The logical camera is restored afterwards, because navigation acts on it.
+		auto logical_cam = m_scene.m_cam;
+		auto restore = Scope<void>([&]
+		{
+			// Restore the mono state even if rendering throws
+			m_scene.m_cam = logical_cam;
+			m_scene.m_screen_space_shift = 0;
+		});
+		Frame* frame = nullptr;
+		for (int view = 0, view_count = m_wnd.ViewCount(); view != view_count; ++view)
+		{
+			// Objects add camera-dependent instances, so each later view collects them again
+			if (view != 0)
+				m_scene.ClearDrawlists();
+
+			// Each view camera derives from the logical camera.
+			// Screen space content appears halfway to the zero-disparity plane, which is the opposite of the eye's projection shift.
+			m_scene.m_cam = logical_cam;
+			m_scene.m_cam = ViewCamera(view);
+			m_scene.m_screen_space_shift = -m_scene.m_cam.LensShift().x;
+			AddToScene(logical_cam);
+
+			// Start the frame for the first view, then each later view of the same frame
+			frame = view == 0 ? &m_wnd.NewFrame() : &m_wnd.NextView(*frame);
+			auto& frm = *frame;
+
+			// Capture UI setup commands
+			RecordUIProvider(view3d::ui::EPass::Prepare, frm);
+
+			// Render the scene into the multi-sampled scene target
+			m_scene.Render(frm);
+
+			// Depth-tested world UI is scene-adjacent: it draws into the multi-sampled scene target
+			// while the scene depth buffer is still bound and writable, so scene geometry occludes it.
+			RecordUIProvider(view3d::ui::EPass::DepthTested, frm);
+
+			// Composite is an independently recorded phase, so restore its documented boundary state
+			// before a later command list begins the optional final overlay.
+			if (frm.bb_post().m_render_target != nullptr)
+			{
+				BarrierBatch bb(frm.m_composite);
+				bb.Transition(frm.bb_post().m_render_target.get(), D3D12_RESOURCE_STATE_PRESENT);
+				bb.Commit();
+			}
+
+			// Produce the single-sample depth copy after every scene depth writer has run, then record
+			// the two world overlay passes that consume it. Occlusion-faded work is recorded before
+			// plain world overlays so unoccluded world UI always composites on top.
+			if (!m_ui_providers.empty())
+				m_wnd.RecordDepthResolve(frm.m_depth_resolve, frm.bb_main());
+
+			// Draw world-anchored roots that fade per pixel when the resolved scene depth occludes them.
+			RecordUIProvider(view3d::ui::EPass::OcclusionFaded, frm);
+
+			// Draw unoccluded world-anchored roots above scene output but below screen-space UI.
+			RecordUIProvider(view3d::ui::EPass::Overlay, frm);
+
+			// Draw screen-space roots as the final back-buffer writer before presentation.
+			RecordUIProvider(view3d::ui::EPass::FinalOverlay, frm);
+		}
+
+		// Present the frame to the swap chain. A hidden frame leaves the window invalidated, because nothing new was shown.
+		m_wnd.Present(*frame, EGpuFlush::Async, display);
+		if (!display)
+			return;
+
+		// No longer invalidated
+		Validate();
+	}
+
+	// Add the window's objects, stock objects, and tools to the scene, as seen by the scene's current camera.
+	// 'logical_cam' is the navigation camera that the scene's current (view) camera derives from.
+	void V3dWindow::AddToScene(SceneCamera const& logical_cam)
+	{
 		/*
 		// Set the view and projection matrices. Do this before adding objects to the
 		// scene as they do last minute transform adjustments based on the camera position.
@@ -736,8 +1268,9 @@ namespace pr::rdr12
 			{
 				// Scale the camera space X,Y coordinates
 				// Note: this cannot be added as a matrix to 'i2w' or 'c2s' because we're
-				// only scaling the instance position, not the whole instance geometry
-				auto pt_cs = scene_cam.WorldToCamera() * scene_cam.FocusPoint();
+				// only scaling the instance position, not the whole instance geometry.
+				// The focus point belongs to the logical camera. A view camera may be offset from it (e.g. a stereo eye), which would move its own focus point.
+				auto pt_cs = scene_cam.WorldToCamera() * logical_cam.FocusPoint();
 				pt_cs.x *= viewarea_v.x / viewarea_c.x;
 				pt_cs.y *= viewarea_v.y / viewarea_c.y;
 				auto pt_ws = scene_cam.CameraToWorld() * pt_cs;
@@ -801,50 +1334,9 @@ namespace pr::rdr12
 		if (m_ui_angle_tool != nullptr && m_ui_angle_tool->Visible() && m_ui_angle_tool->Gfx())
 			m_ui_angle_tool->Gfx()->AddToScene(m_scene);
 
-		// Render the scene
-		auto& frame = m_wnd.NewFrame();
-
-		// Capture UI setup commands
-		RecordUIProvider(view3d::ui::EPass::Prepare, frame);
-
-		// Render the scene into the multi-sampled scene target
-		m_scene.Render(frame);
-
-		// Depth-tested world UI is scene-adjacent: it draws into the multi-sampled scene target
-		// while the scene depth buffer is still bound and writable, so scene geometry occludes it.
-		RecordUIProvider(view3d::ui::EPass::DepthTested, frame);
-
-		// Composite is an independently recorded phase, so restore its documented boundary state
-		// before a later command list begins the optional final overlay.
-		if (frame.bb_post().m_render_target != nullptr)
-		{
-			BarrierBatch bb(frame.m_composite);
-			bb.Transition(frame.bb_post().m_render_target.get(), D3D12_RESOURCE_STATE_PRESENT);
-			bb.Commit();
-		}
-
-		// Produce the single-sample depth copy after every scene depth writer has run, then record
-		// the two world overlay passes that consume it. Occlusion-faded work is recorded before
-		// plain world overlays so unoccluded world UI always composites on top.
-		if (!m_ui_providers.empty())
-			m_wnd.RecordDepthResolve(frame.m_depth_resolve, frame.bb_main());
-
-		// Draw world-anchored roots that fade per pixel when the resolved scene depth occludes them.
-		RecordUIProvider(view3d::ui::EPass::OcclusionFaded, frame);
-
-		// Draw unoccluded world-anchored roots above scene output but below screen-space UI.
-		RecordUIProvider(view3d::ui::EPass::Overlay, frame);
-
-		// Draw screen-space roots as the final back-buffer writer before presentation.
-		RecordUIProvider(view3d::ui::EPass::FinalOverlay, frame);
-
-		// Present the frame to the swap chain. A hidden frame leaves the window invalidated, because nothing new was shown.
-		m_wnd.Present(frame, EGpuFlush::Async, display);
-		if (!display)
-			return;
-
-		// No longer invalidated
-		Validate();
+		// The stereo cursor is drawn in every view (see StereoCursor)
+		if (m_stereo_cursor_visible)
+			m_scene.AddInstance(m_stereo_cursor);
 	}
 
 	// Start creating the pipeline states that drawing the window's objects would use
@@ -1143,7 +1635,11 @@ namespace pr::rdr12
 	// BOOL OnMouseWheel(UINT nFlags, short zDelta, CPoint) { if (nFlags == 0) View3D_MouseNavigateZ(win, 0, 0, zDelta / 120.0f); return TRUE; }
 	bool V3dWindow::MouseNavigate(v2 ss_point, camera::ENavOp nav_op, bool nav_start_or_end)
 	{
-		auto nss_point = m_scene.m_viewport.SSPointToNSSPoint(ss_point);
+		// Find the view under the mouse. A navigation stays in the view it started in, so dragging across a view boundary does not jump.
+		if (nav_start_or_end && nav_op != camera::ENavOp::None)
+			m_nav_view = SSPointToViewPoint(ss_point).m_view;
+
+		auto [view, nss_point] = nav_op != camera::ENavOp::None ? SSPointToViewPoint(ss_point, m_nav_view) : SSPointToViewPoint(ss_point);
 
 		// This is true-ish. 'ss_pos' is allowed to be outside the window area which breaks this check
 		//if (nss_point.x < -1.0 || nss_point.x > +1.0 || nss_point.y < -1.0 || nss_point.y > +1.0)
@@ -1152,16 +1648,18 @@ namespace pr::rdr12
 		auto refresh = false;
 		auto gizmo_in_use = false;
 
-		// Check any gizmos in the scene for interaction with the mouse
+		// Check any gizmos in the scene for interaction with the mouse, as seen from the view under the mouse
+		auto view_cam = ViewCamera(view);
 		for (auto& giz : m_gizmos)
 		{
-			refresh |= giz->MouseControl(m_scene.m_cam, nss_point, nav_op, nav_start_or_end);
+			refresh |= giz->MouseControl(view_cam, nss_point, nav_op, nav_start_or_end);
 			gizmo_in_use |= giz->m_manipulating;
 			if (gizmo_in_use)
 				break;
 		}
 
-		// If no gizmos are using the mouse, use standard mouse control
+		// If no gizmos are using the mouse, use standard mouse control.
+		// The logical camera moves with the view-local point, which matches the view exactly on the zero-disparity plane.
 		if (!gizmo_in_use)
 		{
 			if (m_scene.m_cam.MouseControl(nss_point, nav_op, nav_start_or_end))
@@ -1175,7 +1673,7 @@ namespace pr::rdr12
 	}
 	bool V3dWindow::MouseNavigateZ(v2 ss_point, float delta, bool along_ray)
 	{
-		auto nss_point = m_scene.m_viewport.SSPointToNSSPoint(ss_point);
+		auto nss_point = SSPointToViewPoint(ss_point).m_nss;
 
 		auto refresh = false;
 		auto gizmo_in_use = false;
@@ -1603,309 +2101,6 @@ namespace pr::rdr12
 		Invalidate();
 	}
 
-	// Off-screen resources for rendering environment map faces. Creating these is far more expensive than a capture, so they are kept between captures.
-	// Each face capture is submitted without waiting for the GPU. Work on the shared graphics queue runs in submission order, and every command list
-	// starts from the resources' default states, so later submissions that reuse the target, the scratch texture, or a cube are correctly ordered.
-	struct EnvMapCaptureResources
-	{
-		// The capture target is written through an sRGB view, so the stored bytes are sRGB encoded and can be copied directly into an sRGB cube
-		static constexpr DXGI_FORMAT Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-
-		// The format of distance cubes. 16 bits avoid visible steps where reflections meet the captured surfaces.
-		static constexpr DXGI_FORMAT DistanceFormat = DXGI_FORMAT_R16_UNORM;
-
-		// Root parameters of the distance pass, see 'env_map_distance.hlsl'
-		enum class EDistanceParam { Constants, Colour, Depth, Face, Distance };
-		struct DistanceConstants
-		{
-			m4x4 s2c; // Screen to camera space for the face camera
-			v4 info;  // x = face size in pixels, y = distance scale
-		};
-
-		ResourceFactory m_factory;          // Records the face copies and mip generation. It is kept so that captures do not wait for the GPU.
-		int m_face_size;                    // Pixels per face edge
-		Colour m_bkgd_colour;               // The clear colour, which is also the render target's optimised clear value
-		Window m_wnd;                       // Single-sample off-screen window that renders the faces
-		Texture2DPtr m_target;              // The window's render target
-		D3DPtr<ID3D12Resource> m_scratch;   // Full-mip copy of the most recently rendered face
-		D3DPtr<ID3D12Resource> m_scratch_distance; // Full-mip distances of the most recently rendered face
-		UINT m_mips;                        // The number of mips in each face
-		Scene m_scene;                      // The scene used to render the faces
-		Window::GpuViewHeap m_view_heap;    // Shader-visible views for the distance pass. Retired by the capture window's frames.
-		D3DPtr<ID3D12RootSignature> m_distance_sig; // Root signature of the distance pass
-		D3DPtr<ID3D12PipelineState> m_distance_pso; // Pipeline state of the distance pass
-
-		EnvMapCaptureResources(Renderer& rdr, int face_size, Colour bkgd_colour)
-			: m_factory(rdr, EResourceFactoryLifetime::Retained)
-			, m_face_size(face_size)
-			, m_bkgd_colour(bkgd_colour)
-			, m_wnd(rdr, Settings(rdr, face_size, bkgd_colour))
-			, m_target()
-			, m_scratch()
-			, m_scratch_distance()
-			, m_mips()
-			, m_scene(m_wnd)
-			, m_view_heap(64, m_wnd.m_gsync)
-			, m_distance_sig()
-			, m_distance_pso()
-		{
-			// Create the pass that copies a face and stores each texel's distance in a separate texture
-			auto device = rdr.D3DDevice();
-			m_distance_sig = ::pr::compute::RootSig(::pr::compute::ERootSigFlags::ComputeOnly)
-				.U32(hlsl::ECBufReg::b0, sizeof(DistanceConstants) / sizeof(uint32_t))
-				.SRV(hlsl::ESRVReg::t0, 1, D3D12_SHADER_VISIBILITY_ALL, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE)
-				.SRV(hlsl::ESRVReg::t1, 1, D3D12_SHADER_VISIBILITY_ALL, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE)
-				.UAV(hlsl::EUAVReg::u0, 1, D3D12_SHADER_VISIBILITY_ALL, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE)
-				.UAV(hlsl::EUAVReg::u1, 1, D3D12_SHADER_VISIBILITY_ALL, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE)
-				.Create(device, "EnvMapDistanceSig");
-			m_distance_pso = ::pr::compute::ComputePSO(m_distance_sig.get(), shader_code::env_map_distance_cs)
-				.Create(device, "EnvMapDistancePSO");
-
-			// Create the render target and make it the window's only back buffer
-			auto target_desc = TextureDesc(AutoId, ResDesc::Tex2D(Image{face_size, face_size, nullptr, Format}, 1U, EUsage::RenderTarget).clear(m_wnd.m_rt_props));
-			target_desc.rtv_format(ToSRGB(Format));
-			m_target = m_factory.CreateTexture2D(target_desc);
-
-			// Mip generation supports only single 2D textures, so each face is copied into a full-mip 2D texture before it is copied into the cube.
-			// The texture allows unordered access so that mips are generated in place.
-			m_scratch = m_factory.CreateResource(ResDesc::Tex2D(Image{face_size, face_size, nullptr, Format}, 0, EUsage::UnorderedAccess), "EnvMapCaptureFace");
-			m_scratch_distance = m_factory.CreateResource(ResDesc::Tex2D(Image{face_size, face_size, nullptr, DistanceFormat}, 0, EUsage::UnorderedAccess), "EnvMapCaptureDistance");
-			m_mips = m_scratch->GetDesc().MipLevels;
-			m_factory.FlushToGpu(EGpuFlush::Block);
-
-			auto target = BackBuffer(m_wnd, MultiSamp(1), m_target.get(), nullptr);
-			m_wnd.CustomSwapChain(std::span{&target, 1});
-		}
-		EnvMapCaptureResources(EnvMapCaptureResources const&) = delete;
-		EnvMapCaptureResources& operator=(EnvMapCaptureResources const&) = delete;
-		~EnvMapCaptureResources()
-		{
-			// Captures are submitted without waiting, and members are released before the factory. Wait for the captures before releasing what they use.
-			m_factory.Wait(m_factory.FlushToGpu(EGpuFlush::Async));
-		}
-
-		// Window settings for a square, single-sample, off-screen target
-		static WndSettings Settings(Renderer& rdr, int face_size, Colour bkgd_colour)
-		{
-			auto settings = WndSettings(nullptr, true, rdr.Settings()).Size(face_size, face_size);
-			settings.m_mode.Format = Format;
-			settings.m_multisamp = MultiSamp(1);
-			settings.m_bkgd_colour = bkgd_colour;
-			settings.m_name = "EnvMapCapture";
-			return settings;
-		}
-
-		// The orientation of every captured cube. View3D cameras are right-handed, but the DX cube face layout is left-handed.
-		// Faces are rendered in a world mirrored in Z, which makes the face cameras right-handed, and sampling applies the same mirror.
-		static m4x4 CubeToWorld()
-		{
-			return m4x4{ v4::XAxis(), v4::YAxis(), -v4::ZAxis(), v4::Origin() };
-		}
-
-		// Return the capture resources for 'wnd', recreating them if the face size or the window's clear colour has changed
-		static EnvMapCaptureResources& Get(V3dWindow& wnd, int face_size)
-		{
-			// Recreating waits for in-flight captures, because the destructor waits for them
-			auto bkgd_colour = wnd.m_wnd.BkgdColour();
-			auto& res = wnd.m_envmap_capture;
-			if (res == nullptr || res->m_face_size != face_size || res->m_bkgd_colour != bkgd_colour)
-			{
-				res = nullptr;
-				res = std::make_unique<EnvMapCaptureResources>(*wnd.m_rdr, face_size, bkgd_colour);
-			}
-			return *res;
-		}
-
-		// Throw unless 'cube' can receive captures, and return its face size
-		static int ValidateCube(TextureCube const& cube)
-		{
-			// Captures copy sRGB encoded faces and every mip, so the cube must be a square RGBA8 sRGB cube with a full mip chain
-			auto desc = cube.m_res->GetDesc();
-			if (desc.Width != desc.Height || desc.DepthOrArraySize != 6 || desc.Format != ToSRGB(Format))
-				throw std::runtime_error("Environment map capture requires a square RGBA8 sRGB cube map");
-
-			auto face_size = s_cast<int>(desc.Width);
-			auto mips = UINT(1);
-			for (auto size = face_size; size > 1; size /= 2)
-				++mips;
-
-			if (desc.MipLevels != mips)
-				throw std::runtime_error("Environment map capture requires a cube map with a full mip chain");
-
-			return face_size;
-		}
-
-		// Render face 'face' of 'cube' from the cube's centre, using the lighting, render state, and objects of 'src'. The work is submitted to the GPU without waiting.
-		// The caller sets the cube's orientation to 'CubeToWorld()', and its centre and distance scale. A positive distance scale stores distances in 'cube.m_distance',
-		// which is created if needed.
-		void CaptureFace(V3dWindow& src, TextureCube& cube, int face)
-		{
-			// Copy the lighting and render state from the source scene. The capture has no environment map, so it cannot reflect itself.
-			// Objects flagged 'EnvMapCaptureExclude' are not rendered into the capture. The flag is per object; children do not inherit it.
-			m_scene.m_inst_exclude = EInstFlag::EnvMapCaptureExclude;
-			m_scene.m_sky_history = false; // Each face looks a different way, so the sky has no previous frame to blend with.
-			m_scene.m_lights = src.m_scene.m_lights;
-			m_scene.m_ambient = src.m_scene.m_ambient;
-			m_scene.m_global_fill_mode = src.m_scene.m_global_fill_mode;
-			m_scene.m_pso = src.m_scene.m_pso;
-			m_scene.Shadows(src.EnvMapCaptureShadows());
-			m_scene.m_cam = src.m_scene.m_cam;
-			m_scene.m_cam.Orthographic(false);
-			m_scene.m_cam.Aspect(1.0);
-			m_scene.m_cam.FovY(2.0 * std::atan(1.0));
-
-			// Look along the mirrored major axis. Each face lists its DX major axis and the world directions of increasing U and V. Image up is the opposite of increasing V.
-			struct FaceAxes { v4 major, u, v; };
-			static FaceAxes const face_axes[] =
-			{
-				{ +v4::XAxis(), -v4::ZAxis(), -v4::YAxis() },
-				{ -v4::XAxis(), +v4::ZAxis(), -v4::YAxis() },
-				{ +v4::YAxis(), +v4::XAxis(), +v4::ZAxis() },
-				{ -v4::YAxis(), +v4::XAxis(), -v4::ZAxis() },
-				{ +v4::ZAxis(), +v4::XAxis(), -v4::YAxis() },
-				{ -v4::ZAxis(), -v4::XAxis(), -v4::YAxis() },
-			};
-			auto const mirror = CubeToWorld();
-			auto const& axes = face_axes[face];
-			auto forward = mirror * axes.major;
-			auto right = mirror * axes.u;
-			auto up = -(mirror * axes.v);
-			m_scene.m_cam.CameraToWorld(m4x4{ right, up, -forward, cube.m_centre });
-
-			// Render the source window's objects from the face camera. A sky-only capture skips every object outside the 'Skybox' sort group.
-			// The draw lists are cleared afterwards so that captured objects can be freed between captures.
-			m_scene.ClearDrawlists();
-			for (auto& obj : src.m_objects)
-			{
-				// Add the object, unless the capture wants only the sky
-				if (src.m_envmap_capture_sky_only && obj->m_sko.Group() != ESortGroup::Skybox)
-					continue;
-
-				obj->AddToScene(m_scene);
-			}
-
-			auto& frame = m_wnd.NewFrame();
-			m_scene.Render(frame);
-			m_wnd.Present(frame, EGpuFlush::Async);
-			m_scene.ClearDrawlists();
-
-			// Copy the rendered face into the scratch texture and generate its mips.
-			// Mip generation averages the sRGB encoded values, which slightly darkens high-contrast detail in the blurrier mips.
-			// Mips also average the stored distances, which blurs distances across silhouettes in the blurrier mips.
-			auto* rendered = m_wnd.FrameOutput().m_render_target.get();
-			auto& cmd_list = m_factory.CmdList();
-			auto const store_distance = cube.m_distance_scale > 0.0f;
-			auto pix_face = std::optional<pix::EventScope<ID3D12GraphicsCommandList>>(std::in_place, cmd_list.get(), 0xFF90EE90, "EnvMapCapture::FaceCopy");
-			if (store_distance)
-			{
-				// Give the cube a distance cube the first time it stores distances. It has the same size and mips as the colour cube.
-				if (cube.m_distance == nullptr)
-				{
-					auto tdesc = TextureDesc(AutoId, ResDesc::TexCube(Image{m_face_size, m_face_size, nullptr, DistanceFormat}, 0)).name("EnvMapDistance");
-					cube.m_distance = m_factory.CreateTextureCube(tdesc);
-				}
-
-				// Copy the colour and store distances with a compute pass. Its output views are untyped-load free, so any device can run it.
-				auto* depth = m_wnd.m_msaa_bb.m_depth_stencil.get();
-				BarrierBatch barriers(cmd_list);
-				barriers.Transition(rendered, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-				barriers.Transition(depth, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-				barriers.Transition(m_scratch.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, 0);
-				barriers.Transition(m_scratch_distance.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, 0);
-				barriers.Commit();
-
-				// Bind the pass. Each view gets its own table, because consecutive heap entries can wrap around the ring.
-				cmd_list.SetComputeRootSignature(m_distance_sig.get());
-				cmd_list.SetPipelineState(m_distance_pso.get());
-				auto heaps = { m_view_heap.get() };
-				cmd_list.SetDescriptorHeaps({ heaps.begin(), heaps.size() });
-
-				auto cb = DistanceConstants{
-					.s2c = Invert(m_scene.m_cam.CameraToScreen()),
-					.info = v4(s_cast<float>(m_face_size), cube.m_distance_scale, 0, 0),
-				};
-				cmd_list.SetComputeRoot32BitConstants(EDistanceParam::Constants, sizeof(cb) / sizeof(uint32_t), &cb, 0);
-
-				auto colour_srv = D3D12_SHADER_RESOURCE_VIEW_DESC{
-					.Format = Format,
-					.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D,
-					.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
-					.Texture2D = { .MostDetailedMip = 0, .MipLevels = 1, .PlaneSlice = 0, .ResourceMinLODClamp = 0.0f },
-				};
-				cmd_list.SetComputeRootDescriptorTable(EDistanceParam::Colour, m_view_heap.Add(rendered, colour_srv));
-
-				auto depth_srv = colour_srv;
-				depth_srv.Format = m_wnd.ResolvedDepthSrvFormat();
-				cmd_list.SetComputeRootDescriptorTable(EDistanceParam::Depth, m_view_heap.Add(depth, depth_srv));
-
-				auto face_uav = D3D12_UNORDERED_ACCESS_VIEW_DESC{
-					.Format = Format,
-					.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D,
-					.Texture2D = { .MipSlice = 0, .PlaneSlice = 0 },
-				};
-				cmd_list.SetComputeRootDescriptorTable(EDistanceParam::Face, m_view_heap.Add(m_scratch.get(), face_uav));
-
-				auto distance_uav = face_uav;
-				distance_uav.Format = DistanceFormat;
-				cmd_list.SetComputeRootDescriptorTable(EDistanceParam::Distance, m_view_heap.Add(m_scratch_distance.get(), distance_uav));
-
-				// One thread per texel, in 8x8 groups
-				auto groups = s_cast<UINT>((m_face_size + 7) / 8);
-				cmd_list.Dispatch(groups, groups, 1);
-				barriers.UAV(m_scratch.get());
-				barriers.UAV(m_scratch_distance.get());
-				barriers.Commit();
-			}
-			else
-			{
-				BarrierBatch barriers(cmd_list);
-				barriers.Transition(rendered, D3D12_RESOURCE_STATE_COPY_SOURCE);
-				barriers.Transition(m_scratch.get(), D3D12_RESOURCE_STATE_COPY_DEST);
-				barriers.Commit();
-
-				auto dst = D3D12_TEXTURE_COPY_LOCATION{ .pResource = m_scratch.get(), .Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX, .SubresourceIndex = 0 };
-				auto src_loc = D3D12_TEXTURE_COPY_LOCATION{ .pResource = rendered, .Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX, .SubresourceIndex = 0 };
-				cmd_list.CopyTextureRegion(&dst, 0, 0, 0, &src_loc, nullptr);
-			}
-			pix_face.reset();
-			{
-				// Measure the mip generation separately from the face copy and the cube copy.
-				auto pix_mips = pix::EventScope<ID3D12GraphicsCommandList>(cmd_list.get(), 0xFF90EE90, "EnvMapCapture::Mips");
-				m_factory.GenerateMips(m_scratch.get());
-				if (store_distance)
-					m_factory.GenerateMips(m_scratch_distance.get());
-			}
-
-			// Copy every mip of the face into the cube, and its distances into the distance cube. Cube subresources are ordered by face (array slice), then mip.
-			{
-				auto pix_copy = pix::EventScope<ID3D12GraphicsCommandList>(cmd_list.get(), 0xFF90EE90, "EnvMapCapture::CubeCopy");
-				BarrierBatch barriers(cmd_list);
-				barriers.Transition(m_scratch.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
-				barriers.Transition(cube.m_res.get(), D3D12_RESOURCE_STATE_COPY_DEST);
-				if (store_distance)
-				{
-					barriers.Transition(m_scratch_distance.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
-					barriers.Transition(cube.m_distance->m_res.get(), D3D12_RESOURCE_STATE_COPY_DEST);
-				}
-				barriers.Commit();
-
-				for (UINT mip = 0; mip != m_mips; ++mip)
-				{
-					auto dst = D3D12_TEXTURE_COPY_LOCATION{ .pResource = cube.m_res.get(), .Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX, .SubresourceIndex = mip + s_cast<UINT>(face) * m_mips };
-					auto src_loc = D3D12_TEXTURE_COPY_LOCATION{ .pResource = m_scratch.get(), .Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX, .SubresourceIndex = mip };
-					cmd_list.CopyTextureRegion(&dst, 0, 0, 0, &src_loc, nullptr);
-					if (!store_distance)
-						continue;
-
-					dst.pResource = cube.m_distance->m_res.get();
-					src_loc.pResource = m_scratch_distance.get();
-					cmd_list.CopyTextureRegion(&dst, 0, 0, 0, &src_loc, nullptr);
-				}
-			}
-			m_factory.FlushToGpu(EGpuFlush::Async);
-		}
-	};
-
 	// Render this window's objects into 'env_map', centred at 'position'
 	void V3dWindow::EnvMapCapture(TextureCube& env_map, v4 const& position)
 	{
@@ -1923,37 +2118,6 @@ namespace pr::rdr12
 
 		Invalidate();
 	}
-
-	// A time-sliced environment map. It renders one face per update into a capture cube. When the capture cube is complete,
-	// it becomes the current cube, and the old current cube becomes the previous cube that the new one fades in over.
-	struct EnvMapProbeResources
-	{
-		static constexpr int FadeSteps = 5; // Updates from a cube's completion until it fully replaces the previous cube
-
-		int m_face_size;                      // Pixels per face edge
-		std::array<TextureCubePtr, 3> m_cubes; // The previous, current, and capture cubes, in that order
-		int m_face;                            // The next face to render into the capture cube
-		int m_fade;                            // Updates since the current cube was completed, up to 'FadeSteps'
-		int m_complete;                        // The number of complete cubes, up to 2
-
-		EnvMapProbeResources(Renderer& rdr, int face_size)
-			: m_face_size(face_size)
-			, m_cubes()
-			, m_face()
-			, m_fade()
-			, m_complete()
-		{
-			// Create the cubes in the format captures require, with the capture orientation
-			ResourceFactory factory(rdr);
-			for (auto& cube : m_cubes)
-			{
-				auto tdesc = TextureDesc(AutoId, ResDesc::TexCube(Image{face_size, face_size, nullptr, ToSRGB(EnvMapCaptureResources::Format)}, 0)).name("EnvMapProbe");
-				cube = factory.CreateTextureCube(tdesc);
-				cube->m_cube2w = EnvMapCaptureResources::CubeToWorld();
-			}
-			factory.FlushToGpu(EGpuFlush::Block);
-		}
-	};
 
 	// Size the time-sliced environment map probe's resources with 'face_size' pixel faces, or release them with 0, and choose whether the probe owns the environment map
 	void V3dWindow::EnvMapProbe(int face_size, bool enabled)
@@ -2808,8 +2972,8 @@ namespace pr::rdr12
 			case EKeyCodes::MButton:
 			{
 				auto z = static_cast<float>(m_scene.m_cam.FocusDist());
-				auto nss_pt = m_scene.m_viewport.SSPointToNSSPoint(ss_point);
-				auto [pt, dir] = m_scene.m_cam.NSSPointToWSRay(v4{ nss_pt, z, 1 });
+				auto [view, nss_pt] = SSPointToViewPoint(ss_point);
+				auto [pt, dir] = ViewCamera(view).NSSPointToWSRay(v4{ nss_pt, z, 1 });
 				CentreOnHitTarget(view3d::HitTestRay{
 					.m_ws_origin = To<view3d::Vec4>(pt),
 					.m_ws_direction = To<view3d::Vec4>(dir),
@@ -2862,5 +3026,35 @@ namespace pr::rdr12
 		m_selection_box.m_model = factory.CreateModel(EStockModel::SelectionBox);
 		m_selection_box.m_tint = Colour32White;
 		m_selection_box.m_i2w = m4x4::Identity();
+
+		// Create the stereo cursor model: a cross-hair in the XY plane, drawn over everything else
+		{
+			constexpr Vert verts[] = {
+				{v4(-1.0f, 0.0f, 0, 1), ColourWhite, Zero<v4>(), Zero<v2>()},
+				{v4(-0.3f, 0.0f, 0, 1), ColourWhite, Zero<v4>(), Zero<v2>()},
+				{v4(+0.3f, 0.0f, 0, 1), ColourWhite, Zero<v4>(), Zero<v2>()},
+				{v4(+1.0f, 0.0f, 0, 1), ColourWhite, Zero<v4>(), Zero<v2>()},
+				{v4(0.0f, -1.0f, 0, 1), ColourWhite, Zero<v4>(), Zero<v2>()},
+				{v4(0.0f, -0.3f, 0, 1), ColourWhite, Zero<v4>(), Zero<v2>()},
+				{v4(0.0f, +0.3f, 0, 1), ColourWhite, Zero<v4>(), Zero<v2>()},
+				{v4(0.0f, +1.0f, 0, 1), ColourWhite, Zero<v4>(), Zero<v2>()},
+			};
+			constexpr uint16_t idxs[] = {
+				0, 1, 2, 3, 4, 5, 6, 7,
+			};
+			constexpr BBox bbox = {
+				Origin<v4>(),
+				v4(1, 1, 0, 0)
+			};
+
+			auto mdesc = ModelDesc().vbuf(verts).ibuf(idxs).bbox(bbox).name("stereo cursor");
+			m_stereo_cursor.m_model = factory.CreateModel(mdesc);
+			m_stereo_cursor.m_model->CreateNugget(factory, NuggetDesc(ETopo::LineList, EGeom::Vert | EGeom::Colr)
+				.flags(ENuggetFlag::ShadowCastExclude)
+				.pso<EPipeState::DepthEnable>(FALSE)
+				.sort_key(ESortGroup::PostAlpha));
+			m_stereo_cursor.m_tint = Colour32White;
+			m_stereo_cursor.m_i2w = m4x4::Identity();
+		}
 	}
 }

@@ -32,6 +32,14 @@ namespace pr::rdr12
 		WindowBase(Renderer& rdr, WndSettings const& settings);
 		~WindowBase();
 	};
+
+	// How a window's output is divided into views. Each view is rendered as an ordinary image of its own size, then copied into its part of the output.
+	enum class EViewLayout
+	{
+		Mono,       // One view that fills the output
+		SideBySide, // Two views of equal size. View 0 fills the left half of the output and view 1 the right half.
+	};
+
 	struct Window : WindowBase
 	{
 		// Notes:
@@ -60,6 +68,8 @@ namespace pr::rdr12
 		Handle                       m_frame_ready;      // Auto-reset event signalled when the next NewFrame's back buffer is released by the GPU. See FrameReadyEvent
 		BackBuffers                  m_swap_bb;          // Back buffer render targets from the swap chain.
 		BackBuffer                   m_msaa_bb;          // The MSAA back buffer render target
+		BackBuffer                   m_view_bb;          // The 1x target that each view is resolved into before it is copied into the output. Only used when there are multiple views.
+		EViewLayout                  m_view_layout;      // How the output is divided into views
 		BackBuffer*                  m_frame_output = nullptr; // Borrowed final target from the last submitted frame
 		OpenXRPtr                    m_open_xr;          // OpenXR support (if not null)
 		int                          m_bb_index;         // The current back buffer index
@@ -103,6 +113,19 @@ namespace pr::rdr12
 		iv2 BackBufferSize() const;
 		void BackBufferSize(iv2 size, bool force, MultiSamp const* multisamp = nullptr);
 
+		// Get/Set how the output is divided into views. Changing the layout recreates the render targets, like a resize.
+		EViewLayout ViewLayout() const;
+		void ViewLayout(EViewLayout layout);
+
+		// The number of views that each frame records. See NextView.
+		int ViewCount() const;
+
+		// The size of the target that each view is rendered into. Scenes render at this size.
+		iv2 RenderTargetSize() const;
+
+		// The position of 'view' within the output, in pixels from the top left corner.
+		iv2 ViewOffset(int view) const;
+
 		// Get/Set whether the swap chain owns an output in DXGI exclusive fullscreen mode
 		bool FullScreen() const;
 		void FullScreen(bool fullscreen);
@@ -124,10 +147,15 @@ namespace pr::rdr12
 		void CustomSwapChain(std::span<BackBuffer> back_buffers);
 		void CustomSwapChain(std::span<Texture2D*> back_buffers);
 
-		// Start rendering a new frame. Returns an object that scenes can render into
+		// Start rendering a new frame. Returns an object that scenes can render into. The frame starts by recording view 0.
 		Frame& NewFrame();
 
+		// Submit the view recorded in 'frame' and start recording the next view of the same frame. Only valid while 'frame.m_view + 1 < ViewCount()'.
+		// Each view renders into the same render targets at RenderTargetSize, and the GPU completes one view before the next view uses them.
+		Frame& NextView(Frame& frame);
+
 		// Present the frame to the display. A frame that is not 'display'ed is executed on the GPU but not shown, and the next frame reuses its back buffer.
+		// Every view of the frame must have been recorded before calling Present.
 		void Present(Frame& frame, EGpuFlush flush = EGpuFlush::Async, bool display = true);
 
 		// Wait for the GPU to finish rendering the current frame. Use before shutdown
@@ -164,6 +192,21 @@ namespace pr::rdr12
 
 		// Create the swap chain back buffers
 		void CreateSwapChain(iv2 size);
+
+		// Create the 1x target that a view is resolved into before it is copied into the output
+		BackBuffer CreateViewTarget(iv2 size);
+
+		// Recreate the targets that each view renders into, for an output of 'bb_size'. 'multisamp' == nullptr keeps the current MSAA setting.
+		void RecreateViewTargets(iv2 bb_size, MultiSamp const* multisamp);
+
+		// The size of each view's render target for an output of 'bb_size'
+		iv2 RenderTargetSize(iv2 bb_size) const;
+
+		// Start recording 'view' of the current frame
+		void BeginView(int view);
+
+		// Copy the recorded view into its part of the output, then execute the frame's command lists
+		void SubmitView(Frame& frame);
 	};
 }
 
