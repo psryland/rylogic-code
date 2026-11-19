@@ -57,32 +57,20 @@ public sealed class TestPhysics
 	[Test]
 	public void RetryableDisposePreservesOwnershipUntilSuccess()
 	{
-		// Build real engine and atmosphere ownership rather than testing only HRESULT conversion.
+		// Build real engine ownership rather than testing only HRESULT conversion.
 		using var runtime = new Physics();
 		var engine = runtime.CreateEngine();
 		var shape = engine.CreateSphere(0.5f);
-		var atmosphere = engine.CreateAtmosphere(new AtmosphereOptions
-		{
-			CellCountX = 8,
-			CellCountY = 8,
-			CellCountZ = 4,
-			CellSize = 1,
-			LidZ = 4,
-		});
 		Assert.Throws<ArgumentOutOfRangeException>(() => runtime.TryDispose(-2));
 		Assert.Throws<ArgumentOutOfRangeException>(() => engine.TryDispose(-2));
-		Assert.Throws<ArgumentOutOfRangeException>(() => atmosphere.TryDispose(-2));
 		Assert.False(engine.IsDisposed);
-		Assert.False(atmosphere.IsDisposed);
 		Assert.False(shape.IsDisposed);
 
 		// Completion, not the start of disposal, ends all managed identities.
 		Assert.True(engine.TryDispose(-1));
 		Assert.True(engine.IsDisposed);
-		Assert.True(atmosphere.IsDisposed);
 		Assert.True(shape.IsDisposed);
 		Assert.True(engine.TryDispose(0));
-		Assert.True(atmosphere.TryDispose(0));
 		Assert.True(runtime.TryDispose(0));
 	}
 
@@ -122,22 +110,9 @@ public sealed class TestPhysics
 		AssertNativeSize(21, Marshal.SizeOf<CylindricalBoundaryConfiguration>());
 		AssertNativeSize(22, Marshal.SizeOf<Native.WaterDesc>());
 		AssertNativeSize(23, Marshal.SizeOf<Native.WaterBathymetryDesc>());
-		AssertNativeSize(24, sizeof(Native.AtmosphereDesc));
-		AssertNativeSize(25, Marshal.SizeOf<Native.AtmosphereStepDesc>());
-		AssertNativeSize(26, Marshal.SizeOf<Native.AtmosphereStats>());
 		AssertNativeSize(27, Marshal.SizeOf<Native.WindSeaDesc>());
 		AssertNativeSize(28, Marshal.SizeOf<Native.CylinderShape>());
 		AssertNativeSize(29, Marshal.SizeOf<TerrainDecal>());
-		Assert.Equal(32, sizeof(AtmosphereHeatSource));
-		Assert.Equal(16, sizeof(AtmosphereOutsideAir));
-		Assert.Equal(32, sizeof(AtmosphereTracerParticle));
-		Assert.Equal(24, sizeof(AtmosphereProbeSample));
-		Assert.Equal(28, Marshal.OffsetOf<Native.AtmosphereStepDesc>(nameof(Native.AtmosphereStepDesc.m_surface_wind_height)).ToInt32());
-		Assert.Equal(32, Marshal.OffsetOf<Native.AtmosphereStepDesc>(nameof(Native.AtmosphereStepDesc.m_probes)).ToInt32());
-		Assert.Equal(20, sizeof(AtmosphereCellState));
-		Assert.Equal(56, Marshal.OffsetOf<Native.AtmosphereDesc>(nameof(Native.AtmosphereDesc.m_floor_heights)).ToInt32());
-		Assert.Equal(64, Marshal.OffsetOf<Native.AtmosphereDesc>(nameof(Native.AtmosphereDesc.m_active_columns)).ToInt32());
-		Assert.Equal(204, Marshal.OffsetOf<Native.AtmosphereDesc>(nameof(Native.AtmosphereDesc.m_tracer_break_height)).ToInt32());
 		Assert.Equal(WaterFieldElement.SizeInBytes, sizeof(WaterFieldElement));
 		Assert.Equal(8, Marshal.OffsetOf<Native.WaterDesc>(nameof(Native.WaterDesc.m_level)).ToInt32());
 		Assert.Equal(20, Marshal.OffsetOf<Native.WaterDesc>(nameof(Native.WaterDesc.m_gravity)).ToInt32());
@@ -267,116 +242,6 @@ public sealed class TestPhysics
 		engine.ClearWaterWindSea();
 		engine.ClearWaterBathymetry();
 		engine.SetWater(null);
-	}
-
-	/// <summary>An atmosphere heats rising air, reports pending steps, copies tracers from any thread, and is released with its engine.</summary>
-	[Test]
-	public void AtmosphereLifecycle()
-	{
-		var runtime = new Physics();
-		var engine = runtime.CreateEngine();
-		var options = new AtmosphereOptions
-		{
-			CellCountX = 8,
-			CellCountY = 8,
-			CellCountZ = 4,
-			CellSize = 1,
-			LidZ = 4,
-			TracerCount = 64,
-			TracerSeed = 1,
-		};
-		options.ActiveColumns = Enumerable.Repeat((byte)1, options.CellCountX * options.CellCountY).ToArray();
-		options.FloorHeights = new float[options.CellCountX * options.CellCountY];
-		options.ActiveColumns[0] = 0;
-		options.FloorHeights[0] = float.NaN;
-		ExpectStatus(EStatus.InvalidArgument, () => engine.CreateAtmosphere(new AtmosphereOptions { CellCountX = 8, CellCountY = 8, CellCountZ = 4, CellSize = 0, LidZ = 4 }));
-		var atmosphere = engine.CreateAtmosphere(options);
-		Assert.Equal(256, atmosphere.CellCount);
-
-		// A heat source at one cell warms its air and drives flow; the pending step blocks a second submission and field readback.
-		var heat = new[] { new AtmosphereHeatSource(new v4(4, 4, 1, 1), 1.5f, 5, 320, 0) };
-		ExpectStatus(EStatus.NoStepPending, () => atmosphere.CompleteStep());
-		atmosphere.BeginStep(0.1f, heat_sources: heat);
-		ExpectStatus(EStatus.StepPending, () => atmosphere.BeginStep(0.1f, heat_sources: heat));
-		var cells = new AtmosphereCellState[atmosphere.CellCount];
-		ExpectStatus(EStatus.StepPending, () => atmosphere.CopyCellStates(cells));
-		atmosphere.CompleteStep();
-		for (var step = 0; step != 20; ++step)
-		{
-			atmosphere.BeginStep(0.1f, heat_sources: heat);
-			while (!atmosphere.PollStep())
-				Thread.Yield();
-		}
-		var stats = atmosphere.CopyCellStates(cells);
-		Assert.True(cells[atmosphere.CellIndex(4, 4, 0)].m_temperature > 288.5f);
-		Assert.True(stats.MaxSpeed > 0);
-		ExpectStatus(EStatus.BufferTooSmall, () => atmosphere.CopyCellStates(cells.AsSpan(1)));
-
-		// Probes sample the air after their step, and points outside the air report nothing.
-		var probes = new[] { new v4(4, 4, 2, 1), new v4(4, 4, 9, 1) };
-		var samples = new AtmosphereProbeSample[2];
-		atmosphere.BeginStep(0.1f, heat_sources: heat, probes: probes);
-		atmosphere.CompleteStep();
-		Assert.Equal(2, atmosphere.CopyProbes(samples));
-		Assert.True(samples[0].Inside && samples[0].m_temperature > 250 && samples[0].m_temperature < 330);
-		Assert.True(!samples[1].Inside && samples[1].m_temperature == 0);
-		ExpectStatus(EStatus.BufferTooSmall, () => atmosphere.CopyProbes(samples.AsSpan(1)));
-
-		// The surface wind covers every column after a sampling step, with the calm outside air reported for the inactive column, and is empty after a step without it.
-		var wind = new v2[options.CellCountX * options.CellCountY];
-		ExpectStatus(EStatus.InvalidArgument, () => atmosphere.BeginStep(0.1f, heat_sources: heat, surface_wind_height: -1f));
-		atmosphere.BeginStep(0.1f, heat_sources: heat, surface_wind_height: 1.5f);
-		atmosphere.CompleteStep();
-		Assert.Equal(wind.Length, atmosphere.CopySurfaceWind(wind));
-		Assert.True(wind[0] == v2.Zero && wind.All(w => !float.IsNaN(w.x) && !float.IsInfinity(w.x) && !float.IsNaN(w.y) && !float.IsInfinity(w.y)));
-		ExpectStatus(EStatus.BufferTooSmall, () => atmosphere.CopySurfaceWind(wind.AsSpan(1)));
-		atmosphere.BeginStep(0.1f, heat_sources: heat);
-		atmosphere.CompleteStep();
-		Assert.Equal(0, atmosphere.CopySurfaceWind(wind));
-
-		// Tracer reads and mutation from a worker thread are rejected before reaching native code.
-		var particles = new AtmosphereTracerParticle[atmosphere.TracerCount];
-		Exception? worker_failure = null;
-		var worker = new Thread(() =>
-		{
-			try
-			{
-				atmosphere.CopyTracers(particles);
-			}
-			catch (Exception ex)
-			{
-				worker_failure = ex;
-			}
-		});
-		worker.Start();
-		worker.Join();
-		Assert.True(worker_failure is InvalidOperationException);
-		var copied = atmosphere.CopyTracers(particles);
-		Assert.Equal(64, copied);
-		Assert.True(Array.TrueForAll(particles, p => p.m_position.z >= 0 && p.m_position.z <= 4 && p.m_position.w == 1));
-		Assert.True(Array.TrueForAll(particles, p => !(p.m_position.x < 1 && p.m_position.y < 1)));
-
-		// A held GPU tracer buffer survives later steps, and each acquire is released exactly once.
-		var slot = atmosphere.AcquireTracers();
-		Assert.Equal(64, slot.Count);
-		Assert.Equal(32, slot.Stride);
-		for (var step = 0; step != 4; ++step)
-		{
-			atmosphere.BeginStep(0.1f, heat_sources: heat);
-			atmosphere.CompleteStep();
-		}
-		atmosphere.ReleaseTracers(slot.Slot, null, 0);
-		ExpectStatus(EStatus.InvalidArgument, () => atmosphere.ReleaseTracers(slot.Slot, null, 0));
-		slot.Buffer.Dispose();
-
-		// Floors must match the column count; atmospheres block checkpoint restore and are released with their engine.
-		ExpectStatus(EStatus.InvalidArgument, () => atmosphere.SetFloors(new float[3]));
-		atmosphere.SetFloors(new float[atmosphere.ColumnCount]);
-		Assert.Throws<InvalidOperationException>(() => engine.ReadCheckpoint(new byte[16]));
-		atmosphere.BeginStep(0.1f);
-		engine.Dispose();
-		Assert.True(atmosphere.IsDisposed);
-		runtime.Dispose();
 	}
 
 	/// <summary>Terrain supports a falling body, rejects pending mutation and incomplete checkpoints, and can be removed.</summary>
