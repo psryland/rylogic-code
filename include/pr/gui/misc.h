@@ -76,7 +76,7 @@ namespace pr
 	// Convert a client space point to a normalised point
 	inline v2 NormalisePoint(HWND hwnd, POINT const& pt)
 	{
-		return NormalisePoint(Rectangle<float>(ClientArea(hwnd)), To<v2>(pt), 1.0f, -1.0f);
+		return NormalisePoint(Rectangle<float>(ClientArea(hwnd)), v2{static_cast<float>(pt.x), static_cast<float>(pt.y)}, 1.0f, -1.0f);
 	}
 
 	#if 0

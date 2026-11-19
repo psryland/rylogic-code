@@ -112,6 +112,20 @@ namespace physics_sandbox
 				: accumulated_seconds;
 		}
 
+		// Add scaled wall time under the existing limits and record the simulation seconds those limits remove.
+		double AccumulateSimulationTime(double accumulated_seconds, double elapsed_seconds, double time_scale, int requested_tick_capacity, SandboxProfiler& profile)
+		{
+			// Apply the elapsed clamp before scaling, preserving the existing admission order and backlog policy.
+			auto const admitted_elapsed_seconds = std::min(elapsed_seconds, MaxFrameSeconds);
+			auto const scaled_elapsed_seconds = admitted_elapsed_seconds * time_scale;
+			accumulated_seconds += scaled_elapsed_seconds;
+			auto const bounded_seconds = BoundedAccumulatedTime(accumulated_seconds, requested_tick_capacity);
+
+			// Clamp loss is scaled simulation time; backlog loss is only the whole ticks actually removed.
+			profile.RecordDiscardedSimulationTime((elapsed_seconds - admitted_elapsed_seconds) * time_scale + (accumulated_seconds - bounded_seconds));
+			return bounded_seconds;
+		}
+
 		static_assert(ScheduledTickCount(2.0 * PhysicsStepSeconds, 2, 1, 64, false) == 2);
 		static_assert(ScheduledTickCount(2.0 * PhysicsStepSeconds, 1, 1, 64, false) == 1);
 		static_assert(ScheduledTickCount(2.0 * PhysicsStepSeconds, 2, 64, 64, false) == 1);
@@ -240,9 +254,13 @@ namespace physics_sandbox
 			// T=run all test scenarios
 			if (args.m_vk_key == 'T')
 			{
+				// Retire both presentation owners before tests replace the simulation objects.
 				PauseSimulation();
 				m_view3d.WaitForGpu();
 				m_view3d.m_scene.ClearDrawlists();
+				if (m_scene.m_body_population)
+					m_view3d.m_scene.RemovePopulation(*m_scene.m_body_population.get());
+
 				m_details.InvalidateValues();
 				m_scene.RunAllTests();
 			}
@@ -273,12 +291,17 @@ namespace physics_sandbox
 		// objects to the scene's drawlist before rendering.
 		m_view3d.OnAddToScene += [&](auto&, rdr12::Scene& scene)
 		{
+			// Submit batched bodies once; the remaining objects and debug overlays keep their existing routes.
 			auto const beg = Clock::now();
 			auto const w2c = scene.m_cam.WorldToCamera();
 			auto const frustum = scene.m_cam.ViewFrustum();
 			auto const clip_planes = scene.m_cam.ClipPlanes(false);
-			for (int i = 0; i != std::ssize(m_scene.m_body); ++i)
+			if (m_scene.m_body_population)
+				scene.AddPopulation(m_scene.m_body_population);
+
+			for (auto i = isize(m_scene.m_body_instances); i != isize(m_scene.m_body); ++i)
 				m_scene.m_body[i].AddToScene(scene, w2c, frustum, clip_planes);
+
 			m_scene.AddArticulationsToScene(scene, w2c, frustum, clip_planes);
 			m_scene.AddSampleOverlays(scene);
 
@@ -328,8 +351,27 @@ namespace physics_sandbox
 	}
 	SandboxUI::~SandboxUI()
 	{
+		// Retire GPU references before the sandbox releases its retained presentation.
 		m_view3d.WaitForGpu();
 		m_view3d.m_scene.ClearDrawlists();
+		if (m_scene.m_body_population)
+		{
+			// Read existing completed GPU counters after the measured window, so a no-draw result cannot masquerade as throughput.
+			if (m_profile.Enabled())
+			{
+				// Retain completed classifier and draw evidence without adding work to measured frames.
+				auto const stats = m_scene.m_body_population->Stats();
+				if (!m_profile.RecordPopulationStats(stats))
+				{
+					// Surface a failed diagnostic write without throwing from renderer shutdown.
+					auto const* message = "ERROR: Failed to persist completed Population counters to profile.csv\n";
+					OutputDebugStringA(message);
+					std::fputs(message, stderr);
+					std::fflush(stderr);
+				}
+			}
+			m_view3d.m_scene.RemovePopulation(*m_scene.m_body_population.get());
+		}
 	}
 
 	// Override message processing to ensure clean shutdown
@@ -454,6 +496,8 @@ namespace physics_sandbox
 		// Make sure the GPU has finished with the models before releasing them.
 		m_view3d.WaitForGpu();
 		m_view3d.m_scene.ClearDrawlists();
+		if (m_scene.m_body_population)
+			m_view3d.m_scene.RemovePopulation(*m_scene.m_body_population.get());
 
 		// Recreate whichever source currently owns the scene rather than retaining stale dynamics objects.
 		if (!m_scene_filepath.empty())
@@ -586,6 +630,9 @@ namespace physics_sandbox
 			// Wait for the GPU to finish before loading. LoadFromJson triggers ShapeChange events which destroy old LdrObjects. 
 			m_view3d.WaitForGpu();
 			m_view3d.m_scene.ClearDrawlists();
+			if (m_scene.m_body_population)
+				m_view3d.m_scene.RemovePopulation(*m_scene.m_body_population.get());
+
 			auto const wait_gpu_end = Clock::now();
 			auto const wait_gpu_ms = ElapsedMs(mark, wait_gpu_end);
 			mark = wait_gpu_end;
@@ -616,7 +663,7 @@ namespace physics_sandbox
 			}
 			auto const camera_end = Clock::now();
 			auto const camera_ms = ElapsedMs(scene_load_end, camera_end);
-			m_profile.RecordLoadScene(filepath, ElapsedMs(load_beg, camera_end), wait_gpu_ms, json_ms, camera_ms, m_scene.m_last_load_profile);
+			m_profile.RecordLoadScene(filepath, ElapsedMs(load_beg, camera_end), wait_gpu_ms, json_ms, camera_ms, m_scene);
 
 			Render(0);
 		}
@@ -705,11 +752,9 @@ namespace physics_sandbox
 			// Cap each submission at the requested playback-rate ceiling so 1x overload slows rather than adding catch-up work.
 			auto const time_scale = std::max(0.0, static_cast<double>(m_media.TimeScale()));
 			auto const requested_tick_capacity = std::clamp(static_cast<int>(std::ceil(time_scale)), 1, MaxTicksPerSubmission);
-			auto const scaled_elapsed_seconds = std::min(elapsed_seconds, MaxFrameSeconds) * time_scale;
-			m_physics_accumulator += scaled_elapsed_seconds;
 
 			// Discard only excess whole ticks so render-rate jitter cannot erase the fractional phase of the fixed-step clock.
-			m_physics_accumulator = BoundedAccumulatedTime(m_physics_accumulator, requested_tick_capacity);
+			m_physics_accumulator = AccumulateSimulationTime(m_physics_accumulator, elapsed_seconds, time_scale, requested_tick_capacity, m_profile);
 
 			// Multiple fixed ticks remain internal GPU substeps, preserving solver dt and one submission/wait/readback per UI update.
 			auto const tick_count = ScheduledTickCount(
@@ -746,11 +791,9 @@ namespace physics_sandbox
 		++m_frame_count;
 		auto profile_sample = SandboxProfiler::RenderSample{};
 
-		// Sync each body's View3D graphics to its physics transform.
-		// This is cheap — just copying an O2W matrix per body.
+		// Sync the active body presentation to accepted physics transforms and visual colours.
 		auto const sync_beg = Clock::now();
-		for (int i = 0; i != std::ssize(m_scene.m_body); ++i)
-			m_scene.m_body[i].UpdateGfx();
+		m_scene.UpdateBodyGfx();
 		m_scene.UpdateArticulationGfx();
 		auto const sync_end = Clock::now();
 
@@ -915,6 +958,180 @@ namespace physics_sandbox
 #if PR_UNITTESTS
 namespace physics_sandbox::tests
 {
+	// Verify the scheduler's actual loss accounting and the profiler's native CSV publication.
+	PRUnitTestClass(SandboxClockTests, Serial)
+	{
+		// Read the actual runtime header and rows, excluding the separate load-record schema.
+		static std::vector<std::vector<std::string>> ReadRows(std::filesystem::path const& path)
+		{
+			// A missing output is a test failure, not an empty successful profile.
+			auto input = std::ifstream(path);
+			if (!input)
+				throw std::runtime_error("Profiler test output is missing");
+
+			// Keep every runtime field, including the original whitespace accepted by numeric CSV readers.
+			auto rows = std::vector<std::vector<std::string>>{};
+			for (std::string line; std::getline(input, line);)
+			{
+				// Load records are not part of the runtime schema.
+				if (!line.starts_with("time_s,") && (line.empty() || !std::isdigit(static_cast<unsigned char>(line.front()))))
+					continue;
+
+				// Preserve the real serializer's field boundaries.
+				auto fields = std::vector<std::string>{};
+				auto stream = std::istringstream(line);
+				for (std::string field; std::getline(stream, field, ',');)
+					fields.push_back(field);
+
+				rows.push_back(std::move(fields));
+			}
+			return rows;
+		}
+
+		// Account for both removal decisions without losing fractional phase or changing admitted time.
+		PRUnitTestMethod(SchedulerDiscardAccounting, Quick)
+		{
+			// Explicit expected seconds distinguish scaled clamp loss from whole-tick removal.
+			struct Case
+			{
+				double m_accumulated, m_elapsed, m_scale;
+				int m_capacity;
+				double m_retained, m_discarded;
+			};
+			auto const dt = PhysicsStepSeconds;
+			auto const cases = std::array{
+				Case{0.0, dt, 1.0, 1, dt, 0.0},
+				Case{0.25 * dt, 0.25 * dt, 1.0, 1, 0.5 * dt, 0.0},
+				Case{3.5 * dt, 0.0, 1.0, 1, 1.5 * dt, 2.0 * dt},
+				Case{0.0, 1.75 * dt, 2.0, 2, 2.5 * dt, dt},
+				Case{0.0, 0.5, 0.03125, 1, 0.0078125, 0.0078125},
+				Case{0.0, 0.5, 1.0, 1, dt, 0.25 + 14.0 * dt},
+				Case{0.5 * dt, 5.0, 0.0, 1, 0.5 * dt, 0.0},
+			};
+			auto profile = SandboxProfiler(true);
+			for (auto const& c : cases)
+			{
+				// The production helper must conserve admitted plus discarded time and match the prior scheduling expression exactly.
+				profile.Reset();
+				auto const retained = AccumulateSimulationTime(c.m_accumulated, c.m_elapsed, c.m_scale, c.m_capacity, profile);
+				PR_EXPECT(std::abs(retained - c.m_retained) < 1e-12);
+				PR_EXPECT(std::abs(profile.m_discarded_simulation_s - c.m_discarded) < 1e-12);
+				PR_EXPECT(std::abs(c.m_accumulated + c.m_elapsed * c.m_scale - retained - profile.m_discarded_simulation_s) < 1e-12);
+				PR_EXPECT(retained == BoundedAccumulatedTime(c.m_accumulated + std::min(c.m_elapsed, MaxFrameSeconds) * c.m_scale, c.m_capacity));
+			}
+
+			// Multiple scheduling decisions accumulate within one interval; reset clears loss, not the sampled steady clock.
+			profile.Reset();
+			AccumulateSimulationTime(3.5 * dt, 0.0, 1.0, 1, profile);
+			AccumulateSimulationTime(0.0, 0.5, 0.03125, 1, profile);
+			PR_EXPECT(std::abs(profile.m_discarded_simulation_s - (2.0 * dt + 0.0078125)) < 1e-12);
+			auto const stamp = Clock::now();
+			profile.m_last_render = stamp;
+			profile.Reset();
+			PR_EXPECT(profile.m_discarded_simulation_s == 0.0 && profile.m_last_render == stamp);
+
+			// Profiling does not alter retention when disabled.
+			auto disabled = SandboxProfiler(false);
+			PR_EXPECT(std::abs(AccumulateSimulationTime(3.5 * dt, 0.0, 1.0, 1, disabled) - 1.5 * dt) < 1e-12);
+			PR_EXPECT(disabled.m_discarded_simulation_s == 0.0);
+		}
+
+		// Preserve all 47 original fields and expose sample-to-sample time across the report publication gap.
+		PRUnitTestMethod(CsvClockAndIntervalReset, Extended)
+		{
+			// Serialize known interval values through the actual Report method.
+			auto scene = Scene(nullptr);
+			scene.m_clock = 12.0;
+			auto profile = SandboxProfiler(true);
+			auto const path = temp_dir() / "clock-schema.csv";
+			profile.Open(path);
+			PR_EXPECT(profile.m_log.good());
+			auto step = Scene::StepProfile{};
+			step.m_engine.m_constraint_pack_ms = 2.75;
+			step.m_engine.m_constraint_upload_ms = 1.25;
+			profile.RecordStep(step, 16.0);
+			profile.RecordStep(step, 18.0);
+			profile.m_renders = 4;
+			profile.m_elapsed = 2.0;
+			AccumulateSimulationTime(3.5 * PhysicsStepSeconds, 0.0, 1.0, 1, profile);
+			auto const first_stamp = Clock::time_point(std::chrono::seconds(12345678) + std::chrono::nanoseconds(123456789));
+			profile.m_last_render = first_stamp;
+			auto const before_report = Clock::now();
+			profile.Report(scene);
+			PR_EXPECT(profile.m_last_render == first_stamp);
+			PR_EXPECT(profile.m_report_beg >= before_report && profile.m_elapsed == 0.0);
+			PR_EXPECT(profile.m_discarded_simulation_s == 0.0 && profile.m_steps == 0 && profile.m_renders == 0);
+
+			// Model a 250ms publication gap followed by a one-second interval without sleeping or changing runtime clocks.
+			profile.m_report_beg = first_stamp + std::chrono::milliseconds(250);
+			profile.m_last_render = first_stamp + std::chrono::milliseconds(1250);
+			profile.m_elapsed = 1.0;
+			scene.m_clock = 13.0;
+			profile.Report(scene);
+			auto const rows = ReadRows(path);
+			PR_EXPECT(rows.size() == 3 && rows.at(0).size() == 49 && rows.at(1).size() == 49 && rows.at(2).size() == 49);
+
+			// The original schema is an independent ordered oracle, not inferred from the new serializer.
+			auto const original_header = std::string{
+				"time_s,bodies,steps,renders,fps,step_ms,gravity_ms,physics_ms,kill_zone_ms,eng_new_frame_ms,eng_pack_ms,eng_upload_ms,"
+				"eng_external_forces_ms,eng_integrate_ms,eng_sleepwake_ms,eng_broadphase_ms,eng_collide_ms,eng_resolve_ms,eng_selective_ms,"
+				"eng_sleepupdate_ms,eng_readback_ms,eng_gpu_run_ms,eng_unpack_ms,eng_gpu_prepare_ms,eng_gpu_execute_ms,eng_gpu_wait_ms,"
+				"eng_gpu_reset_ms,eng_readback_access_ms,eng_body_readback_copy_ms,eng_contact_readback_copy_ms,eng_collision_events_ms,"
+				"eng_sleep_island_unpack_ms,eng_body_unpack_ms,render_ms,sync_gfx_ms,add_scene_ms,do_render_ms,clear_drawlists_ms,new_frame_ms,"
+				"scene_render_ms,present_ms,details_ms,title_ms,status_ms,max_frame_ms,eng_constraint_pack_ms,eng_constraint_upload_ms"};
+			auto header = std::string{};
+			for (auto index = 0; index != 47; ++index)
+			{
+				// Verify positions, names and the two untouched trailing CPU phase fields.
+				header += (index != 0 ? "," : "") + rows.at(0).at(index);
+			}
+			PR_EXPECT(header == original_header);
+			PR_EXPECT(rows.at(0).at(47) == "steady_time_s" && rows.at(0).at(48) == "discarded_simulation_s");
+			auto expected = std::array<double, 47>{};
+			expected[0] = 12.0;
+			expected[2] = 2.0;
+			expected[3] = 4.0;
+			expected[4] = 2.0;
+			expected[5] = 17.0;
+			expected[45] = 2.75;
+			expected[46] = 1.25;
+			for (auto index = 0; index != 47; ++index)
+				PR_EXPECT(std::stod(rows.at(1).at(index)) == expected[index]);
+
+			// Steady-epoch timestamps retain sub-tick precision and include the gap excluded by rebased m_elapsed.
+			auto const first_seconds = std::chrono::duration<double>(first_stamp.time_since_epoch()).count();
+			PR_EXPECT(std::abs(std::stod(rows.at(1).at(47)) - first_seconds) < 1e-8);
+			PR_EXPECT(std::abs(std::stod(rows.at(2).at(47)) - std::stod(rows.at(1).at(47)) - 1.25) < 1e-8);
+			PR_EXPECT(std::abs(std::stod(rows.at(1).at(48)) - 2.0 * PhysicsStepSeconds) < 1e-9);
+			PR_EXPECT(std::stod(rows.at(2).at(48)) == 0.0 && std::stod(rows.at(2).at(2)) == 0.0);
+			PR_EXPECT(std::stod(rows.at(2).at(0)) == 13.0);
+		}
+
+		// The public render path publishes its real existing steady-clock sample and accumulated scheduling losses.
+		PRUnitTestMethod(RenderSamplesExistingSteadyClock, Extended)
+		{
+			// Force one report by moving only the fixture's report deadline into the past.
+			auto scene = Scene(nullptr);
+			auto profile = SandboxProfiler(true);
+			auto const path = temp_dir() / "clock-render.csv";
+			profile.Open(path);
+			AccumulateSimulationTime(0.0, 0.5, 1.0, 1, profile);
+			profile.m_report_beg = Clock::now() - std::chrono::seconds(2);
+			auto const before = Clock::now();
+			profile.RecordRender(scene, {});
+			auto const after = Clock::now();
+
+			// Check real serialization rather than a second formatter or synthetic timestamp-only path.
+			auto const rows = ReadRows(path);
+			PR_EXPECT(rows.size() == 2 && rows.at(1).size() == 49);
+			PR_EXPECT(profile.m_last_render >= before && profile.m_last_render <= after);
+			PR_EXPECT(std::abs(std::stod(rows.at(1).at(47)) - std::chrono::duration<double>(profile.m_last_render.time_since_epoch()).count()) < 1e-8);
+			PR_EXPECT(std::abs(std::stod(rows.at(1).at(48)) - (0.25 + 14.0 * PhysicsStepSeconds)) < 1e-9);
+			PR_EXPECT(std::stod(rows.at(1).at(0)) == 0.0 && std::stod(rows.at(1).at(2)) == 0.0);
+			PR_EXPECT(profile.m_discarded_simulation_s == 0.0);
+		}
+	};
+
 	// The visibility command is independent of the renderer's visualisation modes.
 	PRUnitTestClass(DetailsPanelMenuTests)
 	{

@@ -4,7 +4,7 @@
 //*********************************************
 // Underwater post-processing pass. See post_processing.h for the effect settings.
 #include "view3d-12/src/shaders/hlsl/postprocessing/underwater_cbuf.hlsli"
-#include "view3d-12/src/shaders/hlsl/utility/colour_space.hlsli"
+#include "pr/view3d-12/shaders/colour_space.hlsli"
 
 static const float TAU = 6.28318530718f;
 static const float INF = asfloat(0x7F800000);

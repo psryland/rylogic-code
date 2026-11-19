@@ -9,7 +9,7 @@
 #include "view3d-12/src/shaders/hlsl/forward/forward_cbuf.hlsli"
 #include "view3d-12/src/shaders/hlsl/sky/procedural_sky_cbuf.hlsli"
 #include "view3d-12/src/shaders/hlsl/sky/cloud_field.hlsli"
-#include "view3d-12/src/shaders/hlsl/utility/colour_space.hlsli"
+#include "pr/view3d-12/shaders/colour_space.hlsli"
 
 #ifdef __cplusplus
 namespace pr::rdr12::sky

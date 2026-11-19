@@ -324,6 +324,8 @@ namespace physics_sandbox
 		m_ground_body_index = -1;
 
 		// Release renderer bindings and non-owning pointer views before their underlying dynamics objects.
+		m_body_population = nullptr;
+		m_body_instances.clear();
 		m_sample_overlays.Reset();
 		m_sample_overlays.SurfaceSpacing(physics::surface::DefaultSpacing);
 		m_articulation_visuals.clear();
@@ -333,6 +335,7 @@ namespace physics_sandbox
 		m_collision_ignore_indices.clear();
 		m_body.clear();
 		m_articulation.clear();
+		m_rigid_ragdoll_joints.clear();
 
 		// Shapes are released last because both rigid bodies and articulation descriptors refer to them by pointer.
 		m_shape_buffer.clear();
@@ -880,6 +883,8 @@ namespace physics_sandbox
 		auto const physics_beg = Clock::now();
 		if (m_atmosphere_gfx != nullptr)
 			m_atmosphere_gfx->Step(dt);
+
+		ApplyRagdollActuation(time_s);
 		m_physics.BeginStep(physics::Engine::StepInput{
 			.m_bodies = m_body_ptrs,
 			.m_articulations = m_articulation_ptrs,
@@ -1127,6 +1132,14 @@ namespace physics_sandbox
 			}
 		}
 		auto const shaped_articulation_link_count = isize(physical_descs) - num_scene_bodies;
+		for (auto const& ragdoll : scene_desc.rigid_ragdolls)
+		{
+			physical_descs.push_back(&ragdoll.m_root);
+			for (auto const& link : ragdoll.m_links)
+				physical_descs.push_back(&link.m_body);
+		}
+		auto const ragdoll_body_count = isize(physical_descs) - num_scene_bodies - shaped_articulation_link_count;
+		total_bodies += ragdoll_body_count;
 		m_last_load_profile.m_body_count = total_bodies + articulation_link_count;
 		auto scene_bbox = BBox::Reset();
 		const auto ground_thickness = 10.0f;
@@ -1227,8 +1240,15 @@ namespace physics_sandbox
 			// Map each shaped articulation link to its de-duplicated immutable collision shape.
 			auto articulation_shapes = std::vector<collision::Shape const*>{};
 			articulation_shapes.reserve(shaped_articulation_link_count);
-			for (auto physical_desc_index = num_scene_bodies; physical_desc_index != isize(physical_descs); ++physical_desc_index)
+			for (auto physical_desc_index = num_scene_bodies; physical_desc_index != num_scene_bodies + shaped_articulation_link_count; ++physical_desc_index)
 				articulation_shapes.push_back(shape_ptrs[shape_lookup[physical_desc_index]]);
+
+			auto ragdoll_shapes = std::vector<collision::Shape const*>{};
+			ragdoll_shapes.reserve(ragdoll_body_count);
+			for (auto physical_desc_index = num_scene_bodies + shaped_articulation_link_count; physical_desc_index != isize(physical_descs); ++physical_desc_index)
+				ragdoll_shapes.push_back(shape_ptrs[shape_lookup[physical_desc_index]]);
+
+			BuildRigidRagdolls(scene_desc, ragdoll_shapes);
 			BuildMultibodyObjects(scene_desc, articulation_shapes);
 
 			// Size automatic terrain from fully constructed rigid and articulated geometry, whose transforms now include shape and joint frames.
@@ -1509,6 +1529,12 @@ namespace physics_sandbox
 					m_articulation_visuals[visual_index].m_gfx = result.m_objects[object_index];
 			}
 			UpdateArticulationGfx();
+
+			// Only the opt-in ordinary ragdoll scene selects batched body presentation.
+			if (!m_rigid_ragdoll_joints.empty())
+				CreateBodyPopulation();
+
+			// Include presentation assignment in the existing scene-load timing.
 			auto const ldraw_assign_end = Clock::now();
 			m_last_load_profile.m_ldraw_assign_ms = ElapsedMs(mark, ldraw_assign_end);
 			mark = ldraw_assign_end;
@@ -1727,6 +1753,102 @@ namespace physics_sandbox
 		// Contact graphics are currently disabled. Keep this path opt-in because reading detailed
 		// contacts back from the GPU has a measurable cost in large scenes.
 		(void)contacts;
+	}
+
+	void Scene::CreateBodyPopulation()
+	{
+		// A renderer is a caller precondition; validate the body domain before replacing any existing graphics.
+		assert(m_rdr != nullptr);
+		auto const count = m_ground_body_index != -1 ? m_ground_body_index : isize(m_body);
+		if (count <= 0 || (m_ground_body_index != -1 && m_ground_body_index + 1 != isize(m_body)))
+			throw std::invalid_argument("Body Population requires dynamic bodies followed by optional ground");
+
+		// Collect only supported shared-model placements; unsupported input must not become partial presentation.
+		auto prototypes = std::vector<rdr12::PopulationPrototypePtr>{};
+		auto instances = std::vector<rdr12::PopulationInstance>(count);
+		for (auto i = 0; i != count; ++i)
+		{
+			// Population does not support blended opacity. Reject unsupported input rather than changing appearance or omitting bodies.
+			auto const& body = m_body[i];
+			if (!body.HasShape() || body.InvMass() <= 0 || !body.NeverSleep() || body.Sleeping() || body.RenderColour().a != 255)
+				throw std::invalid_argument("Body Population requires opaque, awake, never-sleeping dynamic bodies");
+
+			switch (body.Shape().m_type)
+			{
+				case collision::EShape::Box:
+				case collision::EShape::Sphere:
+				{
+					// These primitives use the loader's shared single-model presentation.
+					break;
+				}
+				default:
+				{
+					// Other shape bindings are outside this adapter's input domain.
+					throw std::invalid_argument("Body Population supports the shared box/sphere presentation only");
+				}
+			}
+			auto const& gfx = body.m_gfx;
+			if (!gfx || !gfx->m_model || !gfx->m_child.empty() || gfx->m_material || gfx->m_pose)
+				throw std::invalid_argument("Body Population requires one unposed model without child objects or material overrides");
+
+			// Reuse the models already shared by the loader. No geometry is regenerated or cached by this adapter.
+			auto index = size_t{};
+			for (; index != prototypes.size() && prototypes[index]->m_lods[0].m_model != gfx->m_model; ++index)
+			{}
+			if (index == prototypes.size())
+			{
+				// One full-detail LOD preserves the existing model without distance or size cuts.
+				auto const lod = rdr12::PopulationLod{.m_model = gfx->m_model, .m_min_size = 0, .m_transition = 0};
+				prototypes.emplace_back(new rdr12::PopulationPrototype(std::span{&lod, 1}, 0, {}, {}), true);
+			}
+			instances[i].prototype = s_cast<uint32_t>(index);
+		}
+
+		// Publish only after every body and material has been accepted. The temporary LDraw instances then relinquish ownership.
+		auto population = rdr12::PopulationPtr(new rdr12::Population(*m_rdr, prototypes, count, 1, 0, rdr12::ESortGroup::Default), true);
+		population->SetCoverage(1.0f);
+		m_body_population = std::move(population);
+		m_body_instances = std::move(instances);
+		for (auto i = 0; i != count; ++i)
+			m_body[i].m_gfx = nullptr;
+
+		UpdateBodyGfx();
+		DbgLog("  Body Population: %d body placements, %d shared models, full-detail/full-coverage, no per-body objects\n", count, isize(prototypes));
+	}
+
+	void Scene::PackBodyInstance(Body const& body, v4 prototype_bound, rdr12::PopulationInstance& instance, BBox& bounds)
+	{
+		// Body appearance and shape-to-body placement remain authoritative, including contact-priority overrides.
+		auto const colour = body.RenderColour();
+		assert(body.NeverSleep() && !body.Sleeping() && colour.a == 255);
+		auto const o2w = body.O2W() * body.m_gfx_o2b;
+		instance = rdr12::MakePopulationInstance(o2w, colour, rdr12::EPopulationInstanceFlags::Enabled, 0, instance.prototype);
+
+		// Match the Population classifier's sphere for rigid transforms with axis scaling; the block must contain every live slot.
+		auto const centre = o2w * prototype_bound.w1();
+		auto const radius = prototype_bound.w * Sqrt(std::max({LengthSq(o2w.x), LengthSq(o2w.y), LengthSq(o2w.z)}));
+		Grow(bounds, BBox(centre, v4{radius, radius, radius, 0}));
+	}
+
+	void Scene::UpdateBodyGfx()
+	{
+		// Upload the complete dynamic prefix in one range. The ground and non-adapted scenes retain their ordinary objects.
+		if (m_body_population)
+		{
+			// Refit the single block to the latest transforms before publishing its live range.
+			auto bounds = BBox::Reset();
+			for (auto i = 0; i != isize(m_body_instances); ++i)
+			{
+				// Keep the body's slot and shared prototype unchanged across frames.
+				auto& instance = m_body_instances[i];
+				PackBodyInstance(m_body[i], m_body_population->m_prototypes[instance.prototype]->m_bound, instance, bounds);
+			}
+			auto const count = isize(m_body_instances);
+			m_body_population->UpdateInstances(0, m_body_instances);
+			m_body_population->SetBlock(0, bounds, 0, count, count);
+		}
+		for (auto i = isize(m_body_instances); i != isize(m_body); ++i)
+			m_body[i].UpdateGfx();
 	}
 
 	// Synchronise all articulation-link graphics with the latest accepted simulation state.
@@ -2031,6 +2153,399 @@ namespace physics_sandbox::tests
 			}
 		}
 	}
+
+	// Presentation mapping, unsupported-input rejection, and the shared GPU tint boundary.
+	PRUnitTestClass(RagdollPopulationTests, Serial)
+	{
+		// Population tint must decode the same mid-tones as Colour32, without decoding alpha.
+		PRUnitTestMethod(TintMatchesOrdinaryColour, Quick)
+		{
+			// Compile the public shader entry point rather than reproducing its colour math on the CPU.
+			using namespace pr::compute;
+			auto const source_dir = std::filesystem::path(__FILE__).parent_path();
+			auto const root = source_dir.parent_path().parent_path().parent_path().parent_path().parent_path();
+			auto resolver = shader_cache::FileSourceResolver(std::vector<std::filesystem::path>{root / "include", root / "projects" / "rylogic"});
+			auto const shader = R"(
+				#include "pr/view3d-12/shaders/population.hlsli"
+				RWStructuredBuffer<float4> output : register(u0);
+				numthreads(main, 4, 1, 1) void main(uint index : SV_DispatchThreadID)
+				{
+					// Cover mid-tones, the low-end transfer boundary, and linear alpha.
+					uint colours[4] = {0x80608FB9, 0x20808080, 0xFF0A0B0C, 0x00010203};
+					View3DPopulationInstance instance = (View3DPopulationInstance)0;
+					instance.info.x = colours[index];
+					output[index] = View3DPopulationTint(instance);
+				}
+			)";
+			auto const bytecode = ShaderCompiler{}.Source(shader).Includes(resolver).EntryPoint(L"main").ShaderModel(L"cs_6_0").Optimise(false).DebugInfo().Arg(L"-Gfp").Compile();
+			auto gpu = ComGpu(TestGpuOptions);
+			auto signature = RootSig(ERootSigFlags::ComputeOnly).UAV(hlsl::EUAVReg::u0).Create(gpu, "Population tint");
+			auto pipeline = ComputePSO(signature.get(), bytecode).Create(gpu, "Population tint");
+			auto job = ComputeJob(gpu, "Population tint", 0xFF808080);
+			auto output = gpu.CreateResource(ResDesc::Buf<v4>(4, {}).usage(EUsage::UnorderedAccess), job, "Population tint");
+			auto readback = job.m_readback.Alloc<v4>(4);
+			job.m_barriers.Transition(output.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS).Commit();
+			job.m_cmd_list.SetPipelineState(pipeline.get());
+			job.m_cmd_list.SetComputeRootSignature(signature.get());
+			job.m_cmd_list.SetComputeRootUnorderedAccessView(0, output);
+			job.m_cmd_list.Dispatch(1, 1, 1);
+			job.m_barriers.Transition(output.get(), D3D12_RESOURCE_STATE_COPY_SOURCE).Commit();
+			job.m_cmd_list.CopyBufferRegion(readback, output.get(), 0);
+			job.Run();
+
+			// Compare actual shader output, including alpha, with the ordinary instance conversion.
+			auto const colours = std::array{0x80608FB9U, 0x20808080U, 0xFF0A0B0CU, 0x00010203U};
+			for (auto i = 0; i != isize(colours); ++i)
+			{
+				// RGB follows the sRGB transfer; alpha retains its normalized byte value.
+				auto const expected = Colour(Colour32(colours[i])).rgba;
+				for (auto channel = 0; channel != 4; ++channel)
+					PR_EXPECT(Abs(readback.ptr<v4>()[i][channel] - expected[channel]) < 1.0e-6f);
+			}
+		}
+
+		// Converted bodies retain their models, placement, visual overrides, overlays and single-owner lifetime.
+		PRUnitTestMethod(MappingAppearanceAndLifetime, Quick)
+		{
+			// Include a repeated model with independent placement and tint, plus another primitive and ordinary ground.
+			auto renderer = rdr12::Renderer(rdr12::RdrSettings(GetModuleHandle(nullptr)));
+			auto window = rdr12::Window(renderer, rdr12::WndSettings(nullptr, true, renderer.Settings()).Size(96, 96));
+			auto render_scene = rdr12::Scene(window);
+			auto scene = Scene(&renderer);
+			auto desc = BoxScene(v4{1, 2, 3, 0}, 5);
+			desc.bodies.push_back(scene_loader::BodyDesc{
+				.name = "sphere",
+				.shape_type = scene_loader::BodyDesc::EShape::Sphere,
+				.sphere_radius = 0.4f,
+				.mass = 1.0f,
+				.position = v4{3, 2, 4, 1},
+			});
+			auto second_box = desc.bodies[0];
+			second_box.name = "second box";
+			second_box.position = v4{-4, 2, 7, 1};
+			desc.bodies.push_back(second_box);
+			scene.LoadScene(desc);
+			scene.m_body[1].NeverSleep(true);
+			scene.m_body[2].NeverSleep(true);
+			scene.m_body[2].m_colour = Colour32(0xFFBB8057);
+
+			// Reject unsupported appearance at the input boundary without discarding the ordinary objects.
+			PR_THROWS(scene.CreateBodyPopulation(), std::invalid_argument);
+			PR_EXPECT(!scene.m_body_population && scene.m_body[0].m_gfx && scene.m_body[1].m_gfx && scene.m_body[2].m_gfx);
+			scene.m_body[0].NeverSleep(true);
+			scene.m_body[0].m_colour = Colour32(0x80608FB9);
+			PR_THROWS(scene.CreateBodyPopulation(), std::invalid_argument);
+			scene.m_body[0].m_colour = Colour32(0xFF608FB9);
+			scene.m_body[0].NeverSleep(false);
+			scene.m_body[0].Sleep();
+			PR_THROWS(scene.CreateBodyPopulation(), std::invalid_argument);
+			scene.m_body[0].NeverSleep(true);
+
+			// The loader's exact models and physics bounds survive conversion; only the three per-body objects are retired.
+			auto const box_model = scene.m_body[0].m_gfx->m_model;
+			auto const sphere_model = scene.m_body[1].m_gfx->m_model;
+			PR_EXPECT(scene.m_body[2].m_gfx->m_model == box_model);
+			auto const ground = scene.m_body[3].m_gfx;
+			auto const scene_bounds = scene.CalculateSceneBBox();
+			scene.CreateBodyPopulation();
+			PR_EXPECT(scene.m_body_instances.size() == 3 && scene.m_body_population->m_prototypes.size() == 2);
+			PR_EXPECT(!scene.m_body[0].m_gfx && !scene.m_body[1].m_gfx && !scene.m_body[2].m_gfx && scene.m_body[3].m_gfx == ground);
+			PR_EXPECT(scene.m_body_population->m_prototypes[scene.m_body_instances[0].prototype]->m_lods[0].m_model == box_model);
+			PR_EXPECT(scene.m_body_population->m_prototypes[scene.m_body_instances[1].prototype]->m_lods[0].m_model == sphere_model);
+			PR_EXPECT(scene.m_body_instances[2].prototype == scene.m_body_instances[0].prototype);
+			PR_EXPECT(scene.m_body_instances[2].prototype != scene.m_body_instances[1].prototype);
+			PR_EXPECT(FEql(scene.CalculateSceneBBox().m_centre, scene_bounds.m_centre) && FEql(scene.CalculateSceneBBox().m_radius, scene_bounds.m_radius));
+
+			// Nonuniform scale and rotated/translated bodies exercise all affine rows, not just identity placement.
+			scene.m_body[0].O2W(m4x4::TransformDeg(17, 29, 43, v4{7, -3, 11, 1}));
+			scene.m_body[0].PriorityColour(Colour32(0xFF2878BC), true);
+			scene.SleepingTransparency(false);
+			scene.UpdateBodyGfx();
+			for (auto i = 0; i != 3; ++i)
+			{
+				// Compare actual packed rows with each body's existing model-to-world transform.
+				auto const& instance = scene.m_body_instances[i];
+				auto const transform = scene.m_body[i].O2W() * scene.m_body[i].m_gfx_o2b;
+				auto const& prototype = *scene.m_body_population->m_prototypes[instance.prototype].get();
+				for (auto point : {v4::Origin(), v4{1, -2, 3, 1}, v4{-2, 1, -1, 1}})
+				{
+					// Non-axis-aligned points expose transposed rows or missing shape transforms.
+					auto const actual = v4{Dot(instance.o2w[0], point), Dot(instance.o2w[1], point), Dot(instance.o2w[2], point), 1};
+					PR_EXPECT(Length(actual - transform * point) < 1.0e-5f);
+				}
+				// The block must contain every classifier sphere, including the second use of a shared model.
+				auto const centre = transform * prototype.m_bound.w1();
+				auto const radius = prototype.m_bound.w * Sqrt(std::max({LengthSq(transform.x), LengthSq(transform.y), LengthSq(transform.z)}));
+				auto const& bounds = scene.m_body_population->m_blocks[0].m_bbox;
+				for (auto axis = 0; axis != 3; ++axis)
+					PR_EXPECT(Abs(centre[axis] - bounds.m_centre[axis]) + radius <= bounds.m_radius[axis] + 1.0e-5f);
+
+				// Shared geometry must not share appearance or disable a placement.
+				PR_EXPECT(instance.tint == scene.m_body[i].RenderColour());
+				PR_EXPECT(instance.flags == rdr12::EPopulationInstanceFlags::Enabled);
+			}
+			scene.SleepingTransparency(true);
+			scene.UpdateBodyGfx();
+			PR_EXPECT(scene.m_body_instances[0].tint == Colour32(0xFF2878BC));
+			PR_EXPECT(scene.m_body_instances[2].tint == Colour32(0xFFBB8057));
+			PR_EXPECT(scene.m_body_instances[0].o2w[0].w != scene.m_body_instances[2].o2w[0].w);
+
+			// Retained populations are not draw-list entries. Remove them explicitly, while shape-based overlays remain independent.
+			render_scene.AddPopulation(scene.m_body_population);
+			render_scene.AddPopulation(scene.m_body_population);
+			render_scene.ClearDrawlists();
+			PR_EXPECT(render_scene.Populations().size() == 1);
+			scene.m_sample_overlays.Surface(true);
+			scene.m_sample_overlays.Reset();
+			scene.AddSampleOverlays(render_scene);
+			PR_EXPECT(scene.m_sample_overlays.m_instances.size() == 3);
+			render_scene.RemovePopulation(*scene.m_body_population.get());
+			render_scene.ClearDrawlists();
+			window.WaitForGpu();
+			scene.ClearSimulationObjects();
+			PR_EXPECT(render_scene.Populations().empty() && !scene.m_body_population && scene.m_body_instances.empty());
+		}
+	};
+
+	// Actual indirect rendering must preserve independently placed and tinted uses of shared geometry.
+	PRUnitTestClass(RagdollPopulationRenderTests, Serial)
+	{
+		// Compare matched ordinary/Population images and falsify placement collapse and frustum omission explicitly.
+		PRUnitTestMethod(SharedPrototypePlacementsReachPixels, Quick)
+		{
+			// Use the existing sandbox off-screen target/readback path, independent of desktop capture and ragdoll dynamics.
+			auto renderer = rdr12::Renderer(rdr12::RdrSettings(GetModuleHandle(nullptr)));
+			auto settings = rdr12::WndSettings(nullptr, true, renderer.Settings()).Size(96, 96);
+			settings.m_mode.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+			auto window = rdr12::Window(renderer, settings);
+			auto factory = rdr12::ResourceFactory(renderer);
+			auto target_desc = rdr12::TextureDesc(rdr12::AutoId, pr::compute::ResDesc::Tex2D(pr::compute::Image{96, 96, nullptr, settings.m_mode.Format}, 1U, pr::compute::EUsage::RenderTarget).clear(window.m_rt_props));
+			target_desc.rtv_format(pr::compute::ToSRGB(settings.m_mode.Format));
+			auto texture_target = factory.CreateTexture2D(target_desc);
+			factory.FlushToGpu(rdr12::EGpuFlush::Block);
+			auto target = rdr12::BackBuffer(window, pr::compute::MultiSamp(1), texture_target.get(), nullptr);
+			window.CustomSwapChain(std::span{&target, 1});
+			auto render_scene = rdr12::Scene(window);
+			render_scene.m_cam.LookAt(v4{0, 0, 7, 1}, v4::Origin(), v4::YAxis());
+			auto scene = Scene(&renderer);
+			auto desc = BoxScene(v4{1, 1, 1, 0}, 0);
+			desc.ground.reset();
+			desc.bodies[0].position = v4{-1.4f, -0.8f, 0, 1};
+			desc.bodies.push_back(desc.bodies[0]);
+			desc.bodies[1].position = v4{1.4f, -0.8f, 0, 1};
+			desc.bodies[1].box_dimensions = v4{1.3f, 0.65f, 0.9f, 0};
+			desc.bodies.push_back(scene_loader::BodyDesc{
+				.name = "sphere",
+				.shape_type = scene_loader::BodyDesc::EShape::Sphere,
+				.sphere_radius = 0.6f,
+				.mass = 1.0f,
+				.position = v4{0, 1.1f, 0, 1},
+			});
+			scene.LoadScene(desc);
+			scene.m_body[1].O2W(m4x4::TransformDeg(17, 29, 43, desc.bodies[1].position));
+			auto const colours = std::array{Colour32(0xFFFF0000), Colour32(0xFF00FF00), Colour32(0xFF0000FF)};
+			for (auto i = 0; i != 3; ++i)
+			{
+				// Primary tints identify each placement without depending on a particular light intensity.
+				scene.m_body[i].NeverSleep(true);
+				scene.m_body[i].m_colour = colours[i];
+				scene.m_body[i].UpdateGfx();
+				scene.m_body[i].AddToScene(render_scene);
+			}
+			PR_EXPECT(scene.m_body[0].m_gfx->m_model == scene.m_body[1].m_gfx->m_model);
+
+			// Read completed pixels from the actual render target, as in the existing sample-overlay rendering fixture.
+			auto job = pr::compute::GpuJob<D3D12_COMMAND_LIST_TYPE_DIRECT>(renderer.d3d(), "PopulationRenderReadback", 0);
+			auto render_image = [&]
+			{
+				// Submit the normal renderer, including classification, indirect draws and final colour composition.
+				auto& frame = window.NewFrame();
+				render_scene.Render(frame);
+				window.Present(frame, rdr12::EGpuFlush::Block);
+				auto* texture = window.FrameOutput().m_render_target.get();
+				auto const image_desc = texture->GetDesc();
+				auto footprint = D3D12_PLACED_SUBRESOURCE_FOOTPRINT{};
+				auto bytes = UINT64{};
+				renderer.d3d()->GetCopyableFootprints(&image_desc, 0, 1, 0, &footprint, nullptr, nullptr, &bytes);
+				auto readback = job.m_readback.Alloc(static_cast<int64_t>(bytes), D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT);
+				footprint.Offset = readback.m_ofs;
+				auto destination = D3D12_TEXTURE_COPY_LOCATION{.pResource = readback.m_res, .Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT, .PlacedFootprint = footprint};
+				auto source = D3D12_TEXTURE_COPY_LOCATION{.pResource = texture, .Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX, .SubresourceIndex = 0};
+				auto barrier = D3D12_RESOURCE_BARRIER{};
+				barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+				barrier.Transition = {texture, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES, pr::compute::DefaultResState(texture), D3D12_RESOURCE_STATE_COPY_SOURCE};
+				job.m_cmd_list.ResourceBarrier({&barrier, 1});
+				job.m_cmd_list.CopyTextureRegion(&destination, 0, 0, 0, &source, nullptr);
+				std::swap(barrier.Transition.StateBefore, barrier.Transition.StateAfter);
+				job.m_cmd_list.ResourceBarrier({&barrier, 1});
+				job.Run();
+
+				// Return tightly packed RGBA8 pixels; row-pitch padding is not image content.
+				auto image = std::vector<uint8_t>(96 * 96 * 4);
+				for (auto y = 0; y != 96; ++y)
+					std::memcpy(image.data() + y * 96 * 4, readback.ptr<uint8_t>() + y * footprint.Footprint.RowPitch, 96 * 4);
+
+				return image;
+			};
+			auto const ordinary = render_image();
+
+			// Pixel count and centroid distinguish missing or collapsed placements even if draw counters look correct.
+			auto colour_pixels = [](std::vector<uint8_t> const& image, int channel)
+			{
+				// Store count and coordinate sums for pixels dominated by this placement's primary tint.
+				auto sums = std::array<double, 3>{};
+				for (auto y = 0; y != 96; ++y)
+				{
+					// Ignore neutral background and mixed edge pixels.
+					for (auto x = 0; x != 96; ++x)
+					{
+						// Require a real coloured fragment, not merely a nonzero clear colour.
+						auto const* pixel = image.data() + (y * 96 + x) * 4;
+						if (pixel[channel] <= 40 || pixel[channel] <= pixel[(channel + 1) % 3] + 30 || pixel[channel] <= pixel[(channel + 2) % 3] + 30)
+							continue;
+
+						++sums[0];
+						sums[1] += x;
+						sums[2] += y;
+					}
+				}
+				return sums;
+			};
+			auto const reference = std::array{colour_pixels(ordinary, 0), colour_pixels(ordinary, 1), colour_pixels(ordinary, 2)};
+			for (auto const& colour : reference)
+				PR_EXPECT(colour[0] > 20);
+
+			PR_EXPECT(reference[0][1] / reference[0][0] < reference[2][1] / reference[2][0]);
+			PR_EXPECT(reference[2][1] / reference[2][0] < reference[1][1] / reference[1][0]);
+
+			// The same scene, body states and camera now use the adapter's actual retained Population.
+			render_scene.ClearDrawlists();
+			scene.CreateBodyPopulation();
+			render_scene.AddPopulation(scene.m_body_population);
+			auto const population_image = render_image();
+			auto const stats = scene.m_body_population->Stats();
+			log_stream() << std::format("matched admitted_capacity={} views={} tested={} emitted={} draws={} violations={}\n", stats.m_admitted_instances, stats.m_views, stats.m_classified.m_instances_tested, stats.m_classified.m_entries_emitted, stats.m_classified.m_indirect_draws, stats.m_classified.m_live_count_violations);
+			PR_EXPECT(stats.m_admitted_instances == 3 && stats.m_views == 1);
+			PR_EXPECT(stats.m_classified.m_instances_tested == 3 && stats.m_classified.m_entries_emitted == 3);
+			PR_EXPECT(stats.m_classified.m_indirect_draws == 2 && stats.m_classified.m_live_count_violations == 0);
+			for (auto channel = 0; channel != 3; ++channel)
+			{
+				// Each primitive must retain its visible area and independent screen position.
+				auto const actual = colour_pixels(population_image, channel);
+				auto const& expected = reference[channel];
+				log_stream() << std::format("channel={} ordinary_count={} population_count={}\n", channel, expected[0], actual[0]);
+				PR_EXPECT(actual[0] >= expected[0] * 0.98 && actual[0] <= expected[0] * 1.02);
+				PR_EXPECT(Abs(actual[1] / actual[0] - expected[1] / expected[0]) < 1.0);
+				PR_EXPECT(Abs(actual[2] / actual[0] - expected[2] / expected[0]) < 1.0);
+			}
+
+			// Deliberately collapse the shared boxes: counts still admit three slots, but their pixels must expose the error.
+			auto collapsed = scene.m_body_instances[1];
+			std::copy(std::begin(scene.m_body_instances[0].o2w), std::end(scene.m_body_instances[0].o2w), std::begin(collapsed.o2w));
+			scene.m_body_population->UpdateInstances(1, std::span{&collapsed, 1});
+			auto const collapsed_image = render_image();
+			auto const collapsed_green = colour_pixels(collapsed_image, 1);
+			PR_EXPECT(collapsed_green[0] == 0 || Abs(collapsed_green[1] / collapsed_green[0] - reference[1][1] / reference[1][0]) > 5);
+
+			// An intentionally off-frustum placement remains admitted and tested, but correctly contributes no visible entry.
+			scene.m_body[1].O2W(m4x4::Translation(1000, 0, 0));
+			scene.UpdateBodyGfx();
+			auto const excluded_image = render_image();
+			auto const excluded_stats = scene.m_body_population->Stats();
+			log_stream() << std::format("frustum_excluded admitted_capacity={} tested={} emitted={} draws={}\n", excluded_stats.m_admitted_instances, excluded_stats.m_classified.m_instances_tested, excluded_stats.m_classified.m_entries_emitted, excluded_stats.m_classified.m_indirect_draws);
+			PR_EXPECT(excluded_stats.m_admitted_instances == 3 && excluded_stats.m_classified.m_instances_tested == 3);
+			PR_EXPECT(excluded_stats.m_classified.m_entries_emitted == 2);
+			PR_EXPECT(colour_pixels(excluded_image, 1)[0] == 0);
+			PR_EXPECT(colour_pixels(excluded_image, 0)[0] > 20 && colour_pixels(excluded_image, 2)[0] > 20);
+
+			// Clear references before releasing model and Population resources.
+			window.WaitForGpu();
+			render_scene.RemovePopulation(*scene.m_body_population.get());
+			render_scene.ClearDrawlists();
+			scene.ClearSimulationObjects();
+		}
+	};
+
+	// Observe the actual ordinary-ragdoll graph and native command count without a rendering or timing campaign.
+	PRUnitTestClass(RagdollColourDispatchTests, Serial)
+	{
+		// One unchanged 3/10/1 step per retained scene exposes the commands recorded for its real stable-slot stream.
+		PRUnitTestMethod(ActualRagdollGraphAndDispatches, Extended)
+		{
+			// Each scene selects the conventional rigid-joint model in its authoring data.
+			for (auto const* name : {"rigid_ragdoll_dispersed", "rigid_ragdoll_pile"})
+			{
+				// Load the retained workload rather than synthesizing a graph with assumed joint order.
+				auto scene = Scene(nullptr);
+				scene.LoadScene(scene_loader::LoadFromFile(std::filesystem::path("projects\\tests\\physics-sandbox\\scenes") / (std::string(name) + ".json")));
+				PR_EXPECT(scene.m_body.size() == 1001);
+				PR_EXPECT(scene.m_rigid_ragdoll_joints.size() == 900);
+				PR_EXPECT(scene.m_constraints.Count() == 1800);
+				PR_EXPECT(scene.m_constraints.CapacitySlots() == 1800);
+				PR_EXPECT(scene.m_physics_substeps == 3);
+				PR_EXPECT(scene.m_physics.Config().solver_iterations == 10);
+				PR_EXPECT(scene.m_physics.Config().push_out_iterations == 1);
+				auto edges = std::vector<std::pair<int, int>>(scene.m_constraints.CapacitySlots(), {-1, -1});
+				for (auto const& joint : scene.m_rigid_ragdoll_joints)
+				{
+					// Read both actual descriptors by their stable handles, including the reversed actuator endpoints.
+					for (auto [handle, reversed] : std::array{std::pair{joint.m_anchor, false}, std::pair{joint.m_actuator, true}})
+					{
+						// Verify identity before using body indices; packing may remap indices but cannot change graph incidence.
+						auto const a = reversed ? joint.m_child : joint.m_parent;
+						auto const b = reversed ? joint.m_parent : joint.m_child;
+						auto const& desc = scene.m_constraints.Get(handle);
+						PR_EXPECT(desc.m_frame_a.m_body == physics::BodyRef::Rigid(scene.m_body[a]));
+						PR_EXPECT(desc.m_frame_b.m_body == physics::BodyRef::Rigid(scene.m_body[b]));
+						PR_EXPECT(handle.m_index < edges.size() && edges[handle.m_index].first == -1);
+						edges[handle.m_index] = {a, b};
+					}
+				}
+
+				// Compute both source bounds and a serial first-free maximum over the real slot order.
+				auto degrees = std::vector<int>(scene.m_body.size(), 0);
+				for (auto [a, b] : edges)
+				{
+					// Complete coverage excludes holes or dropped actuator records.
+					PR_EXPECT(a >= 0 && b >= 0);
+					++degrees[a];
+					++degrees[b];
+				}
+				auto prior = std::vector<int>(scene.m_body.size(), 0);
+				auto masks = std::vector<uint32_t>(scene.m_body.size(), 0u);
+				auto complete_bound = 1;
+				auto prior_bound = 1;
+				auto serial_count = 0;
+				for (auto [a, b] : edges)
+				{
+					// Every independent slot can block at most one colour on each incident body.
+					complete_bound = std::max(complete_bound, degrees[a] + degrees[b] - 1);
+					prior_bound = std::max(prior_bound, prior[a] + prior[b] + 1);
+					++prior[a];
+					++prior[b];
+					auto const used = masks[a] | masks[b];
+					PR_EXPECT(~used != 0u);
+					auto const colour = std::countr_zero(~used);
+					serial_count = std::max(serial_count, colour + 1);
+					masks[a] |= 1u << colour;
+					masks[b] |= 1u << colour;
+				}
+				PR_EXPECT(serial_count <= prior_bound && prior_bound < complete_bound);
+				PR_EXPECT(complete_bound <= std::numeric_limits<uint32_t>::digits);
+
+				// The existing engine statistics count actual recorded commands, not estimates of GPU execution time.
+				scene.Step(1.0 / 60.0);
+				auto const& stats = scene.m_physics.LastFeatureStats().m_constraints;
+				PR_EXPECT(stats.m_declared_count == 1800 && stats.m_active_count == 1800);
+				PR_EXPECT(stats.m_resources.m_dispatch_count > 0);
+				log_stream() << name << " bodies=" << scene.m_body.size() << " connections=" << scene.m_rigid_ragdoll_joints.size()
+					<< " slots=" << edges.size() << " complete_bound=" << complete_bound << " prior_bound=" << prior_bound
+					<< " serial_count=" << serial_count << " recorded_dispatches=" << stats.m_resources.m_dispatch_count
+					<< " substeps=" << scene.m_physics_substeps << " velocity_iterations=" << scene.m_physics.Config().solver_iterations
+					<< " position_iterations=" << scene.m_physics.Config().push_out_iterations << '\n';
+			}
+		}
+	};
 
 	PRUnitTestClass(SceneReloadTests)
 	{

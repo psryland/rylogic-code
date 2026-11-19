@@ -37,6 +37,7 @@
 #include "pr/gui/view3d_panel_static.h"
 #include "pr/storage/json.h"
 #include "pr/view3d-12/view3d.h"
+#include "pr/view3d-12/population/population.h"
 #include "pr/view3d-12/resource/resource_factory.h"
 #include "pr/view3d-12/texture/texture_2d.h"
 #include "pr/win32/win32.h"

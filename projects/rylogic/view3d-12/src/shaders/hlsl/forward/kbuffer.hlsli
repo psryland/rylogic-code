@@ -5,7 +5,7 @@
 // Helpers for the 1x alpha K-buffer.
 #ifndef PR_VIEW3D_SHADER_KBUFFER_HLSLI
 #define PR_VIEW3D_SHADER_KBUFFER_HLSLI
-#include "view3d-12/src/shaders/hlsl/utility/colour_space.hlsli"
+#include "pr/view3d-12/shaders/colour_space.hlsli"
 
 static const uint KBufferDepthMask = 0x00FFFFFFu;
 static const uint KBufferOiaMask   = 0xFF000000u;

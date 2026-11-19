@@ -10,39 +10,24 @@ namespace pr::physics
 {
 	namespace
 	{
-		// Sort an identity-to-index table by identity and reject a repeated identity.
-		void SortIdentities(std::vector<std::pair<uint64_t, int>>& indices, char const* duplicate_message)
-		{
-			// Equal identities are adjacent after sorting
-			std::ranges::sort(indices, {}, &std::pair<uint64_t, int>::first);
-			if (std::ranges::adjacent_find(indices, {}, &std::pair<uint64_t, int>::first) != indices.end())
-				throw std::invalid_argument(duplicate_message);
-		}
-
-		// Return the index stored for 'id' in a sorted identity table, or -1 when it is absent.
-		int FindIdentity(std::vector<std::pair<uint64_t, int>> const& indices, uint64_t id)
-		{
-			// The table is sorted by identity, so a binary search finds the only possible entry
-			auto const iter = std::ranges::lower_bound(indices, id, {}, &std::pair<uint64_t, int>::first);
-			return iter != indices.end() && iter->first == id ? iter->second : -1;
-		}
-
 		// Return an endpoint's constraint frame in world space.
 		m4x4 ConstraintToWorld(BodyFrame const& frame, CompiledConstraintEndpoint const& endpoint, BodyRemap const& remap)
 		{
+			// CPU Jacobian compilation needs a matrix; persistent storage and GPU packing do not.
+			auto const constraint_to_body = m4x4::Transform(frame.m_rotation, frame.m_position);
 			switch (endpoint.m_type)
 			{
 				case EConstraintBodyType::World:
 				{
-					return frame.m_constraint_to_body;
+					return constraint_to_body;
 				}
 				case EConstraintBodyType::Rigid:
 				{
-					return remap.Body(endpoint.m_rigid_index).O2W() * frame.m_constraint_to_body;
+					return remap.Body(endpoint.m_rigid_index).O2W() * constraint_to_body;
 				}
 				case EConstraintBodyType::ArticulationLink:
 				{
-					return remap.ArticulationBody(endpoint.m_articulation_index).LinkToWorld(endpoint.m_link) * frame.m_constraint_to_body;
+					return remap.ArticulationBody(endpoint.m_articulation_index).LinkToWorld(endpoint.m_link) * constraint_to_body;
 				}
 				default:
 				{
@@ -179,62 +164,75 @@ namespace pr::physics
 	BodyRemap::BodyRemap(std::span<RigidBody* const> bodies, std::span<Articulation* const> articulations)
 		: m_bodies()
 		, m_articulations()
-		, m_rigid_indices()
-		, m_articulation_indices()
 		, m_articulation_link_offsets()
 	{
+		// Reserve ordered values and the hash index together, so inserting the submitted bodies does not grow either allocation.
 		m_bodies.reserve(bodies.size());
-		m_rigid_indices.reserve(bodies.size());
-		for (int index = 0; index != isize(bodies); ++index)
+		auto duplicate_rigid = false;
+		for (auto* body : bodies)
 		{
-			auto* body = bodies[index];
+			// Reject missing owners before inspecting their identities.
 			if (body == nullptr)
 				throw std::invalid_argument("Body remap cannot contain a null rigid-body pointer");
+
+			// Zero is not a valid key in the rigid identity domain.
 			if (!body->Id())
 				throw std::invalid_argument("Body remap cannot contain an invalid rigid-body identity");
 
-			m_rigid_indices.emplace_back(body->Id().m_value, index);
-			m_bodies.push_back(body);
+			// Defer duplicate failure until all input pointers and identities have been validated, preserving their error precedence.
+			duplicate_rigid |= !m_bodies.try_emplace(body->Id().m_value, body).second;
 		}
-		SortIdentities(m_rigid_indices, "Body remap contains duplicate rigid-body identities");
+		if (duplicate_rigid)
+			throw std::invalid_argument("Body remap contains duplicate rigid-body identities");
 
 		// Articulation links follow the ordinary rigid prefix in packed topological order.
 		m_articulations.reserve(articulations.size());
-		m_articulation_indices.reserve(articulations.size());
 		m_articulation_link_offsets.reserve(articulations.size());
 		auto link_offset = isize(m_bodies);
-		for (int index = 0; index != isize(articulations); ++index)
+		auto duplicate_articulation = false;
+		for (auto* articulation : articulations)
 		{
-			auto* articulation = articulations[index];
+			// Reject missing owners before inspecting their identities.
 			if (articulation == nullptr)
 				throw std::invalid_argument("Body remap cannot contain a null articulation pointer");
+
+			// Articulation identities occupy a separate domain from rigid identities.
 			if (!articulation->Id())
 				throw std::invalid_argument("Body remap cannot contain an invalid articulation identity");
 
-			m_articulation_indices.emplace_back(articulation->Id().m_value, index);
+			// Keep validating the complete domain before reporting duplicates, as for rigid bodies.
+			duplicate_articulation |= !m_articulations.try_emplace(articulation->Id().m_value, articulation).second;
+
+			// Link counts vary between trees, so their packed offsets remain explicit.
 			m_articulation_link_offsets.push_back(link_offset);
 			link_offset += articulation->LinkCount();
-			m_articulations.push_back(articulation);
 		}
-		SortIdentities(m_articulation_indices, "Body remap contains duplicate articulation identities");
+		if (duplicate_articulation)
+			throw std::invalid_argument("Body remap contains duplicate articulation identities");
 	}
 
 	// Resolve a stable endpoint to its current object owner and packed proxy index.
 	CompiledConstraintEndpoint BodyRemap::ResolveEndpoint(BodyRef body) const
 	{
+		// Resolve only within the endpoint's identity domain; world has no owner.
 		switch (body.m_type)
 		{
 			case EConstraintBodyType::World:
 			{
+				// World references cannot carry an identity from either object domain.
 				if (body.m_body_id || body.m_articulation_id || body.m_link)
 					throw std::invalid_argument("World constraint endpoint cannot carry an object identity");
+
 				return {};
 			}
 			case EConstraintBodyType::Rigid:
 			{
-				auto const rigid_index = FindIdentity(m_rigid_indices, body.m_body_id.m_value);
-				if (rigid_index < 0)
+				// The ordered map position is the submitted rigid body's packed index.
+				auto const iter = m_bodies.find(body.m_body_id.m_value);
+				if (iter == m_bodies.end())
 					throw std::invalid_argument("Constraint endpoint rigid body is missing from the current step");
+
+				auto const rigid_index = s_cast<int>(iter - m_bodies.begin());
 				return CompiledConstraintEndpoint{
 					.m_type = EConstraintBodyType::Rigid,
 					.m_rigid_index = rigid_index,
@@ -243,11 +241,13 @@ namespace pr::physics
 			}
 			case EConstraintBodyType::ArticulationLink:
 			{
-				auto const articulation_index = FindIdentity(m_articulation_indices, body.m_articulation_id.m_value);
-				if (articulation_index < 0)
+				// Find the owning tree without changing the existing link owner/index/generation validation.
+				auto const iter = m_articulations.find(body.m_articulation_id.m_value);
+				if (iter == m_articulations.end())
 					throw std::invalid_argument("Constraint endpoint articulation is missing from the current step");
 
-				auto const& articulation = *m_articulations[articulation_index];
+				auto const articulation_index = s_cast<int>(iter - m_articulations.begin());
+				auto const& articulation = *iter->second;
 				(void)articulation.LinkDescription(body.m_link);
 				auto const link_index = s_cast<int>(body.m_link.m_index);
 
@@ -261,6 +261,7 @@ namespace pr::physics
 			}
 			default:
 			{
+				// Unknown endpoint kinds must not silently resolve to world.
 				throw std::invalid_argument("Unknown constraint endpoint type");
 			}
 		}
@@ -278,7 +279,7 @@ namespace pr::physics
 		if (index < 0 || index >= isize(m_bodies))
 			throw std::out_of_range("Remapped rigid-body index is out of range");
 
-		return *m_bodies[index];
+		return *m_bodies.data()[index].second;
 	}
 
 	// Return a mutable remapped rigid body by current packed index.
@@ -287,7 +288,7 @@ namespace pr::physics
 		if (index < 0 || index >= isize(m_bodies))
 			throw std::out_of_range("Remapped rigid-body index is out of range");
 
-		return *m_bodies[index];
+		return *m_bodies.data()[index].second;
 	}
 
 	// Return a remapped articulation by current packed forest index.
@@ -296,7 +297,7 @@ namespace pr::physics
 		if (index < 0 || index >= isize(m_articulations))
 			throw std::out_of_range("Remapped articulation index is out of range");
 
-		return *m_articulations[index];
+		return *m_articulations.data()[index].second;
 	}
 
 	// Return a mutable remapped articulation by current packed forest index.
@@ -305,7 +306,7 @@ namespace pr::physics
 		if (index < 0 || index >= isize(m_articulations))
 			throw std::out_of_range("Remapped articulation index is out of range");
 
-		return *m_articulations[index];
+		return *m_articulations.data()[index].second;
 	}
 
 	// Return one articulation's first index in the packed forest-wide link stream.

@@ -1099,6 +1099,19 @@ namespace pr::animation
 			}
 		}
 
+		// A function that returns the local stance frame of a bone in family 'f', blended between the cycles either side of the current speed
+		auto StanceBlend(int f) const
+		{
+			// The bracketing cycles are the same cycle outside the family's speed range
+			auto b = Bracket(m_gait.families[f], m_gait_speed);
+			auto const& lo = m_families[f].stance_local[b.lo];
+			auto const& hi = m_families[f].stance_local[b.hi];
+			return [&lo, &hi, t = b.t](int bone)
+			{
+				return t == 0 ? lo[bone] : BlendFrame(lo[bone], hi[bone], t);
+			};
+		}
+
 		// Set 'm_guide' to the blended stance plus the cycles' body motion, scaled by 'amplitude'
 		void BuildGuide(float amplitude)
 		{
@@ -1145,19 +1158,6 @@ namespace pr::animation
 				local.pos += m_pos_offset[b];
 			}
 			m_guide.UpdateModel(m_rig);
-		}
-
-		// A function that returns the local stance frame of a bone in family 'f', blended between the cycles either side of the current speed
-		auto StanceBlend(int f) const
-		{
-			// The bracketing cycles are the same cycle outside the family's speed range
-			auto b = Bracket(m_gait.families[f], m_gait_speed);
-			auto const& lo = m_families[f].stance_local[b.lo];
-			auto const& hi = m_families[f].stance_local[b.hi];
-			return [&lo, &hi, t = b.t](int bone)
-			{
-				return t == 0 ? lo[bone] : BlendFrame(lo[bone], hi[bone], t);
-			};
 		}
 
 		// Add the motion of family 'f' at the current phase, scaled by 'weight', to the motion offsets

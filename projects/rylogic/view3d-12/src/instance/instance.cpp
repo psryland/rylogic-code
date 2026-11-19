@@ -19,7 +19,7 @@ namespace pr::rdr12
 	NuggetPtr GetNuggets(BaseInstance const& inst)
 	{
 		// Todo: Instances could have their own root nugget pointer component
-		if (auto mdl = GetModel(inst); mdl != nullptr)
+		if (auto const& mdl = GetModel(inst); mdl != nullptr)
 			return mdl->m_nuggets;
 
 		throw std::runtime_error("Null model pointer");

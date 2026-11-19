@@ -25,6 +25,9 @@ namespace physics_sandbox
 		// Position the graphics at the rigid body location
 		void UpdateGfx();
 
+		// Return the current visual colour, including contact priority and the sleeping-opacity policy.
+		Colour32 RenderColour() const;
+
 		// Enable/disable the sleeping-opacity diagnostic without altering sleep or physics state.
 		void SleepingTransparency(bool enabled);
 

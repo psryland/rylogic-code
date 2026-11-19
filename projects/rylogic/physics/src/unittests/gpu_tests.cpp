@@ -50,7 +50,12 @@ namespace pr::physics::tests
 			// First segment: upload into 'src' and execute it without waiting.
 			job.m_barriers.Transition(src.get(), D3D12_RESOURCE_STATE_COPY_DEST).Commit();
 			UploadData<uint32_t>(job, src.get(), values);
-			job.Flush();
+			auto profile = GpuJob::RunProfile{.m_prepare_ms = -1, .m_execute_ms = -1, .m_reset_ms = -1};
+			job.Flush(&profile);
+			PR_EXPECT(std::isfinite(profile.m_prepare_ms) && profile.m_prepare_ms >= 0);
+			PR_EXPECT(std::isfinite(profile.m_execute_ms) && profile.m_execute_ms >= 0);
+			PR_EXPECT(std::isfinite(profile.m_reset_ms) && profile.m_reset_ms >= 0);
+			PR_EXPECT(profile.m_wait_ms == 0);
 
 			// Second segment: copy 'src' into 'dst' using the data written by the flushed segment, then read it back.
 			job.m_barriers.Transition(src.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);

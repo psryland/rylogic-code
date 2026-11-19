@@ -290,6 +290,7 @@ namespace pr::physics::tests
 				PR_EXPECT(callback_count == substep_count);
 				PR_EXPECT(profile.m_substep_count == substep_count);
 				PR_EXPECT(profile.m_submission_count == 1);
+				PR_EXPECT(profile.m_flush_count == substep_count - 1);
 				PR_EXPECT(profile.m_wait_count == 1);
 				PR_EXPECT(profile.m_readback_copy_count == 1);
 				PR_EXPECT(engine.LastCollisionStats().m_event_capacity == 0);

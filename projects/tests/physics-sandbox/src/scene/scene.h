@@ -75,6 +75,20 @@ namespace physics_sandbox
 		std::vector<physics::Articulation> m_articulation;
 		physics::ConstraintSet m_constraints;
 
+		// One physical rigid-joint connection and its separate angular-only actuator.
+		struct RigidRagdollJoint
+		{
+			int m_parent;
+			int m_child;
+			int m_dof_count;
+			int m_dof_offset;
+			float m_amplitude;
+			scene_loader::RagdollActuationDesc m_actuation;
+			physics::ConstraintHandle m_anchor;
+			physics::ConstraintHandle m_actuator;
+		};
+		std::vector<RigidRagdollJoint> m_rigid_ragdoll_joints;
+
 		// Stable pointer views rebuilt only after scene construction has finished growing object containers.
 		std::vector<physics::RigidBody*> m_body_ptrs;
 		std::vector<physics::Articulation*> m_articulation_ptrs;
@@ -84,6 +98,10 @@ namespace physics_sandbox
 		std::vector<physics::Engine::CollisionIgnorePair> m_collision_ignore_pairs;
 		// One renderer binding per shaped articulation link.
 		std::vector<ArticulationVisual> m_articulation_visuals;
+
+		// Shared-model presentation owns the conventional ragdolls' dynamic-body prefix.
+		rdr12::PopulationPtr m_body_population;
+		std::vector<rdr12::PopulationInstance> m_body_instances;
 
 		// Shape-root geometry shared by additive diagnostic overlays; renderer-safe retirement is owned by the UI.
 		SampleOverlays m_sample_overlays;
@@ -219,6 +237,23 @@ namespace physics_sandbox
 
 		// Synchronise all articulation-link graphics with the latest accepted simulation state.
 		void UpdateArticulationGfx();
+
+		// Build conventional ragdolls from stable collision shapes without creating reduced-coordinate objects.
+		void BuildRigidRagdolls(scene_loader::SceneDesc const& scene_desc, std::span<collision::Shape const* const> shapes);
+
+		// Apply the authored internal torque and damping law at the start of one submitted physics frame.
+		void ApplyRagdollActuation(double time_s);
+
+		// Replace supported body graphics with shared-model Population placements. Requires a renderer and a nonempty dynamic body prefix,
+		// followed by optional ground. Dynamic bodies must be opaque, awake, never-sleeping boxes/spheres, each with one unposed model
+		// and no child objects or material overrides. Unsupported body input throws before existing graphics are released.
+		void CreateBodyPopulation();
+
+		// Synchronise the active body presentation with accepted physics state, including contact-priority colours.
+		void UpdateBodyGfx();
+
+		// Pack one body placement and grow a bound containing its renderer-classified sphere. The transform is rigid with axis scaling.
+		static void PackBodyInstance(Body const& body, v4 prototype_bound, rdr12::PopulationInstance& instance, BBox& bounds);
 
 		// Add visible articulation-link graphics to the current renderer draw list.
 		void AddArticulationsToScene(rdr12::Scene& scene, m4x4 const& w2c, Frustum const& frustum, v2 const& clip_planes);

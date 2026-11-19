@@ -1657,10 +1657,7 @@ namespace pr::physics
 				}
 			}
 
-			return BodyFrame{
-				.m_body = body,
-				.m_constraint_to_body = ToNative(value.constraint_to_body),
-			};
+			return BodyFrame::FromMatrix(body, ToNative(value.constraint_to_body));
 		}
 
 		// Resolve and validate one complete D6 descriptor before mutating persistent storage or references.

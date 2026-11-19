@@ -61,6 +61,10 @@ namespace pr::physics
 		// The sweep form used by the next Resolve call. Callers choose Fused only when they expect a small contact count; see EColourSweep.
 		EColourSweep m_colour_sweep;
 
+		// Record colours [0, head) separately and finish every remaining occupied colour in one group.
+		// This is an estimate, not a coverage limit; valid values are [0, MaxColours].
+		int m_colour_head;
+
 		explicit GpuResolver(Gpu& gpu, EngineConfig const& config, IShaderCache* shader_cache);
 
 		// Resolve ordinary rigid contacts while retaining proxy-touching contacts for the coupled articulation lane.
@@ -80,6 +84,9 @@ namespace pr::physics
 
 		// Sorted contact index order from the most recent resolve.
 		ID3D12Resource* ContactOrder();
+
+		// Copy the most recent resolve's occupied-colour mask into a caller-owned four-byte readback allocation.
+		void CopyOccupiedColours(GpuJob& job, ReadbackAlloc const& allocation);
 
 	private:
 

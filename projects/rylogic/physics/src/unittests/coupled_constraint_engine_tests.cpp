@@ -1041,9 +1041,10 @@ namespace pr::physics::tests
 			auto const root = builder.AddFloatingRoot(ArticulationLinkDesc{.m_inertia = Inertia{1.0f, 1.0f}}, m4x4::Identity(), v8motion{v4::Zero(), v4{-1.0f, -1.0f, 0.0f, 0.0f}});
 			auto articulation = builder.Build();
 			auto desc = D6ConstraintDesc{};
-			desc.m_frame_a.m_constraint_to_body = m4x4::Translation(1.0f, -1.0f, 0.0f);
+			desc.m_frame_a = BodyFrame::FromMatrix(desc.m_frame_a.m_body, m4x4::Translation(1.0f, -1.0f, 0.0f));
 			desc.m_frame_b.m_body = BodyRef::Link(articulation, root);
-			desc.m_frame_b.m_constraint_to_body = desc.m_frame_a.m_constraint_to_body;
+			desc.m_frame_b.m_rotation = desc.m_frame_a.m_rotation;
+			desc.m_frame_b.m_position = desc.m_frame_a.m_position;
 			desc.m_linear[0].m_mode = EConstraintAxisMode::Locked;
 			desc.m_linear[1].m_mode = EConstraintAxisMode::Driven;
 			desc.m_linear[1].m_max_force = 6.0f;
@@ -1080,9 +1081,9 @@ namespace pr::physics::tests
 			auto const root = builder.AddFloatingRoot(ArticulationLinkDesc{.m_inertia = Inertia{1.0f, 1.0f}}, m4x4::Identity());
 			auto articulation = builder.Build();
 			auto desc = D6ConstraintDesc{};
-			desc.m_frame_a.m_constraint_to_body = m4x4::Translation(2.0f, -0.9999f, 0.0f);
+			desc.m_frame_a = BodyFrame::FromMatrix(desc.m_frame_a.m_body, m4x4::Translation(2.0f, -0.9999f, 0.0f));
 			desc.m_frame_b.m_body = BodyRef::Link(articulation, root);
-			desc.m_frame_b.m_constraint_to_body = m4x4::Translation(1.0f, -1.0f, 0.0f);
+			desc.m_frame_b = BodyFrame::FromMatrix(desc.m_frame_b.m_body, m4x4::Translation(1.0f, -1.0f, 0.0f));
 			desc.m_linear[0].m_mode = EConstraintAxisMode::Locked;
 			desc.m_linear[1].m_mode = EConstraintAxisMode::Limited;
 			desc.m_linear[1].m_limits = {0.0f, 1.0f};
@@ -1413,7 +1414,7 @@ namespace pr::physics::tests
 			auto follower_body = RigidBody{&follower_shape, m4x4::Translation(0.0f, 0.0f, 1.4f), Inertia::Sphere(follower_shape.m_radius, 1.0f)};
 			auto ground = RigidBody{&ground_shape, m4x4::Translation(0.0f, 0.0f, -0.5f), Inertia::Infinite()};
 			auto desc = CoupledEngineLinear(BodyRef::Rigid(contact_body), BodyRef::Rigid(follower_body), 2);
-			desc.m_frame_b.m_constraint_to_body = m4x4::Translation(0.0f, 0.0f, -1.0f);
+			desc.m_frame_b = BodyFrame::FromMatrix(desc.m_frame_b.m_body, m4x4::Translation(0.0f, 0.0f, -1.0f));
 			auto constraints = ConstraintSet{};
 			constraints.Add(desc);
 			auto body_ptrs = std::array<RigidBody*, 3>{&contact_body, &follower_body, &ground};
@@ -1487,7 +1488,7 @@ namespace pr::physics::tests
 			auto ground_shape = collision::ShapeBox{v4{10.0f, 10.0f, 1.0f, 0.0f}};
 			auto ground = RigidBody{&ground_shape, m4x4::Translation(0.0f, 0.0f, -0.5f), Inertia::Infinite()};
 			auto desc = CoupledEngineLinear(BodyRef::Link(articulation, root), BodyRef::Rigid(body), 2);
-			desc.m_frame_b.m_constraint_to_body = m4x4::Translation(0.0f, 0.0f, articulated_contact ? -1.0f : 1.0f);
+			desc.m_frame_b = BodyFrame::FromMatrix(desc.m_frame_b.m_body, m4x4::Translation(0.0f, 0.0f, articulated_contact ? -1.0f : 1.0f));
 			auto constraints = ConstraintSet{};
 			constraints.Add(desc);
 			auto body_ptrs = std::array<RigidBody*, 2>{&body, &ground};

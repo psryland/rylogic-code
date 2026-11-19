@@ -20,8 +20,8 @@ namespace pr::physics
 	{
 		int max_contacts; // The max capacity of the contacts buffer
 		int body_count;   // The number of bodies in the scene
-		int colour;       // Current colour batch being processed (for CSResolve)
-		int colour_capacity; // Retained colour-buffer capacity; the trailing slot holds the overflow flag.
+		int colour;       // One colour, or MaxColours + head for the complete single-group tail.
+		int colour_capacity; // Retained capacity followed by the overflow flag and occupied-colour mask.
 
 		int shock_iterations;
 		float max_position_speed;
@@ -121,6 +121,7 @@ namespace pr::physics
 		, m_reset_warm_start_cache(true)
 		, m_materials_dirty(true)
 		, m_colour_sweep(EColourSweep::PerColour)
+		, m_colour_head(MaxColours)
 	{
 		// m_cs_compute_times: parallel, one thread per contact — writes collision_time
 		{
@@ -279,8 +280,8 @@ namespace pr::physics
 		}
 		if (m_r_colours == nullptr || m_max_contacts < max_contacts)
 		{
-			// Reserve one element beyond the retained contact capacity for the frame-wide colour-overflow flag.
-			m_r_colours = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(max_contacts + 1, {}).usage(EUsage::UnorderedAccess), job, "Physics:ResolveColours");
+			// The two trailing elements hold overflow status and occupied colours, independently of live contact count.
+			m_r_colours = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(max_contacts + 2, {}).usage(EUsage::UnorderedAccess), job, "Physics:ResolveColours");
 			m_r_contact_times = m_gpu.CreateResource(ResDesc::Buf<float>(max_contacts, {}).usage(EUsage::UnorderedAccess), job, "Physics:ContactTimes");
 			m_r_contact_order = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(max_contacts, {}).usage(EUsage::UnorderedAccess), job, "Physics:ContactOrder");
 			m_r_contact_next_a = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(max_contacts, {}).usage(EUsage::UnorderedAccess), job, "Physics:ContactNextA");
@@ -734,7 +735,7 @@ namespace pr::physics
 				}
 			}
 
-			// Record one indirect dispatch and one barrier per colour.
+			// Record the estimated occupied head separately, then finish the complete remaining colour set in one group.
 			void RecordPerColourSweep(std::span<D3D12_RESOURCE_BARRIER const> barriers, char const* colour_name, char const* barrier_name)
 			{
 				// Resource addresses and barriers stay fixed, so only the colour root constant changes between dispatches.
@@ -743,7 +744,9 @@ namespace pr::physics
 				auto* dispatch_args = m_resolver.m_r_colour_dispatch.get();
 				auto const barrier_count = static_cast<UINT>(barriers.size());
 				auto const detail_enabled = pix::DetailEnabled();
-				for (auto colour = 0; colour != MaxColours; ++colour)
+				auto const colour_head = m_resolver.m_colour_head;
+				assert(colour_head >= 0 && colour_head <= MaxColours);
+				for (auto colour = 0; colour != colour_head; ++colour)
 				{
 					// Avoid even constructing fine-grained scopes when detail is disabled, while retaining the same aggregation names when enabled.
 					if (detail_enabled)
@@ -764,6 +767,22 @@ namespace pr::physics
 						pix::EndEvent(cmd_list);
 						pix::EndEvent(cmd_list);
 					}
+				}
+
+				// The tail reads current GPU occupancy, so growth beyond a stale estimate cannot omit contacts.
+				if (colour_head != MaxColours)
+				{
+					if (detail_enabled)
+					{
+						pix::BeginEvent(cmd_list, 0xFF90AA3F, "%s", colour_name);
+						pix::DetailMarker(cmd_list, "colour_tail=%d", colour_head);
+					}
+					auto tail = MaxColours + colour_head;
+					cmd_list->SetComputeRoot32BitConstants(0, 1, &tail, offsetof(cbResolve, colour) / sizeof(uint32_t));
+					cmd_list->Dispatch(1, 1, 1);
+					cmd_list->ResourceBarrier(barrier_count, barriers.data());
+					if (detail_enabled)
+						pix::EndEvent(cmd_list);
 				}
 			}
 
@@ -1060,6 +1079,16 @@ namespace pr::physics
 	ID3D12Resource* GpuResolver::ContactOrder()
 	{
 		return m_r_contact_order.get();
+	}
+
+	// Copy the most recent resolve's occupied-colour mask without adding a submission or wait.
+	void GpuResolver::CopyOccupiedColours(GpuJob& job, ReadbackAlloc const& allocation)
+	{
+		auto* colours = m_r_colours.get();
+		auto const state = job.m_cmd_list.ResState(colours).Mip0State();
+		job.m_barriers.Transition(colours, D3D12_RESOURCE_STATE_COPY_SOURCE).Commit();
+		job.m_cmd_list.CopyBufferRegion(allocation.m_res, allocation.m_ofs, colours, (m_max_contacts + 1) * sizeof(uint32_t), sizeof(uint32_t));
+		job.m_barriers.Transition(colours, state).Commit();
 	}
 
 	// Readback bodies after GPU resolve (for CPU-side testing).

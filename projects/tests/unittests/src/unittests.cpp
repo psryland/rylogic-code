@@ -109,6 +109,30 @@ namespace pr::unittests::your::namespace
 //#include "pr/view3d-12/ldraw/ldraw_serialiser_binary.h"
 //#include "pr/view3d-12/ldraw/ldraw_serialiser_text.h"
 
+namespace pr::unittests
+{
+	// Keep focused method selection exact while retaining the existing class-pattern contract.
+	PRUnitTestClass(UnitTestSelectorTests)
+	{
+		PRUnitTestMethod(QualifiedMethodsAndUnqualifiedClasses, Quick)
+		{
+			auto const test = UnitTestItem{.m_name = "Chosen", .m_class = &typeid(UnitTestOptions)};
+			auto const class_name = std::string(impl::TestClassName(*test.m_class));
+			PR_EXPECT(MatchTestSelector(test, class_name + ".Chosen"));
+			PR_EXPECT(!MatchTestSelector(test, class_name + ".Other"));
+			PR_EXPECT(!MatchTestSelector(test, class_name + "Extra.Chosen"));
+			PR_EXPECT(!MatchTestSelector(test, "UnitTestOptions.Chosen"));
+			PR_EXPECT(!MatchTestSelector(test, class_name + ".Chos*"));
+			PR_EXPECT(!MatchTestSelector(test, class_name + ".Chosen.More"));
+			PR_EXPECT(!MatchTestSelector(test, ".Chosen"));
+			PR_EXPECT(MatchTestSelector(test, "UnitTestOptions"));
+			PR_EXPECT(MatchTestSelector(test, "UnitTest*Options"));
+			PR_EXPECT(!MatchTestSelector(test, "Chosen"));
+			PR_EXPECT(!MatchTestSelector(test, "Unrelated"));
+		}
+	};
+}
+
 // Export a function for executing the tests
 extern "C"
 {

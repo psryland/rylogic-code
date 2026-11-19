@@ -1,5 +1,8 @@
 #include "src/forward.h"
 #include "src/utils/scene_loader_internal.h"
+#if PR_UNITTESTS
+#include "src/scene/scene.h"
+#endif
 
 namespace physics_sandbox::scene_loader
 {
@@ -342,6 +345,176 @@ namespace physics_sandbox::scene_loader
 			return desc;
 		}
 
+		// Read a shaped, self-colliding body whose inertia is derived from its authored mass or density.
+		BodyDesc ReadRigidRagdollBody(pr::json::Value const& value, ShapeReader const& read_shape)
+		{
+			auto const& object = value.to_object();
+			if (object.find("shape") == nullptr || object.find("inertia") != nullptr)
+				throw std::runtime_error("Rigid ragdoll links require a shape and shape-derived inertia");
+			if (auto const* field = object.find("shape_transform"); field != nullptr && !FEql(ReadTransform(field->to_object(), false), m4x4::Identity()))
+				throw std::runtime_error("Rigid ragdoll shapes must be centred in the body frame");
+			if (auto const* field = object.find("collide_self"); field != nullptr && !field->to<bool>())
+				throw std::runtime_error("Rigid ragdoll links require self-collision");
+
+			auto body = read_shape(value);
+			body.name = ReadRequiredString(object, "name", "Rigid ragdoll link");
+			if (!body.density && !(body.mass > 0.0f))
+				throw std::runtime_error("Rigid ragdoll links require positive mass or density");
+
+			return body;
+		}
+
+		// Read a conventional hinge or three-axis connection while preserving its initial joint-frame motion.
+		RigidRagdollLinkDesc ReadRigidRagdollLink(pr::json::Value const& value, ShapeReader const& read_shape)
+		{
+			auto const& object = value.to_object();
+			auto desc = RigidRagdollLinkDesc{
+				.m_body = ReadRigidRagdollBody(value, read_shape),
+				.m_parent_name = ReadRequiredString(object, "parent", "Rigid ragdoll link"),
+			};
+			auto const* joint_value = object.find("joint");
+			if (joint_value == nullptr)
+				throw std::runtime_error("Rigid ragdoll child requires a joint");
+
+			auto const& joint = joint_value->to_object();
+			if (auto const* frame = joint.find("parent_frame"))
+				desc.m_joint_to_parent = ReadTransform(frame->to_object(), false);
+			if (auto const* frame = joint.find("child_frame"))
+				desc.m_joint_to_child = ReadTransform(frame->to_object(), false);
+			if (!IsFinite(desc.m_joint_to_parent) || !IsFinite(desc.m_joint_to_child))
+				throw std::runtime_error("Rigid ragdoll joint frames must be finite");
+			if (auto const* field = object.find("collide_parent"))
+				desc.m_collide_parent = field->to<bool>();
+
+			auto const* type = joint.find("type");
+			auto const type_name = type != nullptr ? type->to<std::string>() : std::string("serial");
+			if (type_name == "spherical")
+			{
+				// The initial quaternion is exact; only the runtime limit law is the conventional rotation-vector approximation.
+				desc.m_joint_type = RigidRagdollLinkDesc::EJointType::Spherical;
+				if (joint.find("axes") != nullptr)
+					throw std::runtime_error("A spherical rigid connection does not accept serial axes");
+				if (auto const* field = joint.find("initial_rotation"))
+				{
+					auto const& rotation = field->to_array();
+					if (rotation.size() != 4)
+						throw std::runtime_error("Initial rotation requires four quaternion components");
+
+					for (auto i = 0; i != 4; ++i)
+						desc.m_initial_rotation.xyzw[i] = rotation[i].to<float>();
+				}
+				if (auto const* field = joint.find("initial_angular_velocity"))
+					desc.m_initial_angular_velocity = ReadVec3(*field, 0.0f);
+			}
+			else if (type_name == "serial")
+			{
+				// The retained ragdoll hinges have one positive-X rotational degree of freedom.
+				auto const* axes = joint.find("axes");
+				if (axes == nullptr || axes->to_array().size() != 1)
+					throw std::runtime_error("A rigid ragdoll hinge requires one positive-X revolute axis");
+
+				auto const& axis = axes->to_array()[0].to_object();
+				auto const* direction = axis.find("axis");
+				if (ReadRequiredString(axis, "type", "Rigid ragdoll axis") != "revolute" || direction == nullptr || !FEql(ReadUnitAxis(*direction, "axis"), v4::XAxis()))
+					throw std::runtime_error("A rigid ragdoll hinge requires one positive-X revolute axis");
+
+				auto angle = 0.0f;
+				if (auto const* field = axis.find("initial_position"))
+					angle = field->to<float>();
+				if (auto const* field = axis.find("initial_velocity"))
+					desc.m_initial_angular_velocity.x = field->to<float>();
+				if (!std::isfinite(angle))
+					throw std::runtime_error("Rigid ragdoll initial angle must be finite");
+
+				desc.m_initial_rotation = ToQuat<quat>(m4x4::Transform(v4::XAxis(), angle, v4::Origin()).rot);
+			}
+			else
+			{
+				throw std::runtime_error(std::format("Unknown rigid ragdoll joint type '{}'", type_name));
+			}
+
+			// Named source limits map to independent D6 rotation-vector components in the authored joint frame.
+			if (auto const* limits = joint.find("limits"))
+			{
+				auto const& limits_object = limits->to_object();
+				auto read_range = [&](char const* name, int axis)
+				{
+					auto const* field = limits_object.find(name);
+					if (field == nullptr)
+						return;
+
+					auto const& range = field->to_array();
+					if (range.size() != 2)
+						throw std::runtime_error("Rigid ragdoll limits require two ordered values");
+
+					desc.m_limits[axis] = {range[0].to<float>(), range[1].to<float>()};
+					if (std::isnan(desc.m_limits[axis].m_beg) || std::isnan(desc.m_limits[axis].m_end) || desc.m_limits[axis].m_beg > desc.m_limits[axis].m_end)
+						throw std::runtime_error("Rigid ragdoll limits must be ordered and not NaN");
+				};
+				switch (desc.m_joint_type)
+				{
+					case RigidRagdollLinkDesc::EJointType::Hinge: { read_range("position", 0); break; }
+					case RigidRagdollLinkDesc::EJointType::Spherical: { read_range("swing_x", 0); read_range("twist", 1); read_range("swing_z", 2); break; }
+					default: { throw std::runtime_error("Unknown rigid ragdoll joint type"); }
+				}
+			}
+			if (auto const* field = joint.find("damping"))
+				desc.m_damping = field->to<float>();
+			if (!std::isfinite(desc.m_damping) || !(desc.m_damping > 0.0f))
+				throw std::runtime_error("Rigid ragdoll torque-to-target conversion requires finite positive damping");
+			if (!IsFinite(desc.m_initial_rotation.xyzw) || !IsNormalised(desc.m_initial_rotation.xyzw) || !IsFinite(desc.m_initial_angular_velocity))
+				throw std::runtime_error("Rigid ragdoll initial motion requires a finite unit quaternion and finite angular velocity");
+
+			return desc;
+		}
+
+		// Read the explicitly selected conventional model without changing reduced-coordinate articulation authoring.
+		RigidRagdollDesc ReadRigidRagdoll(pr::json::Value const& value, ShapeReader const& read_shape)
+		{
+			auto const& object = value.to_object();
+			auto desc = RigidRagdollDesc{};
+			desc.m_name = ReadRequiredString(object, "name", "Rigid ragdoll");
+			if (auto const* type = object.find("root_type"); type != nullptr && type->to<std::string>() != "floating")
+				throw std::runtime_error("Rigid ragdolls require a floating root");
+			if (auto const* field = object.find("root_transform"))
+				desc.m_root_to_world = ReadTransform(field->to_object(), false);
+			if (!IsFinite(desc.m_root_to_world))
+				throw std::runtime_error("Rigid ragdoll root transform must be finite");
+			if (auto const* field = object.find("root_velocity"))
+				desc.m_root_velocity = ReadMotion(*field);
+			if (auto const* field = object.find("sleeping"))
+				desc.m_sleeping = field->to<bool>();
+			if (auto const* field = object.find("never_sleep"))
+				desc.m_never_sleep = field->to<bool>();
+			if (desc.m_sleeping && desc.m_never_sleep)
+				throw std::runtime_error("A rigid ragdoll cannot start sleeping and be marked never_sleep");
+
+			if (auto const* field = object.find("actuation"))
+			{
+				auto const& actuation = field->to_object();
+				if (auto const* item = actuation.find("torque_per_kg"))
+					desc.m_actuation.m_torque_per_kg = item->to<float>();
+				if (auto const* item = actuation.find("period_s"))
+					desc.m_actuation.m_period_s = item->to<float>();
+				if (auto const* item = actuation.find("phase"))
+					desc.m_actuation.m_phase = item->to<float>();
+				if (!std::isfinite(desc.m_actuation.m_torque_per_kg) || desc.m_actuation.m_torque_per_kg < 0.0f || !std::isfinite(desc.m_actuation.m_period_s) || !(desc.m_actuation.m_period_s > 0.0f) || !std::isfinite(desc.m_actuation.m_phase))
+					throw std::runtime_error("Rigid ragdoll actuation requires finite nonnegative torque, positive period and finite phase");
+			}
+
+			auto const* root = object.find("root");
+			if (root == nullptr)
+				throw std::runtime_error("Rigid ragdoll requires a root body");
+
+			desc.m_root = ReadRigidRagdollBody(*root, read_shape);
+			if (auto const* links = object.find("links"))
+			{
+				for (auto const& link : links->to_array())
+					desc.m_links.push_back(ReadRigidRagdollLink(link, read_shape));
+			}
+			return desc;
+		}
+
 		// Read one world, rigid-body, or articulation-link constraint endpoint.
 		ConstraintFrameDesc ReadConstraintFrame(pr::json::Value const& value)
 		{
@@ -466,6 +639,81 @@ namespace physics_sandbox::scene_loader
 				return desc;
 			}
 		}
+
+		// Exercise the conventional authoring boundary without relying on zero-pose benchmark initialization.
+		PRUnitTestClass(RigidRagdollAuthoringTests)
+		{
+			PRUnitTestMethod(LoadsBranchedFramesAndPointVelocities, Extended)
+			{
+				auto const desc = ParseMultibodyDescriptions(R"json({"scene":{"rigid_ragdolls":[{
+					"name":"branched", "root_type":"floating", "never_sleep":true,
+					"root_transform":{"position":[10,20,30],"rotation":[0,0,90]},
+					"root_velocity":{"angular":[1,2,3],"linear":[4,5,6]},
+					"actuation":{"torque_per_kg":1.5,"period_s":1.3,"phase":0.3},
+					"root":{"name":"root","mass":4,"shape":{"type":"box","dimensions":[1,1,1]}},
+					"links":[
+						{"name":"hinge","parent":"root","mass":2,"shape":{"type":"box","dimensions":[1,1,1]},
+						 "joint":{"type":"serial","parent_frame":{"position":[1,0,0],"rotation":[0,90,0]},
+						 "child_frame":{"position":[0,2,0],"rotation":[0,0,90]},
+						 "axes":[{"type":"revolute","axis":[1,0,0],"initial_position":1.5707963267948966,"initial_velocity":2}],
+						 "limits":{"position":[-2,2]},"damping":0.5}},
+						{"name":"sphere","parent":"root","mass":3,"shape":{"type":"box","dimensions":[1,1,1]},
+						 "joint":{"type":"spherical","parent_frame":{"position":[0,0,3],"rotation":[90,0,0]},
+						 "child_frame":{"position":[1,0,0],"rotation":[0,90,0]},
+						 "initial_rotation":[0,0,0.7071067811865476,0.7071067811865476],
+						 "initial_angular_velocity":[1,-1,2],
+						 "limits":{"swing_x":[-2,2],"twist":[-1,1],"swing_z":[-0.5,0.5]},"damping":0.75}}
+					]}]}})json");
+				auto scene = Scene(nullptr);
+				scene.LoadScene(desc);
+				PR_EXPECT(scene.m_articulation.empty() && scene.m_body.size() == 3 && scene.m_constraints.Count() == 4);
+				PR_EXPECT(scene.m_rigid_ragdoll_joints.size() == 2);
+				PR_EXPECT(scene.m_rigid_ragdoll_joints[0].m_parent == 0 && scene.m_rigid_ragdoll_joints[1].m_parent == 0);
+				PR_EXPECT(scene.m_rigid_ragdoll_joints[0].m_dof_count == 1 && scene.m_rigid_ragdoll_joints[1].m_dof_count == 3);
+				PR_EXPECT(scene.m_rigid_ragdoll_joints[1].m_dof_offset == 1);
+				PR_EXPECT(scene.m_rigid_ragdoll_joints[0].m_amplitude == 3.0f && scene.m_rigid_ragdoll_joints[1].m_amplitude == 4.5f);
+
+				// These world-space values follow from the authored quarter-turn axes and coincident joint-point velocities.
+				// They do not reuse the builder's child-to-parent transform or spatial-motion adjoint.
+				auto const poses = std::array{
+					m4x4{v4{0,1,0,0}, v4{-1,0,0,0}, v4{0,0,1,0}, v4{10,20,30,1}},
+					m4x4{v4{0,-1,0,0}, v4{0,0,-1,0}, v4{1,0,0,0}, v4{10,21,32,1}},
+					m4x4{v4{1,0,0,0}, v4{0,-1,0,0}, v4{0,0,-1,0}, v4{9,20,33,1}},
+				};
+				auto const angular = std::array{v4{-2,1,3,0}, v4{-2,1,1,0}, v4{0,2,4,0}};
+				auto const linear = std::array{v4{-5,4,6,0}, v4{-6,8,4,0}, v4{-2,6,8,0}};
+				for (auto i = 0; i != 3; ++i)
+				{
+					auto const& body = scene.m_body[i];
+					for (auto axis = 0; axis != 4; ++axis)
+						PR_EXPECT(Length(body.O2W()[axis] - poses[i][axis]) < 1.0e-5f);
+
+					PR_EXPECT(Length(body.VelocityWS().ang - angular[i]) < 1.0e-5f);
+					PR_EXPECT(Length(body.VelocityWS().lin - linear[i]) < 1.0e-5f);
+				}
+				auto const hinge_motion = scene.m_body[1].VelocityWS();
+				auto const sphere_motion = scene.m_body[2].VelocityWS();
+				PR_EXPECT(Length(hinge_motion.lin + Cross(hinge_motion.ang, scene.m_body[1].O2W().x) - v4{-5,8,6,0}) < 1.0e-5f);
+				PR_EXPECT(Length(sphere_motion.lin + Cross(sphere_motion.ang, scene.m_body[2].O2W().y) - v4{2,6,8,0}) < 1.0e-5f);
+				auto const& anchor = scene.m_constraints.Get(scene.m_rigid_ragdoll_joints[1].m_anchor);
+				auto const& actuator = scene.m_constraints.Get(scene.m_rigid_ragdoll_joints[1].m_actuator);
+				PR_EXPECT(anchor.m_angular[1].m_limits.m_beg == -1.0f && anchor.m_angular[2].m_limits.m_end == 0.5f);
+				PR_EXPECT(actuator.m_angular[2].m_damping == 0.75f);
+				PR_EXPECT(actuator.m_frame_a.m_body == physics::BodyRef::Rigid(scene.m_body[2]));
+				PR_EXPECT(actuator.m_frame_b.m_body == physics::BodyRef::Rigid(scene.m_body[0]));
+			}
+
+			PRUnitTestMethod(RejectsUnsupportedConventionalInputs, Quick)
+			{
+				auto const prefix = std::string(R"json({"scene":{"rigid_ragdolls":[{"name":"test","root":{"name":"root","mass":1,"shape":{"type":"box","dimensions":[1,1,1]}},"links":[{"name":"child","parent":"root","mass":1,"shape":{"type":"box","dimensions":[1,1,1]},"joint":)json");
+				auto const suffix = std::string("}]}]}}");
+				PR_EXPECT(ParseMultibodyDescriptions(prefix + R"json({"type":"spherical","damping":1})json" + suffix).rigid_ragdolls[0].m_links.size() == 1);
+				PR_THROWS(ParseMultibodyDescriptions(prefix + R"json({"type":"spherical","damping":0})json" + suffix), std::exception);
+				PR_THROWS(ParseMultibodyDescriptions(prefix + R"json({"type":"spherical","damping":1,"initial_rotation":[0,0,0,2]})json" + suffix), std::exception);
+				PR_THROWS(ParseMultibodyDescriptions(prefix + R"json({"type":"serial","damping":1,"axes":[{"type":"revolute","axis":[0,1,0]}]})json" + suffix), std::exception);
+				PR_THROWS(ParseMultibodyDescriptions(prefix + R"json({"type":"spherical","damping":1,"limits":{"twist":[2,-2]}})json" + suffix), std::exception);
+			}
+		};
 
 		PRUnitTestClass(SceneLoaderMultibodyTests)
 		{
@@ -626,6 +874,12 @@ namespace physics_sandbox::scene_loader
 			desc.constraints.reserve(constraints->to_array().size());
 			for (auto const& constraint : constraints->to_array())
 				desc.constraints.push_back(ReadConstraint(constraint));
+		}
+
+		if (auto const* ragdolls = scene.find("rigid_ragdolls"))
+		{
+			for (auto const& ragdoll : ragdolls->to_array())
+				desc.rigid_ragdolls.push_back(ReadRigidRagdoll(ragdoll, read_shape));
 		}
 	}
 }

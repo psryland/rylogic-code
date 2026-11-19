@@ -54,7 +54,7 @@ public sealed partial class View3d
 		public v4 O2WRow1;
 		public v4 O2WRow2;
 
-		/// <summary>Multiplies the vertex colour.</summary>
+		/// <summary>sRGB tint bytes with linear alpha. Multiplies the vertex colour after decoding RGB.</summary>
 		public Colour32 Tint;
 
 		/// <summary>See EPopulationInstanceFlags.</summary>

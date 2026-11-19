@@ -19,8 +19,12 @@ namespace pr::physics
 		int body_count;
 		int sleeping_enabled;
 		int sleep_island_count;
+		int deferred_group_count;
+		int pad0;
+		int pad1;
+		int pad2;
 	};
-	static_assert(sizeof(cbSweep) == 16);
+	static_assert(sizeof(cbSweep) == 32);
 
 	// Optional filtered-sweep constants kept separate so the ordinary sweep retains its exact root contract.
 	struct alignas(16) cbSweepFilter
@@ -40,6 +44,7 @@ namespace pr::physics
 		inline static constexpr auto Counters = EUAVReg::u0;
 		inline static constexpr auto ColPairs = EUAVReg::u1;
 		inline static constexpr auto DispatchArgs = EUAVReg::u2;
+		inline static constexpr auto DeferredSweeps = EUAVReg::u3;
 		inline static constexpr auto Bodies = ESRVReg::t0;
 		inline static constexpr auto AABB_Idx = ESRVReg::t1;
 		inline static constexpr auto AABB_Box = ESRVReg::t2;
@@ -54,11 +59,15 @@ namespace pr::physics
 		, m_sorter(gpu.m_gpu, BoundsSorter::TuningParams{}, shader_cache)
 		, m_cs_sweep()
 		, m_cs_sweep_filtered()
+		, m_cs_sweep_deferred()
+		, m_cs_sweep_deferred_filtered()
 		, m_cs_calc_dispatch()
 		, m_r_col_pairs()
 		, m_r_cd_dispatch()
+		, m_r_deferred_sweeps()
 		, m_r_collision_exclusions()
 		, m_max_col_pairs()
+		, m_deferred_sweep_capacity()
 		, m_collision_exclusion_capacity()
 	{
 		auto make_sweep_sig = [&]()
@@ -68,6 +77,7 @@ namespace pr::physics
 				.UAV(EReg::Counters)
 				.UAV(EReg::ColPairs)
 				.UAV(EReg::DispatchArgs)
+				.UAV(EReg::DeferredSweeps)
 				.SRV(EReg::Bodies)
 				.SRV(EReg::AABB_Idx)
 				.SRV(EReg::AABB_Box)
@@ -76,12 +86,14 @@ namespace pr::physics
 				;
 		};
 
-		// m_cs_sweep
+		// Both sweep passes share the same resource contract.
 		{
 			auto sig = make_sweep_sig();
 
 			m_cs_sweep.m_sig = sig.Create(m_gpu, "Physics:SweepSig");
 			m_cs_sweep.m_pso = ComputePSO(m_cs_sweep.m_sig.get(), shader_code::sweep).Cache(shader_cache).Create(m_gpu, "Physics:SweepPSO");
+			m_cs_sweep_deferred.m_sig = m_cs_sweep.m_sig;
+			m_cs_sweep_deferred.m_pso = ComputePSO(m_cs_sweep_deferred.m_sig.get(), shader_code::sweep_deferred).Cache(shader_cache).Create(m_gpu, "Physics:SweepDeferredPSO");
 		}
 
 		// m_cs_calc_dispatch: Root signature: constants + 1 SRV (Counters) + 1 UAV (DispatchArgs)
@@ -108,6 +120,7 @@ namespace pr::physics
 			.UAV(EReg::Counters)
 			.UAV(EReg::ColPairs)
 			.UAV(EReg::DispatchArgs)
+			.UAV(EReg::DeferredSweeps)
 			.SRV(EReg::Bodies)
 			.SRV(EReg::AABB_Idx)
 			.SRV(EReg::AABB_Box)
@@ -117,10 +130,12 @@ namespace pr::physics
 
 		m_cs_sweep_filtered.m_sig = sig.Create(m_gpu, "Physics:SweepFilteredSig");
 		m_cs_sweep_filtered.m_pso = ComputePSO(m_cs_sweep_filtered.m_sig.get(), shader_code::sweep_filtered).Create(m_gpu, "Physics:SweepFilteredPSO");
+		m_cs_sweep_deferred_filtered.m_sig = m_cs_sweep_filtered.m_sig;
+		m_cs_sweep_deferred_filtered.m_pso = ComputePSO(m_cs_sweep_deferred_filtered.m_sig.get(), shader_code::sweep_deferred_filtered).Create(m_gpu, "Physics:SweepDeferredFilteredPSO");
 	}
 
-	// Resize the broadphase output and optional collision-exclusion buffers.
-	void GpuSortAndSweep::ResizeBuffers(GpuJob& job, int max_col_pairs, int collision_exclusion_count)
+	// Resize the broadphase output, deferred walks and optional collision-exclusion buffers.
+	void GpuSortAndSweep::ResizeBuffers(GpuJob& job, int max_col_pairs, int body_count, int collision_exclusion_count)
 	{
 		max_col_pairs = std::max(1, max_col_pairs);
 		
@@ -132,6 +147,12 @@ namespace pr::physics
 		if (m_r_cd_dispatch == nullptr)
 		{
 			m_r_cd_dispatch = m_gpu.CreateResource(ResDesc::Buf<D3D12_DISPATCH_ARGUMENTS>(1, {}).usage(EUsage::UnorderedAccess), job, "Physics:CDDispatchArgs");
+		}
+		if (m_r_deferred_sweeps == nullptr || m_deferred_sweep_capacity < body_count)
+		{
+			// Each body has one start bound, so one deferred walk per body covers the worst case.
+			m_deferred_sweep_capacity = GrowCapacity(std::max(1, body_count), m_deferred_sweep_capacity);
+			m_r_deferred_sweeps = m_gpu.CreateResource(ResDesc::Buf<GpuDeferredSweep>(m_deferred_sweep_capacity, {}).usage(EUsage::UnorderedAccess), job, "Physics:DeferredSweeps");
 		}
 		if (collision_exclusion_count != 0 && (m_r_collision_exclusions == nullptr || m_collision_exclusion_capacity < collision_exclusion_count))
 		{
@@ -167,7 +188,7 @@ namespace pr::physics
 		pix::BeginEvent(job.m_cmd_list.get(), 0xFF45bcf2, "Physics::Sweep");
 
 		auto const filtered = !collision_exclusions.empty();
-		ResizeBuffers(job, max_col_pairs, s_cast<int>(collision_exclusions.size()));
+		ResizeBuffers(job, max_col_pairs, body_count, s_cast<int>(collision_exclusions.size()));
 		if (filtered)
 		{
 			EnsureFilteredSweep();
@@ -181,11 +202,14 @@ namespace pr::physics
 			job.m_cmd_list.CopyBufferRegion(m_r_collision_exclusions.get(), 0, upload);
 		}
 
+		// Cover every deferred walk while respecting the hardware dispatch-size limit.
+		auto const deferred_group_count = std::clamp(body_count, 1, s_cast<int>(D3D12_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION));
 		cbSweep cb_sweep = {
 			.max_pair_count = max_col_pairs,
 			.body_count = body_count,
 			.sleeping_enabled = sleeping_enabled ? 1 : 0,
 			.sleep_island_count = sleep_island_count,
+			.deferred_group_count = deferred_group_count,
 		};
 		auto const cb_filter = cbSweepFilter{
 			.collision_exclusion_mask = filtered ? s_cast<uint32_t>(collision_exclusions.size() - 1) : 0U,
@@ -196,6 +220,7 @@ namespace pr::physics
 			job.m_barriers.Transition(counters.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			job.m_barriers.Transition(m_r_col_pairs.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			job.m_barriers.Transition(m_r_cd_dispatch.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			job.m_barriers.Transition(m_r_deferred_sweeps.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			job.m_barriers.Transition(bodies.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 			job.m_barriers.Transition(aabb_idx.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 			job.m_barriers.Transition(aabb_box.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
@@ -210,26 +235,41 @@ namespace pr::physics
 		// Zero-body articulation-only frames still run the dispatch-size pass below so collision and resolve indirect arguments are reset deterministically.
 		if (body_count != 0)
 		{
-			auto& step = filtered ? m_cs_sweep_filtered : m_cs_sweep;
-			job.m_cmd_list.SetPipelineState(step.m_pso.get());
-			job.m_cmd_list.SetComputeRootSignature(step.m_sig.get());
-			job.m_cmd_list.AddComputeRoot32BitConstants(cb_sweep);
-			if (filtered)
-				job.m_cmd_list.AddComputeRoot32BitConstants(cb_filter);
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(counters);
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_col_pairs);
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_cd_dispatch);
-			job.m_cmd_list.AddComputeRootShaderResourceView(bodies);
-			job.m_cmd_list.AddComputeRootShaderResourceView(aabb_idx);
-			job.m_cmd_list.AddComputeRootShaderResourceView(aabb_box);
-			job.m_cmd_list.AddComputeRootShaderResourceView(sleep_islands);
-			job.m_cmd_list.AddComputeRootShaderResourceView(shapes);
-			if (filtered)
-				job.m_cmd_list.AddComputeRootShaderResourceView(m_r_collision_exclusions);
+			// Both passes use identical bindings; only their work distribution differs.
+			auto bind = [&](ComputeStep& step)
+			{
+				job.m_cmd_list.SetPipelineState(step.m_pso.get());
+				job.m_cmd_list.SetComputeRootSignature(step.m_sig.get());
+				job.m_cmd_list.AddComputeRoot32BitConstants(cb_sweep);
+				if (filtered)
+					job.m_cmd_list.AddComputeRoot32BitConstants(cb_filter);
 
-			// One thread for each array element in the AABB index buffer
+				job.m_cmd_list.AddComputeRootUnorderedAccessView(counters);
+				job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_col_pairs);
+				job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_cd_dispatch);
+				job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_deferred_sweeps);
+				job.m_cmd_list.AddComputeRootShaderResourceView(bodies);
+				job.m_cmd_list.AddComputeRootShaderResourceView(aabb_idx);
+				job.m_cmd_list.AddComputeRootShaderResourceView(aabb_box);
+				job.m_cmd_list.AddComputeRootShaderResourceView(sleep_islands);
+				job.m_cmd_list.AddComputeRootShaderResourceView(shapes);
+				if (filtered)
+					job.m_cmd_list.AddComputeRootShaderResourceView(m_r_collision_exclusions);
+			};
+
+			// One thread per sorted bound handles the bounded prefix of its interval.
+			bind(filtered ? m_cs_sweep_filtered : m_cs_sweep);
 			auto dispatch_count = (2*body_count + SweepThreadCount - 1) / SweepThreadCount;
 			job.m_cmd_list.Dispatch(dispatch_count, 1, 1);
+
+			job.m_barriers.UAV(counters.get());
+			job.m_barriers.UAV(m_r_col_pairs.get());
+			job.m_barriers.UAV(m_r_deferred_sweeps.get());
+			job.m_barriers.Commit();
+
+			// Whole groups finish the long intervals. Groups beyond the deferred count exit without work.
+			bind(filtered ? m_cs_sweep_deferred_filtered : m_cs_sweep_deferred);
+			job.m_cmd_list.Dispatch(deferred_group_count, 1, 1);
 
 			job.m_barriers.UAV(counters.get());
 			job.m_barriers.UAV(m_r_col_pairs.get());

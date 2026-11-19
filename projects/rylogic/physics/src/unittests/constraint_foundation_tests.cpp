@@ -7,6 +7,7 @@
 #include "pr/common/unittests.h"
 #include "pr/physics/physics.h"
 #include "src/constraint/constraint_compiler.h"
+#include "src/constraint/constraint_gpu.h"
 
 namespace pr::physics::tests
 {
@@ -121,6 +122,263 @@ namespace pr::physics::tests
 		}
 	};
 
+	// Frame-local identity lookup must preserve borrowed ownership, input order, and packed endpoint semantics.
+	PRUnitTestClass(ConstraintBodyRemapTests)
+	{
+		// Exercise full-width and invalid identities through the existing protected rigid-body identity seam.
+		struct IdentifiedBody : RigidBody
+		{
+			// Construct a fixture body with the specified stable identity.
+			explicit IdentifiedBody(uint64_t id)
+			{
+				// No global identity generator or production API is changed by the fixture.
+				m_id = BodyId{id};
+			}
+		};
+
+		// Reordered domains and a new rigid prefix must preserve physical identity and descriptor bytes.
+		PRUnitTestMethod(PreservesDomainsOrderAndPackedEndpoints, Quick)
+		{
+			// Different tree sizes make forest offsets observable; overlapping numeric identities must remain separate domains.
+			auto [tree_a, child_a] = MakeConstraintTree(3.0f);
+			auto builder = ArticulationBuilder{};
+			auto const root_b = builder.AddFloatingRoot(ArticulationLinkDesc{.m_inertia = Inertia::Sphere(0.25f, 1.0f)});
+			auto const middle_b = builder.AddLink(root_b, ArticulationJointDesc::Fixed(), ArticulationLinkDesc{.m_inertia = Inertia::Sphere(0.25f, 1.0f)});
+			auto const last_b = builder.AddLink(middle_b, ArticulationJointDesc::Fixed(), ArticulationLinkDesc{.m_inertia = Inertia::Sphere(0.25f, 1.0f)});
+			auto tree_b = builder.Build();
+			auto body_a = IdentifiedBody{tree_a.Id().m_value};
+			auto body_b = IdentifiedBody{0x100000015ULL};
+			auto body_c = IdentifiedBody{0x200000015ULL};
+			auto prefix = IdentifiedBody{0x8000000000000015ULL};
+			auto const refs = std::array{
+				std::pair{BodyRef::Rigid(body_a), BodyRef::Rigid(body_b)},
+				std::pair{BodyRef::Link(tree_a, child_a), BodyRef::Rigid(body_c)},
+				std::pair{BodyRef::Link(tree_b, last_b), BodyRef::World()},
+				std::pair{BodyRef::Link(tree_a, tree_a.Root()), BodyRef::Link(tree_b, middle_b)},
+			};
+			auto constraints = ConstraintSet{};
+			auto handles = std::vector<ConstraintHandle>{};
+			for (auto const& [a, b] : refs)
+			{
+				// Each stored slot has an active row and stable, independently retained endpoint identities.
+				auto desc = MakeD6(a, b);
+				desc.m_linear[0] = LockedAxis();
+				handles.push_back(constraints.Add(desc));
+			}
+			auto const first_desc = constraints.Get(handles[0]);
+			constraints.Remove(handles[0]);
+			handles[0] = constraints.Add(first_desc);
+
+			// These expected packed indices are explicit input-layout oracles, independent of either lookup implementation.
+			auto const body_orders = std::array{
+				std::vector<RigidBody*>{&body_a, &body_b, &body_c},
+				std::vector<RigidBody*>{&body_c, &body_a, &body_b},
+				std::vector<RigidBody*>{&prefix, &body_b, &body_c, &body_a},
+			};
+			auto const tree_orders = std::array{
+				std::array<Articulation*, 2>{&tree_a, &tree_b},
+				std::array<Articulation*, 2>{&tree_b, &tree_a},
+				std::array<Articulation*, 2>{&tree_a, &tree_b},
+			};
+			auto const expected_indices = std::array{
+				std::array<std::pair<int, int>, 4>{{{0, 1}, {4, 2}, {7, -1}, {3, 6}}},
+				std::array<std::pair<int, int>, 4>{{{1, 2}, {7, 0}, {5, -1}, {6, 4}}},
+				std::array<std::pair<int, int>, 4>{{{3, 1}, {5, 2}, {8, -1}, {4, 7}}},
+			};
+			auto original_descriptors = std::vector<GpuD6ConstraintDesc>{};
+			for (int scenario = 0; scenario != 3; ++scenario)
+			{
+				// Every frame constructs and destroys its own remap; no iterator or prior layout is retained.
+				auto const& bodies = body_orders[scenario];
+				auto const& trees = tree_orders[scenario];
+				auto remap = BodyRemap(bodies, trees);
+				PR_EXPECT(remap.BodyCount() == isize(bodies));
+				PR_EXPECT(remap.ArticulationCount() == isize(trees));
+				for (int index = 0; index != isize(bodies); ++index)
+				{
+					// Indexed access and stable-ID resolution must agree with the original pointer stream.
+					PR_EXPECT(&remap.Body(index) == bodies[index]);
+					PR_EXPECT(&remap.MutableBody(index) == bodies[index]);
+					PR_EXPECT(remap.Resolve(BodyRef::Rigid(*bodies[index])) == index);
+				}
+				auto forest_offset = 0;
+				for (int index = 0; index != isize(trees); ++index)
+				{
+					// Forest offsets exclude the rigid prefix, while packed proxy indices include it.
+					PR_EXPECT(&remap.ArticulationBody(index) == trees[index]);
+					PR_EXPECT(&remap.MutableArticulation(index) == trees[index]);
+					PR_EXPECT(remap.ArticulationLinkOffset(index) == forest_offset);
+					for (int link_index = 0; link_index != trees[index]->LinkCount(); ++link_index)
+					{
+						// Resolve every valid handle, not only the links referenced by user constraints.
+						auto const link = trees[index]->LinkAt(link_index);
+						auto const endpoint = remap.ResolveEndpoint(BodyRef::Link(*trees[index], link));
+						PR_EXPECT(endpoint.IsLink() && endpoint.m_articulation_index == index);
+						PR_EXPECT(endpoint.m_link_index == link_index && endpoint.m_link == link);
+						PR_EXPECT(endpoint.m_packed_body_index == isize(bodies) + forest_offset + link_index);
+					}
+					forest_offset += trees[index]->LinkCount();
+				}
+
+				// Actual CPU packing must emit the expected endpoint bytes, flags, generations, and unchanged descriptors.
+				auto const packed = PackGpuConstraints(constraints, remap);
+				PR_EXPECT(packed.m_endpoints.size() == refs.size());
+				PR_EXPECT(packed.m_coupled_articulation_indices == (std::vector<int>{0, 1}));
+				if (scenario == 0)
+					original_descriptors = packed.m_descriptors;
+
+				for (int slot = 0; slot != isize(refs); ++slot)
+				{
+					// All expected fields come from fixture inputs, not the remap or another call to the packer.
+					auto const& desc = constraints.Get(handles[slot]);
+					auto const expected = GpuConstraintEndpoint{
+						.body_idx_a = expected_indices[scenario][slot].first,
+						.body_idx_b = expected_indices[scenario][slot].second,
+						.flags = GpuConstraintEndpointFlags_Enabled | (slot != 0 ? GpuConstraintEndpointFlags_Coupled : 0u),
+						.generation = handles[slot].m_generation,
+						.break_force = desc.m_break_force,
+						.break_torque = desc.m_break_torque,
+					};
+					PR_EXPECT(memcmp(&packed.m_endpoints[slot], &expected, sizeof(expected)) == 0);
+					PR_EXPECT(packed.m_endpoint_identities[slot].m_body_a == refs[slot].first);
+					PR_EXPECT(packed.m_endpoint_identities[slot].m_body_b == refs[slot].second);
+					PR_EXPECT(memcmp(&packed.m_descriptors[slot], &original_descriptors[slot], sizeof(GpuD6ConstraintDesc)) == 0);
+
+					// Both trees participate, so compact mobility link indices equal forest link indices; only the second tree has a nonzero root offset.
+					auto const tree_a_index = scenario == 1 ? 1 : 0;
+					auto const tree_b_index = 1 - tree_a_index;
+					auto const owner_a = slot == 0 ? -1 : slot == 2 ? tree_b_index : tree_a_index;
+					auto const owner_b = slot == 3 ? tree_b_index : -1;
+					auto const expected_coupled = GpuCoupledConstraintEndpoint{
+						.articulation_idx_a = owner_a,
+						.link_idx_a = owner_a < 0 ? -1 : expected.body_idx_a - isize(bodies),
+						.mobility_idx_a = owner_a < 0 ? -1 : expected.body_idx_a - isize(bodies),
+						.root_link_idx_a = owner_a < 0 ? -1 : owner_a == 0 ? 0 : trees[0]->LinkCount(),
+						.articulation_idx_b = owner_b,
+						.link_idx_b = owner_b < 0 ? -1 : expected.body_idx_b - isize(bodies),
+						.mobility_idx_b = owner_b < 0 ? -1 : expected.body_idx_b - isize(bodies),
+						.root_link_idx_b = owner_b < 0 ? -1 : owner_b == 0 ? 0 : trees[0]->LinkCount(),
+					};
+					PR_EXPECT(memcmp(&packed.m_coupled_endpoints[slot], &expected_coupled, sizeof(expected_coupled)) == 0);
+				}
+				log_stream() << "scenario=" << scenario << " rigid_prefix=" << bodies.size() << " links=" << forest_offset << " packed_endpoint_oracle=1\n";
+			}
+			PR_EXPECT(body_a.Id().m_value == tree_a.Id().m_value);
+			PR_EXPECT(tree_a.LinkCount() == 2 && tree_b.LinkCount() == 3);
+		}
+
+		// Sparse full-width keys with colliding hash slots must still resolve by identity and insertion order.
+		PRUnitTestMethod(SparseCollidingIdentities, Quick)
+		{
+			// Sharing eight low hash bits forces collisions in the existing reserved twelve-entry table without private container access.
+			auto bodies = std::vector<IdentifiedBody>{};
+			bodies.reserve(12);
+			auto const first_id = uint64_t{0x1000000000000000ULL};
+			for (auto id = first_id; id != first_id + 65536 && bodies.size() != 12; ++id)
+			{
+				// Search a bounded high-identity corpus rather than making fixture setup depend on a particular hash's long-period behaviour.
+				if ((std::hash<uint64_t>{}(id) & 255U) == 0)
+					bodies.emplace_back(id);
+			}
+			if (bodies.size() != 12)
+				throw std::runtime_error("The fixture corpus did not produce twelve colliding identity hashes");
+
+			// Retain addresses only after the object vector has reached its final size.
+			auto pointers = std::vector<RigidBody*>{};
+			for (auto& body : bodies)
+			{
+				// Pointer storage is complete before remapping; object relocation cannot invalidate borrowed addresses.
+				pointers.push_back(&body);
+			}
+			for (int order = 0; order != 2; ++order)
+			{
+				// Both forward and reversed collision chains must preserve the caller's current insertion order.
+				auto remap = BodyRemap(pointers);
+				for (int index = 0; index != isize(pointers); ++index)
+				{
+					// A linear pointer-stream oracle is independent of sorted or hashed lookup.
+					PR_EXPECT(remap.Resolve(BodyRef::Rigid(*pointers[index])) == index);
+					PR_EXPECT(&remap.Body(index) == pointers[index]);
+				}
+				auto absent = BodyRef::Rigid(*pointers.front());
+				absent.m_body_id.m_value ^= uint64_t{1} << 63;
+				PR_THROWS(remap.Resolve(absent), std::invalid_argument);
+				std::reverse(pointers.begin(), pointers.end());
+			}
+			auto duplicate = bodies[4];
+			pointers.push_back(&duplicate);
+			PR_THROWS((void)BodyRemap(pointers), std::invalid_argument);
+			log_stream() << "sparse64=12 shared_low_hash_bits=8 forward_reverse_and_missing=1 duplicate_copy_rejected=1\n";
+		}
+
+		// Empty, malformed, missing, stale, and duplicate inputs keep their existing rejection boundaries.
+		PRUnitTestMethod(RejectsInvalidInputsAndEndpoints, Quick)
+		{
+			// Empty domains admit only the identity-free world endpoint and no indexed body access.
+			auto empty = BodyRemap({});
+			PR_EXPECT(empty.BodyCount() == 0 && empty.ArticulationCount() == 0);
+			PR_EXPECT(empty.Resolve(BodyRef::World()) == -1);
+			PR_THROWS(empty.Body(0), std::out_of_range);
+			PR_THROWS(empty.MutableBody(-1), std::out_of_range);
+			PR_THROWS(empty.ArticulationBody(0), std::out_of_range);
+			PR_THROWS(empty.MutableArticulation(-1), std::out_of_range);
+			PR_THROWS(empty.ArticulationLinkOffset(0), std::out_of_range);
+			auto invalid = IdentifiedBody{0};
+			auto valid = IdentifiedBody{0x100000007ULL};
+			PR_THROWS((void)BodyRemap(std::array<RigidBody*, 1>{nullptr}), std::invalid_argument);
+			PR_THROWS((void)BodyRemap(std::array<RigidBody*, 1>{&invalid}), std::invalid_argument);
+			PR_THROWS((void)BodyRemap(std::array<RigidBody*, 2>{&valid, &valid}), std::invalid_argument);
+			PR_THROWS((void)BodyRemap({}, std::array<Articulation*, 1>{nullptr}), std::invalid_argument);
+			PR_THROWS(empty.Resolve(BodyRef::Rigid(valid)), std::invalid_argument);
+
+			// Construction failure cannot change caller-owned objects; the same valid inputs remain usable.
+			auto [tree_a, child_a] = MakeConstraintTree(0.0f);
+			auto [tree_b, child_b] = MakeConstraintTree(2.0f);
+			PR_THROWS((void)BodyRemap({}, std::array<Articulation*, 2>{&tree_a, &tree_a}), std::invalid_argument);
+			auto remap = BodyRemap(std::array<RigidBody*, 1>{&valid}, std::array<Articulation*, 1>{&tree_a});
+			PR_EXPECT(remap.Resolve(BodyRef::Rigid(valid)) == 0);
+			PR_THROWS(remap.Body(-1), std::out_of_range);
+			PR_THROWS(remap.MutableBody(1), std::out_of_range);
+			PR_THROWS(remap.ArticulationBody(-1), std::out_of_range);
+			PR_THROWS(remap.MutableArticulation(1), std::out_of_range);
+			PR_THROWS(remap.ArticulationLinkOffset(-1), std::out_of_range);
+			PR_THROWS(remap.ArticulationLinkOffset(1), std::out_of_range);
+			PR_THROWS(remap.Resolve(BodyRef::Link(tree_b, child_b)), std::invalid_argument);
+			auto endpoint = BodyRef::Link(tree_a, child_a);
+			++endpoint.m_link.m_generation;
+			PR_THROWS(remap.Resolve(endpoint), std::out_of_range);
+			endpoint = BodyRef::Link(tree_a, child_a);
+			endpoint.m_link.m_index = static_cast<uint32_t>(tree_a.LinkCount());
+			PR_THROWS(remap.Resolve(endpoint), std::out_of_range);
+			endpoint.m_link = child_b;
+			PR_THROWS(remap.Resolve(endpoint), std::out_of_range);
+			endpoint = BodyRef::Link(tree_a, child_a);
+			endpoint.m_articulation_id.m_value |= uint64_t{1} << 48;
+			PR_THROWS(remap.Resolve(endpoint), std::invalid_argument);
+			endpoint = BodyRef::Rigid(valid);
+			endpoint.m_body_id = {};
+			PR_THROWS(remap.Resolve(endpoint), std::invalid_argument);
+
+			// World and unknown-kind validation stays separate from either identity lookup domain.
+			endpoint = BodyRef::World();
+			endpoint.m_body_id = valid.Id();
+			PR_THROWS(remap.Resolve(endpoint), std::invalid_argument);
+			endpoint = BodyRef::World();
+			endpoint.m_articulation_id = tree_a.Id();
+			PR_THROWS(remap.Resolve(endpoint), std::invalid_argument);
+			endpoint = BodyRef::World();
+			endpoint.m_link = child_a;
+			PR_THROWS(remap.Resolve(endpoint), std::invalid_argument);
+			endpoint = BodyRef::World();
+			endpoint.m_type = static_cast<EConstraintBodyType>(100);
+			PR_THROWS(remap.Resolve(endpoint), std::invalid_argument);
+			auto moved = std::move(tree_b);
+			PR_THROWS((void)BodyRemap({}, std::array<Articulation*, 1>{&tree_b}), std::logic_error);
+			PR_EXPECT(moved.LinkCount() == 2);
+			log_stream() << "empty_null_invalid_duplicate_missing_world_stale_cross_tree_and_moved_from_rejected=1\n";
+		}
+	};
+
 	PRUnitTestClass(ConstraintFoundationTests)
 	{
 		// Preserve body identity through value relocation and reject simultaneous duplicate identities.
@@ -226,8 +484,8 @@ namespace pr::physics::tests
 			body_b.O2W(m4x4::Translation(2.0f, 0.0f, 0.0f));
 
 			auto desc = MakeD6(BodyRef::Rigid(body_a), BodyRef::Rigid(body_b));
-			desc.m_frame_a.m_constraint_to_body = m4x4::Translation(0.0f, 1.0f, 0.0f);
-			desc.m_frame_b.m_constraint_to_body = m4x4::Transform(v4::XAxis(), 0.25f, v4::Origin());
+			desc.m_frame_a = BodyFrame::FromMatrix(desc.m_frame_a.m_body, m4x4::Translation(0.0f, 1.0f, 0.0f));
+			desc.m_frame_b = BodyFrame::FromMatrix(desc.m_frame_b.m_body, m4x4::Transform(v4::XAxis(), 0.25f, v4::Origin()));
 			desc.m_linear[0] = LockedAxis();
 			desc.m_linear[2].m_mode = EConstraintAxisMode::Limited;
 			desc.m_linear[2].m_limits = Range<float>{-0.5f, +0.5f};
@@ -352,7 +610,7 @@ namespace pr::physics::tests
 			auto body = RigidBody{};
 			auto desc = MakeD6(BodyRef::Rigid(body), BodyRef::World());
 			desc.m_linear[0] = LockedAxis();
-			desc.m_frame_b.m_constraint_to_body = m4x4::Translation(1.0f, 0.0f, 0.0f);
+			desc.m_frame_b = BodyFrame::FromMatrix(desc.m_frame_b.m_body, m4x4::Translation(1.0f, 0.0f, 0.0f));
 			auto constraints = ConstraintSet{};
 			constraints.Add(desc);
 			auto body_ptrs = std::array<RigidBody*, 1>{&body};
@@ -371,8 +629,8 @@ namespace pr::physics::tests
 		{
 			auto [articulation, child] = MakeConstraintTree(10.0f, constants<float>::tau_by_4);
 			auto desc = MakeD6(BodyRef::Link(articulation, child), BodyRef::World());
-			desc.m_frame_a.m_constraint_to_body = m4x4::Translation(0.0f, 1.0f, 0.0f);
-			desc.m_frame_b.m_constraint_to_body = m4x4::Translation(9.0f, 1.0f, 0.0f);
+			desc.m_frame_a = BodyFrame::FromMatrix(desc.m_frame_a.m_body, m4x4::Translation(0.0f, 1.0f, 0.0f));
+			desc.m_frame_b = BodyFrame::FromMatrix(desc.m_frame_b.m_body, m4x4::Translation(9.0f, 1.0f, 0.0f));
 			desc.m_linear[0] = LockedAxis();
 			auto constraints = ConstraintSet{};
 			constraints.Add(desc);
@@ -424,7 +682,7 @@ namespace pr::physics::tests
 			auto world_to_world = MakeD6(BodyRef::World(), BodyRef::World());
 			auto self = MakeD6(BodyRef::Rigid(body), BodyRef::Rigid(body));
 			auto invalid_frame = MakeD6(BodyRef::Rigid(body), BodyRef::World());
-			invalid_frame.m_frame_a.m_constraint_to_body.x.x = 2.0f;
+			invalid_frame.m_frame_a.m_rotation.w = 2.0f;
 			auto invalid_limit = MakeD6(BodyRef::Rigid(body), BodyRef::World());
 			invalid_limit.m_linear[0].m_mode = EConstraintAxisMode::Limited;
 			invalid_limit.m_linear[0].m_limits = Range<float>{+1.0f, -1.0f};

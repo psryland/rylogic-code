@@ -36,6 +36,8 @@ namespace pr::physics::shader_code
 	// Broadphase sort-and-sweep
 	extern ByteCode const sweep;
 	extern ByteCode const sweep_filtered;
+	extern ByteCode const sweep_deferred;
+	extern ByteCode const sweep_deferred_filtered;
 	extern ByteCode const calc_cd_dispatch;
 
 	// Narrowphase collision detection

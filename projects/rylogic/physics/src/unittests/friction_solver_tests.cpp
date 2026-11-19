@@ -354,7 +354,7 @@ namespace pr::physics::tests
 						// Posture constraint: world X/Y velocity motors at the centre of mass, free vertical motion, locked tilt and driven yaw.
 						auto desc = D6ConstraintDesc{};
 						desc.m_frame_b.m_body = BodyRef::Rigid(body);
-						desc.m_frame_b.m_constraint_to_body = m4x4::Translation(0, 0, com_height);
+						desc.m_frame_b = BodyFrame::FromMatrix(desc.m_frame_b.m_body, m4x4::Translation(0, 0, com_height));
 						for (int axis = 0; axis != 2; ++axis)
 						{
 							desc.m_linear[axis].m_mode = EConstraintAxisMode::Driven;

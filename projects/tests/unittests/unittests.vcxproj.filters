@@ -1475,6 +1475,9 @@
     <ClCompile Include="src\gui\message_loop_tests.cpp">
       <Filter>src\gui</Filter>
     </ClCompile>
+    <ClCompile Include="src\view3d\instance_tests.cpp">
+      <Filter>pr\view3d-12</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="..\..\..\include\pr\hlsl\pr_hlsl.rc">

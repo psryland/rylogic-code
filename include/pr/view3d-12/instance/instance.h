@@ -4,16 +4,15 @@
 //*********************************************
 // Definition of the instance base class and built-in instances for the renderer.
 // Usage:
-//   Client code can use the instance structs provided here or derive there own from
-//   InstanceBase. If custom instances are used in conjunction with custom shaders
-//   dynamic casts should be used to down-cast the instance struct to the appropriate type.
+//   Client code can use the instance structs provided here or define their own with
+//   PR_RDR12_INSTANCE_MEMBERS. Use cast<InstanceType> when the concrete instance type is known.
 //
 // Instance data layout:
-//   BaseInstance
-//   EInstComp[NumCpts]
+//   BaseInstance (references one immutable component layout shared by the instance type)
 //   component
 //   component
 //   component
+// Component offsets come from the compiler, including padding between members. The header must be the first member.
 #pragma once
 #include "pr/view3d-12/forward.h"
 #include "pr/view3d-12/render/sortkey.h"
@@ -24,16 +23,16 @@ namespace pr::rdr12
 	// Instance component types
 	enum class EInstComp :uint8_t
 	{
-		None,                // invalid entry (used for padding)
+		None,                // invalid component
 		ModelPtr,            // rdr::ModelPtr
 		MaterialPtr,         // rdr::MaterialPtr
 		I2WTransform,        // pr::m4x4
 		I2WTransformPtr,     // pr::m4x4*
-		I2WTransformFuncPtr, // pr::m4x4 const& (*func)(void* context);
+		I2WTransformFuncPtr, // m4x4Func (function and context)
 		C2STransform,        // pr::m4x4
 		C2SOptional,         // pr::m4x4 (set to m4x4::Zero() to indicate not used)
 		C2STransformPtr,     // pr::m4x4*
-		C2STransformFuncPtr, // pr::m4x4 const& (*func)(void* context);
+		C2STransformFuncPtr, // m4x4Func (function and context)
 		SortkeyOverride,     // rdr::SKOverride
 		PipeStates,          // rdr::PipeStates
 		Flags,               // EInstFlag
@@ -49,7 +48,6 @@ namespace pr::rdr12
 		Float4,              // pr::v4 - for general use
 		EmissiveScale,       // float - multiplies the material emissive colour; missing means 1
 	};
-	static_assert(sizeof(EInstComp) == 1, "Padding of Instance types relies on this");
 
 	// Instance flags
 	enum class EInstFlag :uint32_t
@@ -69,66 +67,78 @@ namespace pr::rdr12
 		_flags_enum = 0,
 	};
 
-	// The size of an instance component
-	constexpr int SizeOf(EInstComp const comp)
+	// A component that gets a transform via function pointer.
+	struct m4x4Func
 	{
+		using m4x4FuncPtr = m4x4 const& (*)(void* ctx);
+
+		m4x4FuncPtr m_func;
+		void*       m_ctx;
+
+		// Return the transform supplied by the function and its borrowed context.
+		m4x4 const& Txfm() const
+		{
+			// Keep the context paired with the function that interprets it.
+			return m_func(m_ctx);
+		}
+	};
+
+	// Return whether a declared member provides the storage required by its renderer component.
+	template <typename Comp> constexpr bool IsComponentType(EInstComp comp)
+	{
+		// Check the complete value type, including both words of a transform function component.
 		switch (comp)
 		{
-			case EInstComp::None:                return 0;
-			case EInstComp::ModelPtr:            return sizeof(ModelPtr);
-			case EInstComp::MaterialPtr:         return sizeof(MaterialPtr);
-			case EInstComp::PosePtr:             return sizeof(PosePtr);
-			case EInstComp::I2WTransform:        return sizeof(m4x4);
-			case EInstComp::I2WTransformPtr:     return sizeof(m4x4*);
-			case EInstComp::I2WTransformFuncPtr: return sizeof(m4x4 const& (*)(void* context));
-			case EInstComp::C2STransform:        return sizeof(m4x4);
-			case EInstComp::C2SOptional:         return sizeof(m4x4);
-			case EInstComp::C2STransformPtr:     return sizeof(m4x4*);
-			case EInstComp::C2STransformFuncPtr: return sizeof(m4x4 const& (*)(void* context));
-			case EInstComp::SortkeyOverride:     return sizeof(SKOverride);
-			case EInstComp::PipeStates:          return sizeof(PipeStates);
-			case EInstComp::Flags:               return sizeof(EInstFlag);
-			case EInstComp::TintColour32:        return sizeof(Colour32);
-			case EInstComp::ColourBlend32:       return sizeof(Colour32);
-			case EInstComp::DitherWord:          return sizeof(uint32_t);
-			case EInstComp::EnvMapReflectivity:  return sizeof(float);
-			case EInstComp::UniqueId:            return sizeof(int32_t);
-			case EInstComp::SSSize:              return sizeof(v2);
-			case EInstComp::Float1:              return sizeof(float);
-			case EInstComp::Float2:              return sizeof(v2);
-			case EInstComp::Float4:              return sizeof(v4);
-			case EInstComp::EmissiveScale:       return sizeof(float);
-			default: throw std::runtime_error("Unknown instance component type");
+			case EInstComp::None:                { return false; }
+			case EInstComp::ModelPtr:            { return std::is_same_v<Comp, ModelPtr>; }
+			case EInstComp::MaterialPtr:         { return std::is_same_v<Comp, MaterialPtr>; }
+			case EInstComp::PosePtr:             { return std::is_same_v<Comp, PosePtr>; }
+			case EInstComp::I2WTransform:        { return std::is_same_v<Comp, m4x4>; }
+			case EInstComp::I2WTransformPtr:     { return std::is_same_v<Comp, m4x4*> || std::is_same_v<Comp, m4x4 const*>; }
+			case EInstComp::I2WTransformFuncPtr: { return std::is_same_v<Comp, m4x4Func>; }
+			case EInstComp::C2STransform:        { return std::is_same_v<Comp, m4x4>; }
+			case EInstComp::C2SOptional:         { return std::is_same_v<Comp, m4x4>; }
+			case EInstComp::C2STransformPtr:     { return std::is_same_v<Comp, m4x4*> || std::is_same_v<Comp, m4x4 const*>; }
+			case EInstComp::C2STransformFuncPtr: { return std::is_same_v<Comp, m4x4Func>; }
+			case EInstComp::SortkeyOverride:     { return std::is_same_v<Comp, SKOverride>; }
+			case EInstComp::PipeStates:          { return std::is_same_v<Comp, PipeStates>; }
+			case EInstComp::Flags:               { return std::is_same_v<Comp, EInstFlag>; }
+			case EInstComp::TintColour32:        { return std::is_same_v<Comp, Colour32>; }
+			case EInstComp::ColourBlend32:       { return std::is_same_v<Comp, Colour32>; }
+			case EInstComp::DitherWord:          { return std::is_same_v<Comp, uint32_t>; }
+			case EInstComp::EnvMapReflectivity:  { return std::is_same_v<Comp, float>; }
+			case EInstComp::UniqueId:            { return std::is_same_v<Comp, int32_t>; }
+			case EInstComp::SSSize:              { return std::is_same_v<Comp, v2>; }
+			case EInstComp::Float1:              { return std::is_same_v<Comp, float>; }
+			case EInstComp::Float2:              { return std::is_same_v<Comp, v2>; }
+			case EInstComp::Float4:              { return std::is_same_v<Comp, v4>; }
+			case EInstComp::EmissiveScale:       { return std::is_same_v<Comp, float>; }
+			default: { throw std::runtime_error("Unknown instance component type"); }
 		}
 	}
+
+	// One member in an instance type's immutable layout, in declaration order.
+	struct InstanceComponent
+	{
+		EInstComp m_type;
+		size_t m_offset;
+	};
 
 	// The header for an instance. All instances must start with one of these
 	struct BaseInstance
 	{
-		int m_cpt_count;
+		std::span<InstanceComponent const> m_components;
 
-		static BaseInstance make(int cpt_count)
+		// Enumerate the shared component layout without permitting per-instance changes.
+		InstanceComponent const* begin() const
 		{
-			BaseInstance b = {cpt_count};
-			return b;
+			// Use raw iteration over the immutable entries during component lookup.
+			return m_components.data();
 		}
-
-		// Enumerate the component types
-		EInstComp const* begin() const
+		InstanceComponent const* end() const
 		{
-			return pr::type_ptr<EInstComp>(this + 1);
-		}
-		EInstComp const* end() const
-		{
-			return begin() + m_cpt_count;
-		}
-		EInstComp* begin()
-		{
-			return pr::type_ptr<EInstComp>(this + 1);
-		}
-		EInstComp* end()
-		{
-			return begin() + m_cpt_count;
+			// The shared span bounds include duplicates and exclude unrelated object members.
+			return m_components.data() + m_components.size();
 		}
 
 		// Access the component at 'ofs'
@@ -144,23 +154,19 @@ namespace pr::rdr12
 		// Find the 'index'th component of type 'comp' in this instance. Returns non-null if the component was found
 		template <typename Comp> Comp const* find(EInstComp comp, int index = 0) const
 		{
-			auto byte_ofs = PadTo<size_t>(sizeof(BaseInstance) + m_cpt_count * sizeof(EInstComp), 16);
-			for (auto& c : *this)
+			// Preserve duplicate occurrence order while using the compiler's member offset directly.
+			for (auto const& c : *this)
 			{
-				if (c == comp && index-- == 0) return get<Comp>(byte_ofs);
-				byte_ofs += SizeOf(c);
+				// Count only matches so unrelated components and padding cannot affect the requested index.
+				if (c.m_type == comp && index-- == 0)
+					return get<Comp>(c.m_offset);
 			}
 			return nullptr;
 		}
 		template <typename Comp> Comp* find(EInstComp comp, int index = 0)
 		{
-			auto byte_ofs = PadTo<size_t>(sizeof(BaseInstance) + m_cpt_count * sizeof(EInstComp), 16);
-			for (auto& c : *this)
-			{
-				if (c == comp && index-- == 0) return get<Comp>(byte_ofs);
-				byte_ofs += SizeOf(c);
-			}
-			return nullptr;
+			// The shared layout is immutable; only the selected component in this mutable instance may change.
+			return const_cast<Comp*>(static_cast<BaseInstance const&>(*this).find<Comp>(comp, index));
 		}
 
 		// Get the 'index'th component in this instance
@@ -175,20 +181,6 @@ namespace pr::rdr12
 			auto c = find<Comp>(comp, index);
 			if (c == nullptr) throw std::exception("This instance does not have the requested component");
 			return *c;
-		}
-	};
-
-	// A component that gets a transform via function pointer.
-	struct m4x4Func
-	{
-		using m4x4FuncPtr = m4x4 const& (*)(void* ctx);
-
-		m4x4FuncPtr m_func;
-		void*       m_ctx;
-
-		m4x4 const& Txfm() const
-		{
-			return m_func(m_ctx);
 		}
 	};
 
@@ -250,37 +242,31 @@ namespace pr::rdr12
 	#define PR_RDR12_INST_MEMBERS(ty,nm,em)           ty nm;
 	#define PR_RDR12_INST_MEMBER_COUNT(ty,nm,em)      + 1
 	#define PR_RDR12_INST_INITIALISERS(ty,nm,em)      ,nm()
-	#define PR_RDR12_INST_INIT_COMPONENTS(ty,nm,em)   m_cpt[i++] = em;
-	#define PR_RDR12_INST_COMPONENT_SIZES(ty,nm,em)   SizeOf(em),
-	#define PR_RDR12_INST_ALIGNMENT_CHECK(ty,nm,em)   if (offsetof(ThisType, nm) == ofs) { ofs += Sizes[i++]; } else { return false; }
+	#define PR_RDR12_INST_COMPONENTS(ty,nm,em)        {em, offsetof(ThisType, nm)},
+	#define PR_RDR12_INST_TYPE_CHECK(ty,nm,em)        static_assert(pr::rdr12::IsComponentType<ty>(em), "Instance member type does not match its component");
 	#pragma endregion
 
 	#define PR_RDR12_INSTANCE_MEMBERS(name, fields)\
 		static constexpr int CompCount = 0 fields(PR_RDR12_INST_MEMBER_COUNT);\
-		static constexpr int CompCapacity = CompCount + static_cast<int>(pr::Pad(sizeof(pr::rdr12::BaseInstance) + CompCount*sizeof(pr::rdr12::EInstComp), 16U));\
 		pr::rdr12::BaseInstance m_base;\
-		pr::rdr12::EInstComp m_cpt[CompCapacity];\
 		fields(PR_RDR12_INST_MEMBERS)\
 		\
-		name()\
-			:m_base({CompCount})\
-			,m_cpt()\
-			fields(PR_RDR12_INST_INITIALISERS)\
+		/* Return the single immutable compiler-derived layout for this instance type. */\
+		static std::span<pr::rdr12::InstanceComponent const> InstanceComponents()\
 		{\
-			using namespace pr::rdr12;\
+			/* Define offsets only after the enclosing type is complete; no instance data is captured. */\
 			using ThisType = name;\
-			int i = 0;\
-			fields(PR_RDR12_INST_INIT_COMPONENTS)\
-			constexpr auto AlignCheck = []()\
-			{\
-				constexpr int Sizes[] = {fields(PR_RDR12_INST_COMPONENT_SIZES)};\
-				int i = 0, ofs = static_cast<int>(pr::PadTo(sizeof(BaseInstance) + CompCount*sizeof(EInstComp), 16));\
-				fields(PR_RDR12_INST_ALIGNMENT_CHECK)\
-				return true;\
-			};\
-			static_assert(AlignCheck(), "Member alignment issue");\
-			static_assert(offsetof(name, m_base) == 0, "'m_base' must be be the first member");\
-		}
+			fields(PR_RDR12_INST_TYPE_CHECK)\
+			static_assert(offsetof(ThisType, m_base) == 0, "'m_base' must be the first member");\
+			static constexpr std::array<pr::rdr12::InstanceComponent, CompCount> components = {{fields(PR_RDR12_INST_COMPONENTS)}};\
+			return components;\
+		}\
+		\
+		/* Initialise component values and reference this type's shared layout. */\
+		name()\
+			:m_base{InstanceComponents()}\
+			fields(PR_RDR12_INST_INITIALISERS)\
+		{}
 
 	#pragma endregion
 }

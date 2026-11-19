@@ -109,18 +109,15 @@ namespace pr::rdr12
 		using MultiSamp = ::pr::compute::MultiSamp;
 
 		// Credit: https://www.rastertek.com/dx12tut03.html
-		// Before we can initialize the swap chain we have to get the refresh rate from the video card/monitor.
-		// Each computer may be slightly different so we will need to query for that information. We query for
-		// the numerator and denominator values and then pass them to DirectX during the setup and it will calculate
-		// the proper refresh rate. If we don't do this and just set the refresh rate to a default value which may
-		// not exist on all computers then DirectX will respond by performing a buffer copy instead of a buffer flip
-		// which will degrade performance and give us annoying errors in the debug output.
+		// Fullscreen display modes must match the selected output, including its refresh rate.
+		// Windowed buffer dimensions and format do not require a physical output mode. The desktop controls
+		// presentation timing; Window creates the swap chain without a fullscreen description.
 
 		HWND                  m_hwnd;             // The Win32 Windows handle. (Can be null for off-screen only rendering)
 		RdrSettings const*    m_rdr_settings;     // The settings for the owning renderer instance
 		SystemConfig::Output  m_output;           // The monitor to use, nullptr means use the default. See 'SystemConfig'
 		BOOL                  m_windowed;         // Windowed mode or full screen
-		DisplayMode           m_mode;             // Display mode to use (note: must be valid for the adapter, use FindClosestMatchingMode if needed)
+		DisplayMode           m_mode;             // Windowed buffer description, or an output-matched fullscreen display mode
 		DXGI_SWAP_EFFECT      m_swap_effect;      // How to swap the back buffer to the front buffer
 		DXGI_SWAP_CHAIN_FLAG  m_swap_chain_flags; // Options to allow GDI and DX together (see DXGI_SWAP_CHAIN_FLAG)
 		DXGI_FORMAT           m_depth_format;     // Depth buffer format
@@ -141,6 +138,7 @@ namespace pr::rdr12
 		//   BitBlt modes: 0 = present immediately, 1,2,3,.. present after the nth vertical blank (has the effect of locking the frame rate to a fixed multiple of the VSync rate)
 		//   Flip modes (Sequential): 0 = drop this frame if there is a new frame waiting, n > 0 = same as bitblt case
 
+		// Create window settings, using the HWND client size when supplied. Fullscreen selection requires an output.
 		WndSettings(HWND hwnd, bool windowed, RdrSettings const& rdr_settings)
 			:m_hwnd(hwnd)
 			,m_rdr_settings(&rdr_settings)
@@ -162,12 +160,13 @@ namespace pr::rdr12
 			,m_allow_alt_enter(false)
 			,m_name()
 		{
+			// Only fullscreen mode selection depends on the renderer's enumerated outputs.
 			DefaultOutput();
 			DefaultMode();
 
 			// Default to the window client area
 			// Null hwnd is allowed when off-screen only rendering
-			if (m_output.ptr != nullptr && hwnd != nullptr)
+			if (hwnd != nullptr)
 				Size(hwnd);
 		}
 		WndSettings& DefaultOutput()
@@ -177,9 +176,16 @@ namespace pr::rdr12
 			
 			return *this;
 		}
+		// Select default windowed dimensions or the selected output's fullscreen mode.
 		WndSettings& DefaultMode()
 		{
-			return m_windowed ? Size(1024, 768) : Mode(m_output.FindBestFullScreenMode());
+			// Windowed dimensions are independent of monitor enumeration.
+			if (m_windowed)
+				return Size(1024, 768);
+
+			// Reject missing output before querying a monitor or changing the stored mode.
+			Check(m_output.ptr != nullptr, "Set the output before selecting a fullscreen display mode");
+			return Mode(m_output.FindBestFullScreenMode());
 		}
 		WndSettings& Mode(DisplayMode const& mode)
 		{
@@ -196,11 +202,23 @@ namespace pr::rdr12
 			m_xr_support = enable;
 			return *this;
 		}
+		// Set exact windowed buffer dimensions, or select the nearest supported fullscreen dimensions.
 		WndSettings& Size(iv2 const& area)
 		{
-			Check(m_output.ptr != nullptr, "Set the output before setting the display mode");
-			auto mode = m_output.FindClosestMatchingMode(DisplayMode(area));
-			if (m_windowed) { mode.Width = area.x; mode.Height = area.y; }
+			// Preserve the requested windowed dimensions, including zero for DXGI's client-size selection.
+			auto mode = DisplayMode(area);
+			if (m_windowed)
+			{
+				// DisplayMode's off-screen minimum must not replace a windowed zero-size request.
+				mode.Width = area.x;
+				mode.Height = area.y;
+			}
+			else
+			{
+				// Physical output mode matching remains mandatory for fullscreen selection.
+				Check(m_output.ptr != nullptr, "Set the output before selecting a fullscreen display mode");
+				mode = m_output.FindClosestMatchingMode(mode);
+			}
 			return Mode(mode);
 		}
 		WndSettings& Size(int w, int h)

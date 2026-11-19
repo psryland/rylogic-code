@@ -14,8 +14,12 @@ namespace physics_sandbox
 		std::wstring m_last_text;
 		bool m_pinned;       // true = panel is visible and pinned open
 		bool m_refresh_needed = true;
+		pr::gui::EventHandlerId m_window_pos_change_id;
 
 		DetailsPanel(Panel::Params<> p = Panel::Params<>());
+
+		// Release this panel and its owned controls.
+		~DetailsPanel();
 
 		// Update the displayed properties from the current scene state.
 		// Format only when visible and invalidated; unchanged output preserves the text control.

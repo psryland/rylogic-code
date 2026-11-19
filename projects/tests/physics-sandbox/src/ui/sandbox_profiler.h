@@ -4,6 +4,10 @@
 
 namespace physics_sandbox
 {
+#if PR_UNITTESTS
+	namespace tests { struct TestClass_SandboxClockTests; }
+#endif
+
 	// Lightweight frame profiler enabled with '-profile'.
 	struct SandboxProfiler
 	{
@@ -28,17 +32,26 @@ namespace physics_sandbox
 		bool Enabled() const;
 		void Open(std::filesystem::path filepath);
 		void Reset();
+		// Accumulate existing CPU phase durations for one submitted physics frame; body and constraint packing/upload remain separate.
 		void RecordStep(Scene::StepProfile const& profile, double elapsed_ms);
+		// Record nonnegative simulation seconds removed by the continuous scheduler, excluding pauses and scene resets.
+		void RecordDiscardedSimulationTime(double seconds);
 		void RecordAddScene(double elapsed_ms);
-		void RecordLoadScene(std::filesystem::path const& filepath, double total_ms, double wait_gpu_ms, double json_ms, double camera_ms, Scene::LoadProfile const& profile);
+		void RecordLoadScene(std::filesystem::path const& filepath, double total_ms, double wait_gpu_ms, double json_ms, double camera_ms, Scene const& scene);
 		void RecordRender(Scene const& scene, RenderSample const& sample);
+
+		// Append completed Population counters to the explicit profile file. Returns false if writing fails.
+		bool RecordPopulationStats(rdr12::PopulationStats const& stats);
 
 	private:
 
 		bool m_enabled;
 		std::ofstream m_log;
 		double m_elapsed;
+		double m_discarded_simulation_s;
 		Clock::time_point m_report_beg;
+		Clock::time_point m_last_render;
+		double m_max_frame_ms;
 		int m_steps;
 		int m_renders;
 		double m_step_ms;
@@ -50,5 +63,9 @@ namespace physics_sandbox
 		RenderSample m_render;
 
 		void Report(Scene const& scene);
+
+#if PR_UNITTESTS
+		friend struct tests::TestClass_SandboxClockTests;
+#endif
 	};
 }

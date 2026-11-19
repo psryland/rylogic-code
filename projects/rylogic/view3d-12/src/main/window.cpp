@@ -115,8 +115,8 @@ namespace pr::rdr12
 			Check(false, "D3D device has not been created with GDI compatibility");
 		if (AllSet(m_swap_chain_flags, DXGI_SWAP_CHAIN_FLAG_GDI_COMPATIBLE) && settings.m_multisamp.Count != 1)
 			Check(false, "GDI compatibility does not support multi-sampling");
-		if (settings.m_vsync && (settings.m_mode.RefreshRate.Numerator == 0 || settings.m_mode.RefreshRate.Denominator == 0))
-			Check(false, "If VSync is enabled, the refresh rate should be provided (matching the value returned from the graphics card)");
+		if (!settings.m_windowed && settings.m_vsync && (settings.m_mode.RefreshRate.Numerator == 0 || settings.m_mode.RefreshRate.Denominator == 0))
+			Check(false, "Fullscreen VSync requires a refresh rate matching the selected output");
 		if (settings.m_multisamp.Count < 1 || settings.m_multisamp.Count > D3D12_MAX_MULTISAMPLE_SAMPLE_COUNT)
 			Check(false, "MSAA sample count invalid");
 
@@ -161,9 +161,9 @@ namespace pr::rdr12
 				.Windowed = settings.m_windowed,
 			};
 
-			// Create the swap chain. Swap chains only contain render targets, not deep buffers.
+			// Windowed presentation has no fullscreen mode or refresh rate. Swap chains contain render targets, not depth buffers.
 			D3DPtr<IDXGISwapChain1> swap_chain;
-			Check(factory->CreateSwapChainForHwnd(rdr.GfxQueue(), settings.m_hwnd, &desc0, &desc1, nullptr, swap_chain.address_of()));
+			Check(factory->CreateSwapChainForHwnd(rdr.GfxQueue(), settings.m_hwnd, &desc0, settings.m_windowed ? nullptr : &desc1, nullptr, swap_chain.address_of()));
 			Check(swap_chain->QueryInterface(m_swap_chain.address_of()));
 			DebugName(m_swap_chain, "SwapChain");
 

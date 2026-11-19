@@ -50,8 +50,8 @@ namespace pr::physics
 		// Return a live slot or reject an invalid or stale handle.
 		Slot const& Require(ConstraintHandle handle) const;
 
-		// Validate a descriptor before it can enter persistent storage.
-		static void Validate(D6ConstraintDesc const& desc);
+		// Validate a descriptor, reusing endpoint-frame validation only when it exactly matches a previously validated value.
+		static void Validate(D6ConstraintDesc const& desc, D6ConstraintDesc const* previous = nullptr);
 
 		friend CompiledConstraintSet CompileConstraints(ConstraintSet const& constraints, BodyRemap const& remap);
 		friend GpuConstraintUpload PackGpuConstraints(ConstraintSet const& constraints, BodyRemap const& remap, std::span<GpuCollisionExclusion const> additional_collision_exclusions);
@@ -85,6 +85,11 @@ namespace pr::physics
 		// Replace 'descs[i]' for 'handles[i]' while preserving every handle. Every handle and descriptor is checked before any is replaced, so a failure
 		// changes nothing. A handle that appears more than once takes its last descriptor.
 		void Update(std::span<ConstraintHandle const> handles, std::span<D6ConstraintDesc const> descs);
+
+		// Replace the six existing m_target_velocity values in canonical linear XYZ, angular XYZ order. All values must be finite.
+		// An invalid handle or value changes nothing. A valid call dirties the slot and advances the parameter revision even for unchanged values;
+		// all other descriptor fields, topology, and broken state remain unchanged.
+		void SetTargetVelocities(ConstraintHandle handle, std::array<float, 6> const& target_velocities);
 
 		// Enable or disable a persistent descriptor without changing topology.
 		void SetEnabled(ConstraintHandle handle, bool enabled);

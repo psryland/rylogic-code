@@ -197,7 +197,7 @@ namespace pr::physics
 	// Build the colouring schedule for 'endpoints' and upload it. The schedule buffer has one entry per stable slot.
 	void GpuConstraintSolver::UploadColourSchedule(GpuJob& job, std::span<GpuConstraintEndpoint const> endpoints)
 	{
-		// The schedule depends only on the frame-local endpoint stream, so it is rebuilt with each upload.
+		// The caller has detected a changed graph or invalidated storage; retain the rebuilt CPU levels beside the uploaded tasks.
 		m_colour_schedule.Build(endpoints);
 		auto const task_count = isize(m_colour_schedule.m_tasks);
 		if (task_count == 0)
@@ -251,6 +251,7 @@ namespace pr::physics
 	// Upload shared frame-local endpoints and changed persistent descriptors, returning whether independent rigid work is active.
 	bool GpuConstraintSolver::Upload(GpuJob& job, GpuConstraintUpload const& upload)
 	{
+		// Record this submission's counts without transferring retained storage ownership for an empty stream.
 		m_slot_count = static_cast<int>(upload.m_endpoints.size());
 		m_active_count = static_cast<int>(upload.m_rigid_active_count);
 		m_breakable_count = static_cast<int>(upload.m_breakable_count);
@@ -258,32 +259,45 @@ namespace pr::physics
 		m_dispatch_count = 0;
 		if (m_slot_count == 0)
 		{
+			// Retained blocks and shadows still belong to their last nonempty source, including pending invalidation.
 			m_r_break_states = nullptr;
 			m_break_capacity = 0;
 			m_breakable_count = 0;
-			m_source = upload.m_source;
 			m_previous_timestep = 0.0f;
 			m_frame_warm_start_scale = 0.0f;
 			return false;
 		}
 		if (upload.m_descriptors.size() != upload.m_endpoints.size())
 			throw std::invalid_argument("GPU constraint endpoint and descriptor slot counts must match");
+
 		if (upload.m_endpoint_identities.size() != upload.m_endpoints.size())
 			throw std::invalid_argument("GPU constraint endpoint identities and endpoint slot counts must match");
+
 		if (m_breakable_count < 0 || m_breakable_count > m_slot_count)
 			throw std::invalid_argument("GPU breakable constraint count is outside the stable-slot range");
 
+		// A new descriptor storage shape needs a full copy, independently of exact per-slot warm-start invalidation.
 		auto const resized = ResizeBuffers(job, m_slot_count);
-		m_colour_count = ColourBound(upload.m_endpoints);
-		UploadColourSchedule(job, upload.m_endpoints);
 		auto endpoints = upload.m_endpoints;
-		auto descriptor_dirty = std::vector<bool>(m_slot_count, resized || m_descriptor_shadow.size() != upload.m_descriptors.size());
+		auto const full_descriptor_upload = resized || m_descriptor_shadow.size() != upload.m_descriptors.size();
+		auto descriptor_begin = full_descriptor_upload ? 0 : m_slot_count;
+		auto descriptor_end = full_descriptor_upload ? m_slot_count : 0;
 		auto const reset_all = resized || m_source != upload.m_source;
-		auto reset_runtime = std::vector<bool>(m_slot_count, reset_all);
+		auto runtime_reset_ranges = std::vector<std::pair<int, int>>{};
+		auto graph_changed = reset_all || m_endpoint_shadow.size() != endpoints.size() || m_colour_schedule.m_level_offsets.empty();
+		auto const graph_flags = GpuConstraintEndpointFlags_Enabled | GpuConstraintEndpointFlags_Coupled;
 
 		// Mark only semantically changed stable slots for warm-start invalidation; packed-body reordering is harmless.
 		for (int index = 0; index != m_slot_count; ++index)
 		{
+			// Slot order, both packed indices, and participation flags define the CPU graph. Disabled indices still affect ColourBound.
+			// A shape mismatch already marks the graph changed, so short-circuiting also protects accesses beyond the retained shadow.
+			graph_changed = graph_changed ||
+				m_endpoint_shadow[index].body_idx_a != endpoints[index].body_idx_a ||
+				m_endpoint_shadow[index].body_idx_b != endpoints[index].body_idx_b ||
+				((m_endpoint_shadow[index].flags ^ endpoints[index].flags) & graph_flags) != 0;
+
+			// Compare against the retained owner and exact descriptor/endpoint identities before accumulating transfer ranges.
 			auto const previously_enabled =
 				!reset_all &&
 				index < isize(m_endpoint_shadow) &&
@@ -296,7 +310,12 @@ namespace pr::physics
 			auto const endpoint_identity_changed =
 				index >= isize(m_endpoint_identity_shadow) ||
 				m_endpoint_identity_shadow[index] != upload.m_endpoint_identities[index];
-			descriptor_dirty[index] = descriptor_dirty[index] || descriptor_changed;
+			if (descriptor_changed)
+			{
+				// Widen, never replace, the envelope so an existing full-copy seed remains full.
+				descriptor_begin = std::min(descriptor_begin, index);
+				descriptor_end = std::max(descriptor_end, index + 1);
+			}
 			auto const endpoint_changed =
 				reset_all ||
 				index >= isize(m_endpoint_shadow) ||
@@ -306,29 +325,34 @@ namespace pr::physics
 				endpoints[index].flags |= GpuConstraintEndpointFlags_ResetWarmStart;
 
 			// A newly active slot must not inherit a break latch or row state from an earlier occupant or an immediately repaired constraint.
-			reset_runtime[index] = reset_runtime[index] || (currently_enabled && !previously_enabled);
+			if (reset_all || (currently_enabled && !previously_enabled))
+			{
+				// Consecutive slots share one copy; a gap ends the run without allocating per-slot bookkeeping.
+				if (runtime_reset_ranges.empty() || runtime_reset_ranges.back().second != index)
+					runtime_reset_ranges.emplace_back(index, index + 1);
+				else
+					runtime_reset_ranges.back().second = index + 1;
+			}
+		}
+
+		// Reuse only CPU graph preparation and its transfer; Prepare still executes native colouring for current body dynamics every time.
+		if (graph_changed)
+		{
+			// No second graph key is retained: the endpoint shadow and nonempty level offsets describe the completed preparation.
+			m_colour_count = ColourBound(upload.m_endpoints);
+			UploadColourSchedule(job, upload.m_endpoints);
 		}
 
 		// Clear only newly valid runtime ranges, while a source or capacity replacement resets every retained slot.
-		auto const any_runtime_reset = std::ranges::find(reset_runtime, true) != reset_runtime.end();
-		if (any_runtime_reset)
+		if (!runtime_reset_ranges.empty())
 		{
+			// Transition once for all accumulated contiguous runs.
 			job.m_barriers.Transition(m_r_blocks.get(), D3D12_RESOURCE_STATE_COPY_DEST);
 			job.m_barriers.Transition(m_r_rows.get(), D3D12_RESOURCE_STATE_COPY_DEST);
 			job.m_barriers.Commit();
-
-			for (int begin = 0; begin != m_slot_count;)
+			for (auto const& [begin, end] : runtime_reset_ranges)
 			{
-				if (!reset_runtime[begin])
-				{
-					++begin;
-					continue;
-				}
-
-				auto end = begin + 1;
-				while (end != m_slot_count && reset_runtime[end])
-					++end;
-
+				// Reset exactly this run's blocks and canonical rows, preserving every intervening retained slot.
 				auto const count = end - begin;
 				auto block_upload = job.m_upload.Alloc<GpuConstraintBlock>(count);
 				std::fill_n(block_upload.ptr<GpuConstraintBlock>(), count, GpuConstraintBlock{
@@ -337,27 +361,27 @@ namespace pr::physics
 					.colour = MaxColours,
 				});
 				job.m_cmd_list.CopyBufferRegion(m_r_blocks.get(), static_cast<uint64_t>(begin) * sizeof(GpuConstraintBlock), block_upload);
-
 				auto const row_count = GpuConstraintRowsPerBlock * count;
 				auto row_upload = job.m_upload.Alloc<GpuConstraintRow>(row_count);
 				std::fill_n(row_upload.ptr<GpuConstraintRow>(), row_count, GpuConstraintRow{});
 				job.m_cmd_list.CopyBufferRegion(m_r_rows.get(), static_cast<uint64_t>(GpuConstraintRowsPerBlock * begin) * sizeof(GpuConstraintRow), row_upload);
-				begin = end;
 			}
-
 			job.m_barriers.Transition(m_r_blocks.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			job.m_barriers.Transition(m_r_rows.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			job.m_barriers.Commit();
 		}
 
 		// Endpoint indices are frame-local, so upload the complete compact endpoint stream every submitted constrained frame.
-		auto const any_descriptor_dirty = std::ranges::find(descriptor_dirty, true) != descriptor_dirty.end();
+		auto const any_descriptor_dirty = descriptor_begin < descriptor_end;
 		job.m_barriers.Transition(m_r_endpoints.get(), D3D12_RESOURCE_STATE_COPY_DEST);
 		job.m_barriers.Transition(m_r_state.get(), D3D12_RESOURCE_STATE_COPY_DEST);
 		if (any_descriptor_dirty)
 			job.m_barriers.Transition(m_r_descriptors.get(), D3D12_RESOURCE_STATE_COPY_DEST);
+
+		// Keep the full endpoint upload independent of the persistent descriptor envelope.
 		job.m_barriers.Commit();
 		{
+			// Upload the computed semantic flags alongside the current packed-body indices.
 			auto endpoint_upload = job.m_upload.Alloc<GpuConstraintEndpoint>(m_slot_count);
 			memcpy(endpoint_upload.ptr<GpuConstraintEndpoint>(), endpoints.data(), endpoints.size() * sizeof(GpuConstraintEndpoint));
 			job.m_cmd_list.CopyBufferRegion(m_r_endpoints.get(), 0, endpoint_upload);
@@ -368,38 +392,32 @@ namespace pr::physics
 		state_upload.ptr<GpuConstraintSolverState>()[0] = GpuConstraintSolverState{};
 		job.m_cmd_list.CopyBufferRegion(m_r_state.get(), 0, state_upload);
 
-		// Merge adjacent changed descriptor slots so persistent parameter edits produce minimal upload copies.
-		for (int begin = 0; begin != m_slot_count;)
+		// Cover the dirty slots with one upload, trading unchanged interior bytes for fewer allocator and driver submissions.
+		if (any_descriptor_dirty)
 		{
-			if (!descriptor_dirty[begin])
-			{
-				++begin;
-				continue;
-			}
-
-			auto end = begin + 1;
-			while (end != m_slot_count && descriptor_dirty[end])
-				++end;
-
-			auto const count = end - begin;
+			// Copying clean interior slots does not change their independently computed warm-start flags.
+			auto const count = descriptor_end - descriptor_begin;
 			auto descriptor_upload = job.m_upload.Alloc<GpuD6ConstraintDesc>(count);
-			memcpy(descriptor_upload.ptr<GpuD6ConstraintDesc>(), upload.m_descriptors.data() + begin, count * sizeof(GpuD6ConstraintDesc));
-			job.m_cmd_list.CopyBufferRegion(m_r_descriptors.get(), static_cast<uint64_t>(begin) * sizeof(GpuD6ConstraintDesc), descriptor_upload);
-			begin = end;
+			memcpy(descriptor_upload.ptr<GpuD6ConstraintDesc>(), upload.m_descriptors.data() + descriptor_begin, count * sizeof(GpuD6ConstraintDesc));
+			job.m_cmd_list.CopyBufferRegion(m_r_descriptors.get(), static_cast<uint64_t>(descriptor_begin) * sizeof(GpuD6ConstraintDesc), descriptor_upload);
 		}
 		job.m_barriers.Transition(m_r_endpoints.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 		job.m_barriers.Transition(m_r_state.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		if (any_descriptor_dirty)
 			job.m_barriers.Transition(m_r_descriptors.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+
+		// Finish the stream transitions before initializing optional frame-local latches.
 		job.m_barriers.Commit();
 
 		// Break latches are frame-local and exist only when at least one active descriptor has a finite threshold.
 		if (m_breakable_count != 0)
 		{
+			// Start each current generation with no overload or substep recorded.
 			EnsureBreakStateStorage(job, m_slot_count);
 			auto break_upload = job.m_upload.Alloc<GpuConstraintBreakState>(m_slot_count);
 			for (int index = 0; index != m_slot_count; ++index)
 			{
+				// Stable-slot generations distinguish a new occupant from an earlier break event.
 				break_upload.ptr<GpuConstraintBreakState>()[index] = GpuConstraintBreakState{
 					.generation = upload.m_endpoints[index].generation,
 					.substep_index = -1,
@@ -411,10 +429,12 @@ namespace pr::physics
 		}
 		else
 		{
+			// No active finite threshold needs an overload stream.
 			m_r_break_states = nullptr;
 			m_break_capacity = 0;
 		}
 
+		// Commit the owner and shadows after all required stream writes have been recorded.
 		m_endpoint_shadow = upload.m_endpoints;
 		m_endpoint_identity_shadow = upload.m_endpoint_identities;
 		m_descriptor_shadow = upload.m_descriptors;
@@ -481,45 +501,37 @@ namespace pr::physics
 	// Return an upper bound on the number of colours that greedy colouring can use for 'endpoints'.
 	int GpuConstraintSolver::ColourBound(std::span<GpuConstraintEndpoint const> endpoints)
 	{
-		// Count the slots that touch each body. Coupled slots are not coloured, and a world endpoint (a negative index) never limits a colour. Every
-		// other body is counted as dynamic, which can only raise the bound.
+		// The GPU schedule reproduces serial slot-order first-free colouring (see ConstraintColourSchedule::Build). At a slot, each preceding
+		// incident slot can occupy at most one colour. The union of the endpoint masks therefore has at most prior_a + prior_b bits, so its
+		// first free colour index is at most that sum. Counting inactive slots and treating static bodies as dynamic can only raise the bound.
 		m_body_degrees.clear();
-		auto count = [&](int body_idx)
-		{
-			// Grow the table to cover the body, then count the slot
-			if (body_idx < 0)
-				return;
-			if (body_idx >= isize(m_body_degrees))
-				m_body_degrees.resize(body_idx + 1, 0);
-
-			++m_body_degrees[body_idx];
-		};
-		for (auto const& endpoint : endpoints)
-		{
-			// Coupled slots belong to the coupled solver
-			if (AllSet(endpoint.flags, GpuConstraintEndpointFlags_Coupled))
-				continue;
-
-			count(endpoint.body_idx_a);
-			count(endpoint.body_idx_b);
-		}
-
-		// Greedy colouring gives a slot the lowest colour that neither body has used yet. Before the slot is coloured, each body has used at most one
-		// colour for each of its other slots, so the slot's colour index is at most the sum of those counts.
 		auto bound = 1;
-		auto degree = [&](int body_idx)
-		{
-			// A world endpoint has no other slots that could block a colour
-			return body_idx >= 0 ? m_body_degrees[body_idx] - 1 : 0;
-		};
 		for (auto const& endpoint : endpoints)
 		{
-			// Coupled slots belong to the coupled solver
+			// Coupled slots belong to the coupled solver and never occupy a rigid colour.
 			if (AllSet(endpoint.flags, GpuConstraintEndpointFlags_Coupled))
 				continue;
 
-			bound = std::max(bound, degree(endpoint.body_idx_a) + degree(endpoint.body_idx_b) + 1);
+			// Read both preceding counts before counting this slot. A world endpoint (negative index) never limits a colour.
+			auto const a = endpoint.body_idx_a;
+			auto const b = endpoint.body_idx_b;
+			auto const last_body = std::max(a, b);
+			if (last_body >= isize(m_body_degrees))
+				m_body_degrees.resize(last_body + 1, 0);
+
+			// Future incident slots cannot occupy colours yet, so they do not belong in this bound.
+			auto const prior_a = a >= 0 ? m_body_degrees[a] : 0;
+			auto const prior_b = b >= 0 ? m_body_degrees[b] : 0;
+			bound = std::max(bound, prior_a + prior_b + 1);
+			if (a >= 0)
+				++m_body_degrees[a];
+
+			// Count each endpoint incidence after measuring the current slot, including repeated endpoint indices.
+			if (b >= 0)
+				++m_body_degrees[b];
 		}
+
+		// Exhaustion uses the existing serial fallback in colour zero, which remains covered even by an otherwise empty bound.
 		return std::min(bound, int(MaxColours));
 	}
 
@@ -807,28 +819,38 @@ namespace pr::physics
 		return m_slot_count != 0 ? m_r_state.get() : nullptr;
 	}
 
-	// Mirror completed breaks into the endpoint shadow so an immediate explicit repair invalidates stale GPU runtime state.
+	// Mirror completed breaks for the next Upload, preserving repair resets and invalidating changed colour graphs.
 	void GpuConstraintSolver::AcknowledgeBreaks(std::span<GpuConstraintBreakState const> states)
 	{
+		// Completed break reports update the retained endpoint shadow before the next Upload compares its graph inputs.
 		if (states.empty())
 			return;
+
 		if (states.size() != m_endpoint_shadow.size())
 			throw std::invalid_argument("Constraint break acknowledgement does not match the retained stable-slot stream");
 
 		for (auto [state, index] : with_index(states))
 		{
+			// Reject stale reports before changing either graph validity or the warm-start shadow.
 			if (!AllSet(state.flags, GpuConstraintBreakFlags_Broken))
 				continue;
+
 			if (state.generation != m_endpoint_shadow[index].generation)
 				throw std::runtime_error("Constraint break acknowledgement generation does not match the uploaded endpoint");
+
+			// A later disabled upload may match this mutated shadow while the retained tasks still include the broken slot.
+			if (AllSet(m_endpoint_shadow[index].flags, GpuConstraintEndpointFlags_Enabled))
+				m_colour_schedule.m_level_offsets.clear();
 
 			m_endpoint_shadow[index].flags = SetFlag(m_endpoint_shadow[index].flags, GpuConstraintEndpointFlags_Enabled, false);
 		}
 	}
 
-	// Force the next upload to clear retained blocks after an abandoned or failed frame.
+	// Force the next upload to clear retained blocks and rebuild the colour graph after an abandoned or failed frame.
 	void GpuConstraintSolver::InvalidateRuntimeState()
 	{
+		// An abandoned recording cannot establish valid schedule storage, including when retained and incoming sources are both null.
+		m_colour_schedule.m_level_offsets.clear();
 		m_source = nullptr;
 		m_previous_timestep = 0.0f;
 		m_frame_warm_start_scale = 0.0f;

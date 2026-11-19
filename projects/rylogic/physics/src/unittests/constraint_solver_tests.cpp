@@ -246,8 +246,8 @@ namespace pr::physics::tests
 				body.SetMassProperties(Inertia{1.0f, 1.0f});
 				body.VelocityWS(v8motion{v4::Zero(), v4{-1, -1, 0, 0}});
 				auto desc = D6ConstraintDesc{};
-				desc.m_frame_a = BodyFrame{BodyRef::World(), m4x4::Translation(1.0f, -1.0f, 0.0f)};
-				desc.m_frame_b = BodyFrame{BodyRef::Rigid(body), desc.m_frame_a.m_constraint_to_body};
+				desc.m_frame_a = BodyFrame::FromMatrix(BodyRef::World(), m4x4::Translation(1.0f, -1.0f, 0.0f));
+				desc.m_frame_b = BodyFrame{BodyRef::Rigid(body), desc.m_frame_a.m_rotation, desc.m_frame_a.m_position};
 				desc.m_linear[0] = LockedAxis();
 				desc.m_linear[1].m_mode = EConstraintAxisMode::Driven;
 				desc.m_linear[1].m_max_force = 1.0f;
@@ -279,8 +279,8 @@ namespace pr::physics::tests
 				body.SetMassProperties(Inertia{1.0f, 1.0f});
 				body.VelocityWS(v8motion{v4::Zero(), v4{initial_speed, initial_speed, 0, 0}});
 				auto desc = D6ConstraintDesc{};
-				desc.m_frame_a = BodyFrame{BodyRef::World(), m4x4::Translation(1.0f, -1.0f, 0.0f)};
-				desc.m_frame_b = BodyFrame{BodyRef::Rigid(body), desc.m_frame_a.m_constraint_to_body};
+				desc.m_frame_a = BodyFrame::FromMatrix(BodyRef::World(), m4x4::Translation(1.0f, -1.0f, 0.0f));
+				desc.m_frame_b = BodyFrame{BodyRef::Rigid(body), desc.m_frame_a.m_rotation, desc.m_frame_a.m_position};
 				desc.m_linear[0] = LockedAxis();
 				desc.m_linear[1].m_mode = EConstraintAxisMode::Driven;
 				desc.m_linear[1].m_target_velocity = initial_speed == 0.0f ? 3.0f : 0.0f;
@@ -386,8 +386,8 @@ namespace pr::physics::tests
 			auto body = MakeBody();
 			body.SetMassProperties(Inertia{1.0f, 1.0f});
 			auto desc = D6ConstraintDesc{};
-			desc.m_frame_a = BodyFrame{BodyRef::World(), m4x4::Translation(1.0f, -1.0f, 0.0f)};
-			desc.m_frame_b = BodyFrame{BodyRef::Rigid(body), desc.m_frame_a.m_constraint_to_body};
+			desc.m_frame_a = BodyFrame::FromMatrix(BodyRef::World(), m4x4::Translation(1.0f, -1.0f, 0.0f));
+			desc.m_frame_b = BodyFrame{BodyRef::Rigid(body), desc.m_frame_a.m_rotation, desc.m_frame_a.m_position};
 			desc.m_linear[0] = LockedAxis();
 			desc.m_linear[1] = LockedAxis();
 			desc.m_linear[1].m_target_position = 0.01f;
@@ -420,8 +420,8 @@ namespace pr::physics::tests
 			body_b.VelocityWS(v8motion{v4{-0.2f, +0.5f, -0.1f, 0}, v4{-0.4f, +0.8f, -0.6f, 0}});
 
 			auto ball = BallSocketConstraintDesc{};
-			ball.m_frame_a = BodyFrame{BodyRef::Rigid(body_a), m4x4::Translation(+0.4f, +0.2f, -0.1f)};
-			ball.m_frame_b = BodyFrame{BodyRef::Rigid(body_b), m4x4::Translation(+0.4f, +0.2f, -0.1f)};
+			ball.m_frame_a = BodyFrame::FromMatrix(BodyRef::Rigid(body_a), m4x4::Translation(+0.4f, +0.2f, -0.1f));
+			ball.m_frame_b = BodyFrame::FromMatrix(BodyRef::Rigid(body_b), m4x4::Translation(+0.4f, +0.2f, -0.1f));
 			auto constraints = ConstraintSet{};
 			constraints.Add(ball);
 			auto body_ptrs = std::array<RigidBody*, 2>{&body_a, &body_b};
@@ -497,8 +497,8 @@ namespace pr::physics::tests
 				auto const anchor = v4{0.5f * random.NextSigned(), 0.5f * random.NextSigned(), 0.5f * random.NextSigned(), 1};
 				auto const frame = m4x4{m3x3::Rotation(rotation_vector.xyz), anchor};
 				auto desc = WeldConstraintDesc{};
-				desc.m_frame_a = BodyFrame{BodyRef::Rigid(body_a), frame};
-				desc.m_frame_b = BodyFrame{BodyRef::Rigid(body_b), frame};
+				desc.m_frame_a = BodyFrame::FromMatrix(BodyRef::Rigid(body_a), frame);
+				desc.m_frame_b = BodyFrame::FromMatrix(BodyRef::Rigid(body_b), frame);
 				auto constraints = ConstraintSet{};
 				constraints.Add(desc);
 				auto body_ptrs = std::array<RigidBody*, 2>{&body_a, &body_b};

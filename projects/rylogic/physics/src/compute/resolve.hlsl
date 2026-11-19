@@ -20,7 +20,8 @@
 //   - g_contact_times is first a sort-key buffer, then a temporary priority buffer during shock propagation, then the final sort-key buffer again.
 //   - g_contact_order starts as [0..contact_count) and is permuted by the external radix sort.
 //   - g_colours is used as uint/asfloat scratch for Jacobi shock-priority propagation, then reset and reused as the final per-contact colour assignment.
-//     One extra element at g.colour_capacity stores the frame-wide colour-overflow flag.
+//     Two extra elements store the frame-wide overflow flag and occupied-colour mask.
+//   The CPU records leading colours separately, then one complete group-wide tail. A stale head never omits newly occupied colours.
 //
 // Resource layout:
 //   b0: cbResolve                               - per-dispatch constants
@@ -65,8 +66,8 @@ struct cbResolve
 {
 	int max_contacts; // The max capacity of the contacts buffer
 	int body_count;   // The number of bodies in the scene
-	int colour;       // Current colour batch being processed (for CSResolve)
-	int colour_capacity; // Retained colour-buffer capacity; the trailing slot holds the overflow flag.
+	int colour;       // One colour, or MaxColours + head for the complete single-group tail.
+	int colour_capacity; // Retained capacity followed by the overflow flag and occupied-colour mask.
 
 	int shock_iterations;  // Number of contact-priority propagation sweeps
 	float max_position_speed; // Maximum target speed for shared detached position correction.
@@ -154,13 +155,25 @@ uint WarmStartChildKey(GpuResolveContact c)
 	return ((uint)c.child_idx_a << 16) | ((uint)c.child_idx_b & 0xFFFFu);
 }
 
-// Returns a stable non-zero cache key for a canonical body pair, its colliding leaves, and a quantised local contact point.
-uint WarmStartKey(GpuResolveContact c)
+// Return the reserved occupied-colour mask slot. Overflow frames publish an empty mask.
+int OccupiedColoursIndex()
 {
-	int3 q = int3(
+	return g.colour_capacity + 1;
+}
+
+// Return the contact point quantised to 1/64 m in body A space.
+int3 WarmStartPoint(GpuResolveContact c)
+{
+	return int3(
 		(int)floor(c.contact_point.x * 64.0f + 0.5f),
 		(int)floor(c.contact_point.y * 64.0f + 0.5f),
 		(int)floor(c.contact_point.z * 64.0f + 0.5f));
+}
+
+// Returns a stable non-zero cache key for a canonical body pair, its colliding leaves, and a quantised local contact point.
+uint WarmStartKey(GpuResolveContact c)
+{
+	int3 q = WarmStartPoint(c);
 	uint key =
 		(uint)c.body_idx_a * 73856093u ^
 		(uint)c.body_idx_b * 19349663u ^
@@ -418,7 +431,40 @@ bool ResetsWarmStart(int body_idx)
 	return body_idx >= 0 && body_idx < g.body_count && AllSet(g_bodies[body_idx].state_flags, ERigidBodyStateFlags_ResetWarmStart);
 }
 
-// Looks up the previous-frame normal impulse for this canonical body pair and projects it onto the current contact normal.
+// Compare the complete contact identity, not only its hash.
+bool WarmStartMatches(GpuWarmStartEntry entry, GpuResolveContact c, uint key)
+{
+	int3 q = WarmStartPoint(c);
+	return
+		entry.key == key &&
+		entry.body_idx_a == c.body_idx_a &&
+		entry.body_idx_b == c.body_idx_b &&
+		entry.child_key == WarmStartChildKey(c) &&
+		entry.point_key.x == q.x &&
+		entry.point_key.y == q.y &&
+		entry.point_key.z == q.z;
+}
+
+// Order duplicate candidates independently of insertion order, preferring the smaller cached impulse.
+bool WarmStartPrecedes(float3 a, float3 b)
+{
+	float length_sq_a = dot(a, a);
+	float length_sq_b = dot(b, b);
+	if (length_sq_a != length_sq_b)
+		return length_sq_a < length_sq_b;
+
+	// Raw-bit tie breaking makes the choice total even when magnitudes match.
+	uint3 bits_a = asuint(a);
+	uint3 bits_b = asuint(b);
+	if (bits_a.x != bits_b.x)
+		return bits_a.x < bits_b.x;
+	if (bits_a.y != bits_b.y)
+		return bits_a.y < bits_b.y;
+
+	return bits_a.z < bits_b.z;
+}
+
+// Looks up the previous-frame normal impulse for this contact identity and projects it onto the current contact normal.
 bool LoadWarmStartImpulse(GpuResolveContact c, out_(float3) impulse)
 {
 	impulse = float3(0, 0, 0);
@@ -431,20 +477,27 @@ bool LoadWarmStartImpulse(GpuResolveContact c, out_(float3) impulse)
 
 	uint key = WarmStartKey(c);
 	uint start = key % (uint)g.warm_start_capacity;
-	for (int probe = 0; probe != 32; ++probe)
+	bool found = false;
+	float3 cached = float3(0, 0, 0);
+	for (int probe = 0; probe != g.warm_start_capacity; ++probe)
 	{
 		uint slot = (start + (uint)probe) % (uint)g.warm_start_capacity;
 		GpuWarmStartEntry entry = g_warm_start_prev[slot];
 		if (entry.key == 0)
-			return false;
-		if (entry.key == key && entry.body_idx_a == c.body_idx_a && entry.body_idx_b == c.body_idx_b && entry.child_key == WarmStartChildKey(c))
-		{
-			impulse = WarmStartNormalImpulse(c, g.warm_start_scale * entry.impulse.xyz);
-			return any(impulse != float3(0, 0, 0));
-		}
-	}
+			break;
+		if (!WarmStartMatches(entry, c, key))
+			continue;
+		if (found && !WarmStartPrecedes(entry.impulse.xyz, cached))
+			continue;
 
-	return false;
+		cached = entry.impulse.xyz;
+		found = true;
+	}
+	if (!found)
+		return false;
+
+	impulse = WarmStartNormalImpulse(c, g.warm_start_scale * cached);
+	return any(impulse != float3(0, 0, 0));
 }
 
 // Inserts this frame's accumulated normal contact impulse into the current warm-start cache.
@@ -457,18 +510,22 @@ void StoreWarmStartImpulse(GpuResolveContact c)
 	if (!any(impulse != float3(0, 0, 0)))
 		return;
 
+	// Each writer owns an empty slot, including duplicates. The cache has at least twice the contact capacity, so a free slot always exists.
+	// Later lookup selects a duplicate deterministically; no two threads write one multi-field entry.
 	uint key = WarmStartKey(c);
+	int3 q = WarmStartPoint(c);
 	uint start = key % (uint)g.warm_start_capacity;
-	for (int probe = 0; probe != 32; ++probe)
+	for (int probe = 0; probe != g.warm_start_capacity; ++probe)
 	{
 		uint slot = (start + (uint)probe) % (uint)g.warm_start_capacity;
 		uint old_key = 0;
 		InterlockedCompareExchange(g_warm_start_curr[slot].key, 0u, key, old_key);
-		if (old_key == 0 || old_key == key)
+		if (old_key == 0)
 		{
 			g_warm_start_curr[slot].body_idx_a = c.body_idx_a;
 			g_warm_start_curr[slot].body_idx_b = c.body_idx_b;
 			g_warm_start_curr[slot].child_key = WarmStartChildKey(c);
+			g_warm_start_curr[slot].point_key = int4(q, 0);
 			g_warm_start_curr[slot].impulse = float4(impulse, 0);
 			return;
 		}
@@ -916,9 +973,12 @@ void PublishColourResults(bool colour_overflow, uint used_colours, int contact_c
 			g_colours[g_contact_order[i]] = MaxColours;
 	}
 
-	// Colour zero inspects this slot before choosing its parallel batch or the serial whole-set fallback.
+	// Overflow has no parallel colours. The same mask drives fused sweeps, the complete tail and the next CPU head estimate.
 	if (thread == 0)
+	{
 		g_colours[ColourOverflowIndex()] = colour_overflow ? 1u : 0u;
+		g_colours[OccupiedColoursIndex()] = colour_overflow ? 0u : used_colours;
+	}
 
 	// Preserve the full live-contact grid for occupied colours. Empty colours do no work; overflow needs only the original serial thread in colour zero.
 	uint groups = (contact_count + ResolveThreadCount - 1) / ResolveThreadCount;
@@ -1134,6 +1194,7 @@ void CSWarmStartClear(int3 DTID(dtid))
 	g_warm_start_curr[dtid.x].body_idx_a = -1;
 	g_warm_start_curr[dtid.x].body_idx_b = -1;
 	g_warm_start_curr[dtid.x].child_key = 0;
+	g_warm_start_curr[dtid.x].point_key = int4(0, 0, 0, 0);
 	g_warm_start_curr[dtid.x].impulse = float4(0, 0, 0, 0);
 }
 
@@ -1206,28 +1267,37 @@ void CSLoadWarmStart(int3 DTID(dtid))
 	LoadWarmStartContact(dtid.x);
 }
 
+// Operations shared by per-colour, tail and fused sweeps.
+static const uint EContactSweepOp_ApplyWarmStart = 0;
+static const uint EContactSweepOp_PositionSolve = 1;
+static const uint EContactSweepOp_Resolve = 2;
+
+// Apply an operation to every occupied colour from first_colour in one synchronised group.
+void ContactColourSweep(uint op, uint first_colour, uint thread, uint thread_count);
+
+// Tail dispatches and overflow colour zero use one group rather than one parallel colour.
+bool ColourWalkDispatch()
+{
+	return g.colour >= MaxColours || (g.colour == 0 && ColourOverflow());
+}
+
+// Decode the first colour covered by a group-wide walk.
+uint ColourWalkFirst()
+{
+	return g.colour >= MaxColours ? (uint)(g.colour - MaxColours) : 0u;
+}
+
 // ----- CSApplyWarmStart -----
 // Applies previous-frame physical impulses through race-free colour batches. A colour-overflow frame is handled serially by the first thread of colour zero so
 // every enabled contact participates without requiring another dispatch or a CPU readback.
 numthreads(CSApplyWarmStart, ResolveThreadCount, 1, 1)
 void CSApplyWarmStart(int3 DTID(dtid))
 {
-	if (g.colour == 0)
+	if (ColourWalkDispatch())
 	{
-		if (ColourOverflow())
-		{
-			if (dtid.x != 0)
-				return;
-
-			// Reuse the priority-sorted order so fallback behavior matches an ordinary sequential-impulse sweep as closely as possible.
-			for (int contact_order_idx = 0; contact_order_idx != ContactCount(); ++contact_order_idx)
-			{
-				uint idx = g_contact_order[contact_order_idx];
-				if (ContactEnabledAt(idx))
-					ApplyWarmStartContact(idx);
-			}
-			return;
-		}
+		// The walk reuses priority order for overflow and keeps normal colour dependencies intact.
+		ContactColourSweep(EContactSweepOp_ApplyWarmStart, ColourWalkFirst(), (uint)dtid.x, ResolveThreadCount);
+		return;
 	}
 
 	if (dtid.x >= ContactCount())
@@ -1257,22 +1327,11 @@ void CSStoreWarmStart(int3 DTID(dtid))
 numthreads(CSPositionSolve, ResolveThreadCount, 1, 1)
 void CSPositionSolve(int3 DTID(dtid))
 {
-	if (g.colour == 0)
+	if (ColourWalkDispatch())
 	{
-		if (ColourOverflow())
-		{
-			if (dtid.x != 0)
-				return;
-
-			// Apply the complete sorted sweep serially so position-state writes remain coherent when no unused colour exists.
-			for (int contact_order_idx = 0; contact_order_idx != ContactCount(); ++contact_order_idx)
-			{
-				uint idx = g_contact_order[contact_order_idx];
-				if (ContactEnabledAt(idx))
-					ApplyPositionCorrection(g_contacts[idx]);
-			}
-			return;
-		}
+		// The complete sorted overflow sweep keeps position-state writes coherent.
+		ContactColourSweep(EContactSweepOp_PositionSolve, ColourWalkFirst(), (uint)dtid.x, ResolveThreadCount);
+		return;
 	}
 
 	if (dtid.x >= ContactCount())
@@ -1507,22 +1566,11 @@ void ResolveContact(uint idx)
 numthreads(CSResolve, ResolveThreadCount, 1, 1)
 void CSResolve(int3 DTID(dtid))
 {
-	if (g.colour == 0)
+	if (ColourWalkDispatch())
 	{
-		if (ColourOverflow())
-		{
-			if (dtid.x != 0)
-				return;
-
-			// Sequentially applying each impulse immediately gives the fallback the same Gauss-Seidel dependency order as a legal colour sweep.
-			for (int contact_order_idx = 0; contact_order_idx != ContactCount(); ++contact_order_idx)
-			{
-				uint idx = g_contact_order[contact_order_idx];
-				if (ContactEnabledAt(idx))
-					ResolveContact(idx);
-			}
-			return;
-		}
+		// Immediate serial overflow updates preserve the sequential-impulse dependency order.
+		ContactColourSweep(EContactSweepOp_Resolve, ColourWalkFirst(), (uint)dtid.x, ResolveThreadCount);
+		return;
 	}
 
 	if (dtid.x >= ContactCount())
@@ -1535,91 +1583,74 @@ void CSResolve(int3 DTID(dtid))
 	ResolveContact(idx);
 }
 
-// ----- Fused colour sweeps -----
-// A single thread group walks every occupied colour in the same order as the per-colour dispatches, with a group-wide device-memory barrier between colours.
-// This removes one dispatch and one UAV barrier per colour, which dominate small contact sets. The CPU chooses this path only for small sets because one
-// group processes every contact. UAV writes are coherent within one thread group, so the barrier makes each colour's body writes visible to the next colour.
-// These entry points exist only in HLSL because the C++ replay emulator cannot synchronise the threads of a group.
-#ifndef __cplusplus
-
-// Solver operations shared by the fused entry points.
-static const uint EFusedContactOp_ApplyWarmStart = 0;
-static const uint EFusedContactOp_PositionSolve = 1;
-static const uint EFusedContactOp_Resolve = 2;
-
-// Threads in the single fused group. Larger than ResolveThreadCount because one group scans every contact once per colour, and contacts in one colour
-// are independent, so more threads only shorten each scan.
-static const int FusedThreadCount = 256;
-
-groupshared uint gs_fused_used_colours;
-
 // Apply one solver operation to one contact.
-void ApplyFusedContactOp(uint op, uint idx)
+void ApplyContactSweepOp(uint op, uint idx)
 {
 	// 'op' is a compile-time constant in each entry point, so this switch is removed after inlining.
 	switch (op)
 	{
-		case EFusedContactOp_ApplyWarmStart: { ApplyWarmStartContact(idx); break; }
-		case EFusedContactOp_PositionSolve: { ApplyPositionCorrection(g_contacts[idx]); break; }
-		case EFusedContactOp_Resolve: { ResolveContact(idx); break; }
+		case EContactSweepOp_ApplyWarmStart: { ApplyWarmStartContact(idx); break; }
+		case EContactSweepOp_PositionSolve: { ApplyPositionCorrection(g_contacts[idx]); break; }
+		case EContactSweepOp_Resolve: { ResolveContact(idx); break; }
 	}
 }
 
-// Run one complete colour sweep inside one thread group. Must be called by every thread of a group of FusedThreadCount threads.
-void FusedContactSweep(uint op, uint thread)
+// Walk occupied colours in ascending order with a device-memory group barrier between them.
+// Every lane of the single group must call this function. Overflow belongs only to the walk that starts at colour zero.
+void ContactColourSweep(uint op, uint first_colour, uint thread, uint thread_count)
 {
 	// The overflow flag is the same for every thread, so the serial fallback keeps the whole group on one path. It matches the per-colour colour-zero fallback.
 	if (ColourOverflow())
 	{
-		if (thread != 0)
+		if (first_colour != 0 || thread != 0)
 			return;
 
 		for (int contact_order_idx = 0; contact_order_idx != ContactCount(); ++contact_order_idx)
 		{
 			uint idx = g_contact_order[contact_order_idx];
 			if (ContactEnabledAt(idx))
-				ApplyFusedContactOp(op, idx);
+				ApplyContactSweepOp(op, idx);
 		}
 		return;
 	}
 
-	// Collect the occupied colours so empty colours cost no group barrier. Colour assignments do not change during a sweep.
+	// Serial replay supports the overflow branch above, but cannot simulate a synchronised parallel group.
+#ifdef __cplusplus
+	(void)thread_count;
+	throw std::runtime_error("Contact colour tails require native thread-group execution");
+#else
+	// A stale CPU head is only a scheduling estimate. The current mask includes all newly occupied colours beyond it.
 	int contact_count = ContactCount();
-	if (thread == 0)
-		gs_fused_used_colours = 0;
-
-	GroupMemoryBarrierWithGroupSync();
-	for (int i = (int)thread; i < contact_count; i += FusedThreadCount)
-	{
-		uint colour = g_colours[g_contact_order[i]];
-		if (colour < MaxColours)
-			InterlockedOr(gs_fused_used_colours, 1u << colour);
-	}
-	GroupMemoryBarrierWithGroupSync();
-
 	// Process the colours in ascending order, as the per-colour dispatches do. 'used' is the same in every thread, so every thread reaches each barrier.
-	uint used = gs_fused_used_colours;
+	uint used = g_colours[OccupiedColoursIndex()] & (first_colour < (uint)MaxColours ? (~0u << first_colour) : 0u);
 	while (used != 0)
 	{
 		// Contacts within one colour never share a dynamic body, so threads can process them in any order.
 		uint colour = firstbitlow(used);
 		used &= used - 1;
-		for (int j = (int)thread; j < contact_count; j += FusedThreadCount)
+		for (int j = (int)thread; j < contact_count; j += (int)thread_count)
 		{
 			uint idx = g_contact_order[j];
 			if (g_colours[idx] == colour)
-				ApplyFusedContactOp(op, idx);
+				ApplyContactSweepOp(op, idx);
 		}
 		DeviceMemoryBarrierWithGroupSync();
 	}
+#endif
 }
+
+// ----- Fused colour sweeps -----
+// Small contact sets use one group for every colour. UAV writes become visible to the next colour at the device-memory group barrier.
+// C++ replay cannot synchronise lanes; native group execution validates these entry points and nonempty parallel tails.
+#ifndef __cplusplus
+static const int FusedThreadCount = 256;
 
 // ----- CSApplyWarmStartFused -----
 // Single-group form of CSApplyWarmStart. Dispatch exactly one group.
 numthreads(CSApplyWarmStartFused, FusedThreadCount, 1, 1)
 void CSApplyWarmStartFused(int3 GTID(gtid))
 {
-	FusedContactSweep(EFusedContactOp_ApplyWarmStart, gtid.x);
+	ContactColourSweep(EContactSweepOp_ApplyWarmStart, 0, (uint)gtid.x, FusedThreadCount);
 }
 
 // ----- CSPositionSolveFused -----
@@ -1627,7 +1658,7 @@ void CSApplyWarmStartFused(int3 GTID(gtid))
 numthreads(CSPositionSolveFused, FusedThreadCount, 1, 1)
 void CSPositionSolveFused(int3 GTID(gtid))
 {
-	FusedContactSweep(EFusedContactOp_PositionSolve, gtid.x);
+	ContactColourSweep(EContactSweepOp_PositionSolve, 0, (uint)gtid.x, FusedThreadCount);
 }
 
 // ----- CSResolveFused -----
@@ -1635,7 +1666,7 @@ void CSPositionSolveFused(int3 GTID(gtid))
 numthreads(CSResolveFused, FusedThreadCount, 1, 1)
 void CSResolveFused(int3 GTID(gtid))
 {
-	FusedContactSweep(EFusedContactOp_Resolve, gtid.x);
+	ContactColourSweep(EContactSweepOp_Resolve, 0, (uint)gtid.x, FusedThreadCount);
 }
 
 #endif

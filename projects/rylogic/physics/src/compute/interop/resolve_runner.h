@@ -52,6 +52,12 @@ namespace pr::physics
 		std::span<float const> ContactTimes() const;
 		ContactPriorityResult ContactPriority(ContactPrioritySettings const& settings = {}) const;
 
+		// Replay cache insertion in span order. Capacity must be positive and at least twice the contact count.
+		std::vector<GpuWarmStartEntry> StoreWarmStart(std::span<GpuResolveContact const> contacts, int capacity) const;
+
+		// Load the contact's projected impulse from the supplied cache, or zero when its complete identity is absent.
+		v4 LoadWarmStart(std::span<GpuWarmStartEntry const> cache, GpuResolveContact const& contact) const;
+
 	private:
 
 		EngineConfig m_config;

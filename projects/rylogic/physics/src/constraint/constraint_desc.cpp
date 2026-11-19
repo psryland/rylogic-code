@@ -86,6 +86,20 @@ namespace pr::physics
 		return m_type == EConstraintBodyType::ArticulationLink;
 	}
 
+	// Construct a persistent rigid frame from a matrix-authored input.
+	BodyFrame BodyFrame::FromMatrix(BodyRef body, m4x4 const& constraint_to_body)
+	{
+		// Reject non-rigid input before quaternion conversion, which assumes a proper orthonormal rotation.
+		if (!IsFinite(constraint_to_body) || !IsAffine(constraint_to_body) || !IsOrthonormal(constraint_to_body))
+			throw std::invalid_argument("Constraint frame must be a finite orthonormal affine transform");
+
+		return BodyFrame{
+			.m_body = body,
+			.m_rotation = ToQuat<quat>(constraint_to_body.rot),
+			.m_position = constraint_to_body.pos,
+		};
+	}
+
 	// Convert a ball-and-socket descriptor to the general D6 representation.
 	D6ConstraintDesc ToD6(BallSocketConstraintDesc const& desc)
 	{

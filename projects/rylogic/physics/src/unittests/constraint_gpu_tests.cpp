@@ -25,6 +25,126 @@ namespace pr::physics::tests
 		}
 	}
 
+	// Focused checks for the persistent frame representation and its validation boundary.
+	PRUnitTestClass(CanonicalConstraintFrameTests)
+	{
+		// Matrix-authored frames must retain the previous GPU bytes without a conversion during packing.
+		PRUnitTestMethod(MatrixConstructionPreservesGpuFrames, Quick)
+		{
+			// Exercise all rotation-conversion branches, translation, and signed-zero position components.
+			auto const matrices = std::array{
+				m4x4::Identity(),
+				m4x4::Translation(-0.0f, 2.0f, -3.0f),
+				m4x4::Transform(v4::XAxis(), 2.8f, v4{1, 2, 3, 1}),
+				m4x4::Transform(v4::YAxis(), 2.8f, v4{2, 3, 4, 1}),
+				m4x4::Transform(v4::ZAxis(), 2.8f, v4{3, 4, 5, 1}),
+			};
+			auto body = RigidBody{};
+			auto body_ptrs = std::array<RigidBody*, 1>{&body};
+			for (auto const& matrix : matrices)
+			{
+				// Compare actual packed bytes with the original matrix packing operation for both endpoints.
+				auto desc = D6ConstraintDesc{};
+				desc.m_frame_a = BodyFrame::FromMatrix(BodyRef::Rigid(body), matrix);
+				desc.m_frame_b = BodyFrame::FromMatrix(BodyRef::World(), matrix);
+				desc.m_linear[0].m_mode = EConstraintAxisMode::Locked;
+				auto constraints = ConstraintSet{};
+				auto const handle = constraints.Add(desc);
+				auto upload = PackGpuConstraints(constraints, BodyRemap(body_ptrs));
+				auto const expected = PackGpuTransform(matrix);
+				PR_EXPECT(memcmp(&upload.m_descriptors[handle.m_index].frame_a, &expected, sizeof(expected)) == 0);
+				PR_EXPECT(memcmp(&upload.m_descriptors[handle.m_index].frame_b, &expected, sizeof(expected)) == 0);
+				PR_EXPECT(FEqlAbsolute(m4x4::Transform(desc.m_frame_a.m_rotation, desc.m_frame_a.m_position), matrix, 1.0e-6f));
+
+				// A valid directly authored quaternion is copied exactly, not converted through an intermediate matrix.
+				desc.m_frame_a.m_rotation.xyzw = -desc.m_frame_a.m_rotation.xyzw;
+				constraints.Update(handle, desc);
+				upload = PackGpuConstraints(constraints, BodyRemap(body_ptrs));
+				PR_EXPECT(memcmp(&upload.m_descriptors[handle.m_index].frame_a.rotation, &desc.m_frame_a.m_rotation, sizeof(quat)) == 0);
+			}
+		}
+
+		// Invalid matrix inputs must fail before entering the quaternion conversion routine.
+		PRUnitTestMethod(MatrixConstructionRejectsNonRigidInput, Quick)
+		{
+			// Cover finite non-rigid matrices as well as nonfinite rotation and translation.
+			auto matrices = std::array<m4x4, 6>{};
+			matrices.fill(m4x4::Identity());
+			matrices[0].x.x = 2.0f;
+			matrices[1].x.y = 0.1f;
+			matrices[2].x.x = -1.0f;
+			matrices[3].x.w = 0.1f;
+			matrices[4].x.x = std::numeric_limits<float>::quiet_NaN();
+			matrices[5].pos.x = std::numeric_limits<float>::infinity();
+			for (auto const& matrix : matrices)
+			{
+				PR_THROWS(BodyFrame::FromMatrix(BodyRef::World(), matrix), std::invalid_argument);
+			}
+		}
+
+		// Reused frames must not bypass changed-input validation or the batch transaction contract.
+		PRUnitTestMethod(UpdatesValidateChangedFramesAtomically, Quick)
+		{
+			// Start with validated descriptors so target-only updates exercise the exact-frame reuse path.
+			auto body = RigidBody{};
+			auto desc = D6ConstraintDesc{};
+			desc.m_frame_a.m_body = BodyRef::Rigid(body);
+			desc.m_linear[0].m_mode = EConstraintAxisMode::Locked;
+			auto constraints = ConstraintSet{};
+			auto const handles = std::array{constraints.Add(desc), constraints.Add(desc)};
+			desc.m_linear[0].m_target_position = 0.25f;
+			constraints.Update(handles[0], desc);
+			PR_EXPECT(constraints.Get(handles[0]).m_linear[0].m_target_position == 0.25f);
+			constraints.ClearDirty();
+			auto const topology = constraints.TopologyRevision();
+			auto const parameters = constraints.ParameterRevision();
+
+			// Even a one-ULP invalid homogeneous coordinate must be checked, not treated as an approximately unchanged frame.
+			auto invalid = std::array<D6ConstraintDesc, 6>{};
+			invalid.fill(desc);
+			invalid[0].m_frame_a.m_rotation.w = 2.0f;
+			invalid[1].m_frame_a.m_position.x = std::numeric_limits<float>::quiet_NaN();
+			invalid[2].m_frame_b.m_position.w = std::nextafter(1.0f, 2.0f);
+			invalid[3].m_frame_a.m_body.m_type = static_cast<EConstraintBodyType>(100);
+			invalid[4].m_frame_a.m_body.m_body_id = {};
+			invalid[5].m_angular[1].m_damping = -1.0f;
+			auto changed = desc;
+			changed.m_frame_a = BodyFrame::FromMatrix(desc.m_frame_a.m_body, m4x4::Transform(v4::YAxis(), 0.3f, v4{1, 2, 3, 1}));
+			changed.m_linear[0].m_target_position = 0.5f;
+			for (auto const& bad : invalid)
+			{
+				// Neither a new insertion nor a failed second batch entry may publish invalid state.
+				PR_THROWS(constraints.Add(bad), std::invalid_argument);
+				auto const batch = std::array{changed, bad};
+				PR_THROWS(constraints.Update(handles, batch), std::invalid_argument);
+				PR_EXPECT(constraints.Count() == 2);
+				PR_EXPECT(constraints.TopologyRevision() == topology);
+				PR_EXPECT(constraints.ParameterRevision() == parameters);
+				PR_EXPECT(constraints.DirtyRanges().empty());
+				PR_EXPECT(constraints.Get(handles[0]).m_linear[0].m_target_position == 0.25f);
+				PR_EXPECT(All(constraints.Get(handles[0]).m_frame_a.m_position == v4::Origin()));
+			}
+
+			// Duplicate handles still validate every entry before committing the last descriptor.
+			auto const duplicate = std::array{handles[0], handles[0]};
+			auto const rejected = std::array{invalid[0], changed};
+			PR_THROWS(constraints.Update(duplicate, rejected), std::invalid_argument);
+			PR_EXPECT(constraints.ParameterRevision() == parameters);
+			PR_EXPECT(constraints.DirtyRanges().empty());
+			auto const accepted = std::array{desc, changed};
+			constraints.Update(duplicate, accepted);
+			auto const& stored = constraints.Get(handles[0]);
+			PR_EXPECT(constraints.Contains(handles[0]));
+			PR_EXPECT(constraints.TopologyRevision() == topology);
+			PR_EXPECT(constraints.ParameterRevision() == parameters + 1);
+			PR_EXPECT(stored.m_linear[0].m_target_position == 0.5f);
+			PR_EXPECT(All(stored.m_frame_a.m_rotation.xyzw == changed.m_frame_a.m_rotation.xyzw));
+			PR_EXPECT(All(stored.m_frame_a.m_position == changed.m_frame_a.m_position));
+			auto const dirty = constraints.DirtyRanges();
+			PR_EXPECT(dirty.size() == 1 && dirty[0].m_begin == handles[0].m_index && dirty[0].m_end == handles[0].m_index + 1);
+		}
+	};
+
 	PRUnitTestClass(ConstraintGpuPackingTests)
 	{
 		// Preserve stable slots, canonical axis order, endpoint remapping, and compact transfer-layout contracts.
@@ -43,7 +163,7 @@ namespace pr::physics::tests
 			auto desc = D6ConstraintDesc{};
 			desc.m_frame_a.m_body = BodyRef::Rigid(body_a);
 			desc.m_frame_b.m_body = BodyRef::Rigid(body_b);
-			desc.m_frame_a.m_constraint_to_body = m4x4::Transform(v4::ZAxis(), 0.25f, v4{1, 2, 3, 1});
+			desc.m_frame_a = BodyFrame::FromMatrix(desc.m_frame_a.m_body, m4x4::Transform(v4::ZAxis(), 0.25f, v4{1, 2, 3, 1}));
 			desc.m_linear[0].m_mode = EConstraintAxisMode::Locked;
 			desc.m_linear[0].m_target_position = 0.5f;
 			desc.m_angular[2].m_mode = EConstraintAxisMode::Driven;

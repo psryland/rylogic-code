@@ -197,3 +197,23 @@ namespace physics_sandbox
 		return iter != demos.end() ? &*iter : nullptr;
 	}
 }
+
+#if PR_UNITTESTS
+namespace physics_sandbox::tests
+{
+	// New conventional demonstrations must coexist with retained articulation commands.
+	PRUnitTestClass(DemoCatalogueTests)
+	{
+		PRUnitTestMethod(ConventionalRagdollCommands, Quick)
+		{
+			// Exercise the real deployed catalogue, including its duplicate-command rejection.
+			auto const* dispersed = FindDemo("rigid-ragdoll-dispersed");
+			auto const* pile = FindDemo("rigid-ragdoll-pile");
+			PR_EXPECT(dispersed != nullptr);
+			PR_EXPECT(pile != nullptr);
+			PR_EXPECT(dispersed->m_filepath.filename() == "rigid_ragdoll_dispersed.json");
+			PR_EXPECT(pile->m_filepath.filename() == "rigid_ragdoll_pile.json");
+		}
+	};
+}
+#endif
