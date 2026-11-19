@@ -32,7 +32,6 @@ namespace pr
 		struct TextureCube;
 		struct Sampler;
 		struct Shader;
-		struct WeatherMap;
 		struct PopulationPrototype;
 		struct Population;
 		namespace materials
@@ -45,6 +44,10 @@ namespace pr
 			struct LdrGizmo;
 		}
 	}
+	namespace game_systems
+	{
+		struct WeatherMap;
+	}
 
 	namespace view3d
 	{
@@ -55,7 +58,7 @@ namespace pr
 		using CubeMap = rdr12::TextureCube*;
 		using Sampler = rdr12::Sampler*;
 		using Shader = rdr12::Shader*;
-		using WeatherMap = rdr12::WeatherMap*;
+		using WeatherMap = game_systems::WeatherMap*;
 		using PopulationPrototype = rdr12::PopulationPrototype*;
 		using Population = rdr12::Population*;
 		using DetailStrengthMap = rdr12::materials::DetailStrengthMap*;
@@ -689,7 +692,7 @@ namespace pr
 		};
 
 		// Sun, moon and star state from the Sun–Earth–Moon model, in the procedural sky's frame (+Z up, +Y north, +X east). See CelestialState
-		// in pr/view3d-12/scene/celestial_clock.h. The directions and rotation can be copied directly into ProceduralSkySettings.
+		// in pr/game-systems/sky/celestial_clock.h. The directions and rotation can be copied directly into ProceduralSkySettings.
 		struct CelestialState
 		{
 			Vec4 m_sun_direction;
@@ -1814,7 +1817,7 @@ extern "C"
 
 	// Place the sun, moon and stars for an observer at 'latitude' (degrees in [-90, 90], negative is south), 'day' days since midnight at the start of
 	// 1 January (the fraction is the time of day), and 'moon_age' days since the last new moon. Any finite day and moon age are valid because both repeat.
-	// See CelestialClock in pr/view3d-12/scene/celestial_clock.h. Needs no View3D context.
+	// See CelestialClock in pr/game-systems/sky/celestial_clock.h. Needs no View3D context.
 	VIEW3D_API void __stdcall View3D_CelestialEvaluate(float latitude, double day, double moon_age, pr::view3d::CelestialState& state);
 
 	// Create a 'width' x 'height' grid (each in [2,4096]) of cloud cover over the sky-frame XY area [area_min, area_max), initially clear.
@@ -2342,7 +2345,7 @@ namespace pr::view3d
 	using CubeMapPtr = std::unique_ptr<rdr12::TextureCube, impl::Deleter>;
 	using SamplerPtr = std::unique_ptr<rdr12::Sampler, impl::Deleter>;
 	using ShaderPtr  = std::unique_ptr<rdr12::Shader, impl::Deleter>;
-	using WeatherMapPtr = std::unique_ptr<rdr12::WeatherMap, impl::Deleter>;
+	using WeatherMapPtr = std::unique_ptr<game_systems::WeatherMap, impl::Deleter>;
 	using PopulationPrototypePtr = std::unique_ptr<rdr12::PopulationPrototype, impl::Deleter>;
 	using PopulationPtr = std::unique_ptr<rdr12::Population, impl::Deleter>;
 	using DetailStrengthMapPtr = std::unique_ptr<rdr12::materials::DetailStrengthMap, impl::Deleter>;

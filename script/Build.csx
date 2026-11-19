@@ -511,12 +511,14 @@ public class View3d : Native
 	public override void Clean()
 	{
 		Tools.CleanDir(Tools.Path([ObjDir, "view3d-12"], check_exists: false));
+		Tools.CleanDir(Tools.Path([ObjDir, "game-systems"], check_exists: false));
 		Tools.CleanDir(Tools.Path([ObjDir, "view3d-12.dll"], check_exists: false));
 	}
 	public override void Build(BuildPlan plan)
 	{
-		// The static library and the DLL are separate projects.
-		plan.AddNative(Platforms, Configs, SiblingProject("view3d-12"), SiblingProject("view3d-12.dll"));
+		// The static libraries and the DLL are separate projects. The DLL also links the game systems library, which builds on View3D.
+		var game_systems = Tools.Path([Workspace, "projects\\rylogic\\game-systems\\game-systems.vcxproj"]);
+		plan.AddNative(Platforms, Configs, SiblingProject("view3d-12"), game_systems, SiblingProject("view3d-12.dll"));
 	}
 	public override void Deploy()
 	{
@@ -526,6 +528,7 @@ public class View3d : Native
 			foreach (var c in Configs)
 			{
 				Tools.DeployLib(Tools.Path([ObjDir, "view3d-12", p, c, "view3d-12-static.lib"]));
+				Tools.DeployLib(Tools.Path([ObjDir, "game-systems", p, c, "game-systems-static.lib"]));
 				Tools.DeployLib(Tools.Path([ObjDir, "view3d-12.dll", p, c, "view3d-12.dll"]));
 			}
 		}

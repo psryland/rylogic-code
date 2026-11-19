@@ -52,7 +52,7 @@
 #include "pr/storage/json.h"
 #include "pr/algorithm/perlin_noise.h"
 #include "pr/view3d-12/view3d.h"
-#include "pr/view3d-12/scene/procedural_sky.h"
+#include "pr/game-systems/sky/procedural_sky.h"
 #include "pr/physics/physics.h"
 #include "pr/physics/rigid_body/rigid_body.h"
 #include "pr/physics/shape/inertia.h"
@@ -76,6 +76,8 @@ namespace las
 	using namespace pr::app;
 
 	using ShaderCompiler = pr::compute::ShaderCompiler;
+	using ProceduralSky = pr::game_systems::ProceduralSky;
+	using ProceduralSkySettings = pr::game_systems::ProceduralSkySettings;
 	using EHlslVersion = pr::compute::EHlslVersion;
 
 	struct Main;

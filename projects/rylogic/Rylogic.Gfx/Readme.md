@@ -71,8 +71,8 @@ overlays are rejected because replacing those stages with the stock PBR shader w
 
 ## Procedural atmosphere
 
-`View3d.ProceduralSky` owns a Z-up GPU sky shared with native `pr::rdr12::ProceduralSky`
-(`pr/view3d-12/scene/procedural_sky.h`). Create it after `View3d.Create()`, add its `Skybox` object to a window,
+`View3d.ProceduralSky` owns a Z-up GPU sky shared with native `pr::game_systems::ProceduralSky`
+(`pr/game-systems/sky/procedural_sky.h`). Create it after `View3d.Create()`, add its `Skybox` object to a window,
 and remove that object before disposing the sky. Creation, `Update`, `Blend`, rendering and disposal must be sequenced
 on the render owner; the View3d context must outlive the sky.
 

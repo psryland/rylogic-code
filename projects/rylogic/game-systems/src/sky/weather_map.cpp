@@ -1,16 +1,12 @@
 //************************************
-// View 3d
+// Game Systems
 //  Copyright (c) Rylogic Ltd 2025
 //************************************
-#include "pr/view3d-12/forward.h"
-#include "pr/view3d-12/scene/weather_map.h"
-#include "pr/view3d-12/main/renderer.h"
-#include "pr/view3d-12/resource/resource_factory.h"
-#include "pr/view3d-12/texture/texture_desc.h"
-#include "pr/view3d-12/texture/texture_2d.h"
-#include "view3d-12/src/shaders/hlsl/sky/procedural_sky_cbuf.hlsli"
+#include "pr/game-systems/forward.h"
+#include "pr/game-systems/sky/weather_map.h"
+#include "game-systems/src/shaders/hlsl/sky/procedural_sky_cbuf.hlsli"
 
-namespace pr::rdr12
+namespace pr::game_systems
 {
 	namespace
 	{

@@ -1,13 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
-    <ClCompile Include="src\scene\procedural_sky.cpp">
-      <Filter>src\scene</Filter>
-    </ClCompile>
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\scene\celestial_clock.h">
-      <Filter>pr</Filter>
-    </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\scene\procedural_sky.h">
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\scene\cloud_sky.h">
       <Filter>pr</Filter>
     </ClInclude>
     <ClCompile Include="src\population\population.cpp">
@@ -16,24 +10,12 @@
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\population\population.h">
       <Filter>pr</Filter>
     </ClInclude>
-    <ClCompile Include="src\scene\weather_map.cpp">
-      <Filter>src\scene</Filter>
-    </ClCompile>
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\scene\weather_map.h">
-      <Filter>pr</Filter>
-    </ClInclude>
-    <None Include="src\shaders\hlsl\sky\procedural_sky_cbuf.hlsli">
-      <Filter>src\shaders</Filter>
-    </None>
     <None Include="src\shaders\hlsl\sky\cloud_cbuf.hlsli">
       <Filter>src\shaders</Filter>
     </None>
     <None Include="src\shaders\hlsl\sky\cloud_field.hlsli">
       <Filter>src\shaders</Filter>
     </None>
-    <ShaderBuild Include="src\shaders\hlsl\sky\procedural_sky.hlsl">
-      <Filter>src\shaders</Filter>
-    </ShaderBuild>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="pr">

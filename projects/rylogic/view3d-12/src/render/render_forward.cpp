@@ -25,7 +25,7 @@
 #include "pr/view3d-12/texture/texture_cube.h"
 #include "pr/view3d-12/sampler/sampler.h"
 #include "pr/view3d-12/resource/resource_factory.h"
-#include "pr/view3d-12/scene/procedural_sky.h"
+#include "pr/view3d-12/scene/cloud_sky.h"
 #include "pr/view3d-12/texture/texture_desc.h"
 #include "pr/view3d-12/utility/pipe_state.h"
 #include "view3d-12/src/shaders/common.h"
@@ -41,7 +41,7 @@ namespace pr::rdr12
 		Texture2DPtr m_tex[2];
 		iv2 m_size;
 
-		// The previous frame's viewport, world to screen transform, and low cloud drift (see ProceduralSky::m_low_cloud_drift), and whether the previous frame wrote the history.
+		// The previous frame's viewport, world to screen transform, and low cloud drift (see ICloudSky::LowCloudDrift), and whether the previous frame wrote the history.
 		v4 m_prev_viewport;
 		m4x4 m_prev_w2s;
 		std::array<double, 2> m_prev_cloud_drift;
@@ -642,7 +642,7 @@ namespace pr::rdr12
 		// Each frame moves the march samples along their steps by the golden ratio, which spreads the samples of consecutive frames evenly.
 		auto const& cam = scn().m_cam;
 		auto const w2s = cam.CameraToScreen() * InvertOrthonormal(cam.CameraToWorld());
-		auto const cloud_drift = std::array<double, 2>{ sky->m_low_cloud_drift[0], sky->m_low_cloud_drift[1] };
+		auto const cloud_drift = sky->LowCloudDrift();
 		history.m_constants = shaders::fwd::SkyHistory{
 			.prev_w2s = history.m_prev_w2s,
 			.viewport = viewport,

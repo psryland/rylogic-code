@@ -1,22 +1,32 @@
 //************************************
-// View 3d
+// Game Systems
 //  Copyright (c) Rylogic Ltd 2025
 //************************************
-#include "pr/view3d-12/forward.h"
-#include "pr/view3d-12/scene/procedural_sky.h"
-#include "pr/view3d-12/scene/weather_map.h"
-#include "pr/view3d-12/texture/texture_2d.h"
-#include "pr/view3d-12/texture/texture_desc.h"
-#include "pr/view3d-12/shaders/shader_forward.h"
-#include "pr/view3d-12/model/model_generator.h"
-#include "pr/view3d-12/model/vertex_layout.h"
-#include "pr/view3d-12/material/material_simple.h"
-#include "pr/view3d-12/resource/resource_factory.h"
-#include "view3d-12/src/shaders/common.h"
-#include "view3d-12/src/shaders/hlsl/sky/procedural_sky_cbuf.hlsli"
+#include "pr/game-systems/forward.h"
+#include "pr/game-systems/sky/procedural_sky.h"
+#include "pr/game-systems/sky/weather_map.h"
+#include "game-systems/src/shaders/hlsl/sky/procedural_sky_cbuf.hlsli"
 
-namespace pr::rdr12
+#ifdef NDEBUG
+#define PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(file) PR_STRINGISE(game-systems/src/shaders/hlsl/compiled/release/##file)
+#else
+#define PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(file) PR_STRINGISE(game-systems/src/shaders/hlsl/compiled/debug/##file)
+#endif
+
+namespace pr::game_systems
 {
+	namespace shader_code
+	{
+		// The sky's build-time shader bytecode
+		namespace compiled
+		{
+			#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(procedural_sky_vs.h)
+			#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(procedural_sky_ps.h)
+		}
+		static compute::ByteCode const procedural_sky_vs(compiled::procedural_sky_vs);
+		static compute::ByteCode const procedural_sky_ps(compiled::procedural_sky_ps);
+	}
+
 	namespace
 	{
 		// Scramble a lattice point and seed into a well-mixed 32-bit value.
@@ -466,6 +476,12 @@ namespace pr::rdr12
 		clouds.shadow_strength *= m_shader->m_cbuf.blend_weight;
 		m_shader->Textures(textures);
 		return clouds.shadow_strength > 0;
+	}
+
+	// The total low cloud movement, for views that follow the cloud between frames.
+	std::array<double, 2> ProceduralSky::LowCloudDrift() const
+	{
+		return { m_low_cloud_drift[0], m_low_cloud_drift[1] };
 	}
 
 	// Validate first so a rejected update cannot partly replace the source or its direction mapping.

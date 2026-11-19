@@ -41,6 +41,7 @@
       </AdditionalLibraryDirectories>
       <AdditionalDependencies>
         ;compute-static.lib
+        ;game-systems-static.lib
         ;view3d-12-static.lib
         ;physics-static.lib
         ;compute_shaders.res
@@ -162,6 +163,7 @@
   <ItemGroup>
     <ProjectReference Include="$(RylogicRoot)projects\rylogic\compute\compute.vcxproj" />
     <ProjectReference Include="$(RylogicRoot)projects\rylogic\physics\physics.vcxproj" />
+    <ProjectReference Include="$(RylogicRoot)projects\rylogic\game-systems\game-systems.vcxproj" />
     <ProjectReference Include="$(RylogicRoot)projects\rylogic\view3d-12\view3d-12.vcxproj" />
   </ItemGroup>
   <Target Name="CopyDataDirectory" AfterTargets="Link">

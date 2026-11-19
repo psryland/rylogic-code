@@ -3,7 +3,7 @@
 //  Copyright (c) Rylogic Ltd 2026
 //************************************
 // The procedural sky's cloud field. The sky shader draws it, and the scene lighting uses it for cloud shadows, so the shadows match the visible clouds.
-// HLSL only. The includer's root signature must provide the weather map at t19, the cloud noise at t20 (see ProceduralSky), and a wrapping linear sampler at s8.
+// HLSL only. The includer's root signature must provide the weather map at t19, the cloud noise at t20 (see ICloudSky::CloudShadows), and a wrapping linear sampler at s8.
 #ifndef PR_VIEW3D_CLOUD_FIELD_HLSLI
 #define PR_VIEW3D_CLOUD_FIELD_HLSLI
 #include "pr/hlsl/interop.hlsli"

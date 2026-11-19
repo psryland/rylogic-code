@@ -32,7 +32,7 @@ public sealed partial class View3d
 	}
 
 	/// <summary>
-	/// The moment seen by the native Sun–Earth–Moon model (see 'CelestialClock' in pr/view3d-12/scene/celestial_clock.h): the observer's latitude,
+	/// The moment seen by the native Sun–Earth–Moon model (see 'CelestialClock' in pr/game-systems/sky/celestial_clock.h): the observer's latitude,
 	/// the date and time, and the moon's age. The caller decides how fast time passes by calling <see cref="Advance"/>.
 	/// The default moment is midnight at the start of 1 January, at a new moon, seen from the equator. Evaluating needs the View3D DLL but no context.
 	/// </summary>

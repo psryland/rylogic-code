@@ -24,9 +24,9 @@
 #include "pr/view3d-12/texture/texture_desc.h"
 #include "pr/view3d-12/texture/texture_2d.h"
 #include "pr/view3d-12/texture/texture_cube.h"
-#include "pr/view3d-12/scene/celestial_clock.h"
-#include "pr/view3d-12/scene/procedural_sky.h"
-#include "pr/view3d-12/scene/weather_map.h"
+#include "pr/game-systems/sky/celestial_clock.h"
+#include "pr/game-systems/sky/procedural_sky.h"
+#include "pr/game-systems/sky/weather_map.h"
 #include "pr/view3d-12/population/population.h"
 #include "pr/view3d-12/sampler/sampler_desc.h"
 #include "pr/view3d-12/sampler/sampler.h"
@@ -2832,10 +2832,10 @@ VIEW3D_API view3d::Object __stdcall View3D_ObjectCreateSkybox(char const* name, 
 }
 
 // Convert the DLL sky settings to the renderer's settings.
-static rdr12::ProceduralSkySettings ToSkySettings(view3d::ProceduralSkySettings const& s)
+static game_systems::ProceduralSkySettings ToSkySettings(view3d::ProceduralSkySettings const& s)
 {
 	// Copy field by field because the DLL vector types differ from the renderer's
-	auto settings = rdr12::ProceduralSkySettings{
+	auto settings = game_systems::ProceduralSkySettings{
 		.m_sun_direction = To<v4>(s.m_sun_direction),
 		.m_sun_colour = To<v4>(s.m_sun_colour),
 		.m_sun_intensity = s.m_sun_intensity,
@@ -2851,8 +2851,8 @@ static rdr12::ProceduralSkySettings ToSkySettings(view3d::ProceduralSkySettings 
 		.m_sky_to_stars = To<m4x4>(s.m_sky_to_stars),
 	};
 	static_assert(sizeof(view3d::ProceduralSkySettings) == 232, "Must match the managed View3d.ProceduralSkySettings layout");
-	static_assert(std::extent_v<decltype(view3d::ProceduralSkySettings::m_lightning)> == rdr12::ProceduralSkySettings::LightningMax);
-	for (int i = 0; i != rdr12::ProceduralSkySettings::LightningMax; ++i)
+	static_assert(std::extent_v<decltype(view3d::ProceduralSkySettings::m_lightning)> == game_systems::ProceduralSkySettings::LightningMax);
+	for (int i = 0; i != game_systems::ProceduralSkySettings::LightningMax; ++i)
 		settings.m_lightning[i] = To<v4>(s.m_lightning[i]);
 
 	return settings;
@@ -2889,7 +2889,7 @@ VIEW3D_API BOOL __stdcall View3D_ObjectProceduralSkyWeatherSet(view3d::Object ob
 	{
 		Validate(object);
 		DllLockGuard;
-		Dll().ObjectProceduralSkyWeatherSet(object, rdr12::WeatherMapPtr(weather, true));
+		Dll().ObjectProceduralSkyWeatherSet(object, game_systems::WeatherMapPtr(weather, true));
 		return TRUE;
 	}
 	CatchAndReport(View3D_ObjectProceduralSkyWeatherSet, , FALSE);
@@ -2901,7 +2901,7 @@ VIEW3D_API view3d::WeatherMap __stdcall View3D_WeatherMapCreate(int width, int h
 	try
 	{
 		DllLockGuard;
-		auto weather = rdr12::WeatherMapPtr(new rdr12::WeatherMap(Dll().m_rdr, width, height, To<v2>(area_min), To<v2>(area_max)), true);
+		auto weather = game_systems::WeatherMapPtr(new game_systems::WeatherMap(Dll().m_rdr, width, height, To<v2>(area_min), To<v2>(area_max)), true);
 		return weather.release();
 	}
 	CatchAndReport(View3D_WeatherMapCreate, , nullptr);
@@ -3211,7 +3211,7 @@ VIEW3D_API void __stdcall View3D_CelestialEvaluate(float latitude, double day, d
 {
 	// Copy field by field because the DLL vector types differ from the renderer's.
 	static_assert(sizeof(view3d::CelestialState) == 116, "Must match the managed View3d.CelestialState layout");
-	auto clock = rdr12::CelestialClock{ .m_latitude = latitude, .m_day = day, .m_moon_age = moon_age };
+	auto clock = game_systems::CelestialClock{ .m_latitude = latitude, .m_day = day, .m_moon_age = moon_age };
 	auto sky = clock.Evaluate();
 	state = view3d::CelestialState{
 		.m_sun_direction = To<view3d::Vec4>(sky.m_sun_direction),

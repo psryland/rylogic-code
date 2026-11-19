@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClInclude Include="$(RylogicRoot)include\pr\game-systems\forward.h">
+      <Filter>pr</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\game-systems\sky\celestial_clock.h">
+      <Filter>pr\sky</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\game-systems\sky\procedural_sky.h">
+      <Filter>pr\sky</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\game-systems\sky\weather_map.h">
+      <Filter>pr\sky</Filter>
+    </ClInclude>
+    <ClCompile Include="src\sky\procedural_sky.cpp">
+      <Filter>src\sky</Filter>
+    </ClCompile>
+    <ClCompile Include="src\sky\weather_map.cpp">
+      <Filter>src\sky</Filter>
+    </ClCompile>
+    <None Include="src\shaders\hlsl\sky\procedural_sky_cbuf.hlsli">
+      <Filter>src\shaders</Filter>
+    </None>
+    <ShaderBuild Include="src\shaders\hlsl\sky\procedural_sky.hlsl">
+      <Filter>src\shaders</Filter>
+    </ShaderBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="pr">
+      <UniqueIdentifier>{5966572d-09ec-4184-b658-82b0072eb512}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="pr\sky">
+      <UniqueIdentifier>{241366fa-ac4d-4900-8a77-42e02630a790}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src">
+      <UniqueIdentifier>{c73ebbb5-f4cd-4e1c-b3c4-afb0efc1bb75}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\sky">
+      <UniqueIdentifier>{0f1d9a62-3c55-4b8e-9d0a-6a1e2b7c4d31}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\shaders">
+      <UniqueIdentifier>{7e2c4b19-8d6a-4f30-a1b5-3c9e0d2f6a84}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

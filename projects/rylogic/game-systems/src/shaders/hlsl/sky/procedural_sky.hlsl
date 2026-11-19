@@ -7,7 +7,7 @@
 // PS: Computes the atmosphere from the sun position, then adds stars and layered clouds.
 #include "pr/hlsl/interop.hlsli"
 #include "view3d-12/src/shaders/hlsl/forward/forward_cbuf.hlsli"
-#include "view3d-12/src/shaders/hlsl/sky/procedural_sky_cbuf.hlsli"
+#include "game-systems/src/shaders/hlsl/sky/procedural_sky_cbuf.hlsli"
 #include "view3d-12/src/shaders/hlsl/sky/cloud_field.hlsli"
 #include "pr/view3d-12/shaders/colour_space.hlsli"
 
