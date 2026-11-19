@@ -55,7 +55,7 @@ public sealed class Physics :IDisposable
 	}
 
 	/// <summary>
-	/// Cache runtime-compiled GPU kernels in 'directory' for engines created afterwards, including their atmospheres; null disables caching.
+	/// Cache runtime-compiled GPU kernels in 'directory' for engines created afterwards; null disables caching.
 	/// The cache is shared by every Physics instance in the process.
 	/// </summary>
 	public void SetShaderCacheDirectory(string? directory)
@@ -183,7 +183,7 @@ public sealed class Physics :IDisposable
 	}
 
 	/// <summary>
-	/// Retry process-wide abandoned engines and unpublished atmosphere creations within one millisecond budget (-1 means infinite).
+	/// Retry process-wide abandoned engines within one millisecond budget (-1 means infinite).
 	/// Returns retained owners plus busy engines that still need inspection; other failures throw. Busy engines are not waited on,
 	/// even with an infinite GPU budget. Retry when their operations finish. No live caller-owned object is collected.
 	/// </summary>

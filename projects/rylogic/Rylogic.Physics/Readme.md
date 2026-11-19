@@ -15,8 +15,8 @@ provides the synchronous path.
 The native and managed runtimes must use the same ABI version (**9**). Engines using the same explicitly supplied device may share a queue, but their jobs,
 fences and resources remain independently owned.
 
-`Engine.TryDispose(timeout_ms)` and `Atmosphere.TryDispose(timeout_ms)` permanently stop their work. `-1` requests an infinite wait; other nonnegative values
-are millisecond budgets. Success invalidates their managed and native identities. A timeout returns `false`; another failure throws. Either leaves the same
+`Engine.TryDispose(timeout_ms)` permanently stops its work. `-1` requests an infinite wait; other nonnegative values
+are millisecond budgets. Success invalidates its managed and native identities. A timeout returns `false`; another failure throws. Either leaves the same
 owner intact for another close attempt, not for resumed simulation. `Dispose()` explicitly chooses the infinite wait. No cleanup path executes a partly
 recorded command list, replays a submission, or terminates the process to handle a GPU error. Device removal permits resource retirement.
 
@@ -26,13 +26,11 @@ the number of retained owners plus busy engines still requiring inspection, and 
 operations, even with an infinite GPU budget; retry when those operations finish. A new `Physics` instance can collect abandoned work after the original runtime has been
 finalized. This never collects a live caller-owned object. Ignoring failed cleanup deliberately retains memory until a later collection or process exit.
 
-Native callers use the timeout arguments of `Physics_EngineDestroy` and `Physics_AtmosphereDestroy`, the checked `Physics_Shutdown` status, and
+Native callers use the timeout argument of `Physics_EngineDestroy`, the checked `Physics_Shutdown` status, and
 `Physics_CollectAbandoned`. Do not unload the DLL while it owns retained work. Initialization error callbacks are synchronous and are not retained for shutdown.
-Other GPU consumers still own their own resource references and completion: keep an acquired tracer buffer lease until that consumer's GPU reads finish.
 
-Direct C++ users retain an engine, atmosphere and their dependent resources until `TryClose` succeeds, then destroy them. Atmosphere constructors record
-initialization into `gpu.m_job` without submitting it. Establish ownership before running that job, and finish initialization before another job or queue uses
-the buffers. If construction fails, close/discard that recording rather than execute it. See `GpuJob::TryClose` and the atmosphere constructor contract.
+Direct C++ users retain an engine and its dependent resources until `TryClose` succeeds, then destroy them. See `GpuJob::TryClose`.
+The atmosphere solver lives in the Rylogic game-systems library; its managed wrapper is `Rylogic.Gfx.View3d.Atmosphere`.
 
 ## Simulation and dependencies
 

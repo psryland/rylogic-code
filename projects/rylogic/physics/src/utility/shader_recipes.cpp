@@ -15,7 +15,6 @@ namespace pr::physics
 		auto recipes = ContactSorter::ShaderRecipes();
 		AppendWorldContactShaderRecipes(recipes);
 		AppendWaterShaderRecipes(recipes);
-		atmosphere::AppendAtmosphereShaderRecipes(recipes);
 		return recipes;
 	}
 }

@@ -298,13 +298,13 @@ namespace pr::rdr12
 	}
 
 	// Set the sky whose clouds shade the current frame
-	void Scene::CloudSky(ProceduralSky const* sky)
+	void Scene::CloudSky(ICloudSky const* sky)
 	{
 		m_cloud_sky = sky;
 	}
 
 	// The sky whose clouds shade the current frame
-	ProceduralSky const* Scene::CloudSky() const
+	ICloudSky const* Scene::CloudSky() const
 	{
 		return m_cloud_sky;
 	}

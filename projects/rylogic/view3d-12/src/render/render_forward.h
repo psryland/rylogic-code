@@ -27,7 +27,7 @@ namespace pr::rdr12
 
 	private:
 
-		// The procedural sky's low cloud accumulated over frames. See AccumulateLowCloud in procedural_sky.hlsl.
+		// The cloud sky's low cloud accumulated over frames. See ICloudSky and SkyHistory in forward_frame_cbuf.hlsli.
 		struct SkyHistory;
 
 		// The reflection of the opaque scene in the scene's reflection plane. See reflection_plane.hlsl.

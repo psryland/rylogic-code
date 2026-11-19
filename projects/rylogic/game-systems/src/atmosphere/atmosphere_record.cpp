@@ -1,10 +1,10 @@
 //*********************************************
-// Physics Engine
+// Game Systems
 //  Copyright (C) Rylogic Ltd 2016
 //*********************************************
-#include "physics/src/dll/atmosphere_record.h"
+#include "game-systems/src/atmosphere/atmosphere_record.h"
 
-namespace pr::physics
+namespace pr::game_systems::atmosphere
 {
 	namespace
 	{
@@ -44,7 +44,7 @@ namespace pr::physics
 	// Run the recorded initialization after ownership is established.
 	void AtmosphereRecord::Initialise()
 	{
-		// The registry, rather than a constructor stack frame, retains every submitted resource if this fails.
+		// The handle owner, rather than a constructor stack frame, retains every submitted resource if this fails.
 		Call([&]() -> ApiRejection
 		{
 			// Initialization failures have the same terminal state as failures in later work.
@@ -73,16 +73,16 @@ namespace pr::physics
 			// Reject the request before anything is recorded, so a rejected step leaves the atmosphere usable. These checks do not allocate.
 			if (Pending())
 				return ApiRejection{ .m_status = EStatus::StepPending, .m_message = "An atmosphere step is already in flight" };
-			if (s.heat_source_count < 0 || (s.heat_source_count != 0) != (s.heat_sources != nullptr))
+			if (s.m_heat_source_count < 0 || (s.m_heat_source_count != 0) != (s.m_heat_sources != nullptr))
 				return ApiRejection{ .m_status = EStatus::InvalidArgument, .m_message = "Atmosphere heat source pointer and count disagree" };
-			auto const heat_in = std::span{ s.heat_sources, static_cast<size_t>(s.heat_source_count) };
-			if (!std::ranges::all_of(heat_in, [](AtmosphereHeatSource const& h) { return h.centre.w == 1.0f; }))
+			auto const heat_in = std::span{ s.m_heat_sources, static_cast<size_t>(s.m_heat_source_count) };
+			if (!std::ranges::all_of(heat_in, [](AtmosphereHeatSource const& h) { return h.m_centre.w == 1.0f; }))
 				return ApiRejection{ .m_status = EStatus::InvalidArgument, .m_message = "Atmosphere heat source centre is not a point" };
-			if (s.probe_count < 0 || s.probe_count > atmosphere::AtmosphereProbes::MaxPoints || (s.probe_count != 0) != (s.probes != nullptr))
+			if (s.m_probe_count < 0 || s.m_probe_count > atmosphere::AtmosphereProbes::MaxPoints || (s.m_probe_count != 0) != (s.m_probes != nullptr))
 				return ApiRejection{ .m_status = EStatus::InvalidArgument, .m_message = "Atmosphere probe pointer and count disagree, or the count exceeds the limit" };
-			if (!std::isfinite(s.surface_wind_height) || s.surface_wind_height < 0.0f)
+			if (!std::isfinite(s.m_surface_wind_height) || s.m_surface_wind_height < 0.0f)
 				return ApiRejection{ .m_status = EStatus::InvalidArgument, .m_message = "Atmosphere surface wind height must be finite and not negative" };
-			auto const probes_in = std::span{ s.probes, static_cast<size_t>(s.probe_count) };
+			auto const probes_in = std::span{ s.m_probes, static_cast<size_t>(s.m_probe_count) };
 			if (!std::ranges::all_of(probes_in, [](Vector4 const& p) { return p.w == 1.0f && std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z); }))
 				return ApiRejection{ .m_status = EStatus::InvalidArgument, .m_message = "Invalid atmosphere probe point" };
 			if (m_tracers && !m_tracers->HasFreeSlot())
@@ -94,11 +94,11 @@ namespace pr::physics
 			for (auto const& h : heat_in)
 			{
 				heat_sources.push_back(atmosphere::AtmosphereHeatSource{
-					.m_centre = v4{ h.centre.x, h.centre.y, h.centre.z, h.centre.w },
-					.m_radius = h.radius,
-					.m_heating_rate = h.heating_rate,
-					.m_target_temperature = h.target_temperature,
-					.m_relaxation_rate = h.relaxation_rate,
+					.m_centre = v4{ h.m_centre.x, h.m_centre.y, h.m_centre.z, h.m_centre.w },
+					.m_radius = h.m_radius,
+					.m_heating_rate = h.m_heating_rate,
+					.m_target_temperature = h.m_target_temperature,
+					.m_relaxation_rate = h.m_relaxation_rate,
 				});
 			}
 			auto probes = std::vector<v4>{};
@@ -109,15 +109,15 @@ namespace pr::physics
 			// Record the step, tracer advection, probe samples, and surface wind. The finishing call collects the copies. The solver's own step
 			// checks are the last rejection; after them, every failure leaves a partly recorded step.
 			auto& job = m_gpu.m_job;
-			if (auto const rejection = InvalidInput(m_solver.Step(job, s.dt, heat_sources)); rejection.Rejected())
+			if (auto const rejection = InvalidInput(m_solver.Step(job, s.m_dt, heat_sources)); rejection.Rejected())
 				return rejection;
 
 			if (m_tracers)
-				m_tracers->Advect(job, s.dt);
+				m_tracers->Advect(job, s.m_dt);
 
 			m_probes.Record(job, probes);
-			if (s.surface_wind_height > 0.0f)
-				m_surface_wind.Record(job, s.surface_wind_height);
+			if (s.m_surface_wind_height > 0.0f)
+				m_surface_wind.Record(job, s.m_surface_wind_height);
 
 			m_pending = job.Submit();
 			return {};
@@ -171,9 +171,9 @@ namespace pr::physics
 			{
 				auto const& p = m_probe_samples[i];
 				samples[i] = AtmosphereProbeSample{
-					.velocity = { p.m_velocity.x, p.m_velocity.y, p.m_velocity.z, 0.0f },
-					.temperature = p.m_temperature,
-					.inside = p.m_inside ? 1 : 0,
+					.m_velocity = { p.m_velocity.x, p.m_velocity.y, p.m_velocity.z, 0.0f },
+					.m_temperature = p.m_temperature,
+					.m_inside = p.m_inside ? 1 : 0,
 				};
 			}
 			return {};
@@ -247,14 +247,14 @@ namespace pr::physics
 			if (count < 0 || (count != 0) != (outside_air != nullptr))
 				return ApiRejection{ .m_status = EStatus::InvalidArgument, .m_message = "Atmosphere outside air pointer and count disagree" };
 			auto const air_in = std::span{ outside_air, static_cast<size_t>(count) };
-			if (!std::ranges::all_of(air_in, [](AtmosphereOutsideAir const& a) { return a.reserved == 0; }))
+			if (!std::ranges::all_of(air_in, [](AtmosphereOutsideAir const& a) { return a.m_reserved == 0; }))
 				return ApiRejection{ .m_status = EStatus::InvalidArgument, .m_message = "Invalid atmosphere outside air reserved field" };
 
 			// Convert to the solver's layout. The solver checks the whole input before its pending values change.
 			auto air = std::vector<atmosphere::AtmosphereOutsideAir>{};
 			air.reserve(air_in.size());
 			for (auto const& a : air_in)
-				air.push_back(atmosphere::AtmosphereOutsideAir{ .m_wind = v2{ a.wind.x, a.wind.y }, .m_temperature_offset = a.temperature_offset });
+				air.push_back(atmosphere::AtmosphereOutsideAir{ .m_wind = v2{ a.m_wind.x, a.m_wind.y }, .m_temperature_offset = a.m_temperature_offset });
 
 			return InvalidInput(m_solver.SetOutsideAir(air));
 		});
@@ -283,11 +283,11 @@ namespace pr::physics
 			{
 				auto const& p = source[i];
 				particles[i] = AtmosphereTracerParticle{
-					.position = { p.m_position.x, p.m_position.y, p.m_position.z, 1.0f },
-					.temperature = p.m_temperature,
-					.age = p.m_age,
-					.speed = p.m_speed,
-					.reserved = 0.0f,
+					.m_position = { p.m_position.x, p.m_position.y, p.m_position.z, 1.0f },
+					.m_temperature = p.m_temperature,
+					.m_age = p.m_age,
+					.m_speed = p.m_speed,
+					.m_reserved = 0.0f,
 				};
 			}
 			return {};
@@ -309,11 +309,11 @@ namespace pr::physics
 			m_tracers->Hold(index);
 			resource->AddRef();
 			slot = AtmosphereTracerSlot{
-				.resource = resource,
-				.slot = index,
-				.count = static_cast<std::uint32_t>(m_tracers->Config().m_particle_count),
-				.stride = static_cast<std::uint32_t>(sizeof(AtmosphereTracerParticle)),
-				.reserved = 0,
+				.m_resource = resource,
+				.m_slot = index,
+				.m_count = static_cast<std::uint32_t>(m_tracers->Config().m_particle_count),
+				.m_stride = static_cast<std::uint32_t>(sizeof(AtmosphereTracerParticle)),
+				.m_reserved = 0,
 			};
 			return {};
 		});
@@ -355,20 +355,20 @@ namespace pr::physics
 			{
 				auto const& c = states[i];
 				cells[i] = AtmosphereCellState{
-					.velocity = { c.m_velocity.x, c.m_velocity.y, c.m_velocity.z, 0.0f },
-					.temperature = c.m_temperature,
+					.m_velocity = { c.m_velocity.x, c.m_velocity.y, c.m_velocity.z, 0.0f },
+					.m_temperature = c.m_temperature,
 				};
 			}
 			if (stats != nullptr)
 			{
-				// The caller has checked the stats header.
+				// Fill the optional diagnostics from the same read back.
 				auto const st = m_solver.Stats(state);
-				stats->max_speed = st.m_max_speed;
-				stats->max_divergence = st.m_max_divergence;
-				stats->rms_divergence = st.m_rms_divergence;
-				stats->mean_top_temperature = st.m_mean_top_temperature;
-				stats->peak_vertical_velocity = st.m_peak_vertical_velocity;
-				stats->reserved = 0;
+				stats->m_max_speed = st.m_max_speed;
+				stats->m_max_divergence = st.m_max_divergence;
+				stats->m_rms_divergence = st.m_rms_divergence;
+				stats->m_mean_top_temperature = st.m_mean_top_temperature;
+				stats->m_peak_vertical_velocity = st.m_peak_vertical_velocity;
+				stats->m_reserved = 0;
 			}
 			return {};
 		});

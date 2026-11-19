@@ -12,7 +12,6 @@
 #include "physics/src/dll/context.h"
 #include "physics/src/dll/interop.h"
 #include "physics/src/dll/api_exception.h"
-#include "physics/src/dll/atmosphere_record.h"
 #include "physics/src/utility/gpu.h"
 #include "physics/src/utility/shader_recipes.h"
 
@@ -91,88 +90,6 @@ namespace
 			.m_max_wavelength = desc.max_wavelength,
 			.m_bands = desc.bands,
 			.m_directions = desc.directions,
-		};
-	}
-
-	// Convert the ABI atmosphere description to the solver configuration. The caller has checked the floor array; the solver validates the values.
-	pr::physics::atmosphere::AtmosphereConfig ToAtmosphereConfig(pr::physics::AtmosphereDesc const& desc)
-	{
-		using namespace pr::physics::atmosphere;
-		auto const boundary = [&](pr::physics::EAtmosphereSide side)
-		{
-			return static_cast<EAtmosphereBoundary>(desc.boundaries[static_cast<int>(side)]);
-		};
-		auto const drag = [&](pr::physics::EAtmosphereSide side)
-		{
-			return desc.wall_drag[static_cast<int>(side)];
-		};
-
-		// Null arrays select the solver's flat floor and all-active mask.
-		auto floor_heights = std::vector<float>{};
-		if (desc.floor_heights != nullptr)
-			floor_heights.assign(desc.floor_heights, desc.floor_heights + static_cast<size_t>(desc.cell_count.x) * static_cast<size_t>(desc.cell_count.y));
-		auto active_columns = std::vector<uint8_t>{};
-		if (desc.active_columns != nullptr)
-			active_columns.assign(desc.active_columns, desc.active_columns + static_cast<size_t>(desc.cell_count.x) * static_cast<size_t>(desc.cell_count.y));
-
-		using ESide = pr::physics::EAtmosphereSide;
-		return AtmosphereConfig{
-			.m_grid = AtmosphereGrid{
-				.m_cell_count = pr::iv3{ desc.cell_count.x, desc.cell_count.y, desc.cell_count.z },
-				.m_origin = pr::v4{ desc.origin.x, desc.origin.y, desc.origin.z, 1.0f },
-				.m_dx = desc.dx,
-				.m_lid_z = desc.lid_z,
-				.m_first_layer_thickness = desc.first_layer_thickness,
-				.m_floor_heights = std::move(floor_heights),
-				.m_active_columns = std::move(active_columns),
-			},
-			.m_boundaries = AtmosphereBoundaries{
-				.m_x_min = boundary(ESide::XMin),
-				.m_x_max = boundary(ESide::XMax),
-				.m_y_min = boundary(ESide::YMin),
-				.m_y_max = boundary(ESide::YMax),
-				.m_z_min = boundary(ESide::ZMin),
-				.m_z_max = boundary(ESide::ZMax),
-			},
-			.m_wall_drag = AtmosphereWallDrag{
-				.m_x_min = drag(ESide::XMin),
-				.m_x_max = drag(ESide::XMax),
-				.m_y_min = drag(ESide::YMin),
-				.m_y_max = drag(ESide::YMax),
-				.m_z_min = drag(ESide::ZMin),
-				.m_z_max = drag(ESide::ZMax),
-			},
-			.m_reference = AtmosphereReferenceProfile{
-				.m_temperature_at_origin = desc.reference_temperature,
-				.m_lapse_rate = desc.lapse_rate,
-				.m_adiabatic_lapse_rate = desc.adiabatic_lapse_rate,
-				.m_min_temperature = desc.min_temperature,
-			},
-			.m_gravity = desc.gravity,
-			.m_floor_exchange_rate = desc.floor_exchange_rate,
-			.m_lid_temperature = desc.lid_temperature,
-			.m_lid_relaxation_rate = desc.lid_relaxation_rate,
-			.m_pressure_vcycles = desc.pressure_vcycles,
-			.m_pressure_pre_smooth = desc.pressure_pre_smooth,
-			.m_pressure_post_smooth = desc.pressure_post_smooth,
-			.m_pressure_coarse_smooth = desc.pressure_coarse_smooth,
-			.m_open_edge_band = desc.open_edge_band,
-			.m_vorticity_confinement = desc.vorticity_confinement,
-			.m_vertical_viscosity = desc.vertical_viscosity,
-		};
-	}
-
-	// Convert the tracer fields of the ABI atmosphere description; the tracer set validates the values.
-	pr::physics::atmosphere::AtmosphereTracerConfig ToAtmosphereTracerConfig(pr::physics::AtmosphereDesc const& desc)
-	{
-		return pr::physics::atmosphere::AtmosphereTracerConfig{
-			.m_particle_count = desc.tracer_count,
-			.m_seed = desc.tracer_seed,
-			.m_max_age = desc.tracer_max_age,
-			.m_ground_density = desc.tracer_ground_density,
-			.m_break_density = desc.tracer_break_density,
-			.m_upper_density = desc.tracer_upper_density,
-			.m_break_height = desc.tracer_break_height,
 		};
 	}
 }
@@ -339,7 +256,7 @@ namespace pr::physics
 				std::vector<std::array<PhysicsArticulationHandle, 2>> m_articulation_refs;
 			} m_constraint_update;
 
-			// The kernel cache current when this engine was created. Atmospheres created later use it too.
+			// The kernel cache current when this engine was created.
 			std::shared_ptr<IShaderCache> m_shader_cache;
 
 			std::unique_ptr<Engine> m_engine;
@@ -351,9 +268,6 @@ namespace pr::physics
 
 			// The wind sea applied to every water configuration, or null for table-maximum wind-sea amplitudes.
 			std::shared_ptr<pr::physics::terrain::water::WindSea const> m_water_wind_sea;
-
-			// Atmospheres use the engine's device but not the engine's GPU state. Declared after 'm_engine' so they are destroyed first.
-			std::vector<ObjectSlot<AtmosphereRecord>> m_atmospheres;
 
 			EngineRecord(std::uint16_t cookie, EngineConfig const& config, std::shared_ptr<IShaderCache> shader_cache, ID3D12Device4* device, ID3D12CommandQueue* queue)
 				: m_lock()
@@ -753,24 +667,8 @@ namespace pr::physics
 		// Close every independent job before any engine-owned object is released.
 		HRESULT CloseEngine(EngineRecord& record, DWORD timeout)
 		{
-			// Close the engine first so a partial close rejects all subsequent normal engine calls.
-			auto const started = GetTickCount64();
-			auto result = record.m_engine->TryClose(timeout);
-			if (result != S_OK)
-				return result;
-
-			// Atmospheres have independent queues and must remain owned if any of their waits fail.
-			for (auto& slot : record.m_atmospheres)
-			{
-				// Empty generation slots own no resources.
-				if (!slot.m_object)
-					continue;
-
-				result = slot.m_object->TryClose(RemainingTimeout(timeout, started));
-				if (result != S_OK)
-					return result;
-			}
-			return S_OK;
+			// A partial close rejects all subsequent normal engine calls.
+			return record.m_engine->TryClose(timeout);
 		}
 
 		// Translate close results without implying that a failed or timed-out operation released ownership.
@@ -818,12 +716,6 @@ namespace pr::physics
 		ConstraintRecord& RequireConstraint(EngineRecord& engine, PhysicsConstraintHandle handle)
 		{
 			return RequireChild(engine, handle, engine.m_constraints).first;
-		}
-
-		// Resolve one engine-owned atmosphere after validating its cookie, slot, and generation.
-		AtmosphereRecord& RequireAtmosphere(EngineRecord& engine, pr::physics::AtmosphereHandle handle)
-		{
-			return RequireChild(engine, handle, engine.m_atmospheres).first;
 		}
 
 		// Allocate from an inactive generation slot before growing the registry.
@@ -2438,9 +2330,6 @@ extern "C"
 				case PhysicsStructId::CylindricalBoundary: { *size = sizeof(pr::physics::CylindricalBoundaryDesc); break; }
 				case PhysicsStructId::Water: { *size = sizeof(pr::physics::WaterDesc); break; }
 				case PhysicsStructId::WaterBathymetry: { *size = sizeof(pr::physics::WaterBathymetryDesc); break; }
-				case PhysicsStructId::AtmosphereDesc: { *size = sizeof(pr::physics::AtmosphereDesc); break; }
-				case PhysicsStructId::AtmosphereStep: { *size = sizeof(pr::physics::AtmosphereStepDesc); break; }
-				case PhysicsStructId::AtmosphereStats: { *size = sizeof(pr::physics::AtmosphereStats); break; }
 		case PhysicsStructId::WindSea: { *size = sizeof(pr::physics::WindSeaDesc); break; }
 				default: throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Unknown physics structure identifier");
 			}
@@ -2682,29 +2571,6 @@ extern "C"
 							failure = result;
 					}
 					continue;
-				}
-
-				// Failed atmosphere creation has no public handle, but remains in the engine's existing slots.
-				for (auto& slot : record->m_atmospheres)
-				{
-					// Never collect a child that still has a caller-owned handle.
-					if (!slot.m_object || !slot.m_object->m_abandoned)
-						continue;
-
-					auto const result = slot.m_object->TryClose(pr::physics::RemainingTimeout(timeout_ms, started));
-					if (result == S_OK)
-					{
-						// Retire only the unpublished child; the active engine remains usable.
-						slot.m_object.reset();
-						pr::physics::AdvanceGeneration(slot.m_generation);
-					}
-					else
-					{
-						// Preserve this child for the host's next explicit retry.
-						++*remaining;
-						if (!FAILED(failure))
-							failure = result;
-					}
 				}
 			}
 			pr::physics::RequireClosed(failure);
@@ -4495,8 +4361,7 @@ extern "C"
 			if (std::ranges::any_of(record.m_shapes, [](auto const& slot) { return slot.m_object != nullptr; }) ||
 				std::ranges::any_of(record.m_bodies, [](auto const& slot) { return slot.m_object != nullptr; }) ||
 				std::ranges::any_of(record.m_articulations, [](auto const& slot) { return slot.m_object != nullptr; }) ||
-				std::ranges::any_of(record.m_constraints, [](auto const& slot) { return slot.m_object != nullptr; }) ||
-				std::ranges::any_of(record.m_atmospheres, [](auto const& slot) { return slot.m_object != nullptr; }))
+				std::ranges::any_of(record.m_constraints, [](auto const& slot) { return slot.m_object != nullptr; }))
 				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Checkpoint import requires an empty engine");
 
 			auto input = static_cast<std::byte const*>(buffer);
@@ -4711,264 +4576,6 @@ extern "C"
 			record.m_submitted_step = header.m_submitted_step;
 			record.m_completed_step = header.m_completed_step;
 			record.m_events.clear();
-		});
-	}
-
-	PhysicsStatus __stdcall Physics_AtmosphereCreate(PhysicsEngineHandle engine, pr::physics::AtmosphereDesc const* desc, pr::physics::AtmosphereHandle* atmosphere)
-	{
-		// Failed or unpublished initialization retains no caller-visible handle.
-		if (atmosphere != nullptr)
-			*atmosphere = 0;
-
-		return pr::physics::ApiCall([&]
-		{
-			auto scope = pr::physics::EngineScope(engine);
-			auto& record = *scope;
-			pr::physics::RequireOwner(record);
-			if (atmosphere == nullptr)
-				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Atmosphere output pointer is null");
-
-			// The column counts size the floor array, so they are checked before it is read. The solver validates everything else.
-			auto const& d = pr::physics::RequireStruct(desc);
-			if ((d.floor_heights != nullptr || d.active_columns != nullptr) && (d.cell_count.x <= 0 || d.cell_count.y <= 0 || static_cast<std::int64_t>(d.cell_count.x) * d.cell_count.y > std::numeric_limits<std::int32_t>::max()))
-				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Invalid atmosphere column count");
-			for (auto boundary : d.boundaries)
-			{
-				switch (boundary)
-				{
-					case pr::physics::EAtmosphereBoundary::Solid:
-					case pr::physics::EAtmosphereBoundary::Open:
-					{
-						break;
-					}
-					default:
-					{
-						throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Invalid atmosphere boundary");
-					}
-				}
-			}
-
-			// Construction records but never submits, so unwinding a failed construction cannot release in-flight resources.
-			auto object = std::unique_ptr<pr::physics::AtmosphereRecord>{};
-			try
-			{
-				object = std::make_unique<pr::physics::AtmosphereRecord>(record.m_engine->Device(), ToAtmosphereConfig(d), ToAtmosphereTracerConfig(d), record.m_shader_cache.get());
-			}
-			catch (std::invalid_argument const& ex)
-			{
-				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, ex.what());
-			}
-
-			auto [slot, index] = pr::physics::AllocateSlot(record.m_atmospheres);
-			slot.m_object = std::move(object);
-			try
-			{
-				// Establish ownership before any initialization can reach the GPU.
-				slot.m_object->Initialise();
-			}
-			catch (...)
-			{
-				// Retain a failed initialization in its existing slot if a zero-budget close cannot prove safety.
-				slot.m_object->m_abandoned = true;
-				if (slot.m_object->TryClose(0) == S_OK)
-					slot.m_object.reset();
-
-				throw;
-			}
-			*atmosphere = pr::physics::MakeChildHandle(record.m_cookie, index, slot.m_generation);
-		});
-	}
-
-	PhysicsStatus __stdcall Physics_AtmosphereDestroy(PhysicsEngineHandle engine, pr::physics::AtmosphereHandle atmosphere, std::uint32_t timeout_ms)
-	{
-		return pr::physics::ApiCall([&]
-		{
-			auto scope = pr::physics::EngineScope(engine);
-			auto& record = *scope;
-			pr::physics::RequireOwner(record);
-
-			// A failed close leaves the same atmosphere identity available for retry.
-			auto [object, index] = pr::physics::RequireChild(record, atmosphere, record.m_atmospheres);
-			pr::physics::RequireClosed(object.TryClose(timeout_ms));
-			auto& slot = record.m_atmospheres[index];
-			slot.m_object.reset();
-			pr::physics::AdvanceGeneration(slot.m_generation);
-		});
-	}
-
-	PhysicsStatus __stdcall Physics_AtmosphereBeginStep(PhysicsEngineHandle engine, pr::physics::AtmosphereHandle atmosphere, pr::physics::AtmosphereStepDesc const* step)
-	{
-		return pr::physics::ApiCall([&]
-		{
-			// The record rejects invalid steps before recording anything.
-			auto scope = pr::physics::EngineScope(engine);
-			auto& record = *scope;
-			pr::physics::RequireOwner(record);
-			auto& object = pr::physics::RequireAtmosphere(record, atmosphere);
-			object.BeginStep(pr::physics::RequireStruct(step));
-		});
-	}
-
-	PhysicsStatus __stdcall Physics_AtmospherePollStep(PhysicsEngineHandle engine, pr::physics::AtmosphereHandle atmosphere, std::int32_t* idle)
-	{
-		return pr::physics::ApiCall([&]
-		{
-			// Finishing a step that the GPU has already executed does not wait.
-			auto scope = pr::physics::EngineScope(engine);
-			auto& record = *scope;
-			pr::physics::RequireOwner(record);
-			auto& object = pr::physics::RequireAtmosphere(record, atmosphere);
-			if (idle == nullptr)
-				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Atmosphere idle output pointer is null");
-
-			*idle = object.PollStep() ? 1 : 0;
-		});
-	}
-
-	PhysicsStatus __stdcall Physics_AtmosphereProbesCopy(PhysicsEngineHandle engine, pr::physics::AtmosphereHandle atmosphere, pr::physics::AtmosphereProbeSample* samples, std::uint32_t capacity, std::uint32_t* required)
-	{
-		return pr::physics::ApiCall([&]
-		{
-			// The published samples are CPU memory owned by the record, so copying them never touches the GPU or the step in flight.
-			auto scope = pr::physics::EngineScope(engine);
-			auto& record = *scope;
-			pr::physics::RequireOwner(record);
-			auto& object = pr::physics::RequireAtmosphere(record, atmosphere);
-			if (required == nullptr)
-				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Probe required-count pointer is null");
-
-			object.CopyProbes(samples, capacity, *required);
-		});
-	}
-
-	PhysicsStatus __stdcall Physics_AtmosphereSurfaceWindCopy(PhysicsEngineHandle engine, pr::physics::AtmosphereHandle atmosphere, pr::physics::Vector2* wind, std::uint32_t capacity, std::uint32_t* required)
-	{
-		return pr::physics::ApiCall([&]
-		{
-			// The published wind is CPU memory owned by the record, so copying it never touches the GPU or the step in flight.
-			auto scope = pr::physics::EngineScope(engine);
-			auto& record = *scope;
-			pr::physics::RequireOwner(record);
-			auto& object = pr::physics::RequireAtmosphere(record, atmosphere);
-			if (required == nullptr)
-				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Surface wind required-count pointer is null");
-
-			object.CopySurfaceWind(wind, capacity, *required);
-		});
-	}
-
-	PhysicsStatus __stdcall Physics_AtmosphereCompleteStep(PhysicsEngineHandle engine, pr::physics::AtmosphereHandle atmosphere)
-	{
-		return pr::physics::ApiCall([&]
-		{
-			// Wait for the step in flight and publish its outputs.
-			auto scope = pr::physics::EngineScope(engine);
-			auto& record = *scope;
-			pr::physics::RequireOwner(record);
-			auto& object = pr::physics::RequireAtmosphere(record, atmosphere);
-			object.CompleteStep();
-		});
-	}
-
-	PhysicsStatus __stdcall Physics_AtmosphereFloorsSet(PhysicsEngineHandle engine, pr::physics::AtmosphereHandle atmosphere, float const* floor_heights, std::int32_t count)
-	{
-		return pr::physics::ApiCall([&]
-		{
-			// Remapping runs GPU work on the atmosphere's queue, so it requires the owner thread.
-			auto scope = pr::physics::EngineScope(engine);
-			auto& record = *scope;
-			pr::physics::RequireOwner(record);
-			auto& object = pr::physics::RequireAtmosphere(record, atmosphere);
-			object.SetFloors(floor_heights, count);
-		});
-	}
-
-	PhysicsStatus __stdcall Physics_AtmosphereFloorTemperaturesSet(PhysicsEngineHandle engine, pr::physics::AtmosphereHandle atmosphere, float const* floor_temperatures, std::int32_t count)
-	{
-		return pr::physics::ApiCall([&]
-		{
-			// The solver keeps a CPU copy that the next step uploads, so this is allowed while a step is in flight.
-			auto scope = pr::physics::EngineScope(engine);
-			auto& record = *scope;
-			pr::physics::RequireOwner(record);
-			auto& object = pr::physics::RequireAtmosphere(record, atmosphere);
-			object.SetFloorTemperatures(floor_temperatures, count);
-		});
-	}
-
-	PhysicsStatus __stdcall Physics_AtmosphereOutsideAirSet(PhysicsEngineHandle engine, pr::physics::AtmosphereHandle atmosphere, pr::physics::AtmosphereOutsideAir const* outside_air, std::int32_t count)
-	{
-		return pr::physics::ApiCall([&]
-		{
-			// The solver keeps a CPU copy that the next step uploads, so this is allowed while a step is in flight.
-			auto scope = pr::physics::EngineScope(engine);
-			auto& record = *scope;
-			pr::physics::RequireOwner(record);
-			auto& object = pr::physics::RequireAtmosphere(record, atmosphere);
-			object.SetOutsideAir(outside_air, count);
-		});
-	}
-
-	PhysicsStatus __stdcall Physics_AtmosphereTracersCopy(PhysicsEngineHandle engine, pr::physics::AtmosphereHandle atmosphere, pr::physics::AtmosphereTracerParticle* particles, std::uint32_t capacity, std::uint32_t* required)
-	{
-		return pr::physics::ApiCall([&]
-		{
-			// The read back uses the atmosphere's queue, so it requires the owner thread.
-			auto scope = pr::physics::EngineScope(engine);
-			auto& record = *scope;
-			pr::physics::RequireOwner(record);
-			auto& object = pr::physics::RequireAtmosphere(record, atmosphere);
-			if (required == nullptr)
-				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Tracer required-count pointer is null");
-
-			object.CopyTracers(particles, capacity, *required);
-		});
-	}
-
-	PhysicsStatus __stdcall Physics_AtmosphereTracersAcquire(PhysicsEngineHandle engine, pr::physics::AtmosphereHandle atmosphere, pr::physics::AtmosphereTracerSlot* slot)
-	{
-		return pr::physics::ApiCall([&]
-		{
-			// Hold the published slot and hand its buffer to the caller.
-			auto scope = pr::physics::EngineScope(engine);
-			auto& record = *scope;
-			pr::physics::RequireOwner(record);
-			auto& object = pr::physics::RequireAtmosphere(record, atmosphere);
-			if (slot == nullptr)
-				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Tracer slot pointer is null");
-
-			object.AcquireTracers(*slot);
-		});
-	}
-
-	PhysicsStatus __stdcall Physics_AtmosphereTracersRelease(PhysicsEngineHandle engine, pr::physics::AtmosphereHandle atmosphere, std::int32_t slot, void* fence, std::uint64_t value)
-	{
-		return pr::physics::ApiCall([&]
-		{
-			// Release one hold taken by 'Physics_AtmosphereTracersAcquire'.
-			auto scope = pr::physics::EngineScope(engine);
-			auto& record = *scope;
-			pr::physics::RequireOwner(record);
-			auto& object = pr::physics::RequireAtmosphere(record, atmosphere);
-			object.ReleaseTracers(slot, static_cast<ID3D12Fence*>(fence), value);
-		});
-	}
-
-	PhysicsStatus __stdcall Physics_AtmosphereCellStatesCopy(PhysicsEngineHandle engine, pr::physics::AtmosphereHandle atmosphere, pr::physics::AtmosphereCellState* cells, std::uint32_t capacity, std::uint32_t* required, pr::physics::AtmosphereStats* stats)
-	{
-		return pr::physics::ApiCall([&]
-		{
-			// The read back uses the atmosphere's queue, so it requires the owner thread.
-			auto scope = pr::physics::EngineScope(engine);
-			auto& record = *scope;
-			pr::physics::RequireOwner(record);
-			auto& object = pr::physics::RequireAtmosphere(record, atmosphere);
-			if (required == nullptr)
-				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Cell required-count pointer is null");
-			if (stats != nullptr)
-				(void)pr::physics::RequireOutputStruct(stats);
-
-			object.CopyCellStates(cells, capacity, *required, stats);
 		});
 	}
 }

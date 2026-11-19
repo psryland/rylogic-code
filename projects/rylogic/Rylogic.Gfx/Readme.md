@@ -71,8 +71,8 @@ overlays are rejected because replacing those stages with the stock PBR shader w
 
 ## Procedural atmosphere
 
-`View3d.ProceduralSky` owns a Z-up GPU sky shared with native `pr::rdr12::ProceduralSky`
-(`pr/view3d-12/scene/procedural_sky.h`). Create it after `View3d.Create()`, add its `Skybox` object to a window,
+`View3d.ProceduralSky` owns a Z-up GPU sky shared with native `pr::game_systems::ProceduralSky`
+(`pr/game-systems/sky/procedural_sky.h`). Create it after `View3d.Create()`, add its `Skybox` object to a window,
 and remove that object before disposing the sky. Creation, `Update`, `Blend`, rendering and disposal must be sequenced
 on the render owner; the View3d context must outlive the sky.
 
@@ -121,6 +121,15 @@ The sky does **not** generate a reflection cube map. Set `window.EnvironmentMap 
 authored environment to this sky unless a separate reflection source is intended. The C ABI exposes
 `View3D_ObjectCreateProceduralSky`, `View3D_ObjectUpdateProceduralSky` and `View3D_ObjectBlendProceduralSky`;
 destruction uses `View3D_ObjectDelete`.
+
+## Game systems
+
+The procedural sky above, `View3d.Ocean` and `View3d.Atmosphere` wrap native game-agnostic systems from the Rylogic `game-systems` library
+(`pr/game-systems/...`), which is linked into `view3d-12.dll` and exposed through its C ABI.
+
+`View3d.Atmosphere` is a terrain-following GPU air solver with GPU tracers. `Atmosphere.Create(device, options, shader_cache_dir)` runs it on the
+caller's D3D12 device with its own compute queue; it does not use the renderer. The creating thread owns the atmosphere and must make every later call.
+Failures throw `View3d.AtmosphereException`. `Atmosphere.PrecompileShaders` fills a shader cache so later creation does not compile kernels.
 
 ## Populations (GPU-driven instancing)
 

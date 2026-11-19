@@ -5,7 +5,7 @@
 #include "pr/view3d-12/shaders/shader_forward.h"
 #include "pr/view3d-12/shaders/shader_procedural.h"
 #include "pr/view3d-12/scene/scene.h"
-#include "pr/view3d-12/scene/procedural_sky.h"
+#include "pr/view3d-12/scene/cloud_sky.h"
 #include "pr/view3d-12/render/drawlist_element.h"
 #include "pr/view3d-12/model/nugget.h"
 #include "pr/view3d-12/instance/instance.h"

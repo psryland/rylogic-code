@@ -177,19 +177,7 @@
 			<PhysicsUnitTest>true</PhysicsUnitTest>
 			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
 		</ClCompile>
-		<ClCompile Include="$(MSBuildThisFileDirectory)atmosphere_tests.cpp">
-			<PhysicsUnitTest>true</PhysicsUnitTest>
-			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
-		</ClCompile>
-		<ClCompile Include="$(MSBuildThisFileDirectory)atmosphere_record_tests.cpp">
-			<PhysicsUnitTest>true</PhysicsUnitTest>
-			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
-		</ClCompile>
 		<ClCompile Include="$(MSBuildThisFileDirectory)engine_gpu_recovery_tests.cpp">
-			<PhysicsUnitTest>true</PhysicsUnitTest>
-			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
-		</ClCompile>
-		<ClCompile Include="$(MSBuildThisFileDirectory)..\dll\atmosphere_record.cpp">
 			<PhysicsUnitTest>true</PhysicsUnitTest>
 			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
 		</ClCompile>

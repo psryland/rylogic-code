@@ -1,12 +1,12 @@
 //************************************
-// View 3d
+// Game Systems
 //  Copyright (c) Rylogic Ltd 2026
 //************************************
 // Optional Sun–Earth–Moon model that places the procedural sky's sun, moon and stars.
 #pragma once
-#include "pr/view3d-12/forward.h"
+#include "pr/game-systems/forward.h"
 
-namespace pr::rdr12
+namespace pr::game_systems
 {
 	// The sun, moon and star state for one moment, in the procedural sky's frame (+Z up, +Y north, +X east).
 	// The directions and rotation can be copied directly into ProceduralSkySettings (see procedural_sky.h).
@@ -138,7 +138,7 @@ namespace pr::rdr12
 
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
-namespace pr::rdr12::tests
+namespace pr::game_systems::tests
 {
 	PRUnitTest(CelestialClockTests, Quick)
 	{

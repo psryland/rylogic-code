@@ -148,10 +148,6 @@ namespace pr::rdr12
 		extern ForwardPixelFamily const forward_texn_pbr_family;
 		extern ForwardPixelFamily const forward_detail_family;
 
-		// Procedural atmosphere
-		extern ByteCode const procedural_sky_vs;
-		extern ByteCode const procedural_sky_ps;
-
 		// Deferred rendering
 
 		// Shadows

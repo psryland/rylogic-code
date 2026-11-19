@@ -9,7 +9,7 @@
 #include "pr/view3d-12/material/components/shader_overlays.h"
 #include "pr/view3d-12/model/animation.h"
 #include "pr/view3d-12/scene/scene.h"
-#include "pr/view3d-12/scene/procedural_sky.h"
+#include "pr/view3d-12/scene/cloud_sky.h"
 #include "pr/view3d-12/shaders/shader_procedural.h"
 #include "pr/view3d-12/resource/resource_factory.h"
 #include "pr/view3d-12/utility/diagnostics.h"
@@ -224,9 +224,9 @@ namespace pr::rdr12::ldraw
 			scene.AddFrameLight(light);
 		}
 
-		// A visible procedural sky also shades the frame with its cloud shadows
-		if (!is_hidden && m_user_data.has<std::unique_ptr<ProceduralSky>>())
-			scene.CloudSky(m_user_data.get<std::unique_ptr<ProceduralSky>>().get());
+		// A visible sky object also shades the frame with its cloud shadows. The object's owner stores the sky's interface in the user data.
+		if (!is_hidden && m_user_data.has<ICloudSky const*>())
+			scene.CloudSky(m_user_data.get<ICloudSky const*>());
 
 		// Rinse and repeat for all children. A flipbook hides all but the active frame for this render only, so persistent visibility is unchanged.
 		auto active_frame = m_flipbook ? m_flipbook.FrameIndex(m_anim_time_s, isize(m_child)) : -1;

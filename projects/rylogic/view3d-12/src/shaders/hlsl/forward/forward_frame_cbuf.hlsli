@@ -11,7 +11,7 @@
 #include "view3d-12/src/shaders/hlsl/lighting/lighting_cbuf.hlsli"
 #include "view3d-12/src/shaders/hlsl/sky/cloud_cbuf.hlsli"
 
-// The low cloud accumulated over frames by the procedural sky. See AccumulateLowCloud in procedural_sky.hlsl.
+// The low cloud accumulated over frames by the cloud sky's shader (see ICloudSky). The sky shader reads the previous frame's history and writes this frame's.
 struct SkyHistory
 {
 	// The previous frame's world to screen transform, used to find where a cloud point was on screen in that frame.

@@ -48,6 +48,8 @@
 				;$(RylogicRoot)obj\compute\$(Platform)\$(Configuration)\compute-static.lib
 				;$(RylogicRoot)obj\compute\$(Platform)\$(Configuration)\compute_shaders.res
 				;$(RylogicRoot)obj\view3d-ui\$(Platform)\$(Configuration)\view3d-ui-static.lib
+				;$(RylogicRoot)obj\game-systems\$(Platform)\$(Configuration)\game-systems-static.lib
+				;$(RylogicRoot)obj\game-systems\$(Platform)\$(Configuration)\compute_shaders_game_systems.res
 				;audio.imp
 				;d3d12.lib
 				;%(AdditionalDependencies)
@@ -127,6 +129,17 @@
 		<None Include="src\view3d-12\shaders\hlsl\procedural_vertex_common.hlsli" />
 	</ItemGroup>
 
+	<!-- game-systems tests -->
+	<ItemGroup>
+		<ClInclude Include="src\game-systems\shared_gpu.h" />
+		<ClCompile Include="src\game-systems\atmosphere_tests.cpp" />
+		<ClCompile Include="src\game-systems\atmosphere_record_tests.cpp" />
+		<!-- The game-systems kernels compile at run time and include the shared pr/hlsl headers from this resource. -->
+		<ResourceCompile Include="$(RylogicRoot)include\pr\hlsl\pr_hlsl.rc">
+			<AdditionalIncludeDirectories>$(RylogicRoot)include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+		</ResourceCompile>
+	</ItemGroup>
+
 	<!-- view3d-ui tests. view3d-ui.h loads view3d-ui.dll dynamically at runtime (GetProcAddress), so there is no import
 	     library to link against. The M3 white-box tests additionally link view3d-ui.vcxproj's static library directly
 	     (view3d-ui-static.lib) to reach UiEngine/DrawPacket/GlyphCache/TextShaper, which are internal, non-ABI headers
@@ -169,6 +182,7 @@
 	<!-- Dependencies -->
 	<ItemGroup>
 		<ProjectReference Include="$(RylogicRoot)projects\rylogic\audio\audio.dll.vcxproj" />
+		<ProjectReference Include="$(RylogicRoot)projects\rylogic\game-systems\game-systems.vcxproj" />
 		<ProjectReference Include="$(RylogicRoot)projects\rylogic\imgui\imgui.vcxproj" />
 		<ProjectReference Include="$(RylogicRoot)projects\rylogic\view3d-12\view3d-12.dll.vcxproj" />
 		<ProjectReference Include="$(RylogicRoot)projects\rylogic\view3d-ui\view3d-ui.dll.vcxproj" />

@@ -1,12 +1,12 @@
 //************************************
-// View 3d
+// Game Systems
 //  Copyright (c) Rylogic Ltd 2025
 //************************************
 // A CPU-authored cloud cover field used by the procedural sky.
 #pragma once
-#include "pr/view3d-12/forward.h"
+#include "pr/game-systems/forward.h"
 
-namespace pr::rdr12
+namespace pr::game_systems
 {
 	// A grid of cloud cover values in [0,1] over an XY rectangle of the sky frame, anchored in world space.
 	// Brushes edit the CPU copy, and 'Upload' copies it to the GPU texture that the procedural sky samples.

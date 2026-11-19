@@ -273,10 +273,7 @@ namespace pr::rdr12
 	using TextureCubePtr = RefPtr<TextureCube>;
 
 	// Sky
-	struct ProceduralSky;
-	struct ProceduralSkySettings;
-	struct WeatherMap;
-	using WeatherMapPtr = RefPtr<WeatherMap>;
+	struct ICloudSky;
 	    struct AllocPres;
 	    struct ProjectedTexture;
 

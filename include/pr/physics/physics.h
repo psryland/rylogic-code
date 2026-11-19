@@ -26,5 +26,4 @@
 #include "pr/physics/integrator/engine_water.h"
 #include "pr/physics/terrain/water/wave_spectrum.h"
 #include "pr/physics/atmosphere/air.h"
-#include "pr/physics/atmosphere/atmosphere.h"
 #include "pr/physics/utility/ldraw.h"

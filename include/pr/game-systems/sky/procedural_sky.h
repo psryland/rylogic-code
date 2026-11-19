@@ -1,13 +1,12 @@
 //************************************
-// View 3d
+// Game Systems
 //  Copyright (c) Rylogic Ltd 2025
 //************************************
 // Atmospheric sky shared by native scenes and View3D objects.
 #pragma once
-#include "pr/view3d-12/forward.h"
-#include "pr/view3d-12/instance/instance.h"
+#include "pr/game-systems/forward.h"
 
-namespace pr::rdr12
+namespace pr::game_systems
 {
 	struct ProceduralSkyShader;
 
@@ -66,7 +65,7 @@ namespace pr::rdr12
 	};
 
 	// Owns a Z-up atmospheric sky with an optional retained cubemap. Create, update and release on the renderer owner thread.
-	struct ProceduralSky
+	struct ProceduralSky : ICloudSky
 	{
 		// A translation-independent background instance, sorted after opaque geometry.
 		struct Instance
@@ -120,6 +119,9 @@ namespace pr::rdr12
 
 		// Get the cloud field for cloud shadows on the scene, and the sky's texture table (cube, weather map, cloud noise) that the cloud field reads.
 		// Returns false, with 'clouds' still filled, when the sky casts no cloud shadows.
-		bool CloudShadows(shaders::CloudConstants& clouds, Descriptor (&textures)[3]) const;
+		bool CloudShadows(shaders::CloudConstants& clouds, Descriptor (&textures)[3]) const override;
+
+		// The total distance the low cloud has moved with the wind, in world units in the sky frame.
+		std::array<double, 2> LowCloudDrift() const override;
 	};
 }

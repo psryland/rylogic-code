@@ -1,16 +1,14 @@
 //*********************************************
-// Physics Engine Atmosphere Tests
+// Game Systems Atmosphere Tests
 //  Copyright (C) Rylogic Ltd 2026
 //*********************************************
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
-#include "pr/physics/physics.h"
-#include "src/utility/gpu.h"
-#include "src/unittests/shared_gpu.h"
+#include "shared_gpu.h"
 
-namespace pr::physics::tests
+namespace pr::game_systems::tests
 {
-	using namespace pr::physics::atmosphere;
+	using namespace pr::game_systems::atmosphere;
 
 	// Return outside air with the same wind and temperature offset for every column of 'grid'.
 	static std::vector<AtmosphereOutsideAir> UniformOutsideAir(AtmosphereGrid const& grid, v2 wind, float temperature_offset = 0.0f)

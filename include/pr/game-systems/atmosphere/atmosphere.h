@@ -1,12 +1,70 @@
 //*********************************************
-// Physics Engine
+// Game Systems
 //  Copyright (C) Rylogic Ltd 2026
 //*********************************************
 #pragma once
-#include "pr/physics/forward.h"
+#include "pr/game-systems/forward.h"
 
-namespace pr::physics::atmosphere
+namespace pr::game_systems::atmosphere
 {
+	// Atmosphere work runs on the DIRECT queue. Compute queues hit an NVIDIA driver bug that corrupts compute results, so direct-queue
+	// command lists are used for every atmosphere dispatch.
+	using ComGpu = ::pr::compute::Gpu<D3D12_COMMAND_LIST_TYPE_DIRECT>;
+	using GpuJob = ::pr::compute::GpuJob<D3D12_COMMAND_LIST_TYPE_DIRECT>;
+	using GpuAddress = ::pr::compute::GpuAddress;
+	using IShaderCache = ::pr::compute::shader_cache::IShaderCache;
+	using ShaderRecipe = ::pr::compute::ShaderRecipe;
+
+	// The device, queue, and job that atmosphere objects record their GPU work into.
+	struct Gpu
+	{
+		ComGpu m_gpu; // A GPU wrapper for running compute shaders
+		GpuJob m_job; // The job that atmosphere work is recorded into
+
+		// Borrow 'existing_device' and the optional 'existing_queue' owned by a longer-lived host, or create an independent device with the diagnostics in 'options' when 'existing_device' is null.
+		Gpu(ID3D12Device4* existing_device, ID3D12CommandQueue* existing_queue, ::pr::compute::EGpuOptions options)
+			: m_gpu(existing_device != nullptr ? ComGpu(existing_device, existing_queue) : ComGpu(options))
+			, m_job(m_gpu, "Atmosphere Job", 0xFF00FFFF, 1)
+		{}
+
+		// Borrow 'existing_device', which must not be null.
+		explicit Gpu(ID3D12Device4* existing_device)
+			: Gpu(existing_device, nullptr, ::pr::compute::EGpuOptions::None)
+		{}
+
+		// Create an independent device with the diagnostics in 'options'.
+		explicit Gpu(::pr::compute::EGpuOptions options)
+			: Gpu(nullptr, nullptr, options)
+		{}
+
+		// Allow use as a device
+		ID3D12Device4 const* operator -> () const
+		{
+			return m_gpu.operator ->();
+		}
+		ID3D12Device4* operator ->()
+		{
+			return m_gpu.operator ->();
+		}
+		operator ID3D12Device4 const* () const
+		{
+			return m_gpu;
+		}
+		operator ID3D12Device4* ()
+		{
+			return m_gpu;
+		}
+
+		// Allocate a DX resource. See 'compute::Gpu::CreateResource' for how initial data is staged.
+		D3DPtr<ID3D12Resource> CreateResource(::pr::compute::ResDesc const& desc, GpuJob& job, std::string_view name)
+		{
+			return m_gpu.CreateResource(desc, job, name);
+		}
+	};
+
+	// Return a recipe for every runtime-compiled atmosphere kernel, so they can be compiled ahead of first use (see compute::PrecompileShaders).
+	std::vector<ShaderRecipe> ShaderRecipes();
+
 	// The result of an atmosphere method that checks its inputs before it does any work. A rejected call changed no state and recorded or ran
 	// no work, so the caller may keep using the object. Exceptions from the same methods are failures, not rejections, whatever their type.
 	struct [[nodiscard]] AtmosphereInputCheck

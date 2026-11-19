@@ -14,8 +14,8 @@
 #include "pr/view3d-12/model/vertex_layout.h"
 #include "pr/view3d-12/resource/resource_factory.h"
 #include "pr/view3d-12/texture/texture_desc.h"
-#include "pr/view3d-12/scene/procedural_sky.h"
-#include "pr/view3d-12/scene/weather_map.h"
+#include "pr/game-systems/sky/procedural_sky.h"
+#include "pr/game-systems/sky/weather_map.h"
 #include "pr/view3d-12/shaders/shader_procedural.h"
 #include "pr/view3d-12/utility/conversion.h"
 #include "view3d-12/src/ldraw/sources/source_base.h"
@@ -890,16 +890,17 @@ namespace pr::rdr12
 	}
 
 	// Wrap a configured sky as a scene object. The sky follows the camera, so it is excluded from bounds, hit tests, and shadow casting.
-	static ldraw::LdrObjectPtr CreateSkyObject(std::unique_ptr<ProceduralSky> sky, char const* name, Guid const* context_id)
+	static ldraw::LdrObjectPtr CreateSkyObject(std::unique_ptr<game_systems::ProceduralSky> sky, char const* name, Guid const* context_id)
 	{
-		// The object owns the sky so the shader state lives as long as the model it draws.
+		// The object owns the sky so the shader state lives as long as the model it draws. The interface lets the scene find the sky's cloud shadows.
 		auto id = context_id ? *context_id : GenerateGUID();
 		auto obj = ldraw::LdrObjectPtr(new ldraw::LdrObject(ldraw::ELdrObject::Custom, nullptr, id), true);
 		obj->m_model = sky->m_inst.m_model;
 		obj->m_name = name;
 		obj->m_sko.Group(ESortGroup::Skybox);
 		obj->Flags(ldraw::ELdrFlags::SceneBoundsExclude | ldraw::ELdrFlags::HitTestExclude | ldraw::ELdrFlags::ShadowCastExclude, true);
-		obj->m_user_data.get<std::unique_ptr<ProceduralSky>>() = std::move(sky);
+		obj->m_user_data.get<ICloudSky const*>() = sky.get();
+		obj->m_user_data.get<std::unique_ptr<game_systems::ProceduralSky>>() = std::move(sky);
 		return obj;
 	}
 
@@ -910,7 +911,7 @@ namespace pr::rdr12
 		if (!cube_map)
 			throw std::invalid_argument("Skybox requires a cube map");
 
-		auto sky = std::make_unique<ProceduralSky>(m_rdr);
+		auto sky = std::make_unique<game_systems::ProceduralSky>(m_rdr);
 		sky->Blend(std::move(cube_map), 0.0f, m4x4::Identity(), m4x4::Identity());
 		auto obj = CreateSkyObject(std::move(sky), name, context_id);
 		m_sources.Add(obj);
@@ -918,10 +919,10 @@ namespace pr::rdr12
 	}
 
 	// Create an atmospheric sky without temporary textures or application-owned shader state.
-	ldraw::LdrObject* Context::ObjectCreateProceduralSky(char const* name, ProceduralSkySettings const& settings, Guid const* context_id)
+	ldraw::LdrObject* Context::ObjectCreateProceduralSky(char const* name, game_systems::ProceduralSkySettings const& settings, Guid const* context_id)
 	{
 		// Keep ownership local until parameter validation and resource creation have succeeded.
-		auto sky = std::make_unique<ProceduralSky>(m_rdr);
+		auto sky = std::make_unique<game_systems::ProceduralSky>(m_rdr);
 		sky->Update(settings);
 		auto obj = CreateSkyObject(std::move(sky), name, context_id);
 		m_sources.Add(obj);
@@ -929,30 +930,30 @@ namespace pr::rdr12
 	}
 
 	// Update only sun constants; a normal object cannot be reinterpreted as a procedural sky.
-	void Context::ObjectUpdateProceduralSky(ldraw::LdrObject* object, ProceduralSkySettings const& settings)
+	void Context::ObjectUpdateProceduralSky(ldraw::LdrObject* object, game_systems::ProceduralSkySettings const& settings)
 	{
-		if (!object->m_user_data.has<std::unique_ptr<ProceduralSky>>())
+		if (!object->m_user_data.has<std::unique_ptr<game_systems::ProceduralSky>>())
 			throw std::invalid_argument("The object is not a procedural sky");
 
-		object->m_user_data.get<std::unique_ptr<ProceduralSky>>()->Update(settings);
+		object->m_user_data.get<std::unique_ptr<game_systems::ProceduralSky>>()->Update(settings);
 	}
 
 	// Replace the sky's weather map; a normal object cannot be reinterpreted as a procedural sky.
-	void Context::ObjectProceduralSkyWeatherSet(ldraw::LdrObject* object, WeatherMapPtr weather)
+	void Context::ObjectProceduralSkyWeatherSet(ldraw::LdrObject* object, game_systems::WeatherMapPtr weather)
 	{
-		if (!object->m_user_data.has<std::unique_ptr<ProceduralSky>>())
+		if (!object->m_user_data.has<std::unique_ptr<game_systems::ProceduralSky>>())
 			throw std::invalid_argument("The object is not a procedural sky");
 
-		object->m_user_data.get<std::unique_ptr<ProceduralSky>>()->Weather(std::move(weather));
+		object->m_user_data.get<std::unique_ptr<game_systems::ProceduralSky>>()->Weather(std::move(weather));
 	}
 
 	// Change only the shared sky's blend parameters, retaining the source independently of caller ownership.
 	void Context::ObjectBlendProceduralSky(ldraw::LdrObject* object, TextureCubePtr background, float weight, m4x4 const& world_to_sky, m4x4 const& world_to_background)
 	{
-		if (!object->m_user_data.has<std::unique_ptr<ProceduralSky>>())
+		if (!object->m_user_data.has<std::unique_ptr<game_systems::ProceduralSky>>())
 			throw std::invalid_argument("The object is not a procedural sky");
 
-		object->m_user_data.get<std::unique_ptr<ProceduralSky>>()->Blend(std::move(background), weight, world_to_sky, world_to_background);
+		object->m_user_data.get<std::unique_ptr<game_systems::ProceduralSky>>()->Blend(std::move(background), weight, world_to_sky, world_to_background);
 	}
 
 	// Modify an ldr object using a callback to populate the model data.

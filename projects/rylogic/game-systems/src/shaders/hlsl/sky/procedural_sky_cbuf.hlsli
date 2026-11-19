@@ -1,11 +1,11 @@
 //************************************
-// View 3d
+// Game Systems
 //  Copyright (c) Rylogic Ltd 2025
 //************************************
 // Shared types for procedural sky vertex and pixel shaders.
 // This file is included from both HLSL and C++ source.
-#ifndef PR_VIEW3D_PROCEDURAL_SKY_CBUF_HLSLI
-#define PR_VIEW3D_PROCEDURAL_SKY_CBUF_HLSLI
+#ifndef PR_GAME_SYSTEMS_PROCEDURAL_SKY_CBUF_HLSLI
+#define PR_GAME_SYSTEMS_PROCEDURAL_SKY_CBUF_HLSLI
 #include "pr/hlsl/interop.hlsli"
 
 // The cloud constants belong to the shared shader namespace, so the forward constants and the sky constants use the same type.
@@ -17,10 +17,10 @@ namespace pr::rdr12::shaders
 #include "view3d-12/src/shaders/hlsl/sky/cloud_cbuf.hlsli"
 #ifdef __cplusplus
 }
-namespace pr::rdr12::sky
+namespace pr::game_systems::sky
 {
 	using namespace pr::hlsl;
-	using shaders::CloudConstants;
+	using pr::rdr12::shaders::CloudConstants;
 #endif
 
 // Procedural sky constant buffer. Bound to b3.

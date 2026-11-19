@@ -15,10 +15,4 @@ namespace pr::physics
 
 	// Add the recipe for the water-force kernel.
 	void AppendWaterShaderRecipes(std::vector<ShaderRecipe>& recipes);
-
-	namespace atmosphere
-	{
-		// Add recipes for the atmosphere solver, tracer, probe and surface-wind kernels.
-		void AppendAtmosphereShaderRecipes(std::vector<ShaderRecipe>& recipes);
-	}
 }
