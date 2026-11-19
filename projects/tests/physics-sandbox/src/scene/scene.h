@@ -199,6 +199,12 @@ namespace physics_sandbox
 		// Reset the simulation to the current scenario's initial conditions
 		void Reset();
 
+		// Close all simulation GPU work before releasing the scene. Timeout or failure retains ownership for retry.
+		HRESULT TryClose(DWORD timeout);
+
+		// Retire the existing atmosphere before changing scenes; failure leaves the atmosphere owned.
+		void ClearAtmosphere();
+
 		// Advance the simulation by one time step.
 		// Returns true if a collision occurred during this step.
 		bool Step(double elapsed_seconds);

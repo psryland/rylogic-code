@@ -63,6 +63,8 @@ namespace pr::compute
 	//   - All threads within a single group can read from and write to the group shared memory.
 	//     This allows for efficient communication and synchronization among threads within the same group.
 
+	// Owns recording and submission state. Before destruction, callers must complete submitted work or successfully TryClose.
+	// After a submission/recording failure, retain this object and its dependent resources until TryClose succeeds.
 	template <D3D12_COMMAND_LIST_TYPE QueueType>
 	struct GpuJob
 	{
@@ -114,6 +116,9 @@ namespace pr::compute
 			, m_upload(m_gsync, 0)
 			, m_readback(m_gsync, 0)
 			, m_pending_sync_point()
+			, m_recording(true)
+			, m_unfenced(false)
+			, m_closing(false)
 		{
 			auto heaps = { m_view_heap.get() };
 			m_cmd_list.SetDescriptorHeaps({ heaps.begin(), heaps.size() });
@@ -126,14 +131,82 @@ namespace pr::compute
 			: GpuJob(gpu.device(), gpu.queue(), name, pix_colour, view_heap_capacity)
 		{
 		}
+		~GpuJob()
+		{
+			// Runtime failures belong to the explicit close operation, not stack unwinding. An unsafe destruction is a caller contract violation.
+			assert((!m_unfenced && m_gsync.CompletedSyncPoint() >= m_gsync.LastAddedSyncPoint()) || FAILED(m_gsync.DeviceRemovedReason()));
+			m_upload.CancelUnsubmitted();
+			m_readback.CancelUnsubmitted();
+		}
 
 		uint64_t m_pending_sync_point; // The submitted-but-not-yet-completed sync point.
+		bool m_recording;              // The command list can still accept a complete recording.
+		bool m_unfenced;               // Commands were queued but no successful fence signal covers them yet.
+		bool m_closing;                // Closing is terminal, even when its wait has to be retried.
+
+		// True while normal recording is allowed.
+		bool IsRecording() const
+		{
+			// A failed or closing recording cannot be submitted again.
+			return m_recording && !m_closing;
+		}
+
+		// Stop accepting work after a partial-operation failure. Outstanding submissions remain owned until TryClose succeeds.
+		void Stop() noexcept
+		{
+			// Do not submit the partial recording or change the completion state of already queued work.
+			m_closing = true;
+			m_recording = false;
+		}
+
+		// Permanently close this job within 'timeout' milliseconds (INFINITE is allowed). S_OK permits destruction, S_FALSE means timeout,
+		// and a failed HRESULT leaves ownership intact for retry. No observers run, no recorded commands execute, and no process policy is imposed.
+		// A removed device is quiescent for destruction. Callers must release allocation handles before destroying the closed job.
+		HRESULT TryClose(DWORD timeout) noexcept
+		{
+			// Closing never reopens recording, including after a failed wait or signal.
+			auto const started = GetTickCount64();
+			Stop();
+			if (!FAILED(m_gsync.DeviceRemovedReason()) && m_gsync.CompletedSyncPoint() != UINT64_MAX)
+			{
+				// Execution may have succeeded before Signal failed. Append only a fence, never the commands themselves.
+				if (m_unfenced && m_gsync.LastAddedSyncPoint() < m_pending_sync_point)
+				{
+					auto const sync_point = m_gsync.NextSyncPoint();
+					auto const result = m_queue->Signal(m_gsync.m_fence.get(), sync_point);
+					if (FAILED(result) && !FAILED(m_gsync.DeviceRemovedReason()))
+						return result;
+
+					if (SUCCEEDED(result))
+					{
+						// Publish the fence without fallible observers; all reservations remain retained until closing completes.
+						m_gsync.m_sync = sync_point;
+						m_pending_sync_point = sync_point;
+						m_unfenced = false;
+					}
+				}
+
+				// A timeout or host wait failure is not proof that the GPU has released these resources.
+				auto const elapsed = GetTickCount64() - started;
+				auto const remaining = timeout == INFINITE ? INFINITE : elapsed >= timeout ? 0 : static_cast<DWORD>(timeout - elapsed);
+				auto const result = m_gsync.TryWait(m_gsync.LastAddedSyncPoint(), remaining);
+				if (result != S_OK && !FAILED(m_gsync.DeviceRemovedReason()) && m_gsync.CompletedSyncPoint() != UINT64_MAX)
+					return result;
+			}
+
+			// Only unsubmitted reservations are cancelled. The actual fence value is never forged.
+			m_unfenced = false;
+			m_pending_sync_point = 0;
+			m_upload.CancelUnsubmitted();
+			m_readback.CancelUnsubmitted();
+			return S_OK;
+		}
 
 		// Submit the recorded commands and return without waiting for completion.
 		RunHandle Submit(RunProfile* profile = nullptr)
 		{
-			if (m_pending_sync_point != 0)
-				throw std::runtime_error("GpuJob::Submit called while a previous submission is still pending");
+			if (!IsRecording())
+				throw std::runtime_error("GpuJob::Submit requires an active recording");
 
 			auto const timestamp = [profile]
 			{
@@ -142,13 +215,12 @@ namespace pr::compute
 			auto const prepare_beg = timestamp();
 
 			// Job complete
-			m_barriers.Commit();
-			m_cmd_list.Close();
+			CloseRecording();
 
 			auto const execute_beg = timestamp();
 
 			// Run the job.
-			m_pending_sync_point = ExecuteRecorded();
+			ExecuteRecorded();
 
 			if (profile != nullptr)
 			{
@@ -171,8 +243,8 @@ namespace pr::compute
 		void Flush(RunProfile* profile = nullptr)
 		{
 			// Flushing is part of recording, which is not possible while a submission is pending.
-			if (m_pending_sync_point != 0)
-				throw std::runtime_error("GpuJob::Flush called while a submission is pending");
+			if (!IsRecording())
+				throw std::runtime_error("GpuJob::Flush requires an active recording");
 
 			auto const timestamp = [profile]
 			{
@@ -181,12 +253,12 @@ namespace pr::compute
 			auto const prepare_beg = timestamp();
 
 			// Execute the recorded prefix, then record later commands with an allocator the GPU is not using.
-			m_barriers.Commit();
-			m_cmd_list.Close();
+			CloseRecording();
 			auto const execute_beg = timestamp();
 			ExecuteRecorded();
 			auto const reset_beg = timestamp();
 			ResetRecording();
+			m_pending_sync_point = 0;
 
 			// Use the same phase definitions as Submit and Complete, without adding a wait.
 			if (profile != nullptr)
@@ -205,7 +277,7 @@ namespace pr::compute
 		// Wait for a submitted job, then reset command recording for the next submission.
 		void Complete(RunHandle& handle, RunProfile* profile = nullptr)
 		{
-			if (!handle || handle.m_sync_point != m_pending_sync_point)
+			if (m_closing || m_unfenced || !handle || handle.m_sync_point != m_pending_sync_point)
 				throw std::runtime_error("GpuJob::Complete called with an invalid or non-current run handle");
 
 			auto const timestamp = [profile]
@@ -222,6 +294,10 @@ namespace pr::compute
 			}
 
 			auto const reset_beg = timestamp();
+
+			// GPU completion is final even if an observer or reopening recording subsequently fails.
+			m_pending_sync_point = 0;
+			handle = {};
 
 			// Notify that sync points have been reached (recycles command allocators,
 			// sweeps KeepAlive references, etc). Without this, resources accumulate
@@ -242,29 +318,6 @@ namespace pr::compute
 				profile->m_reset_ms = elapsed_ms(reset_beg, reset_end);
 			}
 
-			m_pending_sync_point = 0;
-			handle = {};
-		}
-
-		// Wait for submitted work during terminal cleanup without touching thread-affine recording state.
-		void Abandon(RunHandle& handle)
-		{
-			if (!handle || handle.m_sync_point != m_pending_sync_point)
-				throw std::runtime_error("GpuJob::Abandon called with an invalid or non-current run handle");
-
-			(void)m_gsync.Wait(handle.m_sync_point);
-			m_pending_sync_point = 0;
-			handle = {};
-		}
-
-		// Submit and retire a partially recorded list so staged allocations and tracked resource states reach a completed fence boundary.
-		void RetireRecordedWork()
-		{
-			// Executing the valid prefix keeps CPU-side resource-state tracking consistent with the actual GPU state.
-			auto handle = Submit();
-
-			// Complete normally so transient allocations are reclaimed and the command list is reset for reuse.
-			Complete(handle);
 		}
 
 		// Run the job and block till complete.
@@ -276,24 +329,52 @@ namespace pr::compute
 
 	private:
 
-		// Execute the closed command list and return the sync point that marks its completion.
-		uint64_t ExecuteRecorded()
+		// Close exactly once, including when barrier preparation, D3D12 Close, or resource retention fails.
+		void CloseRecording()
 		{
-			// The allocator cannot be reused until the GPU reaches the sync point that follows these commands.
+			// A failed close must never be retried as though the same list were still recording.
+			m_recording = false;
+			m_barriers.Commit();
+			Check(m_cmd_list.Close());
+		}
+
+		// Execute the closed list once and retain its completion state even if signalling or an observer throws.
+		void ExecuteRecorded()
+		{
+			// Associate the allocator before execution, since a later Signal failure must not make it reusable.
+			m_pending_sync_point = m_gsync.NextSyncPoint();
+			m_cmd_list.SyncPoint(m_pending_sync_point);
 			CmdListCollection cmd_lists = { m_cmd_list.get() };
+			m_unfenced = true;
 			m_queue->ExecuteCommandLists(cmd_lists.count(), cmd_lists.data());
-			auto sync_point = m_gsync.AddSyncPoint(m_queue.get());
-			m_cmd_list.SyncPoint(sync_point);
-			return sync_point;
+			try
+			{
+				// AddSyncPoint publishes its fence value before invoking observers.
+				m_gsync.AddSyncPoint(m_queue.get());
+			}
+			catch (...)
+			{
+				// An observer failure does not undo a successful queue signal.
+				m_unfenced = m_gsync.LastAddedSyncPoint() < m_pending_sync_point;
+				throw;
+			}
+			m_unfenced = false;
+			if (m_closing)
+				throw std::runtime_error("GpuJob was closed by a submission observer");
 		}
 
 		// Reopen the command list with an available allocator, ready for further recording.
 		void ResetRecording()
 		{
+			// An observer may have requested closure while completing the preceding submission.
+			if (m_closing)
+				throw std::runtime_error("GpuJob cannot reopen a closing job");
+
 			// Reset clears the bound descriptor heaps, so rebind the view heap.
 			m_cmd_list.Reset(m_cmd_pool.Get());
 			auto heaps = { m_view_heap.get() };
 			m_cmd_list.SetDescriptorHeaps({ heaps.begin(), heaps.size() });
+			m_recording = true;
 		}
 
 	public:
@@ -362,6 +443,327 @@ namespace pr::compute
 #include "pr/compute/utility/update_resource.h"
 namespace pr::compute::tests
 {
+
+	// Only the interfaces of the forwarded object's base chain are answered, so D3D12 never receives this object as a different type.
+	template <typename Interface>
+	struct ForwardingChild : Interface
+	{
+		D3DPtr<Interface> m_inner;  // The real object that receives the forwarded calls.
+		std::atomic<ULONG> m_refs;  // References held by callers, starting with the owner's one.
+
+		explicit ForwardingChild(Interface* inner)
+			: m_inner(inner, true)
+			, m_refs(1)
+		{
+		}
+		ForwardingChild(ForwardingChild const&) = delete;
+		ForwardingChild& operator=(ForwardingChild const&) = delete;
+
+		// The number of references, including the owner's one.
+		ULONG RefCount() const
+		{
+			return m_refs.load();
+		}
+
+		// IUnknown
+		HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppv) override
+		{
+			// Answer only the interfaces this object implements.
+			if (ppv == nullptr)
+				return E_POINTER;
+
+			if (riid == __uuidof(IUnknown) || riid == __uuidof(ID3D12Object) || riid == __uuidof(ID3D12DeviceChild) || riid == __uuidof(ID3D12Pageable) || riid == __uuidof(Interface))
+			{
+				*ppv = static_cast<Interface*>(this);
+				AddRef();
+				return S_OK;
+			}
+			*ppv = nullptr;
+			return E_NOINTERFACE;
+		}
+		ULONG STDMETHODCALLTYPE AddRef() override
+		{
+			return ++m_refs;
+		}
+		ULONG STDMETHODCALLTYPE Release() override
+		{
+			return --m_refs;
+		}
+
+		// ID3D12Object
+		HRESULT STDMETHODCALLTYPE GetPrivateData(REFGUID guid, UINT* data_size, void* data) override
+		{
+			return m_inner->GetPrivateData(guid, data_size, data);
+		}
+		HRESULT STDMETHODCALLTYPE SetPrivateData(REFGUID guid, UINT data_size, void const* data) override
+		{
+			return m_inner->SetPrivateData(guid, data_size, data);
+		}
+		HRESULT STDMETHODCALLTYPE SetPrivateDataInterface(REFGUID guid, IUnknown const* data) override
+		{
+			return m_inner->SetPrivateDataInterface(guid, data);
+		}
+		HRESULT STDMETHODCALLTYPE SetName(LPCWSTR name) override
+		{
+			return m_inner->SetName(name);
+		}
+
+		// ID3D12DeviceChild
+		HRESULT STDMETHODCALLTYPE GetDevice(REFIID riid, void** device) override
+		{
+			return m_inner->GetDevice(riid, device);
+		}
+	};
+
+	// A command queue that forwards to a real queue, except that 'Signal' returns E_OUTOFMEMORY without signalling while armed.
+	// Command lists always execute on the real queue, so the GPU runs real work. The failure is a simulated result, not a driver fault.
+	struct ForwardingQueue : ForwardingChild<ID3D12CommandQueue>
+	{
+		bool m_fail_signals = false; // While true, 'Signal' fails without reaching the real queue.
+		int m_execute_calls = 0;     // The number of 'ExecuteCommandLists' calls forwarded.
+		int m_signal_attempts = 0;   // The number of 'Signal' calls, whether forwarded or failed.
+
+		explicit ForwardingQueue(ID3D12CommandQueue* inner)
+			: ForwardingChild(inner)
+		{
+		}
+
+		// ID3D12CommandQueue
+		void STDMETHODCALLTYPE UpdateTileMappings(ID3D12Resource* resource, UINT num_regions, D3D12_TILED_RESOURCE_COORDINATE const* region_starts, D3D12_TILE_REGION_SIZE const* region_sizes, ID3D12Heap* heap, UINT num_ranges, D3D12_TILE_RANGE_FLAGS const* range_flags, UINT const* heap_range_starts, UINT const* range_tile_counts, D3D12_TILE_MAPPING_FLAGS flags) override
+		{
+			m_inner->UpdateTileMappings(resource, num_regions, region_starts, region_sizes, heap, num_ranges, range_flags, heap_range_starts, range_tile_counts, flags);
+		}
+		void STDMETHODCALLTYPE CopyTileMappings(ID3D12Resource* dst, D3D12_TILED_RESOURCE_COORDINATE const* dst_start, ID3D12Resource* src, D3D12_TILED_RESOURCE_COORDINATE const* src_start, D3D12_TILE_REGION_SIZE const* region_size, D3D12_TILE_MAPPING_FLAGS flags) override
+		{
+			m_inner->CopyTileMappings(dst, dst_start, src, src_start, region_size, flags);
+		}
+		void STDMETHODCALLTYPE ExecuteCommandLists(UINT count, ID3D12CommandList* const* lists) override
+		{
+			++m_execute_calls;
+			m_inner->ExecuteCommandLists(count, lists);
+		}
+		void STDMETHODCALLTYPE SetMarker(UINT metadata, void const* data, UINT size) override
+		{
+			m_inner->SetMarker(metadata, data, size);
+		}
+		void STDMETHODCALLTYPE BeginEvent(UINT metadata, void const* data, UINT size) override
+		{
+			m_inner->BeginEvent(metadata, data, size);
+		}
+		void STDMETHODCALLTYPE EndEvent() override
+		{
+			m_inner->EndEvent();
+		}
+		HRESULT STDMETHODCALLTYPE Signal(ID3D12Fence* fence, UINT64 value) override
+		{
+			// Inject failure without signalling the real queue, while retaining the attempted submission count.
+			++m_signal_attempts;
+			if (m_fail_signals)
+				return E_OUTOFMEMORY;
+
+			return m_inner->Signal(fence, value);
+		}
+		HRESULT STDMETHODCALLTYPE Wait(ID3D12Fence* fence, UINT64 value) override
+		{
+			return m_inner->Wait(fence, value);
+		}
+		HRESULT STDMETHODCALLTYPE GetTimestampFrequency(UINT64* frequency) override
+		{
+			return m_inner->GetTimestampFrequency(frequency);
+		}
+		HRESULT STDMETHODCALLTYPE GetClockCalibration(UINT64* gpu_timestamp, UINT64* cpu_timestamp) override
+		{
+			return m_inner->GetClockCalibration(gpu_timestamp, cpu_timestamp);
+		}
+		D3D12_COMMAND_QUEUE_DESC STDMETHODCALLTYPE GetDesc() override
+		{
+			return m_inner->GetDesc();
+		}
+	};
+
+	// A fence that forwards to a real fence, except that 'SetEventOnCompletion' returns E_OUTOFMEMORY while armed.
+	// It is for host-side waits only. It must never be passed to a queue, which needs the real fence.
+	struct ForwardingFence : ForwardingChild<ID3D12Fence>
+	{
+		bool m_fail_set_event = false; // While true, 'SetEventOnCompletion' fails without registering the event.
+		int m_set_event_attempts = 0;  // The number of 'SetEventOnCompletion' calls made while armed.
+		std::function<void(UINT64)> m_on_set_event; // Optional observer called with the value of each 'SetEventOnCompletion' call, before it is forwarded or failed. Must not throw.
+
+		explicit ForwardingFence(ID3D12Fence* inner)
+			: ForwardingChild(inner)
+		{
+		}
+
+		// ID3D12Fence
+		UINT64 STDMETHODCALLTYPE GetCompletedValue() override
+		{
+			return m_inner->GetCompletedValue();
+		}
+		HRESULT STDMETHODCALLTYPE SetEventOnCompletion(UINT64 value, HANDLE event) override
+		{
+			// Let the observer see the registration, then count and fail each attempt while armed.
+			if (m_on_set_event)
+				m_on_set_event(value);
+
+			if (m_fail_set_event)
+			{
+				++m_set_event_attempts;
+				return E_OUTOFMEMORY;
+			}
+			return m_inner->SetEventOnCompletion(value, event);
+		}
+		HRESULT STDMETHODCALLTYPE Signal(UINT64 value) override
+		{
+			return m_inner->Signal(value);
+		}
+	};
+
+
+	// Exercise failed submissions and closure against real queues while injecting only host-side HRESULT and observer failures.
+	PRUnitTestClass(GpuJobLifecycleTests)
+	{
+		// D3D12's failed Close result must stop submission before any queue execution.
+		PRUnitTestMethod(FailedNativeCloseNeverExecutes, Quick)
+		{
+			// Keep D3D validation but not its process-breaking error policy: this test deliberately closes an already closed native list.
+			ComGpu gpu(IsDebug ? EGpuOptions::DeviceDebug : EGpuOptions::None);
+			ForwardingQueue proxy(gpu.queue());
+			ComputeJob job(gpu.device(), &proxy, "CloseFailure", 0);
+			Check(job.m_cmd_list.get()->Close());
+			PR_THROWS(job.Submit(), std::runtime_error);
+			PR_EXPECT(!job.IsRecording());
+			PR_EXPECT(proxy.m_execute_calls == 0 && proxy.m_signal_attempts == 0);
+			PR_EXPECT(job.TryClose(0) == S_OK);
+		}
+
+		// Execution followed by a failed Signal remains owned; retries append only a fence.
+		PRUnitTestMethod(FailedSignalRetainsWorkWithoutReplay, Quick)
+		{
+			// Keep the proxy, allocations and job alive until the explicit cleanup guard succeeds.
+			ComGpu gpu(TestGpuOptions);
+			ForwardingQueue proxy(gpu.queue());
+			ComputeJob job(gpu.device(), &proxy, "SignalFailure", 0);
+			auto allocation = job.m_upload.Alloc<int>(4);
+			Scope<void> close([&]
+			{
+				// The fault is synthetic; disarming it restores the real healthy queue for cleanup.
+				proxy.m_fail_signals = false;
+				PR_EXPECT(job.TryClose(INFINITE) == S_OK);
+			});
+			proxy.m_fail_signals = true;
+			PR_THROWS(job.Submit(), std::runtime_error);
+			PR_EXPECT(job.m_unfenced);
+			PR_EXPECT(proxy.m_execute_calls == 1 && proxy.m_signal_attempts == 1);
+			PR_EXPECT(job.TryClose(0) == E_OUTOFMEMORY);
+			PR_EXPECT(job.m_unfenced && allocation.m_page->m_sync_point == 1);
+			PR_EXPECT(proxy.m_execute_calls == 1 && proxy.m_signal_attempts == 2);
+
+			// Successful retirement does not make the job reusable or execute the recorded list a second time.
+			proxy.m_fail_signals = false;
+			PR_EXPECT(job.TryClose(INFINITE) == S_OK);
+			PR_EXPECT(!job.m_unfenced && job.m_pending_sync_point == 0);
+			PR_EXPECT(proxy.m_execute_calls == 1 && proxy.m_signal_attempts == 3);
+			PR_THROWS(job.Submit(), std::runtime_error);
+			PR_EXPECT(job.TryClose(0) == S_OK);
+			PR_EXPECT(proxy.m_signal_attempts == 3);
+		}
+
+		// A flushed prefix is still outstanding even though no Submit handle exists.
+		PRUnitTestMethod(TimeoutAndWaitFailureRetainFlushedWork, Quick)
+		{
+			// Gate a real queue, then inject failure only into the host-side fence event registration.
+			ComGpu gpu(TestGpuOptions);
+			ComputeJob job(gpu, "WaitFailure", 0);
+			auto real_fence = job.m_gsync.m_fence;
+			ForwardingFence proxy(real_fence.get());
+			D3DPtr<ID3D12Fence> gate;
+			Check(gpu->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(gate.address_of())));
+			GpuTransferAllocation allocation;
+			Scope<void> close([&]
+			{
+				// Restore the real fence before the proxy is destroyed, and unblock before waiting.
+				job.m_gsync.m_fence = real_fence;
+				(void)gate->Signal(1);
+				PR_EXPECT(job.TryClose(INFINITE) == S_OK);
+			});
+			Check(job.m_queue->Wait(gate.get(), 1));
+			job.Flush();
+			allocation = job.m_readback.Alloc<int>(4);
+			job.m_gsync.m_fence = D3DPtr<ID3D12Fence>(&proxy, true);
+			proxy.m_fail_set_event = true;
+
+			// Neither a poll nor a failed host wait cancels the later recording's still-owned reservation.
+			PR_EXPECT(job.TryClose(0) == S_FALSE);
+			PR_EXPECT(proxy.m_set_event_attempts == 0);
+			PR_EXPECT(job.TryClose(10) == E_OUTOFMEMORY);
+			PR_EXPECT(proxy.m_set_event_attempts == 1);
+			PR_EXPECT(allocation.m_page->m_sync_point == 2);
+			proxy.m_fail_set_event = false;
+			PR_EXPECT(job.TryClose(1) == S_FALSE);
+
+			// Completion, not elapsed time or a caught exception, permits cancelling the unsubmitted reservation.
+			Check(gate->Signal(1));
+			PR_EXPECT(job.TryClose(INFINITE) == S_OK);
+			PR_EXPECT(allocation.m_page->m_sync_point == 1);
+			PR_EXPECT(job.m_gsync.CompletedSyncPoint() == 1);
+		}
+
+		// An observer exception after a successful Signal does not require another fence or another execution.
+		PRUnitTestMethod(SubmissionObserverFailureKeepsTheSuccessfulFence, Quick)
+		{
+			// The observer throws after GpuSync has published its successful signal.
+			ComGpu gpu(TestGpuOptions);
+			ForwardingQueue proxy(gpu.queue());
+			ComputeJob job(gpu.device(), &proxy, "SubmissionObserver", 0);
+			AutoSub sub = job.m_gsync.SyncPointAdded += [](GpuSync&, EmptyArgs const&)
+			{
+				// Simulate arbitrary user code failing after submission.
+				throw std::runtime_error("Injected submission observer failure");
+			};
+			PR_THROWS(job.Submit(), std::runtime_error);
+			PR_EXPECT(!job.m_unfenced && job.m_pending_sync_point == 1);
+			PR_EXPECT(job.TryClose(INFINITE) == S_OK);
+			PR_EXPECT(proxy.m_execute_calls == 1 && proxy.m_signal_attempts == 1);
+		}
+
+		// GPU completion invalidates the run handle before fallible callbacks, and cleanup never invokes them again.
+		PRUnitTestMethod(CompletionObserverFailureConsumesTheHandle, Quick)
+		{
+			// Record exactly one completion notification.
+			ComGpu gpu(TestGpuOptions);
+			ComputeJob job(gpu, "CompletionObserver", 0);
+			auto notifications = 0;
+			AutoSub sub = job.m_gsync.SyncPointCompleted += [&](GpuSync&, EmptyArgs const&)
+			{
+				// Completion itself is irreversible even when an observer rejects its notification.
+				++notifications;
+				throw std::runtime_error("Injected completion observer failure");
+			};
+			auto handle = job.Submit();
+			PR_THROWS(job.Complete(handle), std::runtime_error);
+			PR_EXPECT(!handle && job.m_pending_sync_point == 0);
+			PR_EXPECT(!job.IsRecording());
+			PR_EXPECT(job.TryClose(0) == S_OK);
+			PR_EXPECT(notifications == 1);
+		}
+
+		// Reentrant closure cannot make a surrounding submission report a usable run handle.
+		PRUnitTestMethod(SubmissionObserverClosureStopsTheOuterCall, Quick)
+		{
+			// The callback closes an already signalled submission without recursively invoking itself.
+			ComGpu gpu(TestGpuOptions);
+			ComputeJob job(gpu, "ReentrantClosure", 0);
+			AutoSub sub = job.m_gsync.SyncPointAdded += [&](GpuSync&, EmptyArgs const&)
+			{
+				// The callback owns the decision to wait for this submission.
+				PR_EXPECT(job.TryClose(INFINITE) == S_OK);
+			};
+			PR_THROWS(job.Submit(), std::runtime_error);
+			PR_EXPECT(!job.IsRecording() && job.m_pending_sync_point == 0);
+			PR_EXPECT(job.TryClose(0) == S_OK);
+		}
+	};
+
 	// Check that the per-job reuse caches return a cached GPU location only for an exact match.
 	PRUnitTestClass(GpuJobReuseCacheTests)
 	{

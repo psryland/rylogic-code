@@ -10,6 +10,7 @@
 #include <thread>
 #include <unknwn.h>
 #include "pr/physics/physics-dll.h"
+#include "pr/physics/atmosphere/atmosphere.h"
 #include "pr/physics/terrain/landscape/baseline_surface.h"
 #include "pr/physics/terrain/landscape/baseline_surface.hlsli"
 #include "src/dll_test.h"
@@ -27,6 +28,8 @@ namespace pr::unittests
 			DllModule m_module;
 			decltype(&Physics_Initialise) Initialise;
 			decltype(&Physics_Shutdown) Shutdown;
+			decltype(&Physics_ContextAbandon) ContextAbandon;
+			decltype(&Physics_CollectAbandoned) CollectAbandoned;
 			decltype(&Physics_ShaderCacheDirectorySet) ShaderCacheDirectorySet;
 			decltype(&Physics_ShaderPrecompile) ShaderPrecompile;
 			decltype(&Physics_ApiVersion) ApiVersion;
@@ -112,6 +115,8 @@ namespace pr::unittests
 				: m_module(__FILE__, L"physics.dll", L"physics.dll")
 				, Initialise(m_module.Proc<decltype(Initialise)>("Physics_Initialise"))
 				, Shutdown(m_module.Proc<decltype(Shutdown)>("Physics_Shutdown"))
+				, ContextAbandon(m_module.Proc<decltype(ContextAbandon)>("Physics_ContextAbandon"))
+				, CollectAbandoned(m_module.Proc<decltype(CollectAbandoned)>("Physics_CollectAbandoned"))
 				, ShaderCacheDirectorySet(m_module.Proc<decltype(ShaderCacheDirectorySet)>("Physics_ShaderCacheDirectorySet"))
 				, ShaderPrecompile(m_module.Proc<decltype(ShaderPrecompile)>("Physics_ShaderPrecompile"))
 				, ApiVersion(m_module.Proc<decltype(ApiVersion)>("Physics_ApiVersion"))
@@ -351,7 +356,7 @@ namespace pr::unittests
 			~PhysicsFixture()
 			{
 				if (m_engine != 0)
-					m_api.EngineDestroy(m_engine);
+					m_api.EngineDestroy(m_engine, INFINITE);
 				if (m_context != nullptr)
 					m_api.Shutdown(m_context);
 			}
@@ -898,6 +903,9 @@ namespace pr::unittests
 				wrong_thread = fix.m_api.Step(fix.m_engine, 1.0f / 60.0f, 0.0, nullptr, 0);
 			});
 			worker.join();
+			auto remaining = std::uint32_t{};
+			PR_EXPECT(fix.m_api.CollectAbandoned(fix.m_context, INFINITE, &remaining) == EStatus::Success);
+			PR_EXPECT(remaining == 0);
 			PR_EXPECT(wrong_thread == EStatus::WrongThread);
 
 			// The ABI rejects absolute homogeneous positions before applying any command in the batch.
@@ -920,7 +928,7 @@ namespace pr::unittests
 			PR_EXPECT(fix.m_api.BodyDestroy(fix.m_engine, body) == EStatus::Success);
 			PR_EXPECT(fix.m_api.CommandsApply(fix.m_engine, &command, 1) == EStatus::StaleHandle);
 			PR_EXPECT(fix.m_api.ShapeDestroy(fix.m_engine, shape) == EStatus::Success);
-			PR_EXPECT(fix.m_api.EngineDestroy(other) == EStatus::Success);
+			PR_EXPECT(fix.m_api.EngineDestroy(other, INFINITE) == EStatus::Success);
 		}
 		PRUnitTestMethod(ConsumedCompletionFailureLeavesEngineIdle, Extended)
 		{
@@ -1003,18 +1011,18 @@ namespace pr::unittests
 			PR_EXPECT(fix.m_api.EngineCreate(fix.m_context, nullptr, nullptr, &isolated) == EStatus::Success);
 			PR_EXPECT(fix.m_api.EngineDeviceLeaseAcquire(isolated, &isolated_device) == EStatus::Success);
 			PR_EXPECT(isolated_device != nullptr);
-			PR_EXPECT(fix.m_api.EngineDestroy(isolated) == EStatus::Success);
+			PR_EXPECT(fix.m_api.EngineDestroy(isolated, INFINITE) == EStatus::Success);
 			static_cast<IUnknown*>(isolated_device)->Release();
 			PR_EXPECT(fix.m_api.Step(fix.m_engine, 1.0f / 60.0f, 0.0, nullptr, 0) == EStatus::Success);
 
-			PR_EXPECT(fix.m_api.EngineDestroy(fix.m_engine) == EStatus::Success);
+			PR_EXPECT(fix.m_api.EngineDestroy(fix.m_engine, INFINITE) == EStatus::Success);
 			fix.m_engine = 0;
 
 			// The independent COM reference can seed another engine after the original owner is gone.
 			auto shared = EngineHandle{};
 			PR_EXPECT(fix.m_api.EngineCreate(fix.m_context, nullptr, device, &shared) == EStatus::Success);
 			PR_EXPECT(fix.m_api.Step(shared, 1.0f / 60.0f, 0.0, nullptr, 0) == EStatus::Success);
-			PR_EXPECT(fix.m_api.EngineDestroy(shared) == EStatus::Success);
+			PR_EXPECT(fix.m_api.EngineDestroy(shared, INFINITE) == EStatus::Success);
 
 			// Corrupt data is rejected transactionally, leaving the empty engine able to read the original.
 			auto restored = EngineHandle{};
@@ -1023,7 +1031,7 @@ namespace pr::unittests
 			corrupt[corrupt.size() / 2] ^= std::byte{0x5A};
 			PR_EXPECT(fix.m_api.CheckpointRead(restored, corrupt.data(), corrupt.size()) != EStatus::Success);
 			PR_EXPECT(fix.m_api.CheckpointRead(restored, checkpoint.data(), checkpoint.size()) == EStatus::Success);
-			PR_EXPECT(fix.m_api.EngineDestroy(restored) == EStatus::Success);
+			PR_EXPECT(fix.m_api.EngineDestroy(restored, INFINITE) == EStatus::Success);
 			static_cast<IUnknown*>(device)->Release();
 		}
 		PRUnitTestMethod(RestoredCookieRemainsUnique, Extended)
@@ -1057,7 +1065,7 @@ namespace pr::unittests
 			auto other_shape = MakeBox(fix.m_api, other, {1, 1, 1, 0});
 			PR_EXPECT(fix.m_api.ShapeDestroy(other, restored_shape) == EStatus::InvalidHandle);
 			PR_EXPECT(fix.m_api.ShapeDestroy(other, other_shape) == EStatus::Success);
-			PR_EXPECT(fix.m_api.EngineDestroy(other) == EStatus::Success);
+			PR_EXPECT(fix.m_api.EngineDestroy(other, INFINITE) == EStatus::Success);
 
 			PR_EXPECT(fix.m_api.BodyDestroy(fix.m_engine, restored_body) == EStatus::Success);
 			PR_EXPECT(fix.m_api.ShapeDestroy(fix.m_engine, restored_shape) == EStatus::Success);
@@ -2010,7 +2018,7 @@ namespace pr::unittests
 			foreign.frame_a.object_handle = other_body;
 			auto rejected = PersistentConstraintHandle{};
 			PR_EXPECT(fix.m_api.ConstraintCreateD6(fix.m_engine, &foreign, &rejected) == EStatus::InvalidHandle);
-			PR_EXPECT(fix.m_api.EngineDestroy(other) == EStatus::Success);
+			PR_EXPECT(fix.m_api.EngineDestroy(other, INFINITE) == EStatus::Success);
 
 			PR_EXPECT(fix.m_api.ConstraintDestroy(fix.m_engine, constraint) == EStatus::Success);
 			PR_EXPECT(fix.m_api.ConstraintRepair(fix.m_engine, constraint) == EStatus::StaleHandle);
@@ -2519,7 +2527,7 @@ namespace pr::unittests
 			PR_EXPECT(fix.m_api.ShapeCreateCompound(fix.m_engine, &common, &foreign, 1, &shape) == EStatus::InvalidHandle);
 			PR_EXPECT(fix.m_api.ShapeDestroy(fix.m_engine, child) == EStatus::Success);
 			PR_EXPECT(fix.m_api.ShapeCreateCompound(fix.m_engine, &common, &child, 1, &shape) == EStatus::StaleHandle);
-			PR_EXPECT(fix.m_api.EngineDestroy(other) == EStatus::Success);
+			PR_EXPECT(fix.m_api.EngineDestroy(other, INFINITE) == EStatus::Success);
 		}
 		PRUnitTestMethod(RetentionCapacityAndCheckpoint, Extended)
 		{
@@ -2629,25 +2637,30 @@ namespace pr::unittests
 					fix.m_api.EngineAbandon(fix.m_engine);
 				});
 				worker.join();
+
+				// Finalization only polls; explicit collection owns the wait before the relinquished identity becomes stale.
+				auto remaining = std::uint32_t{};
+				PR_EXPECT(fix.m_api.CollectAbandoned(fix.m_context, INFINITE, &remaining) == EStatus::Success);
+				PR_EXPECT(remaining == 0);
 				auto config = pr::physics::Config{};
 				PR_EXPECT(fix.m_api.EngineConfigGet(fix.m_engine, &config) == EStatus::StaleHandle);
 				fix.m_engine = 0;
 			}
 
-			// Start a new process context so this test owns the callback whose final-shutdown diagnostic it observes.
+			// Shutdown reports refusal directly and never calls a stored initialization callback.
 			SharedPhysicsContext().Release();
 			auto errors = 0;
 			auto fix = PhysicsFixture{ReportErrorCB{{&errors}, &CountError}};
-			fix.m_api.Shutdown(fix.m_context);
-			PR_EXPECT(errors == 1);
+			PR_EXPECT(fix.m_api.Shutdown(fix.m_context) == EStatus::StepPending);
+			PR_EXPECT(errors == 0);
 			auto config = pr::physics::Config{};
 			config.header = {sizeof(pr::physics::Config), PHYSICS_STRUCT_VERSION};
 			PR_EXPECT(fix.m_api.EngineConfigGet(fix.m_engine, &config) == EStatus::Success);
-			PR_EXPECT(fix.m_api.EngineDestroy(fix.m_engine) == EStatus::Success);
+			PR_EXPECT(fix.m_api.EngineDestroy(fix.m_engine, INFINITE) == EStatus::Success);
 			fix.m_engine = 0;
-			fix.m_api.Shutdown(fix.m_context);
+			PR_EXPECT(fix.m_api.Shutdown(fix.m_context) == EStatus::Success);
 			fix.m_context = nullptr;
-			PR_EXPECT(errors == 1);
+			PR_EXPECT(errors == 0);
 		}
 		PRUnitTestMethod(SeparateEnginesStepConcurrently, Extended)
 		{
@@ -2703,7 +2716,7 @@ namespace pr::unittests
 
 					++steps;
 				}
-				ok(api.EngineDestroy(engine));
+				ok(api.EngineDestroy(engine, INFINITE));
 			};
 
 			auto first = std::thread(simulate);
@@ -2717,7 +2730,7 @@ namespace pr::unittests
 	};
 
 	// Verify engine-owned atmosphere lifetime, asynchronous stepping, readback, and contract errors through the public ABI.
-	PRUnitTestClass(PhysicsDllAtmosphereTests)
+	PRUnitTestClass(PhysicsDllAtmosphereTests, Serial)
 	{
 		// Return a small closed box of still air with a few tracers, matching the native solver tests' scale.
 		static AtmosphereDesc MakeAtmosphereDesc()
@@ -2769,6 +2782,198 @@ namespace pr::unittests
 				.heat_source_count = 1,
 				.heat_sources = &source,
 			};
+		}
+
+		// Make every tracer slot depend on an unsignalled consumer fence, then submit a step that cannot finish until that fence is released.
+		static void GateAtmosphereStep(PhysicsFixture& fix, AtmosphereHandle atmosphere, ID3D12Fence* gate)
+		{
+			// Hold each published slot while reaching the others; no step is submitted once all slots are held.
+			auto& api = fix.m_api;
+			auto slots = std::array<AtmosphereTracerSlot, pr::physics::atmosphere::AtmosphereTracers::SlotCount>{};
+			auto const step = AtmosphereStepDesc{ .header = {sizeof(AtmosphereStepDesc), PHYSICS_STRUCT_VERSION}, .dt = 0.1f };
+			for (auto i = std::size_t{}; i != slots.size(); ++i)
+			{
+				// Stop only after the final slot is held, before the ring has no writable buffer.
+				PR_EXPECT(api.AtmosphereTracersAcquire(fix.m_engine, atmosphere, &slots[i]) == EStatus::Success);
+				if (i + 1 != slots.size())
+				{
+					// The next unheld slot is available without a queue wait.
+					PR_EXPECT(api.AtmosphereBeginStep(fix.m_engine, atmosphere, &step) == EStatus::Success);
+					PR_EXPECT(api.AtmosphereCompleteStep(fix.m_engine, atmosphere) == EStatus::Success);
+				}
+			}
+
+			// Release the CPU holds but require the same consumer fence before any slot may be overwritten.
+			for (auto const& slot : slots)
+			{
+				// The ABI retains the fence, not the consumer's independently acquired resource reference.
+				PR_EXPECT(api.AtmosphereTracersRelease(fix.m_engine, atmosphere, slot.slot, gate, 1) == EStatus::Success);
+				static_cast<IUnknown*>(slot.resource)->Release();
+			}
+			PR_EXPECT(api.AtmosphereBeginStep(fix.m_engine, atmosphere, &step) == EStatus::Success);
+		}
+
+		// Collection and finalization must not wait behind another thread's active engine operation.
+		PRUnitTestMethod(BusyEngineCollectionAndAbandonDoNotWait, Extended)
+		{
+			// Block ownership transfer of a consumer fence while the native atmosphere call holds its engine lock.
+			struct BlockingFence : compute::tests::ForwardingFence
+			{
+				using ForwardingFence::ForwardingFence;
+				win32::Handle m_entered = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+				win32::Handle m_resume = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+				std::atomic_bool m_block_next{true};
+				std::atomic_bool m_timed_out{false};
+
+				// The watchdog bounds a regression's failure without relying on a sleep to establish the contested lock.
+				ULONG STDMETHODCALLTYPE AddRef() override
+				{
+					// Only the first retained consumer reference is blocked.
+					auto const refs = ForwardingFence::AddRef();
+					if (m_block_next.exchange(false))
+					{
+						// Notify only from inside the native call, after it has acquired the engine lock.
+						SetEvent(m_entered);
+						m_timed_out = WaitForSingleObject(m_resume, 5000) != WAIT_OBJECT_0;
+					}
+					return refs;
+				}
+			};
+			auto api = PhysicsApi{};
+			auto context = api.Initialise(ReportErrorCB{{}, &SwallowError});
+			Scope<void> shutdown([&]
+			{
+				// The worker and its engine finish before this last caller token is released.
+				PR_EXPECT(api.Shutdown(context) == EStatus::Success);
+			});
+			auto device = static_cast<ID3D12Device*>(SharedPhysicsTestDevice());
+			auto real_fence = D3DPtr<ID3D12Fence>{};
+			Check(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(real_fence.address_of())));
+			auto fence = BlockingFence(real_fence.get());
+			Check(fence.m_entered != nullptr && fence.m_resume != nullptr);
+			auto engine = std::atomic<EngineHandle>{};
+			auto error = std::exception_ptr{};
+			auto worker = std::jthread([&]
+			{
+				// The worker is the native engine's owner thread; the caller acts as a collector/finalizer.
+				try
+				{
+					// No command queue ever receives the forwarding fence; this test blocks only CPU reference adoption.
+					auto fix = PhysicsFixture{ReportErrorCB{{}, &SwallowError}, device, false};
+					engine = fix.m_engine;
+					auto desc = MakeAtmosphereDesc();
+					auto atmosphere = AtmosphereHandle{};
+					PR_EXPECT(api.AtmosphereCreate(fix.m_engine, &desc, &atmosphere) == EStatus::Success);
+					auto slot = AtmosphereTracerSlot{};
+					PR_EXPECT(api.AtmosphereTracersAcquire(fix.m_engine, atmosphere, &slot) == EStatus::Success);
+					auto resource = D3DPtr<IUnknown>(static_cast<IUnknown*>(slot.resource), false);
+					PR_EXPECT(api.AtmosphereTracersRelease(fix.m_engine, atmosphere, slot.slot, &fence, 0) == EStatus::Success);
+				}
+				catch (...)
+				{
+					// Wake the caller even if setup fails before the blocking AddRef is reached.
+					error = std::current_exception();
+					SetEvent(fence.m_entered);
+				}
+			});
+			Scope<void> unblock([&]
+			{
+				// Release before the jthread joins, including when an assertion fails.
+				SetEvent(fence.m_resume);
+			});
+			PR_EXPECT(WaitForSingleObject(fence.m_entered, INFINITE) == WAIT_OBJECT_0);
+
+			// A busy, uninspected engine is explicitly counted, even before it has been abandoned.
+			auto remaining = std::uint32_t{};
+			PR_EXPECT(api.CollectAbandoned(context, 0, &remaining) == EStatus::Timeout);
+			PR_EXPECT(remaining == 1);
+			api.EngineAbandon(engine.load());
+			PR_EXPECT(!fence.m_timed_out.load());
+			SetEvent(fence.m_resume);
+			worker.join();
+			if (error)
+				std::rethrow_exception(error);
+
+			PR_EXPECT(api.CollectAbandoned(context, 0, &remaining) == EStatus::Success);
+			PR_EXPECT(remaining == 0 && fence.RefCount() == 1);
+		}
+
+		// Timed-out explicit closure keeps the same child identity, without transferring it to abandoned cleanup.
+		PRUnitTestMethod(AtmosphereCloseTimeoutRetainsIdentity, Extended)
+		{
+			// A real queue wait makes the timeout deterministic, regardless of GPU speed.
+			auto fix = PhysicsFixture{};
+			auto desc = MakeAtmosphereDesc();
+			auto atmosphere = AtmosphereHandle{};
+			PR_EXPECT(fix.m_api.AtmosphereCreate(fix.m_engine, &desc, &atmosphere) == EStatus::Success);
+			auto gate = D3DPtr<ID3D12Fence>{};
+			Check(static_cast<ID3D12Device*>(fix.m_external_device)->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(gate.address_of())));
+			Scope<void> unblock([&]
+			{
+				// Ensure fixture cleanup can finish even if a test assertion fails.
+				(void)gate->Signal(1);
+			});
+			GateAtmosphereStep(fix, atmosphere, gate.get());
+
+			// Normal calls are stopped, but neither a timeout nor collection invalidates this caller-owned handle.
+			PR_EXPECT(fix.m_api.AtmosphereDestroy(fix.m_engine, atmosphere, 0) == EStatus::Timeout);
+			PR_EXPECT(fix.m_api.AtmosphereDestroy(fix.m_engine, atmosphere, 1) == EStatus::Timeout);
+			auto remaining = std::uint32_t{};
+			PR_EXPECT(fix.m_api.CollectAbandoned(fix.m_context, 0, &remaining) == EStatus::Success);
+			PR_EXPECT(remaining == 0);
+			auto idle = std::int32_t{};
+			PR_EXPECT(fix.m_api.AtmospherePollStep(fix.m_engine, atmosphere, &idle) == EStatus::InternalError);
+
+			// Once the consumer releases the dependency, the same handle closes successfully and only then becomes stale.
+			Check(gate->Signal(1));
+			PR_EXPECT(fix.m_api.AtmosphereDestroy(fix.m_engine, atmosphere, INFINITE) == EStatus::Success);
+			PR_EXPECT(fix.m_api.AtmosphereDestroy(fix.m_engine, atmosphere, 0) == EStatus::StaleHandle);
+			auto config = pr::physics::Config{ .header = {sizeof(pr::physics::Config), PHYSICS_STRUCT_VERSION} };
+			PR_EXPECT(fix.m_api.EngineConfigGet(fix.m_engine, &config) == EStatus::Success);
+		}
+
+		// A new host can collect unfinished finalizer work after every original context token has gone away.
+		PRUnitTestMethod(AbandonedEngineSurvivesItsLastContextToken, Extended)
+		{
+			// This serial test owns the last token rather than relying on the ordinary shared test context.
+			SharedPhysicsContext().Release();
+			auto fix = PhysicsFixture{ReportErrorCB{{}, &SwallowError}, SharedPhysicsTestDevice(), false};
+			auto desc = MakeAtmosphereDesc();
+			auto atmosphere = AtmosphereHandle{};
+			PR_EXPECT(fix.m_api.AtmosphereCreate(fix.m_engine, &desc, &atmosphere) == EStatus::Success);
+			auto gate = D3DPtr<ID3D12Fence>{};
+			Check(static_cast<ID3D12Device*>(fix.m_external_device)->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(gate.address_of())));
+			Scope<void> unblock([&]
+			{
+				// Retained native ownership must never leave the test's real GPU queue blocked.
+				(void)gate->Signal(1);
+			});
+			GateAtmosphereStep(fix, atmosphere, gate.get());
+
+			// Closing the parent times out on the independent atmosphere queue and preserves both records.
+			PR_EXPECT(fix.m_api.EngineDestroy(fix.m_engine, 0) == EStatus::Timeout);
+			PR_EXPECT(fix.m_api.EngineDestroy(fix.m_engine, 0) == EStatus::Timeout);
+			PR_EXPECT(fix.m_api.Shutdown(fix.m_context) == EStatus::StepPending);
+			auto const abandoned = fix.m_engine;
+			fix.m_api.EngineAbandon(abandoned);
+			fix.m_engine = 0;
+			auto remaining = std::uint32_t{};
+			PR_EXPECT(fix.m_api.CollectAbandoned(fix.m_context, 0, &remaining) == EStatus::Timeout);
+			PR_EXPECT(remaining == 1);
+			fix.m_api.ContextAbandon(fix.m_context);
+			fix.m_context = nullptr;
+
+			// Reinitialization reaches the retained registry, rather than losing the unpublished cleanup owner.
+			fix.m_context = fix.m_api.Initialise(ReportErrorCB{{}, &SwallowError});
+			PR_EXPECT(fix.m_context != nullptr);
+			PR_EXPECT(fix.m_api.CollectAbandoned(fix.m_context, 0, &remaining) == EStatus::Timeout);
+			PR_EXPECT(remaining == 1);
+			Check(gate->Signal(1));
+			PR_EXPECT(fix.m_api.CollectAbandoned(fix.m_context, INFINITE, &remaining) == EStatus::Success);
+			PR_EXPECT(remaining == 0);
+			PR_EXPECT(fix.m_api.EngineDestroy(abandoned, 0) == EStatus::StaleHandle);
+			PR_EXPECT(fix.m_api.Shutdown(fix.m_context) == EStatus::Success);
+			fix.m_context = nullptr;
 		}
 
 		PRUnitTestMethod(LifecycleSteppingAndReadback, Extended)
@@ -2879,9 +3084,9 @@ namespace pr::unittests
 			PR_EXPECT(api.CheckpointRead(fix.m_engine, checkpoint.data(), checkpoint.size()) == EStatus::InvalidArgument);
 
 			// Destroying the atmosphere makes its handle stale and frees the slot for reuse.
-			PR_EXPECT(api.AtmosphereDestroy(fix.m_engine, atmosphere) == EStatus::Success);
+			PR_EXPECT(api.AtmosphereDestroy(fix.m_engine, atmosphere, INFINITE) == EStatus::Success);
 			PR_EXPECT(api.AtmosphereTracersCopy(fix.m_engine, atmosphere, particles.data(), 64, &required) == EStatus::StaleHandle);
-			PR_EXPECT(api.AtmosphereDestroy(fix.m_engine, atmosphere) == EStatus::StaleHandle);
+			PR_EXPECT(api.AtmosphereDestroy(fix.m_engine, atmosphere, INFINITE) == EStatus::StaleHandle);
 		}
 		PRUnitTestMethod(EngineDestroyWaitsForStepInFlight, Extended)
 		{
@@ -2901,7 +3106,7 @@ namespace pr::unittests
 			auto const source = AtmosphereHeatSource{ .centre = { 4.0f, 4.0f, 1.0f, 1.0f }, .radius = 1.5f, .heating_rate = 5.0f, .target_temperature = 320.0f, .relaxation_rate = 1.0f };
 			auto step = MakeStepDesc(source);
 			PR_EXPECT(api.AtmosphereBeginStep(fix.m_engine, atmosphere, &step) == EStatus::Success);
-			PR_EXPECT(api.EngineDestroy(fix.m_engine) == EStatus::Success);
+			PR_EXPECT(api.EngineDestroy(fix.m_engine, INFINITE) == EStatus::Success);
 			auto idle = std::int32_t{};
 			PR_EXPECT(api.AtmospherePollStep(fix.m_engine, atmosphere, &idle) == EStatus::StaleHandle);
 			fix.m_engine = 0;
@@ -2961,7 +3166,7 @@ namespace pr::unittests
 			PR_EXPECT(api.AtmosphereCompleteStep(fix.m_engine, atmosphere) == EStatus::Success);
 			PR_EXPECT(api.AtmosphereProbesCopy(fix.m_engine, atmosphere, nullptr, 0, &required) == EStatus::Success);
 			PR_EXPECT(required == 0U);
-			PR_EXPECT(api.AtmosphereDestroy(fix.m_engine, atmosphere) == EStatus::Success);
+			PR_EXPECT(api.AtmosphereDestroy(fix.m_engine, atmosphere, INFINITE) == EStatus::Success);
 		}
 		PRUnitTestMethod(SurfaceWindSamplesEveryColumn, Extended)
 		{
@@ -3003,7 +3208,7 @@ namespace pr::unittests
 			PR_EXPECT(api.AtmosphereCompleteStep(fix.m_engine, atmosphere) == EStatus::Success);
 			PR_EXPECT(api.AtmosphereSurfaceWindCopy(fix.m_engine, atmosphere, nullptr, 0, &required) == EStatus::Success);
 			PR_EXPECT(required == 0U);
-			PR_EXPECT(api.AtmosphereDestroy(fix.m_engine, atmosphere) == EStatus::Success);
+			PR_EXPECT(api.AtmosphereDestroy(fix.m_engine, atmosphere, INFINITE) == EStatus::Success);
 		}
 		PRUnitTestMethod(ShaderCacheStoresAndReusesKernels, Extended)
 		{
@@ -3030,7 +3235,7 @@ namespace pr::unittests
 				auto desc = MakeAtmosphereDesc();
 				auto atmosphere = AtmosphereHandle{};
 				PR_EXPECT(api.AtmosphereCreate(engine, &desc, &atmosphere) == EStatus::Success);
-				PR_EXPECT(api.EngineDestroy(engine) == EStatus::Success);
+				PR_EXPECT(api.EngineDestroy(engine, INFINITE) == EStatus::Success);
 			};
 
 			// Contract errors leave the current cache unchanged.
@@ -3112,7 +3317,7 @@ namespace pr::unittests
 			auto desc = MakeAtmosphereDesc();
 			auto atmosphere = AtmosphereHandle{};
 			PR_EXPECT(api.AtmosphereCreate(engine, &desc, &atmosphere) == EStatus::Success);
-			PR_EXPECT(api.EngineDestroy(engine) == EStatus::Success);
+			PR_EXPECT(api.EngineDestroy(engine, INFINITE) == EStatus::Success);
 			PR_EXPECT(count_kernels() == total);
 
 			// The cache is shared by the whole process, so restore the uncached default for later tests.

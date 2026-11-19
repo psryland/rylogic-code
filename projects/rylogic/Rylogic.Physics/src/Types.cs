@@ -803,4 +803,5 @@ public enum EStatus
 	IncompatibleVersion = 9,
 	DeviceRemoved = 10,
 	InternalError = 11,
+	Timeout = 12,
 }

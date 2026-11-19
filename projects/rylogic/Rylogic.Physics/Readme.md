@@ -2,13 +2,39 @@
 
 Managed, allocation-conscious ownership and stepping APIs for the Rylogic rigid-body physics engine.
 
-`Physics` owns the native DLL context. Each `Engine` owns a rigid-body world, private GPU queue and synchronization resources, and all `Shape` and `RigidBody`
+`Physics` owns the native DLL context. Each `Engine` owns a rigid-body world, private GPU job and synchronization resources, and all `Shape` and `RigidBody`
 objects created through it. Mutable and lifetime operations must run on the OS thread that created the engine; completed snapshots, events, configuration, and
 diagnostics use caller-owned buffers or immutable values.
 
 An engine can create its own D3D12 device or take an independent COM reference from a `Rylogic.D3D12.DeviceLease`. The engine never borrows a naked device
 pointer beyond creation, and drains pending GPU work before checkpoint or disposal. `BeginStep`/`CompleteStep` support explicit host scheduling while `Step`
 provides the synchronous path.
+
+## Explicit GPU cleanup
+
+The native and managed runtimes must use the same ABI version (**9**). Engines using the same explicitly supplied device may share a queue, but their jobs,
+fences and resources remain independently owned.
+
+`Engine.TryDispose(timeout_ms)` and `Atmosphere.TryDispose(timeout_ms)` permanently stop their work. `-1` requests an infinite wait; other nonnegative values
+are millisecond budgets. Success invalidates their managed and native identities. A timeout returns `false`; another failure throws. Either leaves the same
+owner intact for another close attempt, not for resumed simulation. `Dispose()` explicitly chooses the infinite wait. No cleanup path executes a partly
+recorded command list, replays a submission, or terminates the process to handle a GPU error. Device removal permits resource retirement.
+
+`Physics.TryDispose` shares one budget across its engines. A refused final-context release also leaves its token valid. SafeHandle finalizers do not wait
+for GPU completion: unfinished engines remain in the native registry. Call `Physics.CollectAbandoned(timeout_ms)` to retry cleanup explicitly; it returns
+the number of retained owners plus busy engines still requiring inspection, and throws on another error. Collection does not wait behind active engine
+operations, even with an infinite GPU budget; retry when those operations finish. A new `Physics` instance can collect abandoned work after the original runtime has been
+finalized. This never collects a live caller-owned object. Ignoring failed cleanup deliberately retains memory until a later collection or process exit.
+
+Native callers use the timeout arguments of `Physics_EngineDestroy` and `Physics_AtmosphereDestroy`, the checked `Physics_Shutdown` status, and
+`Physics_CollectAbandoned`. Do not unload the DLL while it owns retained work. Initialization error callbacks are synchronous and are not retained for shutdown.
+Other GPU consumers still own their own resource references and completion: keep an acquired tracer buffer lease until that consumer's GPU reads finish.
+
+Direct C++ users retain an engine, atmosphere and their dependent resources until `TryClose` succeeds, then destroy them. Atmosphere constructors record
+initialization into `gpu.m_job` without submitting it. Establish ownership before running that job, and finish initialization before another job or queue uses
+the buffers. If construction fails, close/discard that recording rather than execute it. See `GpuJob::TryClose` and the atmosphere constructor contract.
+
+## Simulation and dependencies
 
 The package depends on `Rylogic.Core`, `Rylogic.D3D12`, and `Rylogic.Native`. It does not depend on Rylogic.Gfx, View3D, WPF, or application-specific code.
 

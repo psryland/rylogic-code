@@ -10,7 +10,7 @@ namespace Rylogic.Physics;
 internal static unsafe partial class Native
 {
 	internal const string Dll = "physics";
-	internal const uint ApiVersion = 0x00080001U;
+	internal const uint ApiVersion = 0x00090000U;
 	internal const uint StructVersion = 3U;
 	private static IntPtr m_module;
 
@@ -441,14 +441,42 @@ internal static unsafe partial class Native
 
 	[DllImport(Dll)] internal static extern uint Physics_ApiVersion();
 	[DllImport(Dll)] internal static extern IntPtr Physics_Initialise(ReportErrorCallback callback);
-	[DllImport(Dll)] internal static extern void Physics_Shutdown(IntPtr context);
+	/// <summary>Convert the caller's millisecond budget; -1 is an explicit infinite wait.</summary>
+	internal static uint WaitTimeout(int timeout_ms)
+	{
+		// Match the .NET timeout convention at the managed input boundary.
+		if (timeout_ms < -1)
+			throw new ArgumentOutOfRangeException(nameof(timeout_ms));
+
+		return unchecked((uint)timeout_ms);
+	}
+
+	/// <summary>Distinguish a retained timeout from a completed close, surfacing every other failure.</summary>
+	internal static bool CloseCompleted(EStatus status)
+	{
+		// Only Success permits invalidating managed identities.
+		switch (status)
+		{
+			case EStatus.Success: { return true; }
+			case EStatus.Timeout: { return false; }
+			default:
+			{
+				Check(status);
+				throw new InvalidOperationException($"Unexpected cleanup status {status}.");
+			}
+		}
+	}
+
+	[DllImport(Dll)] internal static extern EStatus Physics_Shutdown(IntPtr context);
+	[DllImport(Dll)] internal static extern void Physics_ContextAbandon(IntPtr context);
+	[DllImport(Dll)] internal static extern EStatus Physics_CollectAbandoned(IntPtr context, uint timeout_ms, out uint remaining);
 	[DllImport(Dll, CharSet = CharSet.Unicode)] internal static extern EStatus Physics_ShaderCacheDirectorySet(IntPtr context, string? directory);
 	[DllImport(Dll)] internal static extern EStatus Physics_ShaderPrecompile(IntPtr context, int thread_count, ShaderPrecompileProgressFn? progress, IntPtr ctx);
 	[DllImport(Dll)] private static extern EStatus Physics_LastError(byte* buffer, uint capacity, out uint required);
 	[DllImport(Dll)] internal static extern EStatus Physics_StructSize(int struct_id, out uint size);
 
 	[DllImport(Dll)] internal static extern EStatus Physics_EngineCreate(IntPtr context, EngineConfig* config, IntPtr external_device, out ulong engine);
-	[DllImport(Dll)] internal static extern EStatus Physics_EngineDestroy(ulong engine);
+	[DllImport(Dll)] internal static extern EStatus Physics_EngineDestroy(ulong engine, uint timeout_ms);
 	[DllImport(Dll)] internal static extern void Physics_EngineAbandon(ulong engine);
 	[DllImport(Dll)] internal static extern EStatus Physics_EngineDeviceLeaseAcquire(ulong engine, out IntPtr device);
 	[DllImport(Dll)] internal static extern EStatus Physics_EngineConfigGet(ulong engine, EngineConfig* config);

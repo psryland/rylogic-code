@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Threading;
 using Microsoft.Win32.SafeHandles;
 using Rylogic.D3D12;
@@ -22,6 +23,10 @@ public sealed class Physics :IDisposable
 			throw new PlatformNotSupportedException("Rylogic.Physics requires a 64-bit process.");
 
 		Native.EnsureLoaded();
+		// Check before creating a token: an incompatible DLL may not implement this version's cleanup entry points.
+		if (Native.Physics_ApiVersion() != Native.ApiVersion)
+			throw new PhysicsException(EStatus.IncompatibleVersion, "The managed and native Physics API versions do not match.");
+
 		m_owner_thread_id = Environment.CurrentManagedThreadId;
 		m_error_fn = HandleNativeError;
 		m_engines = new HashSet<Engine>();
@@ -36,11 +41,16 @@ public sealed class Physics :IDisposable
 		if (context == IntPtr.Zero)
 			throw new PhysicsException(EStatus.InternalError, m_initialisation_error ?? "Failed to initialise the native physics runtime.");
 
-		m_context = new ContextHandle(context);
-		if (Native.Physics_ApiVersion() != Native.ApiVersion)
+		try
 		{
-			Dispose();
-			throw new PhysicsException(EStatus.IncompatibleVersion, "The managed and native Physics API versions do not match.");
+			// Publish managed ownership only after the SafeHandle has been allocated.
+			m_context = new ContextHandle(context);
+		}
+		catch
+		{
+			// A failed managed allocation must not strand an initialization token without an owner.
+			Native.Physics_ContextAbandon(context);
+			throw;
 		}
 	}
 
@@ -108,27 +118,83 @@ public sealed class Physics :IDisposable
 			Native.Check(Native.Physics_EngineCreate(context, config_ptr, borrowed.Handle, out handle));
 		}
 
-		var engine = new Engine(this, handle, m_owner_thread_id);
+		Engine engine;
+		try
+		{
+			// The wrapper's SafeHandle takes ownership only after its constructor succeeds.
+			engine = new Engine(this, handle, m_owner_thread_id);
+		}
+		catch
+		{
+			// Preserve unfinished native work in the existing registry if managed adoption itself fails.
+			Native.Physics_EngineAbandon(handle);
+			throw;
+		}
 		m_engines.Add(engine);
 		return engine;
 	}
 
-	/// <summary>Dispose all owned engines before releasing the DLL context.</summary>
+	/// <summary>Dispose all owned engines with infinite GPU waits. Failed cleanup leaves the runtime available for retry.</summary>
 	public void Dispose()
 	{
+		// A retained abandoned engine requires an explicit collection decision, not an implicit finalizer wait.
+		if (!TryDispose(-1))
+			throw new PhysicsException(EStatus.StepPending, "Native cleanup remains pending. Call CollectAbandoned and retry disposal.");
+	}
+
+	/// <summary>Close owned engines within one millisecond budget (-1 means infinite). False or an exception leaves remaining ownership intact.</summary>
+	public bool TryDispose(int timeout_ms)
+	{
+		// Validate the budget and establish its start before any child can consume it.
+		Native.WaitTimeout(timeout_ms);
 		if (m_context == null)
-			return;
+			return true;
 
 		EnsureOwner();
+		var timer = Stopwatch.StartNew();
+
 		// Engine disposal mutates the set, so traverse a stable cold-path copy.
 		var engines = new Engine[m_engines.Count];
 		m_engines.CopyTo(engines);
 		foreach (var engine in engines)
-			engine.Dispose();
+		{
+			// One slow child must not grant later children a fresh timeout.
+			var remaining = timeout_ms == -1 ? -1 : (int)Math.Max(0, timeout_ms - timer.ElapsedMilliseconds);
+			if (!engine.TryDispose(remaining))
+				return false;
+		}
 
+		// A refused final-context release retains its token and leaves CollectAbandoned available.
+		var status = Native.Physics_Shutdown(Context);
+		switch (status)
+		{
+			case EStatus.StepPending: { return false; }
+			case EStatus.Success: { break; }
+			default:
+			{
+				throw new PhysicsException(status, $"Native context shutdown failed with status {status}; ownership is retained.");
+			}
+		}
+		m_context.SetHandleAsInvalid();
 		m_context.Dispose();
 		m_context = null;
 		GC.SuppressFinalize(this);
+		return true;
+	}
+
+	/// <summary>
+	/// Retry process-wide abandoned engines and unpublished atmosphere creations within one millisecond budget (-1 means infinite).
+	/// Returns retained owners plus busy engines that still need inspection; other failures throw. Busy engines are not waited on,
+	/// even with an infinite GPU budget. Retry when their operations finish. No live caller-owned object is collected.
+	/// </summary>
+	public uint CollectAbandoned(int timeout_ms)
+	{
+		// Keep the runtime alive while native collection pins and closes its retained records.
+		EnsureOwner();
+		var status = Native.Physics_CollectAbandoned(Context, Native.WaitTimeout(timeout_ms), out var remaining);
+		Native.CloseCompleted(status);
+		GC.KeepAlive(this);
+		return remaining;
 	}
 
 	/// <summary>Remove an engine after its native lifetime has ended.</summary>
@@ -180,7 +246,8 @@ public sealed class Physics :IDisposable
 		/// <inheritdoc/>
 		protected override bool ReleaseHandle()
 		{
-			Native.Physics_Shutdown(handle);
+			// The native process anchor retains any unfinished engines after this caller token is relinquished.
+			Native.Physics_ContextAbandon(handle);
 			return true;
 		}
 	}

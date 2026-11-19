@@ -37,7 +37,7 @@ namespace pr::rdr12
 		// The supplied fence must track this step's actual submissions and outlive its complete destruction, including upload cleanup.
 		// Frame-recorded steps use the window timeline; independently submitted steps require a separate timeline.
 		RenderStep(ERenderStep id, Scene& scene, GpuSync& gsync);
-		RenderStep(RenderStep&&) = default;
+		RenderStep(RenderStep&&) = delete;
 		RenderStep(RenderStep const&) = delete;
 		RenderStep& operator = (RenderStep&&) = default;
 		RenderStep& operator = (RenderStep const&) = delete;

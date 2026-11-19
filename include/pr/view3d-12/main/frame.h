@@ -68,7 +68,7 @@ namespace pr::rdr12
 			m_final_overlay.Close();
 			m_present.Close();
 		}
-		Frame(Frame&&) = default;
+		Frame(Frame&&) = delete;
 		Frame(Frame const&) = delete;
 		Frame& operator =(Frame&&) = default;
 		Frame& operator =(Frame const&) = delete;

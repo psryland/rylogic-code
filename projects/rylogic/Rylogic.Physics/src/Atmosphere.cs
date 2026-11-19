@@ -239,17 +239,30 @@ public sealed class Atmosphere :IDisposable
 		return new AtmosphereStats(stats);
 	}
 
-	/// <summary>Destroy this atmosphere, abandoning any step in flight.</summary>
+	/// <summary>Close with an infinite wait, retaining this atmosphere for retry if cleanup fails.</summary>
 	public void Dispose()
 	{
+		// IDisposable opts into blocking; bounded teardown is available through TryDispose.
+		if (!TryDispose(-1))
+			throw new TimeoutException("An infinite atmosphere close unexpectedly timed out.");
+	}
+
+	/// <summary>Stop this atmosphere and close within timeout_ms milliseconds (-1 means infinite). False or an exception retains ownership for retry.</summary>
+	public bool TryDispose(int timeout_ms)
+	{
+		// Keep the same handle until the native record confirms that its GPU resources may be released.
+		var native_timeout = Native.WaitTimeout(timeout_ms);
 		if (m_handle == 0)
-			return;
+			return true;
 
 		Engine.EnsureOwner();
-		Native.Check(Native.Physics_AtmosphereDestroy(Engine.Handle, m_handle));
+		if (!Native.CloseCompleted(Native.Physics_AtmosphereDestroy(Engine.Handle, m_handle, native_timeout)))
+			return false;
+
 		m_handle = 0;
 		Engine.Remove(this);
 		GC.SuppressFinalize(this);
+		return true;
 	}
 
 	/// <summary>Invalidate this wrapper after its owning engine destroys the native atmosphere.</summary>
