@@ -59,7 +59,7 @@ namespace pr::rdr12::ldraw
 		void remove(LdrObject const* ldr)
 		{
 			#if PR_LDR_CALLSTACKS
-			#pragma message(PR_LINK "WARNING: ************************************************** PR_LDR_CALLSTACKS enabled")
+			#pragma message(PR_LINK "note: ************************************************** PR_LDR_CALLSTACKS enabled")
 			m_call_stacks.append(FmtS("[%p] %s\n", ldr, ldr->TypeAndName().c_str()));
 			pr::DumpStack([&](auto& sym, auto& file, int line) { m_call_stacks.append(FmtS("%s(%d): %s\n", file.c_str(), line, sym.c_str())); }, 2U, 50U);
 			m_call_stacks.append("\n");

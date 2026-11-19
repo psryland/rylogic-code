@@ -17,7 +17,8 @@
 		<PackageVersion Include="Microsoft.Direct3D.DXC" version="$(DxcPackageVersion)"/>
 	</ItemGroup>
 
-	<ItemGroup>
+	<!-- The NuGet package supplies the copy items for native projects. -->
+	<ItemGroup Condition="'$(MSBuildProjectExtension)' != '.vcxproj'">
 		<Content Include="$(DxcRuntimeDir)dxcompiler.dll">
 			<Link>dxcompiler.dll</Link>
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
@@ -26,6 +27,9 @@
 			<Link>dxil.dll</Link>
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</Content>
+	</ItemGroup>
+
+	<ItemGroup>
 		<BuildArtifacts Include="$(DxcRuntimeDir)dxcompiler.dll" />
 		<BuildArtifacts Include="$(DxcRuntimeDir)dxil.dll" />
 	</ItemGroup>

@@ -105,7 +105,7 @@ Example Use:
 
 inline static constexpr bool PR_WNDPROCDEBUG = false;
 #if PR_WNDPROCDEBUG
-#pragma message("WARNING: **************************** WndProcDebug Enabled.")
+#pragma message("note: **************************** WndProcDebug Enabled.")
 #include "pr/gui/messagemap_dbg.h"
 #endif
 

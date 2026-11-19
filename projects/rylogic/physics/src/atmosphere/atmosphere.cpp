@@ -923,7 +923,7 @@ namespace pr::physics::atmosphere
 			// Persistent inputs live in shader-resource state, so the copy is wrapped in transitions.
 			job.m_barriers.Transition(buffer, D3D12_RESOURCE_STATE_COPY_DEST).Commit();
 			auto upload = job.m_upload.Alloc<T>(isize(data));
-			memcpy(upload.ptr<T>(), data.data(), data.size_bytes());
+			memcpy(upload.template ptr<T>(), data.data(), data.size_bytes());
 			job.m_cmd_list.CopyBufferRegion(buffer, 0, upload);
 			job.m_barriers.Transition(buffer, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE).Commit();
 		}

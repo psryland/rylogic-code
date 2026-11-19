@@ -17,7 +17,7 @@
 
 #define PR_RDR12_DEBUG_RAYCAST 0
 #if PR_RDR12_DEBUG_RAYCAST
-#pragma message(PR_LINK "warning : **************************************************** PR_RDR12_DEBUG_RAYCAST defined")
+#pragma message(PR_LINK "note: **************************************************** PR_RDR12_DEBUG_RAYCAST defined")
 #endif
 
 using namespace pr::geometry;

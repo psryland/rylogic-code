@@ -318,7 +318,7 @@ namespace pr::compute
 			assert(job.m_cmd_list.ResState(res).Mip0State() == D3D12_RESOURCE_STATE_COPY_DEST && "'res' should be in the COPY_DEST state");
 
 			auto upload_buffer = job.m_upload.Alloc<T>(static_cast<int>(data.size()));
-			memcpy(upload_buffer.ptr<T>(), data.data(), data.size() * sizeof(T));
+			memcpy(upload_buffer.template ptr<T>(), data.data(), data.size() * sizeof(T));
 			job.m_cmd_list.CopyBufferRegion(res, 0, upload_buffer);
 		}
 
@@ -328,7 +328,7 @@ namespace pr::compute
 			assert(job.m_cmd_list.ResState(res).Mip0State() == D3D12_RESOURCE_STATE_COPY_DEST && "'res' should be in the COPY_DEST state");
 
 			auto upload_buffer = job.m_upload.Alloc<T>(count);
-			cb(upload_buffer.ptr<T>(), upload_buffer.end<T>());
+			cb(upload_buffer.template ptr<T>(), upload_buffer.template end<T>());
 			job.m_cmd_list.CopyBufferRegion(res, 0, upload_buffer);
 		}
 

@@ -476,12 +476,12 @@ namespace pr::compute::gpu_radix_sort
 			// Read back the results and update the input arrays
 			if (!keys.empty())
 			{
-				memcpy(keys.data(), result.keys.ptr<Key>(), result.keys.m_size);
+				memcpy(keys.data(), result.keys.template ptr<Key>(), result.keys.m_size);
 			}
 			if constexpr (HasPayload)
 			{
 				if (!values.empty())
-					memcpy(values.data(), result.values.ptr<Value>(), result.values.m_size);
+					memcpy(values.data(), result.values.template ptr<Value>(), result.values.m_size);
 			}
 		}
 
@@ -516,15 +516,15 @@ namespace pr::compute::gpu_radix_sort
 			// Copy the keys and values to the GPU. If 'keys' is smaller than 'm_size', pad with 0xFF
 			{
 				auto buf = upload.Alloc(m_size * sizeof(Key), alignof(Key));
-				memcpy(buf.ptr<Key>(), keys.data(), keys.size() * sizeof(Key));
-				memset(buf.ptr<Key>() + keys.size(), 0xFF, (m_size - keys.size()) * sizeof(Key));
+				memcpy(buf.template ptr<Key>(), keys.data(), keys.size() * sizeof(Key));
+				memset(buf.template ptr<Key>() + keys.size(), 0xFF, (m_size - keys.size()) * sizeof(Key));
 				cmd_list.CopyBufferRegion(m_sort[0].get(), 0, buf.m_res, buf.m_ofs, buf.m_size);
 			}
 			if constexpr (HasPayload)
 			{
 				auto buf = upload.Alloc(m_size * sizeof(Value), alignof(Value));
-				memcpy(buf.ptr<Value>(), values.data(), values.size() * sizeof(Value));
-				memset(buf.ptr<Key>() + values.size(), 0xFF, (m_size - values.size()) * sizeof(Value));
+				memcpy(buf.template ptr<Value>(), values.data(), values.size() * sizeof(Value));
+				memset(buf.template ptr<Key>() + values.size(), 0xFF, (m_size - values.size()) * sizeof(Value));
 				cmd_list.CopyBufferRegion(m_payload[0].get(), 0, buf.m_res, buf.m_ofs, buf.m_size);
 			}
 

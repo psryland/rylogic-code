@@ -51,9 +51,9 @@ namespace pr::physics
 			auto resource = gpu.CreateResource(ResDesc::Buf<Type>(count, {}).usage(usage), job, name);
 			job.m_barriers.Transition(resource.get(), D3D12_RESOURCE_STATE_COPY_DEST).Commit();
 			auto allocation = job.m_upload.Alloc<Type>(count);
-			std::fill_n(allocation.ptr<Type>(), count, Type{});
+			std::fill_n(allocation.template ptr<Type>(), count, Type{});
 			if (!values.empty())
-				memcpy(allocation.ptr<Type>(), values.data(), values.size_bytes());
+				memcpy(allocation.template ptr<Type>(), values.data(), values.size_bytes());
 			job.m_cmd_list.CopyBufferRegion(resource.get(), 0, allocation);
 			job.m_barriers.Transition(resource.get(), final_state).Commit();
 			return resource;

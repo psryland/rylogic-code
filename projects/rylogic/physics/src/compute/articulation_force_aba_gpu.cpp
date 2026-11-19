@@ -60,7 +60,7 @@ namespace pr::physics
 				return;
 
 			auto allocation = job.m_upload.Alloc<T>(static_cast<int>(values.size()));
-			memcpy(allocation.ptr<T>(), values.data(), values.size() * sizeof(T));
+			memcpy(allocation.template ptr<T>(), values.data(), values.size() * sizeof(T));
 			job.m_cmd_list.CopyBufferRegion(resource, 0, allocation);
 		}
 
