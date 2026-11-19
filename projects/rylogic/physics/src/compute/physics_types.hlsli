@@ -23,6 +23,8 @@ static const int FrameOutputThreadCount = 64;
 static const int MaxColours = 32;
 static const int GpuContactMaxPoints = 4;
 static const int GpuConstraintRowsPerBlock = 6;
+static const uint GpuConstraintType_D6 = 0;
+static const uint GpuConstraintType_SphericalAngular = 1;
 
 // World-surface drift clamps: four spatial quadrants for each of the two world surface modes (terrain, cylinder) per sampled leaf instance.
 static const int DriftClampSlotsPerMode = 4;
@@ -37,6 +39,8 @@ static const int GpuArticulationRootType_Fixed = 0;
 static const int GpuArticulationRootType_Floating = 1;
 static const int GpuArticulationAxisType_Revolute = 0;
 static const int GpuArticulationAxisType_Prismatic = 1;
+static const int GpuArticulationJointType_Axes = 0;
+static const int GpuArticulationJointType_Spherical = 1;
 static const int GpuArticulationIntegrationStatus_Success = 0;
 static const int GpuArticulationIntegrationStatus_Singular = 1;
 static const int GpuArticulationIntegrationStatus_NonFinite = 2;
@@ -48,6 +52,9 @@ static const uint GpuConstraintEndpointFlags_Enabled = 1 << 0;
 static const uint GpuConstraintEndpointFlags_CollideConnected = 1 << 1;
 static const uint GpuConstraintEndpointFlags_ResetWarmStart = 1 << 2;
 static const uint GpuConstraintEndpointFlags_Coupled = 1 << 3;
+
+// An accepted cache packs this revision with two endpoint-body reset acknowledgements.
+static const uint GpuConstraintMaxInvalidationRevision = 0x3FFFFFFFu;
 
 // GPU runtime constraint-block flags shared by rigid and articulation-coupled lanes.
 static const uint ConstraintBlockFlags_Active = 1u << 0;
@@ -73,7 +80,6 @@ static const uint GpuCoupledConstraintIslandStatus_Rejected = 3u;
 // Coupled phase modes distinguish detached evaluation from each authoritative commit destination.
 static const int GpuCoupledConstraintPhase_Evaluate = 0;
 static const int GpuCoupledConstraintPhase_CommitVelocity = 1;
-static const int GpuCoupledConstraintPhase_CommitWarmStart = 2;
 static const int GpuCoupledConstraintPhase_CommitPosition = 3;
 
 // Integer failure bits are reduced atomically without introducing non-deterministic floating-point reductions.
@@ -114,8 +120,8 @@ static const int SHAPE_CYLINDER = 5;
 static const int SHAPE_ARRAY    = 6;
 
 // The largest number of convex leaf children a single compound shape may flatten to.
-// Child indices are packed into 16 bits within warm-start keys, and the broadphase expands
-// compound pairs as an N*M nested loop, so the bound keeps both cost and identity well defined.
+// The broadphase expands compound pairs as an N*M nested loop, so this is an independent cost bound.
+// Warm-start identity retains each full leaf index.
 static const int MaxCompoundChildren = 1024;
 
 // Collision pair bins. These are unordered shape pairs canonicalised by shape type.
@@ -355,15 +361,84 @@ struct GpuWarmStartEntry
 	uint key;
 	int body_idx_a;
 	int body_idx_b;
-	uint child_key; // Packed (child_idx_a << 16) | child_idx_b, disambiguating leaves of the same body pair.
+	int child_idx_a;
+	int child_idx_b;
+	uint point_key_x; // Binary32 bits of the local contact point quantised to a 1/64 m grid.
+	uint point_key_y;
+	uint point_key_z;
 	float4 impulse; // Cached physical impulse in body A space.
+};
+
+// Shared per-dispatch contact controls; native recording, shader execution and CPU replay use the same 128-byte layout.
+struct GpuResolveParams
+{
+	int max_contacts; // The max capacity of the contacts buffer
+	int body_count;   // The number of bodies in the scene
+	int colour;       // Current colour batch being processed (for CSResolve)
+	int colour_capacity; // Retained colour-buffer capacity; the trailing slot holds the overflow flag.
+
+	int shock_iterations;  // Number of contact-priority propagation sweeps
+	float max_position_speed; // Maximum target speed for shared detached position correction.
+	int shock_padding1;
+	float shock_alignment; // Minimum directed impulse influence needed to create a propagation edge
+
+	float shock_min_strength; // Minimum priority delta worth propagating/storing
+	float dt;                 // Timestep in seconds
+	float support_only;       // Non-zero means only support-aligned contacts are solved
+	float support_alignment;  // Minimum abs(dot(contact_axis, gravity_dir)) for support-only contacts
+
+	float restitution_scale; // Scene/pass scale for elastic response
+	float penetration_slop;  // Depth tolerance before velocity-level bias starts
+	float velocity_baumgarte;// Velocity bias fraction used to clear penetration
+	float deep_penetration_threshold;
+
+	float deep_penetration_range;
+	float deep_penetration_baumgarte_min;
+	float deep_penetration_baumgarte_max;
+	float bias_scale; // Per-pass scale used by selective refresh and normal resolve paths
+
+	float propagation_key_scale;      // Tiny scale that folds local/shock priority into the collision-time sort key
+	float position_slop;              // Depth tolerance before split-position correction starts
+	float position_baumgarte;         // Position correction fraction
+	float position_correction_scale;  // 1 / position iteration count, so the same stale depth is not applied in full each iteration
+
+	float shock_decay;                // Priority attenuation per propagated edge
+	float contact_slop_scale;         // Fraction of minimum contact-body thickness used to cap penetration/position slop
+	float support_contact_slop_scale; // Fraction used for load-bearing support contacts
+	float warm_start_scale;           // Scale applied to cached physical impulses before they are applied this frame
+
+	int warm_start_capacity;  // Number of entries in the open-addressed warm-start cache
+	int rigid_body_count;     // Ordinary rigid prefix; larger body indices are articulation-link proxies
+	int warm_start_preloaded; // Non-zero when the coupled-contact lane required a separate cache-load pass
+	int shared_position_state; // Non-zero when contacts and persistent constraints share detached rigid pseudo velocities.
+};
+
+// Fixed bounds and solve controls shared by the native recorder and every transient-contact shader.
+struct GpuCoupledContactParams
+{
+	int max_contacts;
+	int body_count;
+	int rigid_body_count;
+	int articulation_count;
+	int link_count;
+	int target_count;
+	float velocity_tolerance;
+	int phase;
+	int velocity_delta_count;
+	float relaxation;
+	float restitution_scale;
+	float dt;
+	float position_slop;
+	float position_beta;
+	float max_position_speed;
+	int position_iteration_index;
 };
 
 // Exact-self contact block data retained while transient proxy contacts are solved at one fixed configuration.
 struct GpuCoupledContactBlock
 {
 	float4 response_0; // First point-response row in body A space; w is the inverse normal response.
-	float4 response_1; // Second point-response row; w is the inverse tangent response trace.
+	float4 response_1; // Second point-response row; w is unused.
 	float4 response_2; // Third point-response row; w is unused.
 	float target_normal_speed; // Restitution target captured before warm starting.
 	float friction;            // Coulomb cone slope for the combined material pair.
@@ -379,12 +454,27 @@ struct GpuCoupledContactScratch
 	float4 candidate_position_impulse; // Candidate position-only accumulated impulse in body A space.
 };
 
+// Linear storage for a component's matrix-free ordinary-contact-law Newton equation, in generating body-A coordinates.
+struct GpuCoupledContactKrylov
+{
+	float4 velocity_derivative[3];
+	float4 impulse_derivative[3];
+	float4 inverse_weights; // xy: normal/tangent inverse scales. After selection, zw: component candidate W / fallback-transpose counts.
+	float4 residual;
+	float4 gradient;
+	float4 direction;
+	float4 step;
+	float4 operand; // During products: input. After selection: accepted represented delta, or zero when unchanged.
+	float4 response; // During products: W*operand. After selection: accepted delta's full response, or zero when unchanged.
+	float4 jacobian_product;
+};
+
 // One global finite transaction shared by all transient contacts in a resolver pass.
 struct GpuCoupledContactState
 {
 	uint valid;
 	uint failure_flags;
-	uint pad0;
+	uint frame_failure_flags; // Sticky across all transactions and substeps; reset only when the next forest is uploaded.
 	uint pad1;
 };
 
@@ -408,12 +498,16 @@ struct GpuConstraintAxisDesc
 	float max_force;
 };
 
-// Persistent D6 parameters occupy exactly 256 bytes independently of frame-local endpoint indices.
-struct GpuD6ConstraintDesc
+// Typed persistent parameters occupy 288 bytes. D6 uses axes; spherical angular uses the separate ranges and physical damping.
+struct GpuConstraintDesc
 {
 	GpuConstraintFrame frame_a;
 	GpuConstraintFrame frame_b;
 	GpuConstraintAxisDesc axes[GpuConstraintRowsPerBlock];
+	float4 swing_limits; // X lower/upper, Z lower/upper, in radians.
+	float2 twist_limits;
+	float angular_damping; // Isotropic viscous torque coefficient, N*m*s/rad.
+	uint type;
 };
 
 // Frame-local stable-slot metadata uploaded after remapping endpoint identities to packed body indices.
@@ -425,7 +519,7 @@ struct GpuConstraintEndpoint
 	uint generation;
 	float break_force;
 	float break_torque;
-	uint pad0;
+	uint invalidation_revision; // Assigned by the upload owner, independent of the stable-slot generation.
 	uint pad1;
 };
 
@@ -491,10 +585,11 @@ struct GpuCoupledConstraintIslandState
 	uint failure_flags;
 	float relaxation;
 	float merit_change;
+	uint iteration_count; // Numerical attempts actually evaluated while this island was pending.
 };
 
-// First bounded transaction rejection retained for one coupled island during a complete owning frame.
-struct GpuCoupledConstraintFailureState
+// First non-terminal rejection for one tagged persistent owner during a complete frame; substep -1 means empty.
+struct GpuConstraintRejectionState
 {
 	uint failure_flags;
 	int substep_index;
@@ -503,8 +598,10 @@ struct GpuCoupledConstraintFailureState
 
 	float relaxation;
 	float merit_change;
-	uint status;
-	uint pad0;
+	uint outcome;
+	uint owner; // 0: ordinary stable slot, 1: frame-local coupled island.
+	uint index;
+	uint generation; // Ordinary slot generation; not applicable (zero) for coupled islands.
 };
 
 // One canonical body pair in the open-addressed connected-body collision-exclusion table.
@@ -546,7 +643,7 @@ struct GpuConstraintBlock
 	uint colour;
 	uint row_states;
 	uint flags;
-	uint pad0;
+	uint row_identities; // Four bits per slot distinguish nonlinear boundary features when deciding whether impulses can be retained.
 };
 
 // Per-slot inverse of one solve phase's active block response. Row 'i' solves canonical axis '(active_axes >> (4 * i)) & 0xF'; a zero row count skips the block.
@@ -664,7 +761,7 @@ struct GpuArticulationLink
 	int proxy_body_index;
 	int depth;
 	int joint_matrix_offset;
-	int pad1;
+	int joint_type;
 
 	GpuConstraintFrame joint_to_parent;
 	GpuConstraintFrame joint_to_child;
@@ -789,7 +886,7 @@ struct GpuFrameOutputHeader
 	int substep_count;
 	uint constraint_failure_slot_plus_one; // Zero means success; otherwise identifies one deterministically selected failing stable slot.
 	int selective_refresh_needed;
-	int pad2;
+	uint contact_failure_flags;
 };
 
 // Transient reservation shared by the serial event-queue setup and parallel event copy.

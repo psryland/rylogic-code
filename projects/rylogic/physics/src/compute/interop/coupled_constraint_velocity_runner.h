@@ -8,12 +8,19 @@
 
 namespace pr::physics
 {
-	// Deterministic HLSL-as-C++ replay of one transactional articulation-coupled velocity sweep.
+	// Explicit actual owner-free primary state for a numerical replay; it cannot be inferred from accumulated coefficients.
+	struct CoupledConstraintPrimaryReference
+	{
+		std::span<GpuRigidBody const> m_bodies;
+		std::span<float const> m_velocities;
+	};
+
+	// Deterministic replay of the private coupled numerical sweep, not persistent-owner admission or publication.
 	struct CoupledConstraintVelocityInteropRunner
 	{
 	public:
 
-		// Apply an optional once-per-substep warm start followed by one bounded-backtracking simultaneous sweep.
+		// Evaluate one bounded-backtracking sweep from an admitted actual state/ledger pair and an explicit owner-free reference.
 		void Run(
 			float relaxation,
 			GpuConstraintUpload const& constraint_upload,
@@ -22,8 +29,8 @@ namespace pr::physics
 			std::span<GpuConstraintRow const> rows,
 			std::span<GpuCoupledConstraintPreconditioner const> preconditioners,
 			std::span<GpuRigidBody const> bodies,
-			int backtrack_limit = 4,
-			bool apply_warm_start = false);
+			CoupledConstraintPrimaryReference reference,
+			int backtrack_limit = 4);
 
 		// Return committed rigid-body state after accepted island updates.
 		std::span<GpuRigidBody const> Bodies() const;
@@ -54,7 +61,6 @@ namespace pr::physics
 		std::vector<GpuArticulationSpatialVector> m_target_impulses;
 		std::vector<GpuCoupledConstraintIslandState> m_island_states;
 		std::vector<uint32_t> m_island_failures;
-		std::vector<GpuCoupledConstraintFailureState> m_frame_failures;
 		std::vector<GpuArticulationSpatialVector> m_link_impulses;
 		std::vector<uint32_t> m_tree_selection;
 		std::vector<uint32_t> m_tree_results;

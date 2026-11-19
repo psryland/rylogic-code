@@ -5,6 +5,7 @@
 #include "pr/physics/rigid_body/rigid_body.h"
 #include "pr/physics/articulation/articulation.h"
 #include "src/constraint/constraint_compiler.h"
+#include "src/compute/constraint_coordinates.hlsli"
 
 namespace pr::physics
 {
@@ -113,27 +114,28 @@ namespace pr::physics
 			};
 		}
 
-		// Append one non-free axis while preserving the canonical X, Y, Z order.
+		// Append a prepared non-free scalar coordinate and its world covector in the primitive's canonical slot.
 		void AppendRow(
 			CompiledConstraintSet& compiled,
 			EConstraintRowKind kind,
-			uint8_t axis_index,
+			uint8_t slot,
 			ConstraintAxisDesc const& axis_desc,
 			v4 axis_ws,
 			v4 anchor_offset_a,
 			v4 anchor_offset_b,
 			v4 linear_error_ws,
-			v4 angular_error_ws,
+			float position,
 			CompiledConstraintEndpoint const& endpoint_a,
 			CompiledConstraintEndpoint const& endpoint_b,
 			BodyRemap const& remap)
 		{
+			// Inactive parameter slots do not contribute a row, regardless of their geometry.
 			if (axis_desc.m_mode == EConstraintAxisMode::Free)
 				return;
 
+			// Endpoint wrenches use physical kind, not the slot that owns the retained impulse.
 			auto jacobian_a = v8force::Zero();
 			auto jacobian_b = v8force::Zero();
-			auto position = 0.0f;
 			switch (kind)
 			{
 				case EConstraintRowKind::Linear:
@@ -141,14 +143,13 @@ namespace pr::physics
 					// Frame A rotates the measured axis as well as its anchor, so its lever includes the complete anchor separation.
 					jacobian_a = EndpointJacobian(kind, endpoint_a, remap, axis_ws, anchor_offset_a + linear_error_ws, -1.0f);
 					jacobian_b = EndpointJacobian(kind, endpoint_b, remap, axis_ws, anchor_offset_b, +1.0f);
-					position = Dot3(linear_error_ws, axis_ws);
 					break;
 				}
 				case EConstraintRowKind::Angular:
 				{
+					// The prepared covector maps physical angular velocity onto the measured coordinate rate.
 					jacobian_a = EndpointJacobian(kind, endpoint_a, remap, axis_ws, anchor_offset_a, -1.0f);
 					jacobian_b = EndpointJacobian(kind, endpoint_b, remap, axis_ws, anchor_offset_b, +1.0f);
-					position = Dot3(angular_error_ws, axis_ws);
 					break;
 				}
 				default:
@@ -157,10 +158,11 @@ namespace pr::physics
 				}
 			}
 
+			// Retain public units and bounds unchanged for the common scalar solver.
 			compiled.m_rows.push_back(CompiledConstraintRow{
 				.m_block_index = s_cast<uint32_t>(compiled.m_blocks.size()),
 				.m_kind = kind,
-				.m_axis = axis_index,
+				.m_slot = slot,
 				.m_mode = axis_desc.m_mode,
 				.m_jacobian_a = jacobian_a,
 				.m_jacobian_b = jacobian_b,
@@ -329,7 +331,7 @@ namespace pr::physics
 		return isize(m_articulations);
 	}
 
-	// Resolve endpoints and compile enabled D6 descriptors in stable slot and axis order.
+	// Resolve endpoints and compile enabled, unbroken typed descriptors in stable slot order.
 	CompiledConstraintSet CompileConstraints(ConstraintSet const& constraints, BodyRemap const& remap)
 	{
 		auto compiled = CompiledConstraintSet{
@@ -340,11 +342,11 @@ namespace pr::physics
 		compiled.m_blocks.reserve(constraints.m_count);
 		compiled.m_rows.reserve(6 * constraints.m_count);
 
-		// Slot iteration, followed by linear and angular XYZ iteration, defines reproducible row identity.
+		// Descriptor order followed by each primitive's canonical slot order defines reproducible row identity.
 		for (uint32_t slot_index = 0; slot_index != constraints.m_slots.size(); ++slot_index)
 		{
 			auto const& slot = constraints.m_slots[slot_index];
-			if (!slot.m_occupied || !slot.m_desc.m_enabled)
+			if (!slot.m_occupied || !slot.m_desc.m_enabled || slot.m_broken)
 				continue;
 
 			auto const& desc = slot.m_desc;
@@ -352,23 +354,66 @@ namespace pr::physics
 			auto const endpoint_b = remap.ResolveEndpoint(desc.m_frame_b.m_body);
 			auto const constraint_to_world_a = ConstraintToWorld(desc.m_frame_a, endpoint_a, remap);
 			auto const constraint_to_world_b = ConstraintToWorld(desc.m_frame_b, endpoint_b, remap);
-			auto const axis_ws = std::array{
-				constraint_to_world_a.x.w0(),
-				constraint_to_world_a.y.w0(),
-				constraint_to_world_a.z.w0(),
-			};
 			auto const linear_error_ws = (constraint_to_world_b.pos - constraint_to_world_a.pos).w0();
-			auto const relative_rotation = constraint_to_world_b.rot * Transpose(constraint_to_world_a.rot);
-			auto const [angular_error_axis, angular_error_angle] = AxisAngle(relative_rotation);
-			auto const angular_error_ws = angular_error_angle * angular_error_axis.w0();
 			auto const anchor_offset_a = AnchorOffset(constraint_to_world_a, endpoint_a, remap);
 			auto const anchor_offset_b = AnchorOffset(constraint_to_world_b, endpoint_b, remap);
 
 			auto const row_begin = s_cast<uint32_t>(compiled.m_rows.size());
-			for (uint8_t axis_index = 0; axis_index != 3; ++axis_index)
-				AppendRow(compiled, EConstraintRowKind::Linear, axis_index, desc.m_linear[axis_index], axis_ws[axis_index], anchor_offset_a, anchor_offset_b, linear_error_ws, angular_error_ws, endpoint_a, endpoint_b, remap);
-			for (uint8_t axis_index = 0; axis_index != 3; ++axis_index)
-				AppendRow(compiled, EConstraintRowKind::Angular, axis_index, desc.m_angular[axis_index], axis_ws[axis_index], anchor_offset_a, anchor_offset_b, linear_error_ws, angular_error_ws, endpoint_a, endpoint_b, remap);
+			auto row_identities = uint32_t{};
+			switch (desc.Type())
+			{
+				case EConstraintType::D6:
+				{
+					// D6 retains linear XYZ then angular principal-log coordinates in frame A.
+					auto const relative_rotation = constraint_to_world_b.rot * Transpose(constraint_to_world_a.rot);
+					auto const [angular_error_axis, angular_error_angle] = AxisAngle(relative_rotation);
+					auto const angular_error_ws = angular_error_angle * angular_error_axis.w0();
+					for (uint8_t axis = 0; axis != 3; ++axis)
+					{
+						// Linear coordinates use frame A's moving axes; their endpoint Jacobians include anchor separation.
+						auto direction = constraint_to_world_a[axis].w0();
+						AppendRow(compiled, EConstraintRowKind::Linear, axis, desc.D6().m_linear[axis], direction, anchor_offset_a, anchor_offset_b, linear_error_ws, Dot3(linear_error_ws, direction), endpoint_a, endpoint_b, remap);
+					}
+					for (uint8_t axis = 0; axis != 3; ++axis)
+					{
+						// Position is measured along the frame axis; impulse uses its angular covector.
+						auto direction = constraint_to_world_a[axis].w0();
+						auto gradient = v4{RotationVectorGradient(angular_error_ws.xyz, direction.xyz), 0.0f};
+						AppendRow(compiled, EConstraintRowKind::Angular, 3 + axis, desc.D6().m_angular[axis], gradient, anchor_offset_a, anchor_offset_b, linear_error_ws, Dot3(angular_error_ws, direction), endpoint_a, endpoint_b, remap);
+					}
+					break;
+				}
+				case EConstraintType::SphericalAngular:
+				{
+					// CPU, rigid GPU and coupled GPU consume one shared limit/damper row definition.
+					auto const& parameters = std::get<SphericalAngularConstraintParameters>(desc.m_parameters);
+					auto rows = SphericalAngularRows{};
+					auto swing = float4{parameters.m_swing_x.m_beg, parameters.m_swing_x.m_end, parameters.m_swing_z.m_beg, parameters.m_swing_z.m_end};
+					auto twist = float2{parameters.m_twist.m_beg, parameters.m_twist.m_end};
+					if (!PrepareSphericalAngularRows(quat(constraint_to_world_a.rot).xyzw, quat(constraint_to_world_b.rot).xyzw, swing, twist, parameters.m_damping, rows))
+						throw std::runtime_error("Spherical angular limits require a finite regular swing/twist coordinate chart");
+
+					// Stable feature identities prevent a plane impulse from being reused as an ellipse impulse.
+					row_identities = rows.m_identities;
+					for (uint8_t row_slot = 0; row_slot != 6; ++row_slot)
+					{
+						// Scalar coefficients keep their physical meanings in the existing CPU solver.
+						auto const& source = rows.m_parameters[row_slot];
+						auto axis = ConstraintAxisDesc{
+							.m_mode = static_cast<EConstraintAxisMode>(source.mode),
+							.m_limits = {source.lower_limit, source.upper_limit},
+							.m_target_position = source.target_position,
+							.m_target_velocity = source.target_velocity,
+							.m_stiffness = source.stiffness,
+							.m_damping = source.damping,
+							.m_max_force = source.max_force,
+						};
+						AppendRow(compiled, EConstraintRowKind::Angular, row_slot, axis, v4{rows.m_axes[row_slot], 0}, anchor_offset_a, anchor_offset_b, linear_error_ws, rows.m_positions[row_slot], endpoint_a, endpoint_b, remap);
+					}
+					break;
+				}
+				default: { throw std::invalid_argument("Unknown constraint type"); }
+			}
 
 			// An enabled all-free descriptor has no active solver work and therefore emits no block.
 			if (compiled.m_rows.size() == row_begin)
@@ -383,6 +428,7 @@ namespace pr::physics
 				.m_endpoint_b = endpoint_b,
 				.m_row_begin = row_begin,
 				.m_row_count = s_cast<uint32_t>(compiled.m_rows.size()) - row_begin,
+				.m_row_identities = row_identities,
 				.m_break_force = desc.m_break_force,
 				.m_break_torque = desc.m_break_torque,
 				.m_collide_connected = desc.m_collide_connected,

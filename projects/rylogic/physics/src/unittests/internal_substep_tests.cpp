@@ -71,7 +71,7 @@ namespace pr::physics::tests
 		}
 	}
 
-	// Prove internal substeps preserve the one-submit, one-wait, one-readback frame contract.
+	// Prove each substep submits a prefix while the frame retains one completion wait and one readback.
 	PRUnitTestClass(InternalSubstepTests)
 	{
 		// Report the detector's idle-frame overhead against the same Debug workload with refresh disabled.
@@ -253,7 +253,7 @@ namespace pr::physics::tests
 		}
 
 		// Verify callback identity, time partitioning, and GPU boundary counts for the required substep counts.
-		PRUnitTestMethod(OneSubmissionAndReadbackPerFrame, Quick)
+		PRUnitTestMethod(SubstepSubmissionsAndOneReadbackPerFrame, Quick)
 		{
 			auto shape = collision::ShapeSphere{0.25f};
 			auto& engine = SharedEngine();
@@ -289,7 +289,7 @@ namespace pr::physics::tests
 				auto const& profile = engine.LastStepProfile();
 				PR_EXPECT(callback_count == substep_count);
 				PR_EXPECT(profile.m_substep_count == substep_count);
-				PR_EXPECT(profile.m_submission_count == 1);
+				PR_EXPECT(profile.m_submission_count == substep_count);
 				PR_EXPECT(profile.m_wait_count == 1);
 				PR_EXPECT(profile.m_readback_copy_count == 1);
 				PR_EXPECT(engine.LastCollisionStats().m_event_capacity == 0);
@@ -327,7 +327,7 @@ namespace pr::physics::tests
 				.m_elapsed_seconds = 1.0f / 60.0f,
 				.m_substep_count = 2,
 			});
-			PR_EXPECT(engine.LastStepProfile().m_submission_count == 1);
+			PR_EXPECT(engine.LastStepProfile().m_submission_count == 2);
 			PR_EXPECT(engine.LastStepProfile().m_wait_count == 1);
 			PR_EXPECT(engine.LastStepProfile().m_readback_copy_count == 1);
 		}
@@ -538,10 +538,10 @@ namespace pr::physics::tests
 		{
 			auto shape = collision::ShapeSphere{0.25f};
 			auto body = MakeSubstepSphere(shape, m4x4::Translation(0.5f, 0, 0));
-			auto desc = D6ConstraintDesc{};
+			auto desc = ConstraintDesc{};
 			desc.m_frame_a.m_body = BodyRef::Rigid(body);
 			desc.m_frame_b.m_body = BodyRef::World();
-			desc.m_linear[0] = MakeSubstepLockedAxis();
+			desc.D6().m_linear[0] = MakeSubstepLockedAxis();
 			auto constraints = ConstraintSet{};
 			constraints.Add(desc);
 			auto bodies = std::array<RigidBody*, 1>{&body};
@@ -559,7 +559,7 @@ namespace pr::physics::tests
 			PR_EXPECT(body.O2W().pos.x < 0.5f);
 			PR_EXPECT(FEqlAbsolute(body.MomentumWS().ang, momentum_before.ang, 1.0e-6f));
 			PR_EXPECT(FEqlAbsolute(body.MomentumWS().lin, momentum_before.lin, 1.0e-6f));
-			PR_EXPECT(engine.LastStepProfile().m_submission_count == 1);
+			PR_EXPECT(engine.LastStepProfile().m_submission_count == 8);
 		}
 
 		// Verify sleep timers advance once per internal substep while state remains GPU-resident.
@@ -578,7 +578,7 @@ namespace pr::physics::tests
 			});
 
 			PR_EXPECT(body.Sleeping());
-			PR_EXPECT(engine.LastStepProfile().m_submission_count == 1);
+			PR_EXPECT(engine.LastStepProfile().m_submission_count == 61);
 			PR_EXPECT(engine.LastStepProfile().m_readback_copy_count == 1);
 		}
 	};
@@ -613,7 +613,7 @@ namespace pr::physics::tests
 			PR_EXPECT(output.m_readback_bytes != 0);
 			PR_EXPECT(output.m_readback_bytes < static_cast<uint64_t>(output.m_event_capacity) * sizeof(GpuCollisionEvent));
 			PR_EXPECT(output.m_readback_count == 1);
-			PR_EXPECT(engine.LastStepProfile().m_submission_count == 1);
+			PR_EXPECT(engine.LastStepProfile().m_submission_count == 4);
 		}
 	};
 }

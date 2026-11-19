@@ -25,6 +25,12 @@ namespace pr::physics
 		// Commit the selected responses that succeeded during the preceding detached evaluation.
 		void Commit(std::span<uint32_t const> selection);
 
+		// Restore selected actual primary components and refresh their cache through the canonical velocity-only operator.
+		void RestoreVelocities(std::span<float const> velocities, std::span<uint32_t const> selection);
+
+		// Return the fixed motion subspaces used by the primary-metric work evaluator.
+		std::span<GpuArticulationAbaDofScratch const> DofScratch() const;
+
 		// Return committed packed generalized velocities after impulse application.
 		std::span<float const> Velocities() const;
 

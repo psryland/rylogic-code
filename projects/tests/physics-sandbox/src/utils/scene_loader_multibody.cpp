@@ -158,9 +158,10 @@ namespace physics_sandbox::scene_loader
 				axes[index] = ReadConstraintAxis(array[index]);
 		}
 
-		// Read one articulation joint as an ordered sequence of scalar screw motions.
+		// Read an ordered scalar-axis joint or a quaternion spherical joint with child-joint-frame angular speeds.
 		physics::ArticulationJointDesc ReadArticulationJoint(pr::json::Value const& value)
 		{
+			// Both joint types use the same explicit parent/child attachment frames.
 			auto const& object = value.to_object();
 			auto desc = physics::ArticulationJointDesc{};
 			if (auto const* frame = object.find("parent_frame"))
@@ -168,6 +169,44 @@ namespace physics_sandbox::scene_loader
 			if (auto const* frame = object.find("child_frame"))
 				desc.m_joint_to_child = ReadTransform(frame->to_object(), false);
 
+			// A spherical configuration has four position coordinates and three physical angular speeds, not three ordered revolute axes.
+			auto const* type_field = object.find("type");
+			auto const joint_type = type_field != nullptr ? type_field->to<std::string>() : std::string{"axes"};
+			if (joint_type == "spherical")
+			{
+				// The native builder owns quaternion-domain validation; parsing preserves the supplied components without normalizing them.
+				if (object.find("axes") != nullptr)
+					throw std::runtime_error("Spherical joints do not accept ordered 'axes'");
+
+				desc = physics::ArticulationJointDesc::Spherical(desc.m_joint_to_parent, desc.m_joint_to_child);
+				auto read_state = [&](char const* name, std::span<float> destination)
+				{
+					// Omitted state retains the factory's identity orientation or zero angular speed.
+					auto const* field = object.find(name);
+					if (field == nullptr)
+						return;
+
+					// Coordinate counts are explicit at this input boundary; extra or missing components are not discarded.
+					auto const& values = field->to_array();
+					if (values.size() != destination.size())
+						throw std::runtime_error(pr::FmtS("Spherical joint '%s' requires %zu components", name, destination.size()));
+
+					for (size_t index = 0; index != values.size(); ++index)
+					{
+						// Numeric domain errors must be reported before runtime construction.
+						destination[index] = values[index].to<float>();
+						if (!std::isfinite(destination[index]))
+							throw std::runtime_error("Spherical joint initial state must be finite");
+					}
+				};
+				read_state("initial_orientation", std::span{desc.m_initial_position}.first(4));
+				read_state("initial_angular_velocity", std::span{desc.m_initial_velocity}.first(3));
+				return desc;
+			}
+			if (joint_type != "axes")
+				throw std::runtime_error(pr::FmtS("Unknown articulation joint type '%s'", joint_type.c_str()));
+
+			// Existing scalar joints retain their ordered screw-motion representation, including zero-axis fixed joints.
 			auto const* axes = object.find("axes");
 			if (axes == nullptr)
 				return desc;
@@ -325,6 +364,28 @@ namespace physics_sandbox::scene_loader
 			if (desc.m_sleeping && desc.m_never_sleep)
 				throw std::runtime_error("An articulation cannot start sleeping and be marked never_sleep");
 
+			if (auto const* actuation = object.find("actuation"))
+			{
+				auto const& fields = actuation->to_object();
+				if (auto const* field = fields.find("torque_per_kg"))
+					desc.m_actuation.m_torque_per_kg = field->to<float>();
+
+				if (auto const* field = fields.find("period_s"))
+					desc.m_actuation.m_period_s = field->to<float>();
+
+				if (auto const* field = fields.find("phase"))
+					desc.m_actuation.m_phase = field->to<float>();
+
+				if (!std::isfinite(desc.m_actuation.m_torque_per_kg) || desc.m_actuation.m_torque_per_kg < 0.0f)
+					throw std::runtime_error("Articulation actuation 'torque_per_kg' must be finite and non-negative");
+
+				if (!std::isfinite(desc.m_actuation.m_period_s) || !(desc.m_actuation.m_period_s > 0.0f))
+					throw std::runtime_error("Articulation actuation 'period_s' must be finite and positive");
+
+				if (!std::isfinite(desc.m_actuation.m_phase))
+					throw std::runtime_error("Articulation actuation 'phase' must be finite");
+			}
+
 			auto const* root = object.find("root");
 			if (root == nullptr)
 				throw std::runtime_error("Articulation requires a 'root' link");
@@ -395,9 +456,10 @@ namespace physics_sandbox::scene_loader
 			return desc;
 		}
 
-		// Read one persistent constraint and its type-specific axis data.
+		// Read one persistent constraint and its type-specific parameters.
 		ConstraintDesc ReadConstraint(pr::json::Value const& value)
 		{
+			// Endpoints and primitive selection are explicit; only the selected primitive's parameters are read below.
 			auto const& object = value.to_object();
 			auto desc = ConstraintDesc{};
 			if (auto const* field = object.find("name"))
@@ -414,6 +476,8 @@ namespace physics_sandbox::scene_loader
 				desc.m_type = ConstraintDesc::EType::Weld;
 			else if (type == "d6")
 				desc.m_type = ConstraintDesc::EType::D6;
+			else if (type == "spherical_angular")
+				desc.m_type = ConstraintDesc::EType::SphericalAngular;
 			else
 				throw std::runtime_error(pr::FmtS("Unknown constraint type '%s'", type.c_str()));
 
@@ -424,14 +488,62 @@ namespace physics_sandbox::scene_loader
 			desc.m_frame_a = ReadConstraintFrame(*frame_a);
 			desc.m_frame_b = ReadConstraintFrame(*frame_b);
 
-			if (auto const* field = object.find("axis"))
-				desc.m_axis = ReadConstraintAxis(*field);
-			else if (desc.m_type == ConstraintDesc::EType::Hinge || desc.m_type == ConstraintDesc::EType::Slider)
-				throw std::runtime_error("Hinge and slider constraints require an 'axis' description");
-			if (auto const* field = object.find("linear"))
-				ReadConstraintAxes(*field, desc.m_linear, "linear");
-			if (auto const* field = object.find("angular"))
-				ReadConstraintAxes(*field, desc.m_angular, "angular");
+			// Parse each primitive's own parameters; physical spherical damping is not a D6 coordinate drive.
+			switch (desc.m_type)
+			{
+				case ConstraintDesc::EType::SphericalAngular:
+				{
+					// Native ConstraintSet validation owns angular-range and damping domains before persistent publication.
+					if (object.find("axis") != nullptr || object.find("linear") != nullptr || object.find("angular") != nullptr)
+						throw std::runtime_error("Spherical angular constraints use swing_x, swing_z, twist and damping, not D6 axes");
+
+					auto read_range = [&](char const* name, pr::Range<float>& range)
+					{
+						// Omitted ranges remain unrestricted; range ends are signed quadrant half-axes or twist endpoints in radians.
+						auto const* field = object.find(name);
+						if (field == nullptr)
+							return;
+
+						// Preserve the supplied endpoints for native domain validation rather than sorting or clamping them.
+						auto const& values = field->to_array();
+						if (values.size() != 2)
+							throw std::runtime_error(pr::FmtS("Spherical angular '%s' requires two endpoints", name));
+
+						range = pr::Range<float>{values[0].to<float>(), values[1].to<float>()};
+					};
+					read_range("swing_x", desc.m_spherical.m_swing_x);
+					read_range("swing_z", desc.m_spherical.m_swing_z);
+					read_range("twist", desc.m_spherical.m_twist);
+					if (auto const* field = object.find("damping"))
+						desc.m_spherical.m_damping = field->to<float>();
+
+					break;
+				}
+				case ConstraintDesc::EType::Hinge:
+				case ConstraintDesc::EType::Slider:
+				{
+					// These convenience primitives require the active scalar axis description.
+					if (object.find("axis") == nullptr)
+						throw std::runtime_error("Hinge and slider constraints require an 'axis' description");
+
+					[[fallthrough]];
+				}
+				case ConstraintDesc::EType::BallSocket:
+				case ConstraintDesc::EType::Weld:
+				case ConstraintDesc::EType::D6:
+				{
+					// Preserve the existing D6 and convenience-primitive input fields.
+					if (auto const* field = object.find("axis"))
+						desc.m_axis = ReadConstraintAxis(*field);
+					if (auto const* field = object.find("linear"))
+						ReadConstraintAxes(*field, desc.m_linear, "linear");
+					if (auto const* field = object.find("angular"))
+						ReadConstraintAxes(*field, desc.m_angular, "angular");
+
+					break;
+				}
+				default: { throw std::runtime_error("Unknown constraint parameter kind"); }
+			}
 
 			if (auto const* field = object.find("break_force"))
 				desc.m_break_force = field->to<float>();
@@ -467,6 +579,27 @@ namespace physics_sandbox::scene_loader
 			}
 		}
 
+		// Authored workload excitation must survive parsing, and malformed physical inputs must fail at the JSON boundary.
+		PRUnitTestClass(SceneLoaderActuationTests)
+		{
+			PRUnitTestMethod(ParsesActuationAndRejectsInvalidParameters, Quick)
+			{
+				auto parse = [](std::string_view fields)
+				{
+					return ParseMultibodyDescriptions(std::format(R"json({{"scene":{{"articulations":[{{"name":"tree","root":{{"name":"root","shape":"sphere","radius":0.5,"mass":1}},"actuation":{}}}]}}}})json", fields));
+				};
+				auto const desc = parse(R"json({"torque_per_kg":3,"period_s":1.1,"phase":0.25})json");
+				PR_EXPECT(desc.articulations[0].m_actuation.m_torque_per_kg == 3.0f);
+				PR_EXPECT(desc.articulations[0].m_actuation.m_period_s == 1.1f);
+				PR_EXPECT(desc.articulations[0].m_actuation.m_phase == 0.25f);
+				PR_EXPECT(parse("{}").articulations[0].m_actuation.m_torque_per_kg == 0.0f);
+				PR_THROWS(parse(R"json({"torque_per_kg":-1})json"), std::exception);
+				PR_THROWS(parse(R"json({"period_s":0})json"), std::exception);
+				PR_THROWS(parse(R"json({"period_s":-1})json"), std::exception);
+				PR_THROWS(parse(R"json({"phase":1e300})json"), std::exception);
+			}
+		};
+
 		PRUnitTestClass(SceneLoaderMultibodyTests)
 		{
 			PRUnitTestMethod(ParsesArticulationsAndEveryConstraintType, Quick)
@@ -500,10 +633,21 @@ namespace physics_sandbox::scene_loader
 									]
 								}
 							}, {
-								"name": "mass-only",
+								"name": "spherical",
 								"parent": "shaped",
+								"inertia": { "type": "sphere", "radius": 0.3, "mass": 1 },
+								"joint": {
+									"type": "spherical",
+									"parent_frame": { "rotation": [0, 0, 30] },
+									"child_frame": { "rotation": [0, 10, 0] },
+									"initial_orientation": [0.6, 0, 0, 0.8],
+									"initial_angular_velocity": [0.2, 0.3, 0.4]
+								}
+							}, {
+								"name": "mass-only",
+								"parent": "spherical",
 								"inertia": { "type": "sphere", "radius": 0.25, "mass": 1 },
-								"joint": {}
+								"joint": { "axes": [{ "type": "prismatic", "axis": [0, 1, 0], "initial_position": 0.7 }] }
 							}]
 						}],
 						"constraints": [
@@ -546,6 +690,15 @@ namespace physics_sandbox::scene_loader
 								"angular": [
 									{ "mode": "driven", "target_position": 0.5, "stiffness": 6, "damping": 7, "max_force": 8 }
 								]
+							}, {
+								"name": "spherical-limits",
+								"type": "spherical_angular",
+								"frame_a": { "articulation": "tree", "link": "shaped", "rotation": [0, 0, 30] },
+								"frame_b": { "articulation": "tree", "link": "spherical", "rotation": [0, 10, 0] },
+								"swing_x": [-0.6, 0.8],
+								"swing_z": [0, 0.4],
+								"twist": [-0.2, 0.2],
+								"damping": 6
 							}
 						]
 					}
@@ -553,16 +706,24 @@ namespace physics_sandbox::scene_loader
 
 				PR_EXPECT(desc.articulations.size() == 1);
 				PR_EXPECT(desc.articulations[0].m_root_type == physics::EArticulationRootType::Floating);
-				PR_EXPECT(desc.articulations[0].m_links.size() == 2);
+				PR_EXPECT(desc.articulations[0].m_links.size() == 3);
 				PR_EXPECT(desc.articulations[0].m_links[0].m_joint.m_dof_count == 2);
 				PR_EXPECT(desc.articulations[0].m_links[0].m_joint.m_axes[0].m_type == physics::EArticulationAxisType::Revolute);
 				PR_EXPECT(desc.articulations[0].m_links[0].m_joint.m_axes[0].m_axis.z == 1.0f);
 				PR_EXPECT(desc.articulations[0].m_links[0].m_collide_parent);
 				PR_EXPECT(desc.articulations[0].m_links[0].m_collide_self);
-				PR_EXPECT(!desc.articulations[0].m_links[1].m_has_shape);
-				PR_EXPECT(desc.articulations[0].m_links[1].m_inertia.has_value());
+				PR_EXPECT(desc.articulations[0].m_links[1].m_joint.m_type == physics::EArticulationJointType::Spherical);
+				PR_EXPECT(desc.articulations[0].m_links[1].m_joint.PositionCount() == 4);
+				PR_EXPECT(desc.articulations[0].m_links[1].m_joint.m_dof_count == 3);
+				PR_EXPECT(desc.articulations[0].m_links[1].m_joint.m_initial_position[3] == 0.8f);
+				PR_EXPECT(desc.articulations[0].m_links[1].m_joint.m_initial_velocity[2] == 0.4f);
+				PR_EXPECT(FEqlAbsolute(desc.articulations[0].m_links[1].m_joint.m_joint_to_parent, m4x4::TransformDeg(0, 0, 30, v4::Origin()), 1.0e-6f));
+				PR_EXPECT(FEqlAbsolute(desc.articulations[0].m_links[1].m_joint.m_joint_to_child, m4x4::TransformDeg(0, 10, 0, v4::Origin()), 1.0e-6f));
+				PR_EXPECT(desc.articulations[0].m_links[2].m_joint.m_initial_position[0] == 0.7f);
+				PR_EXPECT(!desc.articulations[0].m_links[2].m_has_shape);
+				PR_EXPECT(desc.articulations[0].m_links[2].m_inertia.has_value());
 
-				PR_EXPECT(desc.constraints.size() == 5);
+				PR_EXPECT(desc.constraints.size() == 6);
 				PR_EXPECT(desc.constraints[0].m_type == ConstraintDesc::EType::BallSocket);
 				PR_EXPECT(desc.constraints[0].m_frame_b.m_space == ConstraintFrameDesc::ESpace::World);
 				PR_EXPECT(desc.constraints[1].m_type == ConstraintDesc::EType::Hinge);
@@ -574,6 +735,33 @@ namespace physics_sandbox::scene_loader
 				PR_EXPECT(desc.constraints[4].m_type == ConstraintDesc::EType::D6);
 				PR_EXPECT(desc.constraints[4].m_linear[1].m_mode == physics::EConstraintAxisMode::Locked);
 				PR_EXPECT(desc.constraints[4].m_angular[0].m_mode == physics::EConstraintAxisMode::Driven);
+				PR_EXPECT(desc.constraints[5].m_type == ConstraintDesc::EType::SphericalAngular);
+				PR_EXPECT(desc.constraints[5].m_spherical.m_damping == 6.0f);
+				PR_EXPECT(desc.constraints[5].m_spherical.m_swing_x.m_beg == -0.6f && desc.constraints[5].m_spherical.m_swing_x.m_end == 0.8f);
+				PR_EXPECT(desc.constraints[5].m_spherical.m_swing_z.m_beg == 0 && desc.constraints[5].m_spherical.m_swing_z.m_end == 0.4f);
+				PR_EXPECT(desc.constraints[5].m_spherical.m_twist.m_beg == -0.2f && desc.constraints[5].m_spherical.m_twist.m_end == 0.2f);
+				PR_EXPECT(desc.constraints[5].m_frame_a.m_body.m_link_name == "shaped");
+				PR_EXPECT(desc.constraints[5].m_frame_b.m_body.m_link_name == "spherical");
+			}
+
+			// Quaternion and angular-speed dimensions are independent and malformed declarations fail before scene construction.
+			PRUnitTestMethod(RejectsAmbiguousSphericalState, Quick)
+			{
+				// Omitted quaternion state preserves the native factory's valid identity configuration and zero physical angular speed.
+				auto const joint = ReadArticulationJoint(pr::json::Read(std::string_view{R"json({"type":"spherical"})json"}));
+				PR_EXPECT(joint.m_initial_position[0] == 0 && joint.m_initial_position[1] == 0 && joint.m_initial_position[2] == 0 && joint.m_initial_position[3] == 1);
+				PR_EXPECT(joint.m_initial_velocity[0] == 0 && joint.m_initial_velocity[1] == 0 && joint.m_initial_velocity[2] == 0);
+
+				// A quaternion joint cannot also request an ordered axis sequence or supply a three-component orientation.
+				PR_THROWS(ReadArticulationJoint(pr::json::Read(std::string_view{R"json({"type":"spherical","axes":[]})json"})), std::exception);
+				PR_THROWS(ReadArticulationJoint(pr::json::Read(std::string_view{R"json({"type":"spherical","initial_orientation":[0,0,0]})json"})), std::exception);
+				PR_THROWS(ReadArticulationJoint(pr::json::Read(std::string_view{R"json({"type":"spherical","initial_angular_velocity":[0,0,0,0]})json"})), std::exception);
+				PR_THROWS(ReadConstraint(pr::json::Read(std::string_view{R"json({
+					"type":"spherical_angular","frame_a":{"body":"world"},"frame_b":{"body":"body"},"swing_x":[-0.5]
+				})json"})), std::exception);
+				PR_THROWS(ReadConstraint(pr::json::Read(std::string_view{R"json({
+					"type":"spherical_angular","frame_a":{"body":"world"},"frame_b":{"body":"body"},"angular":[]
+				})json"})), std::exception);
 			}
 
 			PRUnitTestMethod(RejectsInvalidMultibodyDescriptors, Quick)

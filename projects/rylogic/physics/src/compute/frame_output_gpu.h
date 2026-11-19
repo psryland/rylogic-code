@@ -10,10 +10,10 @@ namespace pr::physics
 {
 	struct GpuArticulationMidpointOutput;
 	struct GpuConstraintBreakOutput;
-	struct GpuCoupledConstraintFailureOutput;
-	struct GpuCoupledConstraintFailureState;
+	struct GpuConstraintRejectionOutput;
+	struct GpuConstraintRejectionState;
 
-	// Byte offsets for one packed output containing state, events, break latches, and coupled rejection records.
+	// Byte offsets for one packed output containing state, events, break latches, and owner-tagged rejection records.
 	struct GpuFrameOutputLayout
 	{
 		int m_body_count;
@@ -22,7 +22,7 @@ namespace pr::physics
 		int m_position_count;
 		int m_velocity_count;
 		int m_constraint_break_count;
-		int m_coupled_failure_count;
+		int m_constraint_rejection_slot_count;
 		int64_t m_body_offset;
 		int64_t m_event_offset;
 		int64_t m_articulation_offset;
@@ -30,7 +30,7 @@ namespace pr::physics
 		int64_t m_velocity_offset;
 		int64_t m_acceleration_offset;
 		int64_t m_constraint_break_offset;
-		int64_t m_coupled_failure_offset;
+		int64_t m_constraint_rejection_offset;
 		int64_t m_readback_size;
 		int64_t m_resource_size;
 	};
@@ -49,7 +49,7 @@ namespace pr::physics
 		int m_event_capacity;
 		int m_articulation_count;
 		int m_constraint_break_count;
-		int m_coupled_failure_count;
+		int m_constraint_rejection_slot_count;
 		int m_dispatch_count;
 		int m_readback_count;
 		int m_pad1;
@@ -85,9 +85,9 @@ namespace pr::physics
 		// Reset aggregate state and append compact articulation sections to the legacy rigid/event layout.
 		void BeginFrame(GpuJob& job, int body_count, int event_capacity, int substep_count, GpuArticulationMidpointOutput const& articulations);
 
-		// Reset aggregate state and append optional articulation, break-latch, and coupled-failure sections.
+		// Reset aggregate state and append optional articulation, break-latch, and owner-tagged rejection sections.
 		// 'capture_substep_state' is independent of the rigid output count because shaped articulation proxies can produce collision counters without public rigid bodies.
-		void BeginFrame(GpuJob& job, int body_count, int event_capacity, int substep_count, GpuArticulationMidpointOutput const& articulations, GpuConstraintBreakOutput const& constraint_breaks, GpuCoupledConstraintFailureOutput const& coupled_failures, bool capture_substep_state);
+		void BeginFrame(GpuJob& job, int body_count, int event_capacity, int substep_count, GpuArticulationMidpointOutput const& articulations, GpuConstraintBreakOutput const& constraint_breaks, GpuConstraintRejectionOutput const& constraint_rejections, bool capture_substep_state);
 
 		// Retain counters and optional resolved contacts before the next substep resets transient collision buffers.
 		// Hidden-proxy filtering remains optional because rigid-only contact order already contains only public bodies.
@@ -106,9 +106,10 @@ namespace pr::physics
 			ID3D12Resource* bodies,
 			GpuArticulationMidpointOutput const& articulations,
 			GpuConstraintBreakOutput const& constraint_breaks,
-			GpuCoupledConstraintFailureOutput const& coupled_failures,
+			GpuConstraintRejectionOutput const& constraint_rejections,
 			int articulation_proxy_count = 0,
-			ID3D12Resource* constraint_state = nullptr);
+			ID3D12Resource* constraint_state = nullptr,
+			ID3D12Resource* contact_state = nullptr);
 
 		// Access typed sections after the owning GPU job has completed.
 		static GpuFrameOutputHeader const& Header(GpuFrameOutputReadback const& readback);
@@ -119,7 +120,7 @@ namespace pr::physics
 		static std::span<float const> Velocities(GpuFrameOutputReadback const& readback);
 		static std::span<float const> Accelerations(GpuFrameOutputReadback const& readback);
 		static std::span<GpuConstraintBreakState const> ConstraintBreaks(GpuFrameOutputReadback const& readback);
-		static std::span<GpuCoupledConstraintFailureState const> CoupledFailures(GpuFrameOutputReadback const& readback);
+		static std::span<GpuConstraintRejectionState const> ConstraintRejections(GpuFrameOutputReadback const& readback);
 
 		// Report bytes copied into the completed readback, excluding event prefixes skipped by GPU predication.
 		static size_t TransferredBytes(GpuFrameOutputReadback const& readback);

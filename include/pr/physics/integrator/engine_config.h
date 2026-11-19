@@ -35,6 +35,9 @@ namespace pr::physics
 		// Number of coloured Gauss-Seidel contact solver iterations.
 		int solver_iterations = 8;
 
+		// Local articulated contact normal/friction residual target, in m/s. Outer coupled convergence must be checked separately.
+		float contact_velocity_tolerance = 0.01f;
+
 		// Largest work set that runs each colour sweep as one single-group dispatch instead of one dispatch and barrier per colour.
 		// Both forms give the same results; the single-group form is faster for small sets but runs all work in one thread group.
 		// Contacts are compared using the previous frame's contact count; constraints use their exact slot count. Zero or less disables the single-group form.
@@ -119,8 +122,5 @@ namespace pr::physics
 		std::uint32_t world_collision_layer = 1U;
 		std::uint32_t world_collision_mask = 0xFFFFFFFFU;
 
-		// Enable the D3D12 debug layer on the device the engine creates. It has no effect when the engine borrows a device,
-		// whose diagnostics belong to its owner. The debug layer is process-wide and adds a large CPU cost to every GPU call.
-		bool device_debug = false;
 	};
 }

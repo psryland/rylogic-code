@@ -7,11 +7,22 @@
 
 #if PR_UNITTESTS
 #include "src/utility/gpu.h"
+#include "src/compute/constraint_transaction.hlsli"
 #include "pr/compute/shaders/shader_cache_fs.h"
 #include "pr/common/unittests.h"
 
 namespace pr::physics::tests
 {
+	// Issue a fresh epoch for a standalone diagnostic frame. Continuation fixtures retain and reuse an explicit epoch instead.
+	inline GpuConstraintEpoch FreshConstraintTestEpoch(float timestep, float warm_start_factor)
+	{
+		// Separate owners may share this test process; unique identities also cover repeated diagnostic calls inside loops.
+		static std::atomic<uint64_t> serial{};
+		auto const identity = serial.fetch_add(1) + 1;
+		assert(identity != 0);
+		return GpuConstraintEpoch{uint2(static_cast<uint32_t>(identity), static_cast<uint32_t>(identity >> 32)), timestep, warm_start_factor};
+	}
+
 	// Return the shader cache shared by all test engines, stored in '<repo>/obj/unittests/shader-cache'.
 	inline compute::shader_cache::IShaderCache& SharedTestShaderCache()
 	{

@@ -7,6 +7,19 @@
 
 namespace pr::physics::atmosphere
 {
+	// A returned input rejection changed no state and recorded or ran no work. Exceptions are failures, not input rejections.
+	struct [[nodiscard]] AtmosphereInputCheck
+	{
+		// Null for accepted inputs; otherwise a static description of the rejected input.
+		char const* m_rejection;
+
+		// True when the input was accepted and the method performed its work.
+		bool Accepted() const
+		{
+			return m_rejection == nullptr;
+		}
+	};
+
 	// Boundary condition applied to one outside face of the atmosphere domain.
 	enum class EAtmosphereBoundary
 	{
@@ -299,6 +312,9 @@ namespace pr::physics::atmosphere
 	public:
 		// Create GPU buffers and initialise the field to the reference profile at rest.
 		// 'shader_cache' is optional; when given, compiled kernels are reused across runs.
+		// Construction records into 'gpu.m_job', which must be recording, and retires that work before returning.
+		// Failed construction waits for submitted work before releasing resources, but may leave an unsubmitted recording referring to them.
+		// After a constructor throws, only destroy that job; never record, submit, run or retire it again. All atmosphere constructors share this rule.
 		AtmosphereSolver(Gpu& gpu, AtmosphereConfig config, IShaderCache* shader_cache = nullptr);
 
 		// Release GPU resources owned by the solver.
@@ -314,21 +330,26 @@ namespace pr::physics::atmosphere
 		void UploadState(GpuJob& job, AtmosphereState const& state);
 
 		// Change column floors and remap only changed columns into the new terrain-following layers.
-		void RemapFloors(GpuJob& job, std::span<float const> floor_heights);
+		// Rejects invalid column count or nonfinite active floors before any work. Accepted calls run sync observers.
+		// After an exception, the field, grid and job may be partly changed and may only be destroyed.
+		AtmosphereInputCheck RemapFloors(GpuJob& job, std::span<float const> floor_heights);
 
 		// Set the temperature of the floor under each column, K, in AtmosphereGrid column order. The lowest layer relaxes toward it at
 		// AtmosphereConfig::m_floor_exchange_rate. Initially the reference temperature at each column's floor height; RemapFloors does not change it.
 		// The values are kept on the CPU and uploaded by the next Step, so this may be called while a recorded step is still running.
-		void SetFloorTemperatures(std::span<float const> floor_temperatures);
+		// Rejects input without changing stored values unless each column has one finite positive temperature.
+		AtmosphereInputCheck SetFloorTemperatures(std::span<float const> floor_temperatures);
 
 		// Set the air outside the open faces, one entry per column (see AtmosphereGrid::ColumnCount and BuildOutsideAir); it drives large-scale
 		// wind through the domain. Square sides use the edge-column entry. Active/inactive mask faces use the inactive column's entry.
 		// The open-edge sponge is still measured from the square domain sides. Initially calm air at the reference temperature.
 		// The values are kept on the CPU and uploaded by the next Step, so this may be called while a recorded step is still running.
-		void SetOutsideAir(std::span<AtmosphereOutsideAir const> outside_air);
+		// Rejects input without changing stored values unless each column has one finite entry.
+		AtmosphereInputCheck SetOutsideAir(std::span<AtmosphereOutsideAir const> outside_air);
 
 		// Record one solver step into 'job', with at most 64 'heat_sources' active for this step only. The caller owns command submission and completion.
-		void Step(GpuJob& job, float dt, std::span<AtmosphereHeatSource const> heat_sources = {});
+		// Rejects invalid duration or heat sources before recording. After an exception the solver and job may hold a partial step and may only be destroyed.
+		AtmosphereInputCheck Step(GpuJob& job, float dt, std::span<AtmosphereHeatSource const> heat_sources = {});
 
 		// Read the full staggered field after all previously recorded work in 'job' has completed.
 		AtmosphereState ReadBack(GpuJob& job);
@@ -399,7 +420,11 @@ namespace pr::physics::atmosphere
 
 		// Release one hold on 'slot'. 'fence' and 'value' identify when the consumer's GPU reads finish; a null 'fence' means they already have.
 		// The next step that writes the slot waits on the GPU for every fence value released since the slot was last written.
-		void Release(int slot, ID3D12Fence* fence, uint64_t value);
+		// Rejects an out-of-range or unheld slot without changing any hold.
+		AtmosphereInputCheck Release(int slot, ID3D12Fence* fence, uint64_t value);
+
+		// True when the next Initialise or Advect has an unheld, noncurrent slot to write.
+		bool HasFreeSlot() const;
 
 		// Read all particles after all previously recorded tracer work in 'job' has completed. Blocks until 'job' has run.
 		std::vector<AtmosphereTracerParticle> ReadBack(GpuJob& job);

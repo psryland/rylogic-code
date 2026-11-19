@@ -1,6 +1,14 @@
 <Project>
 	<!-- Keep one authoritative list for the build project and its companion Solution Explorer filters. -->
 	<ItemGroup>
+		<ClCompile Include="$(MSBuildThisFileDirectory)atmosphere_record_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)engine_gpu_recovery_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
 		<ClCompile Include="$(MSBuildThisFileDirectory)kinematic_body_tests.cpp">
 			<PhysicsUnitTest>true</PhysicsUnitTest>
 			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>

@@ -64,7 +64,7 @@ namespace pr::physics::tests
 			// Each iteration records into the same job and runs synchronously to keep readback lifetimes simple in tests.
 			for (int i = 0; i != steps; ++i)
 			{
-				solver.Step(job, dt, heat_sources);
+				PR_EXPECT(solver.Step(job, dt, heat_sources).Accepted());
 				job.Run();
 			}
 			return solver.ReadBack(job);
@@ -260,7 +260,7 @@ namespace pr::physics::tests
 				auto solver = AtmosphereSolver{ gpu, config, &SharedTestShaderCache() };
 				auto const outside_air = UniformOutsideAir(solver.Config().m_grid, v2{ wind, 0.0f });
 				auto const initial = solver.ReadBack(job);
-				solver.SetOutsideAir(outside_air);
+				PR_EXPECT(solver.SetOutsideAir(outside_air).Accepted());
 				auto state = Run(solver, job, 240, 1.0f / 15.0f);
 				auto stats = solver.Stats(state);
 				auto cells_out = solver.CellStates(state);
@@ -448,13 +448,13 @@ namespace pr::physics::tests
 				// Exclude first-run shader work by constructing the solver and running one warm-up step before timing. The default solver settings are timed.
 				auto config = Config(cells);
 				auto solver = AtmosphereSolver{ gpu, config, &SharedTestShaderCache() };
-				solver.Step(job, 0.025f);
+				PR_EXPECT(solver.Step(job, 0.025f).Accepted());
 				job.Run();
 				auto const steps = 5;
 				auto const beg = std::chrono::steady_clock::now();
 				for (int i = 0; i != steps; ++i)
 				{
-					solver.Step(job, 0.025f);
+					PR_EXPECT(solver.Step(job, 0.025f).Accepted());
 					job.Run();
 				}
 				auto const end = std::chrono::steady_clock::now();
@@ -647,7 +647,7 @@ namespace pr::physics::tests
 			// Release one slot with an unsignalled fence. The step that writes it must not finish until the fence is signalled from the CPU.
 			auto fence = D3DPtr<ID3D12Fence>{};
 			Check(gpu.m_gpu.device()->CreateFence(0, D3D12_FENCE_FLAG_NONE, __uuidof(ID3D12Fence), (void**)fence.address_of()));
-			tracers.Release(others[0], fence.get(), 1);
+			PR_EXPECT(tracers.Release(others[0], fence.get(), 1).Accepted());
 			tracers.Advect(job, 0.02f);
 			PR_EXPECT(tracers.CurrentSlot() == others[0]);
 			auto handle = job.Submit();
@@ -657,14 +657,14 @@ namespace pr::physics::tests
 			job.Complete(handle);
 
 			// Release the remaining holds. A release without a matching hold is a caller error.
-			tracers.Release(held, nullptr, 0);
+			PR_EXPECT(tracers.Release(held, nullptr, 0).Accepted());
 			for (auto slot : others)
 			{
 				// The first of 'others' was already released above.
 				if (slot != others[0])
-					tracers.Release(slot, nullptr, 0);
+					PR_EXPECT(tracers.Release(slot, nullptr, 0).Accepted());
 			}
-			PR_THROWS(tracers.Release(held, nullptr, 0), std::logic_error);
+			PR_EXPECT(!tracers.Release(held, nullptr, 0).Accepted());
 
 			// The held slot still has its original contents.
 			auto const after = ReadSlot(job, tracers, held);
@@ -695,7 +695,7 @@ namespace pr::physics::tests
 			for (int i = 0; i != 10; ++i)
 			{
 				// Each step submits solver and tracer work together, as an interactive caller would.
-				solver.Step(job, 1.0f / 60.0f, sources);
+				PR_EXPECT(solver.Step(job, 1.0f / 60.0f, sources).Accepted());
 				tracers.Advect(job, 1.0f / 60.0f);
 				particles = tracers.ReadBack(job);
 			}
@@ -719,14 +719,14 @@ namespace pr::physics::tests
 			// Initial ages are staggered across the lifetime, so use a lifetime long enough that no tracer expires by age and every respawn is an inflow respawn.
 			auto tracers = AtmosphereTracers{ solver, gpu, AtmosphereTracerConfig{ .m_particle_count = 512, .m_seed = 12648430u, .m_max_age = 1.0e6f }, &SharedTestShaderCache() };
 			auto const outside_air = UniformOutsideAir(config.m_grid, v2{ 5.0f, 0.0f });
-			solver.SetOutsideAir(outside_air);
+			PR_EXPECT(solver.SetOutsideAir(outside_air).Accepted());
 			auto const dt = 1.0f / 60.0f;
 
 			// Let the outside wind fill the tunnel before measuring.
 			for (int i = 0; i != 300; ++i)
 			{
 				// Advance the solver and tracers together, as the sandbox does.
-				solver.Step(job, dt);
+				PR_EXPECT(solver.Step(job, dt).Accepted());
 				tracers.Advect(job, dt);
 			}
 			auto const before = tracers.ReadBack(job);
@@ -735,7 +735,7 @@ namespace pr::physics::tests
 			for (int i = 0; i != 60; ++i)
 			{
 				// Same per-step order as the spin-up.
-				solver.Step(job, dt);
+				PR_EXPECT(solver.Step(job, dt).Accepted());
 				tracers.Advect(job, dt);
 			}
 			auto const after = tracers.ReadBack(job);
@@ -787,14 +787,14 @@ namespace pr::physics::tests
 				// The outside air south of the tunnel axis blows east, and north of it blows west.
 				return AtmosphereOutsideAir{ .m_wind = v2{ pos.y < 0.0f ? +5.0f : -5.0f, 0.0f } };
 			});
-			solver.SetOutsideAir(outside_air);
+			PR_EXPECT(solver.SetOutsideAir(outside_air).Accepted());
 			auto const dt = 1.0f / 60.0f;
 
 			// Let the flow develop before measuring.
 			for (int i = 0; i != 600; ++i)
 			{
 				// Advance the solver and tracers together, as the sandbox does.
-				solver.Step(job, dt);
+				PR_EXPECT(solver.Step(job, dt).Accepted());
 				tracers.Advect(job, dt);
 			}
 			auto const before = tracers.ReadBack(job);
@@ -803,7 +803,7 @@ namespace pr::physics::tests
 			for (int i = 0; i != 60; ++i)
 			{
 				// Same per-step order as the spin-up.
-				solver.Step(job, dt);
+				PR_EXPECT(solver.Step(job, dt).Accepted());
 				tracers.Advect(job, dt);
 			}
 			auto const after = tracers.ReadBack(job);
@@ -931,7 +931,7 @@ namespace pr::physics::tests
 			for (int i = 0; i != steps; ++i)
 			{
 				// Each solver step is complete before the next one records.
-				solver.Step(job, dt, heat_sources);
+				PR_EXPECT(solver.Step(job, dt, heat_sources).Accepted());
 				job.Run();
 			}
 			return solver.ReadBack(job);
@@ -1028,7 +1028,7 @@ namespace pr::physics::tests
 			auto job = GpuJob{ gpu.m_gpu, "AtmosphereTerrainTests.FlowMountain", 0xFF00AAFF, 1 };
 			auto solver = AtmosphereSolver{ gpu, Config(cells, Mountain(cells)), &SharedTestShaderCache() };
 			auto const outside_air = UniformOutsideAir(solver.Config().m_grid, v2{ 5.0f, 0.0f });
-			solver.SetOutsideAir(outside_air);
+			PR_EXPECT(solver.SetOutsideAir(outside_air).Accepted());
 			auto state = Run(solver, job, 450, 1.0f / 15.0f);
 			auto stats = solver.Stats(state);
 			auto upstream = MeanVelocity(solver, state, iv3{ 8, 44, 1 }, iv3{ 16, 52, 4 });
@@ -1075,7 +1075,7 @@ namespace pr::physics::tests
 
 			solver.UploadState(job, initial);
 			job.Run();
-			solver.SetOutsideAir(outside_air);
+			PR_EXPECT(solver.SetOutsideAir(outside_air).Accepted());
 			auto state = Run(solver, job, 150, 1.0f / 15.0f);
 
 			// The lowest layers lie between 0 and about 300 m above the ground, where the rise is expected to fade from u * slope towards zero at the lid.
@@ -1106,7 +1106,7 @@ namespace pr::physics::tests
 			config.m_floor_exchange_rate = 0.25f;
 			auto solver = AtmosphereSolver{ gpu, config, &SharedTestShaderCache() };
 			auto cold = std::vector<float>(cells.x * cells.y, 278.0f);
-			solver.SetFloorTemperatures(cold);
+			PR_EXPECT(solver.SetFloorTemperatures(cold).Accepted());
 			auto state = Run(solver, job, 900, 1.0f / 15.0f);
 			auto downslope = -MeanVelocity(solver, state, iv3{ 24, 12, 0 }, iv3{ 40, 20, 3 }).x;
 			std::printf("Atmosphere cold drainage downslope %.6f m/s threshold 0.200000\n", downslope);
@@ -1136,7 +1136,7 @@ namespace pr::physics::tests
 				// Low columns use the raised surface as the new floor.
 				floor_height = std::max(floor_height, 20.0f);
 			}
-			solver.RemapFloors(job, raised);
+			PR_EXPECT(solver.RemapFloors(job, raised).Accepted());
 			job.Run();
 			auto after = solver.ReadBack(job);
 			auto after_heat = Heat(solver.Config(), after);
@@ -1185,7 +1185,7 @@ namespace pr::physics::tests
 			config.m_open_edge_band = cells.x / 2;
 			auto solver = AtmosphereSolver{ gpu, config, &SharedTestShaderCache() };
 			auto const outside_air = UniformOutsideAir(solver.Config().m_grid, v2{ 5.0f, 0.0f });
-			solver.SetOutsideAir(outside_air);
+			PR_EXPECT(solver.SetOutsideAir(outside_air).Accepted());
 			auto state = Run(solver, job, 900, 1.0f / 15.0f);
 			auto stats = solver.Stats(state);
 			auto interior = MeanVelocity(solver, state, iv3{ 32, 32, 1 }, iv3{ 64, 64, 8 });
@@ -1225,7 +1225,7 @@ namespace pr::physics::tests
 			auto solver = AtmosphereSolver{ gpu, config, &SharedTestShaderCache() };
 			auto const& grid = solver.Config().m_grid;
 			auto const outside_air = UniformOutsideAir(grid, v2{ 5.0f, 0.0f });
-			solver.SetOutsideAir(outside_air);
+			PR_EXPECT(solver.SetOutsideAir(outside_air).Accepted());
 			auto state = Run(solver, job, 450, 1.0f / 15.0f);
 			auto stats = solver.Stats(state);
 
@@ -1282,9 +1282,9 @@ namespace pr::physics::tests
 			auto free_solver = AtmosphereSolver{ gpu, config, &SharedTestShaderCache() };
 			auto dragged_solver = AtmosphereSolver{ gpu, dragged_config, &SharedTestShaderCache() };
 			auto const outside_air = UniformOutsideAir(free_solver.Config().m_grid, v2{ 5.0f, 0.0f });
-			free_solver.SetOutsideAir(outside_air);
+			PR_EXPECT(free_solver.SetOutsideAir(outside_air).Accepted());
 			auto const free_state = Run(free_solver, job, 300, 1.0f / 15.0f);
-			dragged_solver.SetOutsideAir(outside_air);
+			PR_EXPECT(dragged_solver.SetOutsideAir(outside_air).Accepted());
 			auto const dragged_state = Run(dragged_solver, job, 300, 1.0f / 15.0f);
 
 			// Compare the bottom and top layers in the interior, away from the sponge bands.
@@ -1322,9 +1322,9 @@ namespace pr::physics::tests
 			auto unmixed_solver = AtmosphereSolver{ gpu, config, &SharedTestShaderCache() };
 			auto mixed_solver = AtmosphereSolver{ gpu, mixed_config, &SharedTestShaderCache() };
 			auto const outside_air = UniformOutsideAir(unmixed_solver.Config().m_grid, v2{ 5.0f, 0.0f });
-			unmixed_solver.SetOutsideAir(outside_air);
+			PR_EXPECT(unmixed_solver.SetOutsideAir(outside_air).Accepted());
 			auto const unmixed_state = Run(unmixed_solver, job, 300, 1.0f / 15.0f);
-			mixed_solver.SetOutsideAir(outside_air);
+			PR_EXPECT(mixed_solver.SetOutsideAir(outside_air).Accepted());
 			auto const mixed_state = Run(mixed_solver, job, 300, 1.0f / 15.0f);
 
 			// Compare the bottom layer and the layer just above it in the interior, away from the sponge bands.
@@ -1353,11 +1353,11 @@ namespace pr::physics::tests
 			auto warm_solver = AtmosphereSolver{ gpu, Config(cells, std::vector<float>(cells.x * cells.y, 0.0f)), &SharedTestShaderCache() };
 			auto const& grid = warm_solver.Config().m_grid;
 			auto const warm_air = UniformOutsideAir(grid, v2{ 5.0f, 0.0f }, +4.0f);
-			warm_solver.SetOutsideAir(warm_air);
+			PR_EXPECT(warm_solver.SetOutsideAir(warm_air).Accepted());
 			auto const warm_state = Run(warm_solver, job, 20, 1.0f / 15.0f);
 			auto cold_solver = AtmosphereSolver{ gpu, Config(cells, std::vector<float>(cells.x * cells.y, 0.0f)), &SharedTestShaderCache() };
 			auto const cold_air = UniformOutsideAir(grid, v2{ 5.0f, 0.0f }, -4.0f);
-			cold_solver.SetOutsideAir(cold_air);
+			PR_EXPECT(cold_solver.SetOutsideAir(cold_air).Accepted());
 			auto const cold_state = Run(cold_solver, job, 20, 1.0f / 15.0f);
 
 			// Compare the west inflow edge cell with the reference temperature at its height.
@@ -1428,7 +1428,7 @@ namespace pr::physics::tests
 			auto before_stats = solver.Stats(state);
 			solver.UploadState(job, state);
 			job.Run();
-			solver.Step(job, 0.0f);
+			PR_EXPECT(solver.Step(job, 0.0f).Accepted());
 			job.Run();
 			auto after = solver.ReadBack(job);
 			auto after_stats = solver.Stats(after);

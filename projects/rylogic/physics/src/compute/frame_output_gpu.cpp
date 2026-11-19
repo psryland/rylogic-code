@@ -210,11 +210,11 @@ namespace pr::physics
 	// Reset aggregate state and establish rigid, event, and articulation sections before any substep writes output.
 	void GpuFrameOutput::BeginFrame(GpuJob& job, int body_count, int event_capacity, int substep_count, GpuArticulationMidpointOutput const& articulations)
 	{
-		BeginFrame(job, body_count, event_capacity, substep_count, articulations, GpuConstraintBreakOutput{}, GpuCoupledConstraintFailureOutput{}, body_count != 0);
+		BeginFrame(job, body_count, event_capacity, substep_count, articulations, GpuConstraintBreakOutput{}, GpuConstraintRejectionOutput{}, body_count != 0);
 	}
 
 	// Reset aggregate state and establish all optional packed sections before any substep writes output.
-	void GpuFrameOutput::BeginFrame(GpuJob& job, int body_count, int event_capacity, int substep_count, GpuArticulationMidpointOutput const& articulations, GpuConstraintBreakOutput const& constraint_breaks, GpuCoupledConstraintFailureOutput const& coupled_failures, bool capture_substep_state)
+	void GpuFrameOutput::BeginFrame(GpuJob& job, int body_count, int event_capacity, int substep_count, GpuArticulationMidpointOutput const& articulations, GpuConstraintBreakOutput const& constraint_breaks, GpuConstraintRejectionOutput const& constraint_rejections, bool capture_substep_state)
 	{
 		m_dispatch_count = 0;
 		m_readback_count = 0;
@@ -227,8 +227,8 @@ namespace pr::physics
 			throw std::runtime_error("GPU frame output cannot gather generalized state without articulations");
 		if (constraint_breaks.m_slot_count < 0 || (constraint_breaks.m_slot_count != 0 && constraint_breaks.m_states == nullptr))
 			throw std::runtime_error("GPU frame output constraint-break dimensions are incomplete");
-		if (coupled_failures.m_island_count < 0 || (coupled_failures.m_island_count != 0 && coupled_failures.m_states == nullptr))
-			throw std::runtime_error("GPU frame output coupled-failure dimensions are incomplete");
+		if (constraint_rejections.m_slot_count < 0 || (constraint_rejections.m_slot_count != 0 && constraint_rejections.m_states == nullptr))
+			throw std::runtime_error("GPU frame output constraint-rejection dimensions are incomplete");
 
 		auto body_offset = static_cast<int64_t>(sizeof(GpuFrameOutputHeader));
 		auto event_offset = body_offset + static_cast<int64_t>(body_count) * static_cast<int64_t>(sizeof(GpuRigidBody));
@@ -238,8 +238,8 @@ namespace pr::physics
 		auto velocity_offset = FrameOutputAlign(position_offset + static_cast<int64_t>(articulations.m_position_count) * static_cast<int64_t>(sizeof(float)));
 		auto acceleration_offset = FrameOutputAlign(velocity_offset + static_cast<int64_t>(articulations.m_velocity_count) * static_cast<int64_t>(sizeof(float)));
 		auto constraint_break_offset = FrameOutputAlign(acceleration_offset + static_cast<int64_t>(articulations.m_velocity_count) * static_cast<int64_t>(sizeof(float)));
-		auto coupled_failure_offset = FrameOutputAlign(constraint_break_offset + static_cast<int64_t>(constraint_breaks.m_slot_count) * static_cast<int64_t>(sizeof(GpuConstraintBreakState)));
-		auto readback_size = coupled_failure_offset + static_cast<int64_t>(coupled_failures.m_island_count) * static_cast<int64_t>(sizeof(GpuCoupledConstraintFailureState));
+		auto constraint_rejection_offset = FrameOutputAlign(constraint_break_offset + static_cast<int64_t>(constraint_breaks.m_slot_count) * static_cast<int64_t>(sizeof(GpuConstraintBreakState)));
+		auto readback_size = constraint_rejection_offset + static_cast<int64_t>(constraint_rejections.m_slot_count) * static_cast<int64_t>(sizeof(GpuConstraintRejectionState));
 		auto resource_size = std::max(
 			readback_size,
 			event_offset + static_cast<int64_t>(std::max(1, event_capacity)) * static_cast<int64_t>(sizeof(GpuCollisionEvent)));
@@ -255,7 +255,7 @@ namespace pr::physics
 			.m_position_count = articulations.m_position_count,
 			.m_velocity_count = articulations.m_velocity_count,
 			.m_constraint_break_count = constraint_breaks.m_slot_count,
-			.m_coupled_failure_count = coupled_failures.m_island_count,
+			.m_constraint_rejection_slot_count = constraint_rejections.m_slot_count,
 			.m_body_offset = body_offset,
 			.m_event_offset = event_offset,
 			.m_articulation_offset = articulation_offset,
@@ -263,7 +263,7 @@ namespace pr::physics
 			.m_velocity_offset = velocity_offset,
 			.m_acceleration_offset = acceleration_offset,
 			.m_constraint_break_offset = constraint_break_offset,
-			.m_coupled_failure_offset = coupled_failure_offset,
+			.m_constraint_rejection_offset = constraint_rejection_offset,
 			.m_readback_size = readback_size,
 			.m_resource_size = resource_size,
 		};
@@ -396,7 +396,7 @@ namespace pr::physics
 	// Gather final rigid and articulation state before recording the readback.
 	GpuFrameOutputReadback GpuFrameOutput::GatherAndReadback(GpuJob& job, int body_count, ID3D12Resource* bodies, GpuArticulationMidpointOutput const& articulations)
 	{
-		return GatherAndReadback(job, body_count, bodies, articulations, GpuConstraintBreakOutput{}, GpuCoupledConstraintFailureOutput{});
+		return GatherAndReadback(job, body_count, bodies, articulations, GpuConstraintBreakOutput{}, GpuConstraintRejectionOutput{});
 	}
 
 	// Gather final state and sparse diagnostic streams before recording the readback.
@@ -406,9 +406,10 @@ namespace pr::physics
 		ID3D12Resource* bodies,
 		GpuArticulationMidpointOutput const& articulations,
 		GpuConstraintBreakOutput const& constraint_breaks,
-		GpuCoupledConstraintFailureOutput const& coupled_failures,
+		GpuConstraintRejectionOutput const& constraint_rejections,
 		int articulation_proxy_count,
-		ID3D12Resource* constraint_state)
+		ID3D12Resource* constraint_state,
+		ID3D12Resource* contact_state)
 	{
 		if (body_count != m_layout.m_body_count)
 			throw std::runtime_error("GPU frame output body count changed after BeginFrame");
@@ -419,15 +420,17 @@ namespace pr::physics
 		if (constraint_breaks.m_slot_count != m_layout.m_constraint_break_count ||
 			(constraint_breaks.m_slot_count != 0 && constraint_breaks.m_states == nullptr))
 			throw std::runtime_error("GPU frame output constraint-break dimensions changed after BeginFrame");
-		if (coupled_failures.m_island_count != m_layout.m_coupled_failure_count ||
-			(coupled_failures.m_island_count != 0 && coupled_failures.m_states == nullptr))
-			throw std::runtime_error("GPU frame output coupled-failure dimensions changed after BeginFrame");
+		if (constraint_rejections.m_slot_count != m_layout.m_constraint_rejection_slot_count ||
+			(constraint_rejections.m_slot_count != 0 && constraint_rejections.m_states == nullptr))
+			throw std::runtime_error("GPU frame output constraint-rejection dimensions changed after BeginFrame");
 		if (articulation_proxy_count < 0 || (articulation_proxy_count != 0 && (
 			articulations.m_articulation_count == 0 || bodies == nullptr ||
 			bodies->GetDesc().Width < (static_cast<uint64_t>(body_count) + static_cast<uint64_t>(articulation_proxy_count)) * sizeof(GpuRigidBody))))
 			throw std::runtime_error("GPU frame output proxy suffix does not fit the submitted body resource");
 		if (constraint_state != nullptr && constraint_state->GetDesc().Width < sizeof(GpuConstraintSolverState))
 			throw std::runtime_error("GPU frame output requires a complete constraint diagnostic state");
+		if (contact_state != nullptr && contact_state->GetDesc().Width < sizeof(GpuCoupledContactState))
+			throw std::runtime_error("GPU frame output requires a complete contact diagnostic state");
 
 		auto cb = cbFrameOutput{
 			.body_count = body_count,
@@ -461,6 +464,15 @@ namespace pr::physics
 			job.m_cmd_list.CopyBufferRegion(m_r_output.get(), offsetof(GpuFrameOutputHeader, constraint_failure_slot_plus_one), constraint_state, offsetof(GpuConstraintSolverState, failure_slot_plus_one), sizeof(uint32_t));
 		}
 
+		// Reuse the final header word so a rejected contact transaction cannot become a successful public step.
+		if (contact_state != nullptr)
+		{
+			job.m_barriers.Transition(contact_state, D3D12_RESOURCE_STATE_COPY_SOURCE);
+			job.m_barriers.Transition(m_r_output.get(), D3D12_RESOURCE_STATE_COPY_DEST);
+			job.m_barriers.Commit();
+			job.m_cmd_list.CopyBufferRegion(m_r_output.get(), offsetof(GpuFrameOutputHeader, contact_failure_flags), contact_state, offsetof(GpuCoupledContactState, frame_failure_flags), sizeof(uint32_t));
+		}
+
 		// Copy the complete optional stable-slot latch so break application cannot overflow or lose a required disable transition.
 		if (constraint_breaks.m_slot_count != 0)
 		{
@@ -475,18 +487,18 @@ namespace pr::physics
 				static_cast<uint64_t>(constraint_breaks.m_slot_count) * sizeof(GpuConstraintBreakState));
 		}
 
-		// Copy the sparse first-rejection stream in island order without adding another CPU-visible transfer.
-		if (coupled_failures.m_island_count != 0)
+		// Copy the sparse first-rejection bank, ordinary stable slots followed by coupled islands, within the shared readback.
+		if (constraint_rejections.m_slot_count != 0)
 		{
-			job.m_barriers.Transition(coupled_failures.m_states, D3D12_RESOURCE_STATE_COPY_SOURCE);
+			job.m_barriers.Transition(constraint_rejections.m_states, D3D12_RESOURCE_STATE_COPY_SOURCE);
 			job.m_barriers.Transition(m_r_output.get(), D3D12_RESOURCE_STATE_COPY_DEST);
 			job.m_barriers.Commit();
 			job.m_cmd_list.CopyBufferRegion(
 				m_r_output.get(),
-				m_layout.m_coupled_failure_offset,
-				coupled_failures.m_states,
+				m_layout.m_constraint_rejection_offset,
+				constraint_rejections.m_states,
 				0,
-				static_cast<uint64_t>(coupled_failures.m_island_count) * sizeof(GpuCoupledConstraintFailureState));
+				static_cast<uint64_t>(constraint_rejections.m_slot_count) * sizeof(GpuConstraintRejectionState));
 		}
 
 		// Compact final root/status and generalized state without copying topology or per-link ABA scratch.
@@ -592,7 +604,7 @@ namespace pr::physics
 			.m_event_capacity = m_layout.m_event_capacity,
 			.m_articulation_count = m_layout.m_articulation_count,
 			.m_constraint_break_count = m_layout.m_constraint_break_count,
-			.m_coupled_failure_count = m_layout.m_coupled_failure_count,
+			.m_constraint_rejection_slot_count = m_layout.m_constraint_rejection_slot_count,
 			.m_dispatch_count = m_dispatch_count,
 			.m_readback_count = m_readback_count,
 			.m_pad1 = 0,
@@ -680,11 +692,11 @@ namespace pr::physics
 		return { ptr, static_cast<size_t>(readback.m_layout.m_constraint_break_count) };
 	}
 
-	// Access the optional per-island first-rejection stream.
-	std::span<GpuCoupledConstraintFailureState const> GpuFrameOutput::CoupledFailures(GpuFrameOutputReadback const& readback)
+	// Access the optional first-rejection bank: ordinary stable slots followed by coupled islands.
+	std::span<GpuConstraintRejectionState const> GpuFrameOutput::ConstraintRejections(GpuFrameOutputReadback const& readback)
 	{
-		auto ptr = reinterpret_cast<GpuCoupledConstraintFailureState const*>(readback.m_allocation.ptr<uint8_t>() + readback.m_layout.m_coupled_failure_offset);
-		return { ptr, static_cast<size_t>(readback.m_layout.m_coupled_failure_count) };
+		auto ptr = reinterpret_cast<GpuConstraintRejectionState const*>(readback.m_allocation.ptr<uint8_t>() + readback.m_layout.m_constraint_rejection_offset);
+		return { ptr, static_cast<size_t>(readback.m_layout.m_constraint_rejection_slot_count) };
 	}
 
 	// Custom deleter implementation.

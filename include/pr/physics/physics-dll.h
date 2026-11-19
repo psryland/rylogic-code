@@ -48,9 +48,9 @@ namespace pr::physics
 
 namespace pr::physics
 {
-	inline constexpr std::uint32_t PHYSICS_API_VERSION = 0x00080001U;
+	inline constexpr std::uint32_t PHYSICS_API_VERSION = 0x000E0000U;
 	inline constexpr std::uint32_t PHYSICS_STRUCT_VERSION = 3U;
-	inline constexpr std::uint32_t PHYSICS_CHECKPOINT_VERSION = 4U;
+	inline constexpr std::uint32_t PHYSICS_CHECKPOINT_VERSION = 6U;
 
 	// Reported in place of a compound child index when the shape involved has no child identity.
 	inline constexpr std::uint32_t PHYSICS_NO_CHILD = 0xFFFFFFFFU;
@@ -92,6 +92,14 @@ namespace pr::physics
 		IncompatibleVersion = 9,
 		DeviceRemoved = 10,
 		InternalError = 11,
+	};
+
+	// Host-owned D3D12 process policy. See Physics_ConfigureProcessDiagnostics.
+	enum class EProcessDiagnostics : std::int32_t
+	{
+		None = 0,
+		DebugLayer = 1,
+		GpuValidation = 2,
 	};
 
 	enum class EStructId : std::int32_t
@@ -243,8 +251,6 @@ namespace pr::physics
 		std::uint32_t world_collision_layer;
 		std::uint32_t world_collision_mask;
 
-		// Non-zero to enable the D3D12 debug layer on a device the engine creates. See EngineConfig::device_debug.
-		std::int32_t device_debug;
 	};
 
 	#pragma endregion
@@ -918,7 +924,7 @@ namespace pr::physics
 		Wake = 1,
 		Sleep = 2,
 		ConstraintBreak = 3,
-		CoupledConstraintFailure = 4,
+		ConstraintRejection = 4,
 		WorldContact = 5,
 	};
 
@@ -948,12 +954,18 @@ namespace pr::physics
 		float break_torque;
 		std::int32_t substep_index;
 		std::uint32_t reserved;
-		std::uint32_t failure_flags;
-		std::int32_t failure_phase;
-		std::int32_t failure_island_index;
-		std::int32_t failure_iteration_count;
-		float failure_relaxation;
-		float failure_merit_change;
+		// One first rejection per owner per completed frame; later acceptance does not erase it.
+		// Owner 0: native stable slot/generation, with its ABI handle in 'constraint'. Owner 1: frame-local island, generation/handle zero.
+		// Outcomes: admission 1 (no numerical details), numerical rejection 3. Fatal 2 is a terminal diagnostic, never this event.
+		std::int32_t rejection_owner;
+		std::uint32_t rejection_index;
+		std::uint32_t rejection_generation;
+		std::int32_t rejection_outcome;
+		std::int32_t rejection_phase; // Velocity 0, position 1.
+		std::uint32_t rejection_flags; // Preconditioner 1, NonFinite 2, Topology 4, Articulation 8, Merit 16, Projection 32.
+		std::int32_t rejection_iteration_count; // Actual numerical attempts for this owner, not its retry budget; zero when none ran.
+		float rejection_relaxation;
+		float rejection_merit_change;
 
 		// Contact impulses and velocity, in world space. Zero for events that are not contacts.
 		//  normal_impulse: the total impulse along 'normal' that the solver applied to B during the substep (A receives the negation). It is never negative.
@@ -1051,7 +1063,7 @@ namespace pr::physics
 		std::int32_t event_capacity;
 		std::int32_t articulation_count;
 		std::int32_t constraint_break_count;
-		std::int32_t coupled_failure_count;
+		std::int32_t constraint_rejection_slot_count;
 		std::int32_t dispatch_count;
 		std::int32_t readback_count;
 		std::uint32_t reserved1;
@@ -1115,6 +1127,12 @@ namespace pr::physics
 
 extern "C"
 {
+	// Configure process-wide D3D12 diagnostics once before any device exists. No DLL context is required.
+	// None leaves external settings unchanged. Unavailable diagnostics return InternalError without changing settings.
+	// Repeated calls or calls after an Engine creation attempt return InvalidArgument. This DLL cannot observe calls/devices
+	// in other modules; the host must order them. Engine creation never changes process diagnostics.
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_ConfigureProcessDiagnostics(pr::physics::EProcessDiagnostics mode);
+
 	// DLL context lifecycle. Calls are reference counted and must be paired.
 	PHYSICS_API pr::physics::DllHandle __stdcall Physics_Initialise(pr::physics::ReportErrorCB global_error_cb);
 	PHYSICS_API void __stdcall Physics_Shutdown(pr::physics::DllHandle context);
@@ -1137,6 +1155,10 @@ extern "C"
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_EngineCreate(pr::physics::DllHandle context, pr::physics::Config const* config, void* external_d3d12_device, pr::physics::EngineHandle* engine);
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_EngineDestroy(pr::physics::EngineHandle engine);
 	PHYSICS_API void __stdcall Physics_EngineAbandon(pr::physics::EngineHandle engine);
+	// Make one attempt to retire interrupted GPU work on the owner thread between frames; never replay recorded commands.
+	// Until successful, recording and resource-releasing operations fail; destruction remains valid. No work is done when recovery is unnecessary.
+	// A failed frame whose own retirement also failed reports the primary reason followed by "; recovery failed: <reason>".
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_EngineRetireInterruptedWork(pr::physics::EngineHandle engine);
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_EngineDeviceLeaseAcquire(pr::physics::EngineHandle engine, void** d3d12_device);
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_EngineConfigGet(pr::physics::EngineHandle engine, pr::physics::Config* config);
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_EngineConfigSet(pr::physics::EngineHandle engine, pr::physics::Config const* config);
@@ -1292,6 +1314,8 @@ extern "C"
 	// Engine-owned atmosphere solvers. Each atmosphere runs on the engine's device with its own compute queue, steps independently of the engine
 	// step, and is destroyed with its engine. Atmospheres are not part of native checkpoints. All calls are owner-thread only.
 	// Creation compiles the solver kernels and blocks until the air is at rest on the reference profile.
+	// Input rejections preserve an existing atmosphere. A failure during potentially partial work invalidates it:
+	// later operations report InternalError, and only destruction/recreation is allowed.
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_AtmosphereCreate(pr::physics::EngineHandle engine, pr::physics::AtmosphereDesc const* desc, pr::physics::AtmosphereHandle* atmosphere);
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_AtmosphereDestroy(pr::physics::EngineHandle engine, pr::physics::AtmosphereHandle atmosphere);
 

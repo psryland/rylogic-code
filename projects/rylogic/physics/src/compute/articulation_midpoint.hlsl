@@ -9,6 +9,7 @@
 #include "pr/hlsl/quaternions.hlsli"
 #include "pr/hlsl/spatial_algebra.hlsli"
 #include "physics/src/compute/physics_types.hlsli"
+#include "physics/src/compute/articulation_joint.hlsli"
 
 #ifdef __cplusplus
 namespace pr::physics {
@@ -248,24 +249,6 @@ void CSArticulationMidpoint(int3 DTID(dtid))
 			0.5f * g_midpoint.dt * g_aba_accelerations[articulation.velocity_offset + offset];
 
 	bool converged = false;
-	int root_velocity_count = 0;
-	switch (articulation.root_type)
-	{
-		case GpuArticulationRootType_Fixed:
-		{
-			break;
-		}
-		case GpuArticulationRootType_Floating:
-		{
-			root_velocity_count = 6;
-			break;
-		}
-		default:
-		{
-			MidpointFail(articulation_index, articulation, state, GpuArticulationIntegrationStatus_NonFinite);
-			return;
-		}
-	}
 	for (int iteration = 0; iteration != ArticulationMidpointIterationLimit; ++iteration)
 	{
 		// Materialize the current midpoint candidate in the shared state consumed by canonical ABA.
@@ -279,11 +262,14 @@ void CSArticulationMidpoint(int3 DTID(dtid))
 			}
 			g_aba_velocities[articulation.velocity_offset + offset] = candidate_velocity;
 		}
-		for (int offset = 0; offset != articulation.position_count; ++offset)
+		for (int offset = 1; offset != articulation.link_count; ++offset)
 		{
-			g_aba_positions[articulation.position_offset + offset] =
-				g_midpoint_position_start[articulation.position_offset + offset] +
-				0.5f * g_midpoint.dt * g_midpoint_velocity[articulation.velocity_offset + root_velocity_count + offset];
+			GpuArticulationLink link = g_aba_links[articulation.link_offset + offset];
+			if (!IntegrateArticulationJoint(link, g_midpoint_position_start, g_midpoint_velocity, link.velocity_offset, 0.5f * g_midpoint.dt, g_aba_positions, true))
+			{
+				MidpointFail(articulation_index, articulation, state, GpuArticulationIntegrationStatus_NonFinite);
+				return;
+			}
 		}
 		switch (articulation.root_type)
 		{
@@ -351,11 +337,14 @@ void CSArticulationMidpoint(int3 DTID(dtid))
 	}
 
 	// Commit only after finite convergence; midpoint ABA outputs remain available as the accepted qdd/link acceleration.
-	for (int offset = 0; offset != articulation.position_count; ++offset)
+	for (int offset = 1; offset != articulation.link_count; ++offset)
 	{
-		g_aba_positions[articulation.position_offset + offset] =
-			g_midpoint_position_start[articulation.position_offset + offset] +
-			g_midpoint.dt * g_midpoint_velocity[articulation.velocity_offset + root_velocity_count + offset];
+		GpuArticulationLink link = g_aba_links[articulation.link_offset + offset];
+		if (!IntegrateArticulationJoint(link, g_midpoint_position_start, g_midpoint_velocity, link.velocity_offset, g_midpoint.dt, g_aba_positions, true))
+		{
+			MidpointFail(articulation_index, articulation, state, GpuArticulationIntegrationStatus_NonFinite);
+			return;
+		}
 	}
 	for (int offset = 0; offset != articulation.velocity_count; ++offset)
 	{

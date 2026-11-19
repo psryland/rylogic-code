@@ -20,9 +20,9 @@ namespace pr::physics
 
 		// Copy common named-joint properties into a D6 descriptor.
 		template <typename TDesc>
-		D6ConstraintDesc CommonD6(TDesc const& desc)
+		ConstraintDesc CommonD6(TDesc const& desc)
 		{
-			auto d6 = D6ConstraintDesc{};
+			auto d6 = ConstraintDesc{};
 			d6.m_frame_a = desc.m_frame_a;
 			d6.m_frame_b = desc.m_frame_b;
 			d6.m_break_force = desc.m_break_force;
@@ -86,38 +86,64 @@ namespace pr::physics
 		return m_type == EConstraintBodyType::ArticulationLink;
 	}
 
+	// Return the selected coordinate law.
+	EConstraintType ConstraintDesc::Type() const
+	{
+		// Derive the tag from the actual parameter alternative, so a caller cannot publish a mismatched tag and payload.
+		switch (m_parameters.index())
+		{
+			case 0: { return EConstraintType::D6; }
+			case 1: { return EConstraintType::SphericalAngular; }
+			default: { throw std::logic_error("Constraint parameters have no supported alternative"); }
+		}
+	}
+
+	// Return D6 parameters, rejecting a descriptor of another kind.
+	D6ConstraintParameters& ConstraintDesc::D6()
+	{
+		// Standard variant access makes an incorrect caller type assumption explicit.
+		return std::get<D6ConstraintParameters>(m_parameters);
+	}
+
+	// Return D6 parameters, rejecting a descriptor of another kind.
+	D6ConstraintParameters const& ConstraintDesc::D6() const
+	{
+		// Standard variant access makes an incorrect caller type assumption explicit.
+		return std::get<D6ConstraintParameters>(m_parameters);
+	}
+
 	// Convert a ball-and-socket descriptor to the general D6 representation.
-	D6ConstraintDesc ToD6(BallSocketConstraintDesc const& desc)
+	ConstraintDesc ToD6(BallSocketConstraintDesc const& desc)
 	{
 		auto d6 = CommonD6(desc);
-		d6.m_linear.fill(LockedAxis());
+		d6.D6().m_linear.fill(LockedAxis());
 		return d6;
 	}
 
 	// Convert a hinge descriptor to the general D6 representation.
-	D6ConstraintDesc ToD6(HingeConstraintDesc const& desc)
+	ConstraintDesc ToD6(HingeConstraintDesc const& desc)
 	{
 		auto d6 = CommonD6(desc);
-		d6.m_linear.fill(LockedAxis());
-		d6.m_angular = {desc.m_axis, LockedAxis(), LockedAxis()};
+		d6.D6().m_linear.fill(LockedAxis());
+		d6.D6().m_angular = {desc.m_axis, LockedAxis(), LockedAxis()};
 		return d6;
 	}
 
 	// Convert a slider descriptor to the general D6 representation.
-	D6ConstraintDesc ToD6(SliderConstraintDesc const& desc)
+	ConstraintDesc ToD6(SliderConstraintDesc const& desc)
 	{
 		auto d6 = CommonD6(desc);
-		d6.m_linear = {desc.m_axis, LockedAxis(), LockedAxis()};
-		d6.m_angular.fill(LockedAxis());
+		d6.D6().m_linear = {desc.m_axis, LockedAxis(), LockedAxis()};
+		d6.D6().m_angular.fill(LockedAxis());
 		return d6;
 	}
 
 	// Convert a weld descriptor to the general D6 representation.
-	D6ConstraintDesc ToD6(WeldConstraintDesc const& desc)
+	ConstraintDesc ToD6(WeldConstraintDesc const& desc)
 	{
 		auto d6 = CommonD6(desc);
-		d6.m_linear.fill(LockedAxis());
-		d6.m_angular.fill(LockedAxis());
+		d6.D6().m_linear.fill(LockedAxis());
+		d6.D6().m_angular.fill(LockedAxis());
 		return d6;
 	}
 }

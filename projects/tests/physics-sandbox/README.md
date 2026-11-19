@@ -1,5 +1,45 @@
 # Physics sandbox
 
+## Quaternion joints and spherical angular constraints
+
+An articulation child can use a quaternion joint instead of ordered scalar axes:
+
+```json
+"joint": {
+  "type": "spherical",
+  "parent_frame": { "rotation": [0, 0, 30] },
+  "child_frame": { "rotation": [0, 10, 0] },
+  "initial_orientation": [0.6, 0, 0, 0.8],
+  "initial_angular_velocity": [0.2, 0.3, 0.4]
+}
+```
+
+`initial_orientation` is a unit XYZW quaternion mapping the **child joint frame into the parent joint frame**. Its four components are not three
+Euler angles. `initial_angular_velocity` has three components in the **child joint frame**, in rad/s, not child-link or world coordinates.
+Omitted values mean identity orientation and zero speed. Attachment-frame `rotation` uses the existing Euler-degree convention.
+The native builder validates quaternion membership; the loader does not silently normalize it. Omitting `type` retains the existing ordered `axes`
+representation, including zero-axis fixed joints.
+
+A joint alone imposes no angular limits or damping. Add an explicit persistent constraint referencing its two attachment frames:
+
+```json
+{
+  "type": "spherical_angular",
+  "frame_a": { "articulation": "tree", "link": "parent", "rotation": [0, 0, 30] },
+  "frame_b": { "articulation": "tree", "link": "child", "rotation": [0, 10, 0] },
+  "swing_x": [-0.6, 0.8],
+  "swing_z": [0, 0.4],
+  "twist": [-0.2, 0.2],
+  "damping": 6
+}
+```
+
+Ranges are in radians, ordered, contain zero, and lie within `[-pi,pi]`. Swing X/Z range ends select quadrant-wise ellipse half-axes, not independent
+box limits; zero-width sides have hinge semantics. Twist is about Y in `q=swing*twist`. Omitted ranges are unrestricted.
+`damping` defaults to zero and is physical isotropic viscosity in N*m*s/rad: implicit torque `-damping*omega_relative`, not damping of coordinate rates.
+This uses the existing typed `ConstraintSet`; it does not create a second solver. The native collection validates ranges and damping before storing them.
+The C ABI does not yet expose these spherical descriptors. Loading support is not physical-scene or performance acceptance.
+
 ## Details panel
 
 The details panel starts hidden and does no value formatting while hidden. Use **View -> Details panel**, or press **D** with the viewport focused,

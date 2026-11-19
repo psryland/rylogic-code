@@ -23,7 +23,7 @@
 //     One extra element at g.colour_capacity stores the frame-wide colour-overflow flag.
 //
 // Resource layout:
-//   b0: cbResolve                               - per-dispatch constants
+//   b0: GpuResolveParams                               - per-dispatch constants
 //   t0: StructuredBuffer<GpuCollisionCounters>  - counters (body_count, pair_count, contact_count)
 //   t1: StructuredBuffer<GpuMaterial>           - material properties
 //   u0: RWStructuredBuffer<GpuRigidBody>        - per-body dynamic state (read/write)
@@ -60,52 +60,9 @@
 namespace pr::physics {
 #endif
 
-// Per-dispatch constants. Keep this layout mirrored with the C++ cbResolve structure in resolve_gpu.cpp and the interop runner.
-struct cbResolve
-{
-	int max_contacts; // The max capacity of the contacts buffer
-	int body_count;   // The number of bodies in the scene
-	int colour;       // Current colour batch being processed (for CSResolve)
-	int colour_capacity; // Retained colour-buffer capacity; the trailing slot holds the overflow flag.
-
-	int shock_iterations;  // Number of contact-priority propagation sweeps
-	float max_position_speed; // Maximum target speed for shared detached position correction.
-	int shock_padding1;
-	float shock_alignment; // Minimum directed impulse influence needed to create a propagation edge
-
-	float shock_min_strength; // Minimum priority delta worth propagating/storing
-	float dt;                 // Timestep in seconds
-	float support_only;       // Non-zero means only support-aligned contacts are solved
-	float support_alignment;  // Minimum abs(dot(contact_axis, gravity_dir)) for support-only contacts
-
-	float restitution_scale; // Scene/pass scale for elastic response
-	float penetration_slop;  // Depth tolerance before velocity-level bias starts
-	float velocity_baumgarte;// Velocity bias fraction used to clear penetration
-	float deep_penetration_threshold;
-
-	float deep_penetration_range;
-	float deep_penetration_baumgarte_min;
-	float deep_penetration_baumgarte_max;
-	float bias_scale; // Per-pass scale used by selective refresh and normal resolve paths
-
-	float propagation_key_scale;      // Tiny scale that folds local/shock priority into the collision-time sort key
-	float position_slop;              // Depth tolerance before split-position correction starts
-	float position_baumgarte;         // Position correction fraction
-	float position_correction_scale;  // 1 / position iteration count, so the same stale depth is not applied in full each iteration
-
-	float shock_decay;                // Priority attenuation per propagated edge
-	float contact_slop_scale;         // Fraction of minimum contact-body thickness used to cap penetration/position slop
-	float support_contact_slop_scale; // Fraction used for load-bearing support contacts
-	float warm_start_scale;           // Scale applied to cached physical impulses before they are applied this frame
-
-	int warm_start_capacity;  // Number of entries in the open-addressed warm-start cache
-	int rigid_body_count;     // Ordinary rigid prefix; larger body indices are articulation-link proxies
-	int warm_start_preloaded; // Non-zero when the coupled-contact lane required a separate cache-load pass
-	int shared_position_state; // Non-zero when contacts and persistent constraints share detached rigid pseudo velocities.
-};
 
 // Shader resources
-ConstantBuffer<cbResolve> resource(g, b0);
+ConstantBuffer<GpuResolveParams> resource(g, b0);
 StructuredBuffer<GpuCollisionCounters> resource(g_counters, t0);
 StructuredBuffer<GpuMaterial> resource(g_materials, t1);
 RWStructuredBuffer<GpuRigidBody> resource(g_bodies, u0);
@@ -147,28 +104,47 @@ bool ColourOverflow()
 	return g_colours[ColourOverflowIndex()] != 0;
 }
 
-// Returns the packed leaf identity of a contact. Bodies with a single convex shape use leaf 0, so
-// this is zero for non-compound scenes and the key is unchanged from a body-pair-only identity.
-uint WarmStartChildKey(GpuResolveContact c)
+// Quantise a finite local coordinate to the cache's 1/64 m grid without narrowing its range to a signed integer.
+float WarmStartPointCoordinate(float value)
 {
-	return ((uint)c.child_idx_a << 16) | ((uint)c.child_idx_b & 0xFFFFu);
+	// At magnitude 2^17 and above, binary32 spacing is already at least 1/64 m; scaling is unnecessary and could overflow.
+	if (abs(value) >= 131072.0f)
+		return value;
+
+	// Adding 0.5 before flooring can round an already integral cell upward near 2^23. Compare the exact fractional part instead.
+	float scaled = value * 64.0f;
+	float cell = floor(scaled);
+	if (scaled - cell >= 0.5f)
+		cell += 1.0f;
+
+	return cell == 0.0f ? 0.0f : cell * (1.0f / 64.0f);
+}
+
+// Local point identity uses the quantised value's bits, including the full range of finite binary32 coordinates.
+uint3 WarmStartPointKey(GpuResolveContact c)
+{
+	return asuint(float3(WarmStartPointCoordinate(c.contact_point.x), WarmStartPointCoordinate(c.contact_point.y), WarmStartPointCoordinate(c.contact_point.z)));
 }
 
 // Returns a stable non-zero cache key for a canonical body pair, its colliding leaves, and a quantised local contact point.
-uint WarmStartKey(GpuResolveContact c)
+uint WarmStartKey(GpuResolveContact c, uint3 point_key)
 {
-	int3 q = int3(
-		(int)floor(c.contact_point.x * 64.0f + 0.5f),
-		(int)floor(c.contact_point.y * 64.0f + 0.5f),
-		(int)floor(c.contact_point.z * 64.0f + 0.5f));
 	uint key =
 		(uint)c.body_idx_a * 73856093u ^
 		(uint)c.body_idx_b * 19349663u ^
-		(uint)q.x * 83492791u ^
-		(uint)q.y * 2654435761u ^
-		(uint)q.z * 1597334677u ^
-		WarmStartChildKey(c) * 2971215073u ^
+		point_key.x * 83492791u ^
+		point_key.y * 2654435761u ^
+		point_key.z * 1597334677u ^
+		(uint)c.child_idx_a * 2971215073u ^
+		(uint)c.child_idx_b * 2246822519u ^
 		0x9E3779B9u;
+
+	// Grid-point float bits often differ only in high positions. Mix those bits into the power-of-two table's bucket bits.
+	key ^= key >> 16;
+	key *= 0x7FEB352Du;
+	key ^= key >> 15;
+	key *= 0x846CA68Bu;
+	key ^= key >> 16;
 	return key != 0 ? key : 1u;
 }
 
@@ -418,7 +394,34 @@ bool ResetsWarmStart(int body_idx)
 	return body_idx >= 0 && body_idx < g.body_count && AllSet(g_bodies[body_idx].state_flags, ERigidBodyStateFlags_ResetWarmStart);
 }
 
-// Looks up the previous-frame normal impulse for this canonical body pair and projects it onto the current contact normal.
+// Match the full identity, not its potentially colliding hash or truncated leaf indices.
+bool WarmStartMatches(GpuWarmStartEntry entry, GpuResolveContact c, uint key, uint3 point_key)
+{
+	return entry.key == key && entry.body_idx_a == c.body_idx_a && entry.body_idx_b == c.body_idx_b &&
+		entry.child_idx_a == c.child_idx_a && entry.child_idx_b == c.child_idx_b &&
+		entry.point_key_x == point_key.x && entry.point_key_y == point_key.y && entry.point_key_z == point_key.z;
+}
+
+// Choose duplicate finite impulses by rounded squared magnitude, then raw bits; this is a deterministic priority, not an energy certificate.
+bool WarmStartPrecedes(float3 a, float3 b)
+{
+	float length_a = dot(a, a);
+	float length_b = dot(b, b);
+	if (length_a != length_b)
+		return length_a < length_b;
+
+	uint3 bits_a = asuint(a);
+	uint3 bits_b = asuint(b);
+	if (bits_a.x != bits_b.x)
+		return bits_a.x < bits_b.x;
+
+	if (bits_a.y != bits_b.y)
+		return bits_a.y < bits_b.y;
+
+	return bits_a.z < bits_b.z;
+}
+
+// Look up all duplicates of the complete contact identity before projecting the selected impulse onto the current normal.
 bool LoadWarmStartImpulse(GpuResolveContact c, out_(float3) impulse)
 {
 	impulse = float3(0, 0, 0);
@@ -429,22 +432,33 @@ bool LoadWarmStartImpulse(GpuResolveContact c, out_(float3) impulse)
 	if (ResetsWarmStart(c.body_idx_a) || ResetsWarmStart(c.body_idx_b))
 		return false;
 
-	uint key = WarmStartKey(c);
+	uint3 point_key = WarmStartPointKey(c);
+	uint key = WarmStartKey(c, point_key);
 	uint start = key % (uint)g.warm_start_capacity;
-	for (int probe = 0; probe != 32; ++probe)
+	// Insertion occupies one empty slot per contact and never removes entries. The first empty slot ends the complete probe chain.
+	bool found = false;
+	float3 cached = float3(0, 0, 0);
+	for (int probe = 0; probe != g.warm_start_capacity; ++probe)
 	{
 		uint slot = (start + (uint)probe) % (uint)g.warm_start_capacity;
 		GpuWarmStartEntry entry = g_warm_start_prev[slot];
 		if (entry.key == 0)
-			return false;
-		if (entry.key == key && entry.body_idx_a == c.body_idx_a && entry.body_idx_b == c.body_idx_b && entry.child_key == WarmStartChildKey(c))
-		{
-			impulse = WarmStartNormalImpulse(c, g.warm_start_scale * entry.impulse.xyz);
-			return any(impulse != float3(0, 0, 0));
-		}
-	}
+			break;
 
-	return false;
+		if (!WarmStartMatches(entry, c, key, point_key))
+			continue;
+
+		if (found && !WarmStartPrecedes(entry.impulse.xyz, cached))
+			continue;
+
+		cached = entry.impulse.xyz;
+		found = true;
+	}
+	if (!found)
+		return false;
+
+	impulse = WarmStartNormalImpulse(c, g.warm_start_scale * cached);
+	return any(impulse != float3(0, 0, 0));
 }
 
 // Inserts this frame's accumulated normal contact impulse into the current warm-start cache.
@@ -457,18 +471,24 @@ void StoreWarmStartImpulse(GpuResolveContact c)
 	if (!any(impulse != float3(0, 0, 0)))
 		return;
 
-	uint key = WarmStartKey(c);
+	uint3 point_key = WarmStartPointKey(c);
+	uint key = WarmStartKey(c, point_key);
 	uint start = key % (uint)g.warm_start_capacity;
-	for (int probe = 0; probe != 32; ++probe)
+	// Each contact owns a different slot, even for identical keys. Capacity is at least twice the contact count, so insertion cannot saturate.
+	for (int probe = 0; probe != g.warm_start_capacity; ++probe)
 	{
 		uint slot = (start + (uint)probe) % (uint)g.warm_start_capacity;
 		uint old_key = 0;
 		InterlockedCompareExchange(g_warm_start_curr[slot].key, 0u, key, old_key);
-		if (old_key == 0 || old_key == key)
+		if (old_key == 0)
 		{
 			g_warm_start_curr[slot].body_idx_a = c.body_idx_a;
 			g_warm_start_curr[slot].body_idx_b = c.body_idx_b;
-			g_warm_start_curr[slot].child_key = WarmStartChildKey(c);
+			g_warm_start_curr[slot].child_idx_a = c.child_idx_a;
+			g_warm_start_curr[slot].child_idx_b = c.child_idx_b;
+			g_warm_start_curr[slot].point_key_x = point_key.x;
+			g_warm_start_curr[slot].point_key_y = point_key.y;
+			g_warm_start_curr[slot].point_key_z = point_key.z;
 			g_warm_start_curr[slot].impulse = float4(impulse, 0);
 			return;
 		}
@@ -1133,7 +1153,11 @@ void CSWarmStartClear(int3 DTID(dtid))
 	g_warm_start_curr[dtid.x].key = 0;
 	g_warm_start_curr[dtid.x].body_idx_a = -1;
 	g_warm_start_curr[dtid.x].body_idx_b = -1;
-	g_warm_start_curr[dtid.x].child_key = 0;
+	g_warm_start_curr[dtid.x].child_idx_a = 0;
+	g_warm_start_curr[dtid.x].child_idx_b = 0;
+	g_warm_start_curr[dtid.x].point_key_x = 0;
+	g_warm_start_curr[dtid.x].point_key_y = 0;
+	g_warm_start_curr[dtid.x].point_key_z = 0;
 	g_warm_start_curr[dtid.x].impulse = float4(0, 0, 0, 0);
 }
 

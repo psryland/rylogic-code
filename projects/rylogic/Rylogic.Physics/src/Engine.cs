@@ -558,7 +558,8 @@ public sealed class Engine :IDisposable
 			Native.Check(Native.Physics_CommandsApply(Handle, command_ptr, (uint)commands.Length));
 	}
 
-	/// <summary>Submit one internally-substepped simulation interval with explicit timing and commands.</summary>
+	/// <summary>Submit a finite positive physical interval. Its float duration per substep must remain positive.
+	/// Invalid timing is rejected before commands, one-shot targets, forces, or completed outputs change.</summary>
 	public unsafe void BeginStep(float elapsed_seconds, double absolute_time_seconds = 0.0, ReadOnlySpan<BodyCommand> commands = default, int substep_count = 1)
 	{
 		EnsureOwner();
@@ -576,7 +577,8 @@ public sealed class Engine :IDisposable
 		Native.Check(Native.Physics_CompleteStep(Handle));
 	}
 
-	/// <summary>Submit and complete one internally-substepped simulation interval with explicit timing and commands.</summary>
+	/// <summary>Submit and complete a finite positive physical interval with positive float duration per substep.
+	/// Invalid timing preserves input and completed output; zero time is not a maintenance step.</summary>
 	public unsafe void Step(float elapsed_seconds, double absolute_time_seconds = 0.0, ReadOnlySpan<BodyCommand> commands = default, int substep_count = 1)
 	{
 		EnsureOwner();
@@ -617,7 +619,8 @@ public sealed class Engine :IDisposable
 		return checked((int)required);
 	}
 
-	/// <summary>Copy all buffered events without partial writes.</summary>
+	/// <summary>Copy all buffered events without draining them or making partial writes. Constraint rejections are
+	/// first-per-owner-per-frame records from a completed frame, not terminal frame failures.</summary>
 	public unsafe int CopyEvents(Span<PhysicsEvent> events)
 	{
 		fixed (PhysicsEvent* event_ptr = events)
@@ -669,6 +672,16 @@ public sealed class Engine :IDisposable
 
 		fixed (byte* checkpoint_ptr = checkpoint)
 			Native.Check(Native.Physics_CheckpointRead(Handle, checkpoint_ptr, (ulong)checkpoint.Length));
+	}
+
+	/// <summary>
+	/// Retire interrupted GPU work on the owner thread between frames. Makes one attempt and never replays a failed frame.
+	/// Until success, recording and resource-releasing operations fail; disposal remains valid. Does nothing when no recovery is required.
+	/// </summary>
+	public void RetireInterruptedWork()
+	{
+		EnsureOwner();
+		Native.Check(Native.Physics_EngineRetireInterruptedWork(Handle));
 	}
 
 	/// <summary>Dispose bodies, shapes, pending GPU work, and the native device in dependency order.</summary>

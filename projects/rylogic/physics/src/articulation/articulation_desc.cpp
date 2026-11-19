@@ -6,6 +6,31 @@
 
 namespace pr::physics
 {
+	// Return the configuration dimension for the selected joint representation.
+	int ArticulationJointDesc::PositionCount() const
+	{
+		// Quaternion orientation has one more coordinate than its angular velocity.
+		switch (m_type)
+		{
+			case EArticulationJointType::Axes: { return m_dof_count; }
+			case EArticulationJointType::Spherical: { return 4; }
+			default: { throw std::invalid_argument("Articulation joint type is invalid"); }
+		}
+	}
+
+	// Return an unconstrained three-axis rotation without Euler-angle coordinate singularities.
+	ArticulationJointDesc ArticulationJointDesc::Spherical(m4x4 const& joint_to_parent, m4x4 const& joint_to_child)
+	{
+		// The quaternion maps the moving child-joint frame into its parent-joint frame.
+		return ArticulationJointDesc{
+			.m_joint_to_parent = joint_to_parent,
+			.m_joint_to_child = joint_to_child,
+			.m_initial_position = {0, 0, 0, 1},
+			.m_dof_count = 3,
+			.m_type = EArticulationJointType::Spherical,
+		};
+	}
+
 	// Return a fixed joint whose two joint frames remain coincident.
 	ArticulationJointDesc ArticulationJointDesc::Fixed(m4x4 const& joint_to_parent, m4x4 const& joint_to_child)
 	{

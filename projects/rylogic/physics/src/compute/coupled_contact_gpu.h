@@ -29,6 +29,8 @@ namespace pr::physics
 	struct GpuCoupledContactSolver
 	{
 	private:
+		struct Observation;
+		std::unique_ptr<Observation> m_observation;
 		Gpu& m_gpu;
 		EngineConfig const& m_config;
 		GpuArticulationForceAba& m_aba;
@@ -41,8 +43,10 @@ namespace pr::physics
 		ComputeStep m_cs_prepare_position;
 		ComputeStep m_cs_begin;
 		ComputeStep m_cs_build_warm_start;
+		ComputeStep m_cs_build_components;
 		ComputeStep m_cs_build_candidates;
 		ComputeStep m_cs_build_position_candidates;
+		ComputeStep m_cs_canonicalise_endpoints;
 		ComputeStep m_cs_gather;
 		ComputeStep m_cs_validate_trees;
 		ComputeStep m_cs_validate_position_trees;
@@ -55,6 +59,9 @@ namespace pr::physics
 		D3DPtr<ID3D12Resource> m_r_contributions;
 		D3DPtr<ID3D12Resource> m_r_endpoint_keys;
 		D3DPtr<ID3D12Resource> m_r_endpoint_order;
+		D3DPtr<ID3D12Resource> m_r_contact_order;
+		D3DPtr<ID3D12Resource> m_r_contact_nodes;
+		D3DPtr<ID3D12Resource> m_r_contact_krylov;
 		D3DPtr<ID3D12Resource> m_r_target_impulses;
 		D3DPtr<ID3D12Resource> m_r_participant_degrees;
 		D3DPtr<ID3D12Resource> m_r_tree_selection;
@@ -90,6 +97,15 @@ namespace pr::physics
 		// Create fixed pipeline state while leaving every contact-dependent resource unallocated.
 		GpuCoupledContactSolver(Gpu& gpu, GpuArticulationForceAba& aba, GpuArticulationLinkProxies& proxies, EngineConfig const& config);
 
+		// Destroy the temporary passive recorder where its retained allocations are fully defined.
+		~GpuCoupledContactSolver();
+
+		// Temporary owning-source observation hooks; these add copies only and never submit, wait, or change solver inputs.
+		void CapturePrediction(GpuJob& job, int substep_index, float dt, GpuIntegrator& integrator, int body_count, int rigid_body_count, int sort_axis);
+		void CaptureCollision(GpuJob& job, GpuIntegrator& integrator, GpuCollisionDetector& detector, ID3D12Resource* pairs, int shape_count, int material_count);
+		void CaptureRefreshed(GpuJob& job, GpuIntegrator& integrator);
+		void CompleteCapture(int selective_passes, uint32_t selective_requested);
+
 		// Select every packed articulation for exact whole-tree contact response in canonical forest order.
 		bool Upload(GpuJob& job, GpuArticulationUpload const& upload);
 
@@ -112,7 +128,7 @@ namespace pr::physics
 		// Apply cached normal impulses through rigid endpoints and complete articulation trees as one finite transaction.
 		void ApplyWarmStart(GpuJob& job);
 
-		// Execute one degree-damped block-Jacobi velocity iteration through a complete-tree ABA response.
+		// Execute one component-coupled ordinary-law Newton update through the existing complete-tree transaction.
 		void SolveVelocityIteration(GpuJob& job);
 
 		// Initialize detached correction state, optionally sharing the rigid pseudo storage with persistent constraints.
@@ -121,16 +137,30 @@ namespace pr::physics
 		// Return initialized pseudo buffers in rigid-prefix and canonical packed-forest order; this solver owns their final application.
 		GpuPositionPseudoBuffers PseudoState() const;
 
-		// Execute one zero-based monotone detached penetration-correction iteration with acceleration confined to the initial sweep.
+		// Execute one zero-based projected detached penetration-correction iteration with acceleration confined to the initial sweep.
 		void SolvePositionIteration(GpuJob& job, int position_iteration_index);
 
-		// Apply converged pseudo state once to rigid transforms and articulation coordinates.
+		// Apply accepted pseudo state once to rigid transforms and articulation coordinates.
 		void ApplyPosition(GpuJob& job);
 
 		// Return aggregate logical usage, retained storage, and dispatch cost for the complete current frame.
 		GpuCoupledContactStats Stats() const;
 
+		// Borrow the frame-sticky failure record for the existing gathered engine readback.
+		ID3D12Resource* FrameState();
+
+		// Borrow completed candidate diagnostics for readback; see contact-friction.md for post-selection field semantics.
+		ID3D12Resource* CandidateWork();
+
 	private:
+		// Retain the authoritative primary and explicitly labelled configuration-cache bytes at one observation boundary.
+		void CaptureState(GpuJob& job, char const* stage);
+
+		// Retain actual primary state and contact totals at a physical publication boundary.
+		void CapturePhysical(GpuJob& job, char const* stage);
+
+		// Retain contact accumulators and shared pseudo state on either side of the contact position transaction.
+		void CapturePseudo(GpuJob& job, char const* stage);
 
 		// Create or geometrically grow all contact, endpoint, target, participant, and tree transaction buffers.
 		void ResizeBuffers(GpuJob& job);
@@ -143,6 +173,9 @@ namespace pr::physics
 
 		// Bind and dispatch one non-empty work range with an optional zero-based position-sweep index.
 		void DispatchCommon(GpuJob& job, ComputeStep& step, int phase, int item_count, int position_iteration_index = -1);
+
+		// Bind component topology or a matrix-free Newton update without changing physical state during linear products.
+		void DispatchNewton(GpuJob& job, ComputeStep& step, iv3 groups);
 
 		// Bind and dispatch one complete-tree position validation or pseudo-state commit phase.
 		void DispatchPositionArticulations(GpuJob& job, ComputeStep& step, int phase);

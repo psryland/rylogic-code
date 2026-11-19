@@ -914,4 +914,343 @@ public sealed class TestPhysics
 		}
 	}
 }
+/// <summary>Focused checks for the owner-tagged ABI and positive physical-time boundary.</summary>
+[TestFixture]
+public sealed class TestPhysicsEngineMigration
+{
+	/// <summary>Explicit recovery must not bypass owner-thread and pending-frame checks.</summary>
+	[Test]
+	public void ExplicitRecoveryRequiresIdleOwner()
+	{
+		using var runtime = new Physics();
+		using var engine = runtime.CreateEngine();
+		engine.RetireInterruptedWork();
+		Exception? error = null;
+		var worker = new Thread(() =>
+		{
+			try
+			{
+				engine.RetireInterruptedWork();
+			}
+			catch (Exception ex)
+			{
+				error = ex;
+			}
+		});
+		worker.Start();
+		worker.Join();
+		Assert.Equal(typeof(InvalidOperationException), error?.GetType());
+		engine.BeginStep(0.001f);
+		try
+		{
+			engine.RetireInterruptedWork();
+			throw new InvalidOperationException("Recovery accepted a pending frame");
+		}
+		catch (PhysicsException ex)
+		{
+			Assert.Equal(EStatus.StepPending, ex.Status);
+		}
+		engine.CompleteStep();
+		engine.RetireInterruptedWork();
+	}
+
+	/// <summary>Check real managed offsets against the changed native Event allocation size.</summary>
+	[Test]
+	public unsafe void RejectionEventLayout()
+	{
+		// Version discovery must reject an older DLL before its differently shaped events can be copied.
+		Native.EnsureLoaded();
+		Assert.Equal(0x000E0000U, Native.Physics_ApiVersion());
+		Native.Check(Native.Physics_StructSize(11, out var native_size));
+		Assert.Equal(232U, native_size);
+		Assert.Equal(232, sizeof(PhysicsEvent));
+		var fields = new[]
+		{
+			nameof(PhysicsEvent.m_rejection_owner), nameof(PhysicsEvent.m_rejection_index), nameof(PhysicsEvent.m_rejection_generation),
+			nameof(PhysicsEvent.m_rejection_outcome), nameof(PhysicsEvent.m_rejection_phase), nameof(PhysicsEvent.m_rejection_flags),
+			nameof(PhysicsEvent.m_rejection_iteration_count), nameof(PhysicsEvent.m_rejection_relaxation), nameof(PhysicsEvent.m_rejection_merit_change),
+		};
+		for (var index = 0; index != fields.Length; ++index)
+			Assert.Equal(160 + 4 * index, Marshal.OffsetOf<PhysicsEvent>(fields[index]).ToInt32());
+
+		// Contact payload remains after the complete new rejection payload, not at its obsolete offsets.
+		Assert.Equal(196, Marshal.OffsetOf<PhysicsEvent>(nameof(PhysicsEvent.m_normal_impulse)).ToInt32());
+		Assert.Equal(200, Marshal.OffsetOf<PhysicsEvent>(nameof(PhysicsEvent.m_tangent_impulse)).ToInt32());
+		Assert.Equal(216, Marshal.OffsetOf<PhysicsEvent>(nameof(PhysicsEvent.m_relative_velocity)).ToInt32());
+	}
+
+	/// <summary>Invalid BeginStep and Step timing must preserve queued inputs and the preceding completed output.</summary>
+	[Test]
+	public void InvalidTimingPreservesInputsAndCompletedOutput()
+	{
+		// Produce a real nonempty completed event buffer before attempting rejected input mutations.
+		using var runtime = new Physics();
+		using var engine = runtime.CreateEngine(new EngineOptions { SleepingEnabled = false, SelectiveRefreshPasses = 0 });
+		using var shape = engine.CreateSphere(0.5f);
+		using var body = engine.CreateBody(shape, new BodyOptions
+		{
+			Gravity = v4.Zero, MassMode = EMassMode.Mass, MassOrDensity = 1,
+			Momentum = new SpatialVector(v4.Zero, new v4(1, 0, 0, 0)), CollisionMask = 0,
+		});
+		using var kinematic = engine.CreateBody(shape, new BodyOptions
+		{
+			Gravity = v4.Zero, MotionType = EMotionType.Kinematic, ObjectToWorld = m4x4.Translation(3, 0, 0), CollisionMask = 0,
+		});
+		var options = D6ConstraintOptions.Weld(ConstraintFrame.World(m4x4.Identity), ConstraintFrame.ForBody(body, m4x4.Identity));
+		options.BreakForce = 0.01f;
+		using var constraint = engine.CreateConstraint(options);
+		engine.Step(1f / 60);
+		var completed_events = new PhysicsEvent[engine.EventCount()];
+		engine.CopyEvents(completed_events);
+		Assert.True(completed_events.Any(value => value.m_type == EPhysicsEvent.ConstraintBreak));
+		var completed_snapshots = new BodySnapshot[engine.SnapshotCount()];
+		engine.CopySnapshots(completed_snapshots);
+		var completed = engine.GetDiagnostics();
+
+		// An already queued kinematic target and applied force must survive, not merely the immediately supplied command span.
+		engine.ApplyCommands(new[]
+		{
+			BodyCommand.SetForce(body.Handle, new SpatialVector(v4.Zero, new v4(2, 0, 0, 0))),
+			BodyCommand.SetKinematicTarget(kinematic.Handle, m4x4.Translation(4, 0, 0)),
+		});
+		var before = body.GetState();
+		var commands = new[]
+		{
+			BodyCommand.SetTransform(body.Handle, m4x4.Translation(99, 0, 0)),
+			BodyCommand.SetForce(body.Handle, new SpatialVector(v4.Zero, new v4(999, 0, 0, 0))),
+			BodyCommand.SetKinematicTarget(kinematic.Handle, m4x4.Translation(88, 0, 0)),
+		};
+		var invalid = new[] { (0f, 1), (-1f, 1), (float.NaN, 1), (float.PositiveInfinity, 1), (float.NegativeInfinity, 1), (float.Epsilon, 2) };
+		foreach (var (elapsed, substeps) in invalid)
+		{
+			// Both ABI entry paths reject before ApplyCommands and before clearing completed output.
+			ExpectInvalid(() => engine.BeginStep(elapsed, commands: commands, substep_count: substeps));
+			ExpectInvalid(() => engine.Step(elapsed, commands: commands, substep_count: substeps));
+			var state = body.GetState();
+			Assert.Equal(before.m_object_to_world, state.m_object_to_world);
+			Assert.Equal(before.m_momentum, state.m_momentum);
+			Assert.Equal(before.m_force, state.m_force);
+			Assert.Equal(before.m_flags, state.m_flags);
+			var diagnostics = engine.GetDiagnostics();
+			Assert.False(diagnostics.StepPending);
+			Assert.Equal(completed.m_submitted_step, diagnostics.m_submitted_step);
+			Assert.Equal(completed.m_completed_step, diagnostics.m_completed_step);
+			var events = new PhysicsEvent[engine.EventCount()];
+			engine.CopyEvents(events);
+			Assert.True(MemoryMarshal.AsBytes(completed_events.AsSpan()).SequenceEqual(MemoryMarshal.AsBytes(events.AsSpan())));
+			var snapshots = new BodySnapshot[engine.SnapshotCount()];
+			engine.CopySnapshots(snapshots);
+			Assert.True(MemoryMarshal.AsBytes(completed_snapshots.AsSpan()).SequenceEqual(MemoryMarshal.AsBytes(snapshots.AsSpan())));
+		}
+
+		// A valid subsequent step consumes the original target and force, proving that rejection did not clear or replace them.
+		engine.Step(1f / 60);
+		Assert.Equal(4f, kinematic.GetState().m_object_to_world.pos.x);
+		Assert.True(body.GetState().m_momentum.m_linear.x > before.m_momentum.m_linear.x);
+		Assert.Equal(SpatialVector.Zero, body.GetState().m_force);
+	}
+
+	/// <summary>Transport real ordinary and coupled rejections through the shared C and managed event buffer.</summary>
+	[Test]
+	public unsafe void RejectionsCarryOwnerIdentityAndRemainNondraining()
+	{
+		using var runtime = new Physics();
+		using var engine = runtime.CreateEngine(new EngineOptions
+		{
+			SleepingEnabled = false, SelectiveRefreshPasses = 0, SolverIterations = 1, PushOutIterations = 0,
+			ConstraintRelaxation = 0.5f, ConstraintWarmStartFactor = 1,
+		});
+		using var shape = engine.CreateSphere(0.2f);
+		using var body_a = engine.CreateBody(shape, new BodyOptions { Gravity = v4.Zero, CollisionMask = 0, MassMode = EMassMode.Mass, MassOrDensity = 1 });
+		using var body_b = engine.CreateBody(shape, new BodyOptions { Gravity = v4.Zero, CollisionMask = 0, MassMode = EMassMode.Mass, MassOrDensity = 1, ObjectToWorld = m4x4.Translation(3, 0, 0) });
+		var options_a = new D6ConstraintOptions(ConstraintFrame.World(m4x4.Identity), ConstraintFrame.ForBody(body_a, m4x4.Identity));
+		options_a.Linear[0] = ConstraintAxis.Driven(0, 1, 0, 0, 1000);
+		var options_b = new D6ConstraintOptions(ConstraintFrame.World(m4x4.Identity), ConstraintFrame.ForBody(body_b, m4x4.Identity));
+		options_b.Linear[0] = options_a.Linear[0];
+
+		// Reuse one public slot so its generation differs from the other ordinary owner and from the frame-local island.
+		engine.CreateConstraint(options_a).Dispose();
+		using var constraint_a = engine.CreateConstraint(options_a);
+		using var constraint_b = engine.CreateConstraint(options_b);
+		using var fixed_root = engine.CreateArticulation(
+			new ArticulationOptions { RootType = EArticulationRoot.Fixed, RootToWorld = m4x4.Translation(10, 0, 0) },
+			new[] { new ArticulationLinkOptions(shape, -1) { Inertia = new BodyInertia(new v4(1, 1, 1, 0), v4.Zero, v4.Zero, 1) } },
+			Array.Empty<ArticulationJointOptions>()
+		);
+		var fixed_options = new D6ConstraintOptions(ConstraintFrame.World(m4x4.Identity), ConstraintFrame.ForLink(fixed_root, 0, m4x4.Identity));
+		fixed_options.Linear[0] = ConstraintAxis.Locked();
+		using var fixed_constraint = engine.CreateConstraint(fixed_options);
+		engine.Step(1f / 60);
+		Assert.Equal(0.5, body_a.GetState().m_momentum.m_linear.x, 2e-5);
+		Assert.Equal(0.5, body_b.GetState().m_momentum.m_linear.x, 2e-5);
+
+		// Finite context produces an unrepresentable warm scale. Repeated attempts and later position scratch must not overwrite the first record.
+		var config = engine.GetOptions();
+		config.ConstraintWarmStartFactor = 2e38f;
+		config.SolverIterations = 2;
+		config.PushOutIterations = 1;
+		engine.SetOptions(config);
+		engine.Step(1f / 30);
+		Assert.Equal(0.5, body_a.GetState().m_momentum.m_linear.x, 2e-5);
+		Assert.Equal(0.5, body_b.GetState().m_momentum.m_linear.x, 2e-5);
+		var events = new PhysicsEvent[engine.EventCount()];
+		engine.CopyEvents(events);
+		var rejections = events.Where(value => value.m_type == EPhysicsEvent.ConstraintRejection).ToArray();
+		Assert.Equal(3, rejections.Length);
+		var ordinary_a = rejections.Single(value => value.m_constraint == constraint_a.Handle);
+		var ordinary_b = rejections.Single(value => value.m_constraint == constraint_b.Handle);
+		Assert.Equal(0U, ordinary_a.m_rejection_index);
+		Assert.Equal(1U, ordinary_b.m_rejection_index);
+		Assert.True(ordinary_a.m_rejection_generation > ordinary_b.m_rejection_generation);
+		foreach (var value in new[] { ordinary_a, ordinary_b })
+		{
+			Assert.Equal(EConstraintRejectionOwner.OrdinaryBlock, value.m_rejection_owner);
+			Assert.Equal(EConstraintRejectionOutcome.AdmissionRejected, value.m_rejection_outcome);
+			Assert.Equal(EConstraintRejectionPhase.Velocity, value.m_rejection_phase);
+			Assert.Equal(EConstraintRejectionReason.None, value.m_rejection_flags);
+			Assert.Equal(0, value.m_substep_index);
+			Assert.Equal(0, value.m_rejection_iteration_count);
+			Assert.Equal(0f, value.m_rejection_relaxation);
+			Assert.Equal(0f, value.m_rejection_merit_change);
+		}
+		var coupled = rejections.Single(value => value.m_rejection_owner == EConstraintRejectionOwner.CoupledIsland);
+		Assert.True(coupled.m_constraint.IsNull);
+		Assert.Equal(0U, coupled.m_rejection_index);
+		Assert.Equal(0U, coupled.m_rejection_generation);
+		Assert.Equal(EConstraintRejectionOutcome.SolveRejected, coupled.m_rejection_outcome);
+		Assert.Equal(EConstraintRejectionPhase.Velocity, coupled.m_rejection_phase);
+		Assert.True(coupled.m_rejection_flags != EConstraintRejectionReason.None);
+		Assert.Equal(0, coupled.m_rejection_iteration_count);
+		Assert.Equal(EStepFailure.None, engine.GetDiagnostics().m_failure.m_reason);
+
+		// A short C buffer is rejected without a partial copy; successful C/managed reads do not drain the one event stream.
+		var short_buffer = new PhysicsEvent[events.Length - 1];
+		MemoryMarshal.AsBytes(short_buffer.AsSpan()).Fill(0x5A);
+		fixed (PhysicsEvent* output = short_buffer)
+		{
+			Assert.Equal(EStatus.BufferTooSmall, Native.Physics_EventsCopy(engine.Handle, output, (uint)short_buffer.Length, out var required));
+			Assert.Equal((uint)events.Length, required);
+		}
+		Assert.True(MemoryMarshal.AsBytes(short_buffer.AsSpan()).ToArray().All(value => value == 0x5A));
+		var repeated = new PhysicsEvent[engine.EventCount()];
+		engine.CopyEvents(repeated);
+		Assert.True(MemoryMarshal.AsBytes(events.AsSpan()).SequenceEqual(MemoryMarshal.AsBytes(repeated.AsSpan())));
+		fixed_constraint.SetEnabled(false);
+		config.ConstraintWarmStartFactor = 1;
+		config.PushOutIterations = 0;
+		engine.SetOptions(config);
+		engine.Step(1f / 60);
+		Assert.Equal(0, engine.EventCount());
+		Assert.True(body_a.GetState().m_momentum.m_linear.x > 0.5f);
+	}
+
+	/// <summary>Transport a real post-iteration merit rejection, including independently predicted numerical details.</summary>
+	[Test]
+	public void NumericalRejectionPreservesApplicableDetails()
+	{
+		// Three simultaneous unit-response drives overshoot even though each local correction is individually valid.
+		const float relaxation = 0.9f;
+		const float free_speed = 0.75f;
+		const float target_speed = 1.0f;
+		using var runtime = new Physics();
+		using var engine = runtime.CreateEngine(new EngineOptions
+		{
+			SleepingEnabled = false, SelectiveRefreshPasses = 0, SolverIterations = 1, PushOutIterations = 0,
+			ConstraintWarmStartFactor = 0, ConstraintCoupledRelaxation = relaxation, ConstraintCoupledBacktrackLimit = 0,
+		});
+		using var shape = engine.CreateSphere(0.2f);
+		using var root = engine.CreateArticulation(
+			new ArticulationOptions
+			{
+				RootType = EArticulationRoot.Floating,
+				RootVelocity = new SpatialVector(v4.Zero, new v4(free_speed, 0, 0, 0)),
+			},
+			new[] { new ArticulationLinkOptions(shape, -1) { Inertia = new BodyInertia(new v4(1, 1, 1, 0), v4.Zero, v4.Zero, 1) } },
+			Array.Empty<ArticulationJointOptions>()
+		);
+		var options = new D6ConstraintOptions(ConstraintFrame.World(m4x4.Identity), ConstraintFrame.ForLink(root, 0, m4x4.Identity));
+		options.Linear[0] = ConstraintAxis.Driven(0, target_speed, 0, 0, 1000);
+		using var first = engine.CreateConstraint(options);
+		using var second = engine.CreateConstraint(options);
+		using var third = engine.CreateConstraint(options);
+		engine.Step(1f / 60);
+
+		// Delta is the combined unit-mass response. Its exact quadratic work is positive, so the zero-retry solve must reject.
+		var delta = 3 * relaxation * (target_speed - free_speed);
+		var expected_merit = (free_speed - target_speed) * delta + 0.5f * delta * delta;
+		Assert.True(expected_merit > 0.05f);
+		var events = new PhysicsEvent[engine.EventCount()];
+		engine.CopyEvents(events);
+		var rejection = events.Single(value => value.m_type == EPhysicsEvent.ConstraintRejection);
+		Assert.Equal(EConstraintRejectionOwner.CoupledIsland, rejection.m_rejection_owner);
+		Assert.True(rejection.m_constraint.IsNull);
+		Assert.Equal(0U, rejection.m_rejection_index);
+		Assert.Equal(0U, rejection.m_rejection_generation);
+		Assert.Equal(0, rejection.m_substep_index);
+		Assert.Equal(EConstraintRejectionOutcome.SolveRejected, rejection.m_rejection_outcome);
+		Assert.Equal(EConstraintRejectionPhase.Velocity, rejection.m_rejection_phase);
+		Assert.Equal(EConstraintRejectionReason.Merit, rejection.m_rejection_flags);
+		Assert.Equal(1, rejection.m_rejection_iteration_count);
+		Assert.Equal(relaxation, rejection.m_rejection_relaxation, 1e-6);
+		Assert.Equal(expected_merit, rejection.m_rejection_merit_change, 1e-5);
+		Assert.Equal(free_speed, root.GetState().RootVelocity.m_linear.x, 1e-6);
+		Assert.Equal(EStepFailure.None, engine.GetDiagnostics().m_failure.m_reason);
+		Console.WriteLine($"Post-iteration rejection: reason={(uint)rejection.m_rejection_flags}, iterations={rejection.m_rejection_iteration_count}, relaxation={rejection.m_rejection_relaxation:R}, merit={rejection.m_rejection_merit_change:R}, expected={expected_merit:R}");
+	}
+
+	/// <summary>Count a real first-attempt numerical failure, not the unused positive retry budget.</summary>
+	[Test]
+	public void EarlyNumericalFailureReportsActualAttemptCount()
+	{
+		// The candidate impulse and response are finite; their quadratic merit products overflow during the first numerical evaluation.
+		using var runtime = new Physics();
+		using var engine = runtime.CreateEngine(new EngineOptions
+		{
+			SleepingEnabled = false, SelectiveRefreshPasses = 0, SolverIterations = 1, PushOutIterations = 0,
+			ConstraintWarmStartFactor = 0, ConstraintCoupledRelaxation = 0.9f, ConstraintCoupledBacktrackLimit = 4,
+		});
+		using var shape = engine.CreateSphere(0.2f);
+		using var root = engine.CreateArticulation(
+			new ArticulationOptions { RootType = EArticulationRoot.Floating },
+			new[] { new ArticulationLinkOptions(shape, -1) { Inertia = new BodyInertia(new v4(1, 1, 1, 0), v4.Zero, v4.Zero, 1) } },
+			Array.Empty<ArticulationJointOptions>()
+		);
+		var options = new D6ConstraintOptions(ConstraintFrame.World(m4x4.Identity), ConstraintFrame.ForLink(root, 0, m4x4.Identity));
+		options.Linear[0] = ConstraintAxis.Driven(0, 1e20f, 0, 0, 1e24f);
+		using var constraint = engine.CreateConstraint(options);
+		engine.Step(1f / 60);
+		var events = new PhysicsEvent[engine.EventCount()];
+		engine.CopyEvents(events);
+		var rejection = events.Single(value => value.m_type == EPhysicsEvent.ConstraintRejection);
+		Console.WriteLine($"Early numerical failure: reason={(uint)rejection.m_rejection_flags}, iterations={rejection.m_rejection_iteration_count}, relaxation={rejection.m_rejection_relaxation:R}, merit={rejection.m_rejection_merit_change:R}");
+		Assert.Equal(EConstraintRejectionOwner.CoupledIsland, rejection.m_rejection_owner);
+		Assert.True(rejection.m_constraint.IsNull);
+		Assert.Equal(0U, rejection.m_rejection_index);
+		Assert.Equal(0U, rejection.m_rejection_generation);
+		Assert.Equal(0, rejection.m_substep_index);
+		Assert.Equal(EConstraintRejectionOutcome.SolveRejected, rejection.m_rejection_outcome);
+		Assert.Equal(EConstraintRejectionPhase.Velocity, rejection.m_rejection_phase);
+		Assert.Equal(EConstraintRejectionReason.NonFinite, rejection.m_rejection_flags);
+		Assert.Equal(1, rejection.m_rejection_iteration_count);
+		Assert.Equal(0.9f, rejection.m_rejection_relaxation);
+		Assert.Equal(0f, rejection.m_rejection_merit_change);
+		Assert.Equal(SpatialVector.Zero, root.GetState().RootVelocity);
+		Assert.Equal(EStepFailure.None, engine.GetDiagnostics().m_failure.m_reason);
+	}
+
+	/// <summary>Require the stable native timing-rejection status.</summary>
+	private static void ExpectInvalid(Action action)
+	{
+		// A successful return is not an acceptable substitute for rejecting invalid physical time.
+		try
+		{
+			action();
+			throw new UnitTestException("Expected invalid physical-step timing.");
+		}
+		catch (PhysicsException ex)
+		{
+			Assert.Equal(EStatus.InvalidArgument, ex.Status);
+		}
+	}
+}
 #endif

@@ -25,6 +25,7 @@ namespace pr::unittests
 		struct PhysicsApi
 		{
 			DllModule m_module;
+			decltype(&Physics_ConfigureProcessDiagnostics) ConfigureProcessDiagnostics;
 			decltype(&Physics_Initialise) Initialise;
 			decltype(&Physics_Shutdown) Shutdown;
 			decltype(&Physics_ShaderCacheDirectorySet) ShaderCacheDirectorySet;
@@ -35,6 +36,7 @@ namespace pr::unittests
 			decltype(&Physics_EngineCreate) EngineCreate;
 			decltype(&Physics_EngineDestroy) EngineDestroy;
 			decltype(&Physics_EngineAbandon) EngineAbandon;
+			decltype(&Physics_EngineRetireInterruptedWork) EngineRetireInterruptedWork;
 			decltype(&Physics_EngineDeviceLeaseAcquire) EngineDeviceLeaseAcquire;
 			decltype(&Physics_EngineConfigGet) EngineConfigGet;
 			decltype(&Physics_EngineConfigSet) EngineConfigSet;
@@ -110,6 +112,7 @@ namespace pr::unittests
 
 			PhysicsApi()
 				: m_module(__FILE__, L"physics.dll", L"physics.dll")
+				, ConfigureProcessDiagnostics(m_module.Proc<decltype(ConfigureProcessDiagnostics)>("Physics_ConfigureProcessDiagnostics"))
 				, Initialise(m_module.Proc<decltype(Initialise)>("Physics_Initialise"))
 				, Shutdown(m_module.Proc<decltype(Shutdown)>("Physics_Shutdown"))
 				, ShaderCacheDirectorySet(m_module.Proc<decltype(ShaderCacheDirectorySet)>("Physics_ShaderCacheDirectorySet"))
@@ -120,6 +123,7 @@ namespace pr::unittests
 				, EngineCreate(m_module.Proc<decltype(EngineCreate)>("Physics_EngineCreate"))
 				, EngineDestroy(m_module.Proc<decltype(EngineDestroy)>("Physics_EngineDestroy"))
 				, EngineAbandon(m_module.Proc<decltype(EngineAbandon)>("Physics_EngineAbandon"))
+				, EngineRetireInterruptedWork(m_module.Proc<decltype(EngineRetireInterruptedWork)>("Physics_EngineRetireInterruptedWork"))
 				, EngineDeviceLeaseAcquire(m_module.Proc<decltype(EngineDeviceLeaseAcquire)>("Physics_EngineDeviceLeaseAcquire"))
 				, EngineConfigGet(m_module.Proc<decltype(EngineConfigGet)>("Physics_EngineConfigGet"))
 				, EngineConfigSet(m_module.Proc<decltype(EngineConfigSet)>("Physics_EngineConfigSet"))
@@ -504,8 +508,8 @@ namespace pr::unittests
 			return checkpoint;
 		}
 
-		// Test-only mirror of the version-four checkpoint prefix used to construct semantically invalid but checksummed input.
-		struct CheckpointHeaderV4
+		// Test-only mirror of the version-six checkpoint prefix used to construct semantically invalid but checksummed input.
+		struct CheckpointHeaderV6
 		{
 			std::uint64_t m_magic;
 			std::uint32_t m_version;
@@ -522,16 +526,16 @@ namespace pr::unittests
 			pr::physics::Config m_config;
 		};
 
-		// Test-only mirror of each variable-width shape prefix in a version-four checkpoint.
-		struct CheckpointShapeV4
+		// Test-only mirror of each variable-width shape prefix in a version-six checkpoint.
+		struct CheckpointShapeV6
 		{
 			ShapeHandle m_handle;
 			std::uint32_t m_size;
 			std::uint32_t m_child_count;
 		};
 
-		// Test-only mirror of each body entry in a version-four checkpoint.
-		struct CheckpointBodyV4
+		// Test-only mirror of each body entry in a version-six checkpoint.
+		struct CheckpointBodyV6
 		{
 			BodyState m_state;
 		};
@@ -545,7 +549,7 @@ namespace pr::unittests
 		// Recompute the payload checksum after a test deliberately changes semantically meaningful fields.
 		void UpdateCheckpointChecksum(std::vector<std::byte>& checkpoint)
 		{
-			auto header = CheckpointHeaderV4{};
+			auto header = CheckpointHeaderV6{};
 			memcpy(&header, checkpoint.data(), sizeof(header));
 
 			auto hash = std::uint64_t{14695981039346656037ULL};
@@ -561,10 +565,10 @@ namespace pr::unittests
 		// Rewrite an otherwise valid checkpoint so it claims an in-flight step while retaining a valid payload checksum.
 		void SetCheckpointPending(std::vector<std::byte>& checkpoint)
 		{
-			if (checkpoint.size() < sizeof(CheckpointHeaderV4))
-				throw std::runtime_error("Checkpoint is too small for its version-four header");
+			if (checkpoint.size() < sizeof(CheckpointHeaderV6))
+				throw std::runtime_error("Checkpoint is too small for its version-six header");
 
-			auto header = CheckpointHeaderV4{};
+			auto header = CheckpointHeaderV6{};
 			memcpy(&header, checkpoint.data(), sizeof(header));
 			if (header.m_submitted_step == 0)
 				throw std::runtime_error("Checkpoint must contain a completed step");
@@ -577,16 +581,16 @@ namespace pr::unittests
 		// Rewrite every serialized child identity so a restored engine can claim a selected namespace.
 		void SetCheckpointCookie(std::vector<std::byte>& checkpoint, std::uint16_t cookie)
 		{
-			constexpr auto checkpoint_material_count_v4 = std::size_t{32};
-			auto header = CheckpointHeaderV4{};
+			constexpr auto checkpoint_material_count_v6 = std::size_t{32};
+			auto header = CheckpointHeaderV6{};
 			memcpy(&header, checkpoint.data(), sizeof(header));
 			header.m_engine_cookie = cookie;
 			memcpy(checkpoint.data(), &header, sizeof(header));
 
-			auto offset = sizeof(header) + checkpoint_material_count_v4 * sizeof(MaterialProperties);
+			auto offset = sizeof(header) + checkpoint_material_count_v6 * sizeof(MaterialProperties);
 			for (auto shape_index = std::uint32_t{}; shape_index != header.m_shape_count; ++shape_index)
 			{
-				auto shape = CheckpointShapeV4{};
+				auto shape = CheckpointShapeV6{};
 				memcpy(&shape, checkpoint.data() + offset, sizeof(shape));
 				shape.m_handle = WithCheckpointCookie(shape.m_handle, cookie);
 				memcpy(checkpoint.data() + offset, &shape, sizeof(shape));
@@ -602,7 +606,7 @@ namespace pr::unittests
 			}
 			for (auto body_index = std::uint32_t{}; body_index != header.m_body_count; ++body_index)
 			{
-				auto entry = CheckpointBodyV4{};
+				auto entry = CheckpointBodyV6{};
 				memcpy(&entry, checkpoint.data() + offset, sizeof(entry));
 				entry.m_state.body = WithCheckpointCookie(entry.m_state.body, cookie);
 				entry.m_state.shape = WithCheckpointCookie(entry.m_state.shape, cookie);
@@ -626,9 +630,53 @@ namespace pr::unittests
 		}
 	}
 
+	// Verify the incompatible event contract independently of native Engine implementation tests.
+	PRUnitTestClass(PhysicsDllEngineMigrationTests)
+	{
+		// Check actual native compilation offsets and source-built DLL discovery, not only layout arithmetic.
+		PRUnitTestMethod(RejectionEventLayout, Extended)
+		{
+			auto api = PhysicsApi{};
+			PR_EXPECT(api.ApiVersion() == 0x000E0000U);
+			auto size = std::uint32_t{};
+			PR_EXPECT(api.StructSize(EStructId::Event, &size) == EStatus::Success);
+			PR_EXPECT(size == 232 && sizeof(Event) == 232);
+			auto const offsets = std::array{
+				offsetof(Event, rejection_owner), offsetof(Event, rejection_index), offsetof(Event, rejection_generation),
+				offsetof(Event, rejection_outcome), offsetof(Event, rejection_phase), offsetof(Event, rejection_flags),
+				offsetof(Event, rejection_iteration_count), offsetof(Event, rejection_relaxation), offsetof(Event, rejection_merit_change),
+			};
+			for (size_t index = 0; index != offsets.size(); ++index)
+				PR_EXPECT(offsets[index] == 160 + 4 * index);
+
+			PR_EXPECT(offsetof(Event, normal_impulse) == 196);
+			PR_EXPECT(offsetof(Event, tangent_impulse) == 200);
+			PR_EXPECT(offsetof(Event, relative_velocity) == 216);
+			printf("native event: API=%08X size=%u payload=160..192 contact=196/200/216\n", api.ApiVersion(), size);
+		}
+	};
+
 	// Verify ABI discovery, fixed layouts, exception containment, and every required export.
 	PRUnitTestClass(PhysicsDllCoreTests)
 	{
+		PRUnitTestMethod(ExplicitRecoveryRequiresIdleOwner, Extended)
+		{
+			// Recovery is an explicit idle owner operation even when there is no interrupted GPU work.
+			auto fix = PhysicsFixture{};
+			PR_EXPECT(fix.m_api.EngineRetireInterruptedWork(fix.m_engine) == EStatus::Success);
+			auto wrong_thread = EStatus::Success;
+			auto worker = std::thread([&]
+			{
+				wrong_thread = fix.m_api.EngineRetireInterruptedWork(fix.m_engine);
+			});
+			worker.join();
+			PR_EXPECT(wrong_thread == EStatus::WrongThread);
+			PR_EXPECT(fix.m_api.BeginStep(fix.m_engine, 0.001f, 0.0, nullptr, 0) == EStatus::Success);
+			PR_EXPECT(fix.m_api.EngineRetireInterruptedWork(fix.m_engine) == EStatus::StepPending);
+			PR_EXPECT(fix.m_api.CompleteStep(fix.m_engine) == EStatus::Success);
+			PR_EXPECT(fix.m_api.EngineRetireInterruptedWork(fix.m_engine) == EStatus::Success);
+		}
+
 		PRUnitTestMethod(VersionsSizesAndErrors, Extended)
 		{
 			auto api = PhysicsApi{};
@@ -1022,6 +1070,18 @@ namespace pr::unittests
 			auto corrupt = checkpoint;
 			corrupt[corrupt.size() / 2] ^= std::byte{0x5A};
 			PR_EXPECT(fix.m_api.CheckpointRead(restored, corrupt.data(), corrupt.size()) != EStatus::Success);
+			
+			// B4 and D5 cannot be interpreted using the E6 config representation, even with an otherwise valid payload.
+			auto previous_version = checkpoint;
+			auto header = CheckpointHeaderV6{};
+			memcpy(&header, previous_version.data(), sizeof(header));
+			PR_EXPECT(header.m_version == PHYSICS_CHECKPOINT_VERSION && header.m_header_size == sizeof(header));
+			for (auto version : {4U, 5U})
+			{
+				header.m_version = version;
+				memcpy(previous_version.data(), &header, sizeof(header));
+				PR_EXPECT(fix.m_api.CheckpointRead(restored, previous_version.data(), previous_version.size()) == EStatus::IncompatibleVersion);
+			}
 			PR_EXPECT(fix.m_api.CheckpointRead(restored, checkpoint.data(), checkpoint.size()) == EStatus::Success);
 			PR_EXPECT(fix.m_api.EngineDestroy(restored) == EStatus::Success);
 			static_cast<IUnknown*>(device)->Release();
@@ -1061,6 +1121,43 @@ namespace pr::unittests
 
 			PR_EXPECT(fix.m_api.BodyDestroy(fix.m_engine, restored_body) == EStatus::Success);
 			PR_EXPECT(fix.m_api.ShapeDestroy(fix.m_engine, restored_shape) == EStatus::Success);
+		}
+	};
+
+	// Each method runs in a fresh process, independent of other tests' loaded modules and devices.
+	PRUnitTestClass(PhysicsDllProcessDiagnosticsTests, Serial)
+	{
+		PRUnitTestMethod(RepeatedAndInvalidCallsAreRejected, Extended)
+		{
+			if (RunIsolatedDllTest("PhysicsDllProcessDiagnosticsTests::RepeatedAndInvalidCallsAreRejected"))
+				return;
+
+			// None never changes process settings, even if a guard regresses.
+			if (GetModuleHandleW(L"physics.dll") != nullptr)
+				throw std::runtime_error("Run this control in a fresh process without physics.dll loaded");
+
+			auto api = PhysicsApi{};
+			PR_EXPECT(api.ConfigureProcessDiagnostics(static_cast<EProcessDiagnostics>(7)) == EStatus::InvalidArgument);
+			PR_EXPECT(api.ConfigureProcessDiagnostics(EProcessDiagnostics::None) == EStatus::Success);
+			PR_EXPECT(api.ConfigureProcessDiagnostics(EProcessDiagnostics::None) == EStatus::InvalidArgument);
+			auto required = std::uint32_t{};
+			PR_EXPECT(api.LastError(nullptr, 0, &required) == EStatus::BufferTooSmall && required > 1);
+		}
+		PRUnitTestMethod(CallAfterEngineCreationIsRejected, Extended)
+		{
+			if (RunIsolatedDllTest("PhysicsDllProcessDiagnosticsTests::CallAfterEngineCreationIsRejected"))
+				return;
+
+			// Creation closes this DLL's startup boundary even after the Engine is destroyed.
+			if (GetModuleHandleW(L"physics.dll") != nullptr)
+				throw std::runtime_error("Run this control in a fresh process without physics.dll loaded");
+
+			auto fix = PhysicsFixture{ReportErrorCB{{}, &SwallowError}, nullptr};
+			PR_EXPECT(fix.m_api.EngineDestroy(fix.m_engine) == EStatus::Success);
+			fix.m_engine = 0;
+			PR_EXPECT(fix.m_api.ConfigureProcessDiagnostics(EProcessDiagnostics::None) == EStatus::InvalidArgument);
+			auto required = std::uint32_t{};
+			PR_EXPECT(fix.m_api.LastError(nullptr, 0, &required) == EStatus::BufferTooSmall && required > 1);
 		}
 	};
 
@@ -1937,7 +2034,7 @@ namespace pr::unittests
 			PR_EXPECT(links[1].external_force.linear.x == 2.0f);
 			PR_EXPECT(links[1].gravity.z == gravity.z);
 
-			// Multiple internal substeps remain within one submission/wait/readback boundary.
+			// Internal substep submissions retain one final completion and readback boundary.
 			PR_EXPECT(fix.m_api.StepEx(fix.m_engine, 1.0f / 60.0f, 0.0, 2, nullptr, 0) == EStatus::Success);
 			auto diagnostics = Diagnostics{};
 			PR_EXPECT(fix.m_api.DiagnosticsGet(fix.m_engine, &diagnostics) == EStatus::Success);
@@ -2719,6 +2816,27 @@ namespace pr::unittests
 	// Verify engine-owned atmosphere lifetime, asynchronous stepping, readback, and contract errors through the public ABI.
 	PRUnitTestClass(PhysicsDllAtmosphereTests)
 	{
+		PRUnitTestMethod(ReturnedInputRejectionsPreserveOwner, Extended)
+		{
+			// The DLL must translate returned input checks without treating them as partial-work failures.
+			auto fix = PhysicsFixture{};
+			auto desc = MakeAtmosphereDesc();
+			desc.tracer_count = 0;
+			auto atmosphere = AtmosphereHandle{};
+			PR_EXPECT(fix.m_api.AtmosphereCreate(fix.m_engine, &desc, &atmosphere) == EStatus::Success);
+			auto floors = std::vector<float>(64, 0.5f);
+			PR_EXPECT(fix.m_api.AtmosphereFloorsSet(fix.m_engine, atmosphere, floors.data(), 63) == EStatus::InvalidArgument);
+			auto air = std::vector<AtmosphereOutsideAir>(64, AtmosphereOutsideAir{.wind = {1, 0}});
+			air.back().temperature_offset = std::numeric_limits<float>::quiet_NaN();
+			PR_EXPECT(fix.m_api.AtmosphereOutsideAirSet(fix.m_engine, atmosphere, air.data(), 64) == EStatus::InvalidArgument);
+			auto idle = std::int32_t{};
+			PR_EXPECT(fix.m_api.AtmospherePollStep(fix.m_engine, atmosphere, &idle) == EStatus::Success && idle == 1);
+			auto step = AtmosphereStepDesc{.header = {sizeof(AtmosphereStepDesc), PHYSICS_STRUCT_VERSION}, .dt = 0.1f};
+			PR_EXPECT(fix.m_api.AtmosphereBeginStep(fix.m_engine, atmosphere, &step) == EStatus::Success);
+			PR_EXPECT(fix.m_api.AtmosphereCompleteStep(fix.m_engine, atmosphere) == EStatus::Success);
+			PR_EXPECT(fix.m_api.AtmosphereDestroy(fix.m_engine, atmosphere) == EStatus::Success);
+		}
+
 		// Return a small closed box of still air with a few tracers, matching the native solver tests' scale.
 		static AtmosphereDesc MakeAtmosphereDesc()
 		{

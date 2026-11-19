@@ -44,7 +44,7 @@ namespace pr::physics::tests
 		engine.Collisions.reset();
 		engine.ExternalForces.reset();
 		engine.ConstraintsBroken.reset();
-		engine.CoupledConstraintFailures.reset();
+		engine.ConstraintRejections.reset();
 		engine.Config(physics::EngineConfig{});
 		engine.Material(physics::Material{
 			.m_id = physics::Material::DefaultID,

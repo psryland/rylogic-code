@@ -10,7 +10,7 @@ namespace Rylogic.Physics;
 internal static unsafe partial class Native
 {
 	internal const string Dll = "physics";
-	internal const uint ApiVersion = 0x00080001U;
+	internal const uint ApiVersion = 0x000E0000U;
 	internal const uint StructVersion = 3U;
 	private static IntPtr m_module;
 
@@ -96,7 +96,6 @@ internal static unsafe partial class Native
 		internal float m_constraint_warm_start_factor;
 		internal uint m_world_collision_layer;
 		internal uint m_world_collision_mask;
-		internal int m_device_debug;
 
 		/// <summary>Convert caller-facing options into the exact ABI layout.</summary>
 		internal static EngineConfig From(EngineOptions options)
@@ -157,7 +156,6 @@ internal static unsafe partial class Native
 				m_constraint_warm_start_factor = options.ConstraintWarmStartFactor,
 				m_world_collision_layer = options.WorldCollisionLayer,
 				m_world_collision_mask = options.WorldCollisionMask,
-				m_device_debug = options.DeviceDebug ? 1 : 0,
 			};
 		}
 
@@ -219,7 +217,6 @@ internal static unsafe partial class Native
 				ConstraintWarmStartFactor = m_constraint_warm_start_factor,
 				WorldCollisionLayer = m_world_collision_layer,
 				WorldCollisionMask = m_world_collision_mask,
-				DeviceDebug = m_device_debug != 0,
 			};
 		}
 	}
@@ -440,6 +437,7 @@ internal static unsafe partial class Native
 	}
 
 	[DllImport(Dll)] internal static extern uint Physics_ApiVersion();
+	[DllImport(Dll)] internal static extern EStatus Physics_ConfigureProcessDiagnostics(EProcessDiagnostics mode);
 	[DllImport(Dll)] internal static extern IntPtr Physics_Initialise(ReportErrorCallback callback);
 	[DllImport(Dll)] internal static extern void Physics_Shutdown(IntPtr context);
 	[DllImport(Dll, CharSet = CharSet.Unicode)] internal static extern EStatus Physics_ShaderCacheDirectorySet(IntPtr context, string? directory);
@@ -450,6 +448,7 @@ internal static unsafe partial class Native
 	[DllImport(Dll)] internal static extern EStatus Physics_EngineCreate(IntPtr context, EngineConfig* config, IntPtr external_device, out ulong engine);
 	[DllImport(Dll)] internal static extern EStatus Physics_EngineDestroy(ulong engine);
 	[DllImport(Dll)] internal static extern void Physics_EngineAbandon(ulong engine);
+	[DllImport(Dll)] internal static extern EStatus Physics_EngineRetireInterruptedWork(ulong engine);
 	[DllImport(Dll)] internal static extern EStatus Physics_EngineDeviceLeaseAcquire(ulong engine, out IntPtr device);
 	[DllImport(Dll)] internal static extern EStatus Physics_EngineConfigGet(ulong engine, EngineConfig* config);
 	[DllImport(Dll)] internal static extern EStatus Physics_EngineConfigSet(ulong engine, EngineConfig* config);

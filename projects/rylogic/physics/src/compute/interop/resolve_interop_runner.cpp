@@ -24,9 +24,9 @@ namespace pr::physics
 			return config.push_out_iterations != 0 ? 1.0f / std::max(1, config.push_out_iterations) : 0.0f;
 		}
 
-		cbResolve MakeConstants(EngineConfig const& config, float dt, int body_count, int max_contacts, int colour = 0)
+		GpuResolveParams MakeConstants(EngineConfig const& config, float dt, int body_count, int max_contacts, int colour = 0)
 		{
-			return cbResolve{
+			return GpuResolveParams{
 				.max_contacts = max_contacts,
 				.body_count = body_count,
 				.colour = colour,
@@ -106,6 +106,33 @@ namespace pr::physics
 		}
 
 		Store(buffers);
+	}
+
+	// The shader helper uses the same slot-claim operation as hardware, with caller-selected insertion order.
+	std::vector<GpuWarmStartEntry> ResolveInteropRunner::StoreWarmStart(std::span<GpuResolveContact const> contacts, int capacity)
+	{
+		if (capacity <= 0 || contacts.size() > static_cast<size_t>(capacity / 2))
+			throw std::invalid_argument("Warm-start replay requires at least twice the contact count in cache slots");
+
+		g = MakeConstants(m_config, 0.0f, 0, 0);
+		g.warm_start_capacity = capacity;
+		auto empty = std::vector<GpuWarmStartEntry>(capacity);
+		g_warm_start_curr.assign(SpanOf(empty));
+		for (auto const& contact : contacts)
+			StoreWarmStartImpulse(contact);
+
+		return {g_warm_start_curr.begin(), g_warm_start_curr.end()};
+	}
+
+	// No body buffer is needed for this identity-only lookup: the replay explicitly has no resettable body entries.
+	v4 ResolveInteropRunner::LoadWarmStart(std::span<GpuWarmStartEntry const> cache, GpuResolveContact const& contact)
+	{
+		g = MakeConstants(m_config, 0.0f, 0, 0);
+		g.warm_start_capacity = s_cast<int>(cache.size());
+		g_warm_start_prev.assign(cache);
+		auto impulse = float3{};
+		LoadWarmStartImpulse(contact, impulse);
+		return v4{impulse, 0.0f};
 	}
 
 	void ResolveInteropRunner::Load(ResolveRunnerBuffers buffers)

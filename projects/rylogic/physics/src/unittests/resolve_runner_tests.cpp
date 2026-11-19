@@ -9,6 +9,8 @@
 #include "src/compute/interop/resolve_runner.h"
 #include "src/unittests/shared_gpu.h"
 #include "src/compute/resolve_gpu.h"
+#include "src/compute/shader_code.h"
+#include "src/integrator/engine_buffer_cache.h"
 
 namespace pr::physics::tests
 {
@@ -1083,6 +1085,447 @@ namespace pr::physics::tests
 
 			// After resolve, body should be moving UP (vz > 0) — bias should overcome gravity.
 			PR_EXPECT(vz_after > 0.0f);
+		}
+	};
+
+	// Cache identity and duplicate selection must be independent of contact append and GPU insertion order.
+	PRUnitTestClass(ResolveWarmStartIdentityTests)
+	{
+		// A centroid normal impulse, with all other contact inputs fixed.
+		static GpuResolveContact Contact(v4 point, float impulse, int child = 0)
+		{
+			return GpuResolveContact{
+				.axis = v4::ZAxis(), .contact_point = point, .manifold = {point}, .b2a = m4x4::Identity(),
+				.body_idx_a = 0, .body_idx_b = 1, .feature = 1, .child_idx_a = child,
+				.warmstart_impulse = v4{0, 0, impulse, 0},
+			};
+		}
+
+		PRUnitTestMethod(PermutationsChooseOneDuplicateAndMatchFullIdentity, Quick)
+		{
+			auto config = EngineConfig{};
+			config.warm_start_scale = 1.0f;
+			auto runner = ResolveInteropRunner{config};
+			auto const contacts = std::array{
+				Contact(v4::Origin(), 3), Contact(v4::Origin(), 2),
+				Contact(v4{0.5f, 0, 0, 1}, 5), Contact(v4::Origin(), 7, 65536),
+			};
+			auto order = std::array{0, 1, 2, 3};
+			do
+			{
+				auto permuted = std::vector<GpuResolveContact>{};
+				for (auto index : order)
+					permuted.push_back(contacts[index]);
+
+				auto const cache = runner.StoreWarmStart(permuted, 8);
+				PR_EXPECT(All(runner.LoadWarmStart(cache, contacts[0]) == v4(0, 0, 2, 0)));
+				PR_EXPECT(All(runner.LoadWarmStart(cache, contacts[2]) == v4(0, 0, 5, 0)));
+				PR_EXPECT(All(runner.LoadWarmStart(cache, contacts[3]) == v4(0, 0, 7, 0)));
+			}
+			while (std::ranges::next_permutation(order).found);
+
+			// Equal-length directions must not select whichever normal happened to be inserted first.
+			auto ties = std::array{contacts[1], contacts[1]};
+			ties[1].axis = v4::YAxis();
+			ties[1].warmstart_impulse = v4{0, 2, 0, 0};
+			for (int pass = 0; pass != 2; ++pass)
+			{
+				PR_EXPECT(All(runner.LoadWarmStart(runner.StoreWarmStart(ties, 4), contacts[1]) == v4(0, 0, 2, 0)));
+				std::ranges::reverse(ties);
+			}
+
+			// Overflow of the priority's squared magnitude still has a total raw-bit tie-break among finite impulses.
+			auto large = std::array{Contact(v4::Origin(), 3.0e20f), Contact(v4::Origin(), 2.0e20f)};
+			for (int pass = 0; pass != 2; ++pass)
+			{
+				PR_EXPECT(All(runner.LoadWarmStart(runner.StoreWarmStart(large, 4), contacts[1]) == v4(0, 0, 2.0e20f, 0)));
+				std::ranges::reverse(large);
+			}
+
+			// Force equal hashes while changing each formerly missing identity component.
+			auto const seed = std::span{contacts}.first(1);
+			for (int changed = 0; changed != 3; ++changed)
+			{
+				auto cache = runner.StoreWarmStart(seed, 4);
+				auto& entry = *std::ranges::find_if(cache, [](auto const& value) { return value.key != 0; });
+				switch (changed)
+				{
+					case 0: { ++entry.point_key_x; break; }
+					case 1: { entry.child_idx_a += 65536; break; }
+					case 2: { entry.child_idx_b += 65536; break; }
+					default: { throw std::logic_error("Unknown identity discriminator"); }
+				}
+				PR_EXPECT(All(runner.LoadWarmStart(cache, contacts[0]) == v4::Zero()));
+			}
+		}
+
+		PRUnitTestMethod(LongProbeChainsAndFinitePointRange, Quick)
+		{
+			auto config = EngineConfig{};
+			config.warm_start_scale = 1.0f;
+			auto runner = ResolveInteropRunner{config};
+			auto contacts = std::vector<GpuResolveContact>{};
+			for (int index = 0; index != 48; ++index)
+				contacts.push_back(Contact(v4::Origin(), static_cast<float>(49 - index)));
+
+			auto const cache = runner.StoreWarmStart(contacts, 128);
+			PR_EXPECT(std::ranges::count_if(cache, [](auto const& entry) { return entry.key != 0; }) == 48);
+			PR_EXPECT(All(runner.LoadWarmStart(cache, contacts[0]) == v4(0, 0, 2, 0)));
+			std::ranges::reverse(contacts);
+			PR_EXPECT(All(runner.LoadWarmStart(runner.StoreWarmStart(contacts, 128), contacts[0]) == v4(0, 0, 2, 0)));
+
+			// Coordinates beyond the old int32 cell range remain distinct, without multiplying the largest finite value.
+			auto const largest = std::numeric_limits<float>::max();
+			auto const points = std::array{
+				Contact(v4{largest, -largest, 0, 1}, 3),
+				Contact(v4{std::nextafter(largest, 0.0f), -largest, 0, 1}, 5),
+				Contact(v4{131072, -131072, 0, 1}, 7),
+				Contact(v4{131072.015625f, -131072, 0, 1}, 9),
+			};
+			auto const wide = runner.StoreWarmStart(points, 8);
+			for (auto const& point : points)
+				PR_EXPECT(All(runner.LoadWarmStart(wide, point) == point.warmstart_impulse));
+
+			// Exact grid points stay fixed at both sides of the exponent boundary; signed zeros share a cell.
+			for (auto coordinate : {131071.984375f, -131071.984375f, 131072.0f, -131072.0f, -0.0f})
+			{
+				auto const point = std::array{Contact(v4{coordinate, 0, 0, 1}, 2)};
+				auto const entries = runner.StoreWarmStart(point, 2);
+				auto const& entry = *std::ranges::find_if(entries, [](auto const& value) { return value.key != 0; });
+				PR_EXPECT(entry.point_key_x == std::bit_cast<uint32_t>(coordinate == 0.0f ? 0.0f : coordinate));
+			}
+		}
+
+		// A structured grid must distribute high coordinate bits into the low power-of-two bucket bits.
+		PRUnitTestMethod(DistinctGridPointsHaveDistributedProbeChains, Quick)
+		{
+			auto config = EngineConfig{};
+			config.warm_start_scale = 1.0f;
+			auto runner = ResolveInteropRunner{config};
+			auto contacts = std::vector<GpuResolveContact>{};
+			for (int index = 0; index != 128; ++index)
+				contacts.push_back(Contact(v4{index / 64.0f, 0, 0, 1}, static_cast<float>(index + 1)));
+
+			// Recover exact insertion distances and complete-chain lookup work from the production-generated table.
+			auto const cache = runner.StoreWarmStart(contacts, 256);
+			auto buckets = std::array<bool, 256>{};
+			auto insertion_probes = 0;
+			auto maximum_lookup_probes = 0;
+			for (int slot = 0; slot != 256; ++slot)
+			{
+				if (cache[slot].key == 0)
+					continue;
+
+				auto const home = static_cast<int>(cache[slot].key % 256U);
+				buckets[home] = true;
+				insertion_probes += (slot + 256 - home) % 256 + 1;
+				auto lookup_probes = 1;
+				while (cache[(home + lookup_probes - 1) % 256].key != 0)
+					++lookup_probes;
+
+				maximum_lookup_probes = std::max(maximum_lookup_probes, lookup_probes);
+			}
+			auto const distinct_buckets = std::ranges::count(buckets, true);
+			log_stream() << "grid128 capacity256 buckets=" << distinct_buckets << " insertion_probes=" << insertion_probes << " max_lookup_probes=" << maximum_lookup_probes << '\n';
+			PR_EXPECT(distinct_buckets >= 64);
+			PR_EXPECT(insertion_probes <= 512);
+			PR_EXPECT(maximum_lookup_probes <= 32);
+			for (auto const& contact : contacts)
+				PR_EXPECT(All(runner.LoadWarmStart(cache, contact) == contact.warmstart_impulse));
+		}
+
+		// Raw GPU cache helpers copy/select hints without solving or publishing physical motion.
+		PRUnitTestMethod(HardwareCacheHelpersRetainEveryDuplicate, Extended)
+		{
+			using namespace pr::compute;
+			auto config = EngineConfig{};
+			config.warm_start_scale = 1.0f;
+			auto replay = ResolveInteropRunner{config};
+			auto input = std::vector<GpuResolveContact>{};
+			for (int index = 0; index != 48; ++index)
+				input.push_back(Contact(v4::Origin(), static_cast<float>(49 - index)));
+
+			// The selected duplicate lies past 32 occupied slots; every GPU store must claim its own output entry.
+			auto const previous = replay.StoreWarmStart(input, 128);
+			auto const empty = std::vector<GpuWarmStartEntry>(128);
+			auto& gpu = SharedTestGpu();
+			auto& job = gpu.m_job;
+			auto signature = RootSig(ERootSigFlags::ComputeOnly).U32<GpuResolveParams>(ECBufReg::b0).SRV(ESRVReg::t0)
+				.UAV(EUAVReg::u0).UAV(EUAVReg::u2).UAV(EUAVReg::u8).UAV(EUAVReg::u9).Create(gpu, "CacheHelpers:Signature");
+			auto load = ComputePSO(signature.get(), shader_code::load_warm_start).Create(gpu, "CacheHelpers:Load");
+			auto store = ComputePSO(signature.get(), shader_code::store_warm_start).Create(gpu, "CacheHelpers:Store");
+			auto counters = gpu.CreateResource(ResDesc::Buf<GpuCollisionCounters>(1, {}), job, "CacheHelpers:Counters");
+			auto bodies = gpu.CreateResource(ResDesc::Buf<GpuRigidBody>(2, {}).usage(EUsage::UnorderedAccess), job, "CacheHelpers:Bodies");
+			auto contacts = gpu.CreateResource(ResDesc::Buf<GpuResolveContact>(48, {}).usage(EUsage::UnorderedAccess), job, "CacheHelpers:Contacts");
+			auto prev = gpu.CreateResource(ResDesc::Buf<GpuWarmStartEntry>(128, {}).usage(EUsage::UnorderedAccess), job, "CacheHelpers:Previous");
+			auto curr = gpu.CreateResource(ResDesc::Buf<GpuWarmStartEntry>(128, {}).usage(EUsage::UnorderedAccess), job, "CacheHelpers:Current");
+			auto upload = [&]<typename Container>(ID3D12Resource* resource, Container const& values)
+			{
+				using Value = typename Container::value_type;
+				auto allocation = job.m_upload.Alloc<Value>(isize(values));
+				memcpy(allocation.template ptr<Value>(), values.data(), values.size() * sizeof(Value));
+				job.m_barriers.Transition(resource, D3D12_RESOURCE_STATE_COPY_DEST).Commit();
+				job.m_cmd_list.CopyBufferRegion(resource, 0, allocation);
+			};
+			upload(counters.get(), std::array{GpuCollisionCounters{.contact_count = 48}});
+			upload(bodies.get(), std::array<GpuRigidBody, 2>{});
+			upload(contacts.get(), input);
+			upload(prev.get(), previous);
+			upload(curr.get(), empty);
+			job.m_barriers.Transition(counters.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			job.m_barriers.Transition(bodies.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			job.m_barriers.Transition(contacts.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			job.m_barriers.Transition(prev.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			job.m_barriers.Transition(curr.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS).Commit();
+			job.m_cmd_list.SetPipelineState(load.get());
+			job.m_cmd_list.SetComputeRootSignature(signature.get());
+			job.m_cmd_list.AddComputeRoot32BitConstants(GpuResolveParams{.max_contacts = 48, .body_count = 2, .warm_start_scale = 1, .warm_start_capacity = 128, .rigid_body_count = 2});
+			job.m_cmd_list.AddComputeRootShaderResourceView(counters);
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(bodies);
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(contacts);
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(prev);
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(curr);
+			job.m_cmd_list.Dispatch((48 + ResolveThreadCount - 1) / ResolveThreadCount, 1, 1);
+			job.m_barriers.UAV(contacts.get()).Commit();
+			job.m_cmd_list.SetPipelineState(store.get());
+			job.m_cmd_list.Dispatch((48 + ResolveThreadCount - 1) / ResolveThreadCount, 1, 1);
+
+			// Check the actual loaded hints and all concurrently inserted output records, independently of the resolver owner.
+			auto loaded = job.m_readback.Alloc<GpuResolveContact>(48);
+			auto stored = job.m_readback.Alloc<GpuWarmStartEntry>(128);
+			job.m_barriers.Transition(contacts.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
+			job.m_barriers.Transition(curr.get(), D3D12_RESOURCE_STATE_COPY_SOURCE).Commit();
+			job.m_cmd_list.CopyBufferRegion(loaded, contacts.get());
+			job.m_cmd_list.CopyBufferRegion(stored, curr.get());
+			job.Run();
+			for (int index = 0; index != 48; ++index)
+				PR_EXPECT(All(loaded.ptr<GpuResolveContact>()[index].warmstart_impulse == v4(0, 0, 2, 0)));
+
+			auto const entries = std::span{stored.ptr<GpuWarmStartEntry>(), size_t{128}};
+			PR_EXPECT(std::ranges::count_if(entries, [](auto const& entry) { return entry.key != 0; }) == 48);
+			PR_EXPECT(All(replay.LoadWarmStart(entries, input[0]) == v4(0, 0, 2, 0)));
+		}
+
+		// Zero velocity sweeps cannot publish provisional cache impulses as physical response.
+		PRUnitTestMethod(ZeroVelocitySweepsDoNotPublishWarmHints, Extended)
+		{
+			// Exercise the real resolver owner with previously accepted hints and unchanged free motion.
+			auto config = EngineConfig{};
+			config.warm_start_scale = 1.0f;
+			config.push_out_iterations = 0;
+			config.solver_iterations = 0;
+			config.contact_sort_propagation_scale = 0.0f;
+			auto box = collision::ShapeBox{v4{1, 1, 1, 0}};
+			auto hub = RigidBody{&box, m4x4::Identity(), Inertia::Box(box.m_radius, 1.0f)};
+			auto wall = RigidBody{&box, m4x4::Identity(), Inertia::Infinite()};
+			hub.VelocityWS(v4::Zero(), v4{0, 0, 100, 0});
+			auto const initial = std::array{PackDynamics(hub, 0), PackDynamics(wall, 1)};
+			auto bodies = initial;
+			auto contacts = std::vector<GpuResolveContact>(48, Contact(v4::Origin(), 0));
+			auto materials = std::array{GpuMaterial{.friction_static = 0.0f, .elasticity_norm = 0.0f}};
+			auto& gpu = SharedTestGpu();
+			auto& job = gpu.m_job;
+			auto resolver = GpuResolver{gpu, config, &SharedTestShaderCache()};
+			resolver.Resolve(job, 1.0f / 60, contacts, bodies, materials);
+
+			// A nonempty previous cache must not cause physical application or promotion when no velocity solve was requested.
+			auto cached_contacts = contacts;
+			for (int index = 0; index != isize(cached_contacts); ++index)
+				cached_contacts[index].warmstart_impulse.z = static_cast<float>(49 - index);
+
+			auto replay = ResolveInteropRunner{config};
+			auto const cache = replay.StoreWarmStart(cached_contacts, resolver.m_warm_start_capacity);
+			auto upload = job.m_upload.Alloc<GpuWarmStartEntry>(isize(cache));
+			std::copy(cache.begin(), cache.end(), upload.ptr<GpuWarmStartEntry>());
+			job.m_barriers.Transition(resolver.m_r_warm_start_prev.get(), D3D12_RESOURCE_STATE_COPY_DEST).Commit();
+			job.m_cmd_list.CopyBufferRegion(resolver.m_r_warm_start_prev.get(), 0, upload);
+			job.Run();
+			bodies = initial;
+			resolver.Resolve(job, 1.0f / 60, contacts, bodies, materials);
+			PR_EXPECT(All(bodies[0].momentum_lin == initial[0].momentum_lin));
+			PR_EXPECT(All(bodies[0].momentum_ang == initial[0].momentum_ang));
+			PR_EXPECT(memcmp(&bodies[0].o2w, &initial[0].o2w, sizeof(m4x4)) == 0);
+			for (auto const& contact : contacts)
+				PR_EXPECT(All(contact.warmstart_impulse == v4::Zero()));
+
+			// Retirement selects the cleared output cache, not the previous guesses or unsolved contact totals.
+			auto readback = job.m_readback.Alloc<GpuWarmStartEntry>(resolver.m_warm_start_capacity);
+			job.m_barriers.Transition(resolver.m_r_warm_start_prev.get(), D3D12_RESOURCE_STATE_COPY_SOURCE).Commit();
+			job.m_cmd_list.CopyBufferRegion(readback, resolver.m_r_warm_start_prev.get());
+			job.Run();
+			auto const stored = std::span{readback.ptr<GpuWarmStartEntry>(), static_cast<size_t>(resolver.m_warm_start_capacity)};
+			PR_EXPECT(std::ranges::count_if(stored, [](auto const& entry) { return entry.key != 0; }) == 0);
+			PR_EXPECT(All(replay.LoadWarmStart(stored, contacts[0]) == v4::Zero()));
+
+			// Enabling a real solve still produces and promotes its physical impulse.
+			config.solver_iterations = 1;
+			bodies = initial;
+			contacts.resize(1);
+			resolver.Resolve(job, 1.0f / 60, contacts, bodies, materials);
+			PR_EXPECT(FEqlAbsolute(bodies[0].momentum_lin.z, 0.0f, 1.0e-5f));
+			auto solved_readback = job.m_readback.Alloc<GpuWarmStartEntry>(resolver.m_warm_start_capacity);
+			job.m_barriers.Transition(resolver.m_r_warm_start_prev.get(), D3D12_RESOURCE_STATE_COPY_SOURCE).Commit();
+			job.m_cmd_list.CopyBufferRegion(solved_readback, resolver.m_r_warm_start_prev.get());
+			job.Run();
+			auto const solved = std::span{solved_readback.ptr<GpuWarmStartEntry>(), static_cast<size_t>(resolver.m_warm_start_capacity)};
+			PR_EXPECT(std::ranges::count_if(solved, [](auto const& entry) { return entry.key != 0; }) == 1);
+			PR_EXPECT(All(replay.LoadWarmStart(solved, contacts[0]) == v4(0, 0, 100, 0)));
+		}
+	};
+
+	// Packed slots may be reused only while their exact persistent owner sequence is unchanged.
+	PRUnitTestClass(ContactPackedLayoutTests)
+	{
+		// Reordering identical live shapes is an identity change even when every geometric cache key still matches.
+		PRUnitTestMethod(TracksBodiesTreesReplacementAndEmptyFrames, Quick)
+		{
+			auto box = collision::ShapeBox{v4{1, 1, 1, 0}};
+			auto make_body = [&]
+			{
+				return RigidBody{&box, m4x4::Identity(), Inertia::Box(box.m_radius, 1.0f)};
+			};
+			auto storage = std::array{make_body(), make_body(), make_body(), make_body(), make_body()};
+			auto bodies = std::array{&storage[0], &storage[1], &storage[2], &storage[3]};
+			auto cache = EngineBufferCache{};
+			PR_EXPECT(cache.UpdateContactLayout(bodies, {}));
+			cache.NewFrame();
+			PR_EXPECT(!cache.UpdateContactLayout(bodies, {}));
+			std::ranges::rotate(bodies, bodies.begin() + 2);
+			PR_EXPECT(cache.UpdateContactLayout(bodies, {}));
+			PR_EXPECT(!cache.UpdateContactLayout(bodies, {}));
+
+			// Relocating one logical owner changes its address but not its identity; never submit both copies together.
+			auto relocated = storage[0];
+			bodies[2] = &relocated;
+			PR_EXPECT(!cache.UpdateContactLayout(bodies, {}));
+			bodies[2] = &storage[0];
+			PR_EXPECT(!cache.UpdateContactLayout(bodies, {}));
+			bodies[3] = &storage[4];
+			PR_EXPECT(cache.UpdateContactLayout(bodies, {}));
+			PR_EXPECT(cache.UpdateContactLayout(std::span{bodies}.first(3), {}));
+			PR_EXPECT(cache.UpdateContactLayout(bodies, {}));
+
+			// Immutable topology makes the ordered tree identities sufficient for every packed link slot.
+			auto make_tree = [&]
+			{
+				auto builder = ArticulationBuilder{};
+				builder.AddFloatingRoot(ArticulationLinkDesc{.m_inertia = Inertia::Sphere(0.2f, 1.0f)});
+				return builder.Build();
+			};
+			auto trees = std::array{make_tree(), make_tree(), make_tree()};
+			auto articulations = std::array{&trees[0], &trees[1]};
+			PR_EXPECT(cache.UpdateContactLayout(bodies, articulations));
+			cache.NewFrame();
+			PR_EXPECT(!cache.UpdateContactLayout(bodies, articulations));
+			std::ranges::reverse(articulations);
+			PR_EXPECT(cache.UpdateContactLayout(bodies, articulations));
+			PR_EXPECT(!cache.UpdateContactLayout(bodies, articulations));
+			articulations[1] = &trees[2];
+			PR_EXPECT(cache.UpdateContactLayout(bodies, articulations));
+			PR_EXPECT(cache.UpdateContactLayout(bodies, std::span{articulations}.first(1)));
+			PR_EXPECT(cache.UpdateContactLayout({}, articulations));
+
+			// An empty frame or owner reset cannot bridge unrelated uses of the same packed slots.
+			PR_EXPECT(cache.UpdateContactLayout({}, {}));
+			PR_EXPECT(!cache.UpdateContactLayout({}, {}));
+			PR_EXPECT(cache.UpdateContactLayout(bodies, articulations));
+			cache.Reset();
+			PR_EXPECT(cache.UpdateContactLayout(bodies, articulations));
+		}
+	};
+
+	// Hardware checks for the production in-place endpoint sort, independent of append indices and segment length.
+	PRUnitTestClass(CoupledContactEndpointOrderTests)
+	{
+		PRUnitTestMethod(CanonicalSegmentsIgnoreAppendOrder, Extended)
+		{
+			using namespace pr::compute;
+			auto& gpu = SharedTestGpu();
+			auto& job = gpu.m_job;
+			auto signature = compute::RootSig(compute::ERootSigFlags::ComputeOnly)
+				.U32<GpuCoupledContactParams>(ECBufReg::b0).SRV(ESRVReg::t0)
+				.UAV(EUAVReg::u1).UAV(EUAVReg::u5).UAV(EUAVReg::u6)
+				.Create(gpu, "ContactOrder:Signature");
+			auto pipeline = compute::ComputePSO(signature.get(), shader_code::canonicalise_coupled_contact_endpoints).Create(gpu, "ContactOrder:Pipeline");
+			auto upload = [&]<typename Container>(ID3D12Resource* resource, Container const& values)
+			{
+				using Value = typename Container::value_type;
+				auto allocation = job.m_upload.Alloc<Value>(isize(values));
+				memcpy(allocation.template ptr<Value>(), values.data(), values.size() * sizeof(Value));
+				job.m_barriers.Transition(resource, D3D12_RESOURCE_STATE_COPY_DEST).Commit();
+				job.m_cmd_list.CopyBufferRegion(resource, 0, allocation);
+			};
+			for (auto count : {0, 1, 2, 3, 129})
+			{
+				// The last contacts share a centroid but differ in transform or active manifold data.
+				auto sorted = std::vector<GpuResolveContact>{};
+				for (int index = 0; index != count; ++index)
+				{
+					auto contact = TestClass_ResolveWarmStartIdentityTests::Contact(v4{static_cast<float>(index + 1), 0, 0, 1}, 0);
+					if (index >= 124)
+					{
+						contact.contact_point.x = 124;
+						contact.b2a[3].x = static_cast<float>(std::min(index - 123, 3));
+					}
+					sorted.push_back(contact);
+				}
+				auto counters = gpu.CreateResource(ResDesc::Buf<GpuCollisionCounters>(1, {}), job, "ContactOrder:Counters");
+				auto contacts = gpu.CreateResource(ResDesc::Buf<GpuResolveContact>(std::max(1, count), {}).usage(EUsage::UnorderedAccess), job, "ContactOrder:Contacts");
+				auto keys = gpu.CreateResource(ResDesc::Buf<uint32_t>(2 * count + 2, {}).usage(EUsage::UnorderedAccess), job, "ContactOrder:Keys");
+				auto order = gpu.CreateResource(ResDesc::Buf<uint32_t>(2 * count + 2, {}).usage(EUsage::UnorderedAccess), job, "ContactOrder:Order");
+				for (int permutation = 0; permutation != 3; ++permutation)
+				{
+					auto input = std::vector<GpuResolveContact>{};
+					auto target_keys = std::vector<uint32_t>(2 * count + 2, 0xFFFFFFFFU);
+					auto endpoints = std::vector<uint32_t>(2 * count + 2, 0xFFFFFFFFU);
+					for (int index = 0; index != count; ++index)
+					{
+						auto const source = permutation == 0 ? index : permutation == 1 ? count - 1 - index : (31 * index + 7) % count;
+						input.push_back(sorted[source]);
+						target_keys[index] = 0;
+						target_keys[count + index] = 1;
+						endpoints[index] = 2 * index;
+						endpoints[count + index] = 2 * index + 1;
+					}
+					upload(counters.get(), std::array{GpuCollisionCounters{.contact_count = count}});
+					if (!input.empty())
+						upload(contacts.get(), input);
+
+					upload(keys.get(), target_keys);
+					upload(order.get(), endpoints);
+					job.m_barriers.Transition(counters.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+					job.m_barriers.Transition(contacts.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+					job.m_barriers.Transition(keys.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+					job.m_barriers.Transition(order.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS).Commit();
+					job.m_cmd_list.SetPipelineState(pipeline.get());
+					job.m_cmd_list.SetComputeRootSignature(signature.get());
+					job.m_cmd_list.AddComputeRoot32BitConstants(GpuCoupledContactParams{.max_contacts = std::max(1, count), .target_count = 2});
+					job.m_cmd_list.AddComputeRootShaderResourceView(counters);
+					job.m_cmd_list.AddComputeRootUnorderedAccessView(contacts);
+					job.m_cmd_list.AddComputeRootUnorderedAccessView(keys);
+					job.m_cmd_list.AddComputeRootUnorderedAccessView(order);
+					job.m_cmd_list.Dispatch(std::max(1, (count + ConstraintThreadCount - 1) / ConstraintThreadCount), 1, 1);
+					auto readback = job.m_readback.Alloc<uint32_t>(isize(endpoints));
+					job.m_barriers.Transition(order.get(), D3D12_RESOURCE_STATE_COPY_SOURCE).Commit();
+					job.m_cmd_list.CopyBufferRegion(readback, order.get());
+					job.Run();
+
+					// Both sides must follow the authored geometric order, including an odd-index segment leader and untouched invalid tail.
+					for (int index = 0; index != 2 * count; ++index)
+					{
+						auto const endpoint = readback.ptr<uint32_t>()[index];
+						PR_EXPECT(endpoint < static_cast<uint32_t>(2 * count));
+						PR_EXPECT((endpoint & 1U) == static_cast<uint32_t>(index / count));
+						auto const& actual = input[endpoint >> 1];
+						auto const& expected = sorted[index % count];
+						PR_EXPECT(All(actual.contact_point == expected.contact_point));
+						PR_EXPECT(All(actual.b2a[3] == expected.b2a[3]));
+						PR_EXPECT(All(actual.manifold[0] == expected.manifold[0]));
+					}
+					PR_EXPECT(readback.ptr<uint32_t>()[2 * count] == 0xFFFFFFFFU);
+					PR_EXPECT(readback.ptr<uint32_t>()[2 * count + 1] == 0xFFFFFFFFU);
+				}
+			}
 		}
 	};
 }

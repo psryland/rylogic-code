@@ -1,5 +1,4 @@
 #include "src/forward.h"
-#include "pr/collision/collision.h"
 #include "src/diagnostics/scene_diagnostic.h"
 #include "src/scene/scene.h"
 #include "src/utils/scene_loader.h"
@@ -8,6 +7,56 @@ namespace physics_sandbox::diag
 {
 	namespace
 	{
+		// Unwrapped coordinates of one-axis revolute joints, independent of principal quaternion rotation vectors.
+		struct HingeDomainSample
+		{
+			float m_max_abs_q = 0.0f;
+			int m_count = 0;
+			int m_outside_principal_count = 0;
+		};
+
+		// Check the scalar |q| < pi prerequisite for identifying a hinge coordinate with a principal rotation angle.
+		HingeDomainSample MeasureHingeDomain(std::span<physics::Articulation const> articulations)
+		{
+			// Read the owned coordinates without reconstructing them from periodic link orientations.
+			auto sample = HingeDomainSample{};
+			for (auto const& tree : articulations)
+			{
+				// Roots have no joint, and multi-axis joints do not define a single hinge angle.
+				for (int index = 1; index != tree.LinkCount(); ++index)
+				{
+					// Spherical quaternion components are not scalar angles.
+					auto const link = tree.LinkAt(index);
+					auto const& joint = tree.JointDescription(link);
+					switch (joint.m_type)
+					{
+						case physics::EArticulationJointType::Axes: { break; }
+						case physics::EArticulationJointType::Spherical: { continue; }
+						default: { throw std::runtime_error("Unknown articulation joint type in hinge-domain screen"); }
+					}
+					if (joint.m_dof_count != 1)
+						continue;
+
+					// Prismatic coordinates are distances and have no principal-angle domain.
+					switch (joint.m_axes[0].m_type)
+					{
+						case physics::EArticulationAxisType::Revolute: { break; }
+						case physics::EArticulationAxisType::Prismatic: { continue; }
+						default: { throw std::runtime_error("Unknown articulation axis type in hinge-domain screen"); }
+					}
+					auto const q = tree.JointPosition(link)[0];
+					if (!std::isfinite(q))
+						throw std::runtime_error("Nonfinite committed hinge coordinate");
+
+					// The endpoints at +/-pi are excluded because the principal chart is not unique there.
+					++sample.m_count;
+					sample.m_max_abs_q = std::max(sample.m_max_abs_q, std::abs(q));
+					sample.m_outside_principal_count += std::abs(q) < constants<float>::tau_by_2 ? 0 : 1;
+				}
+			}
+			return sample;
+		}
+
 		struct PenetrationSample
 		{
 			float m_max_depth = 0.0f;
@@ -216,12 +265,11 @@ namespace physics_sandbox::diag
 				for (auto child = array.begin(); child != array.end(); child = collision::next(child))
 				{
 					// Keep the argument order so the contact normal convention matches the caller's order.
-					// Leaf narrow-phase functions apply the child's own shape-to-root transform, so only the array's placement is composed here.
+					// Children already carry shape-to-root transforms, including nested arrays. Each leaf applies its transform exactly once.
 					auto leaf = collision::Contact{};
-					auto const c2w = a2w * array.m_base.m_s2r;
 					auto const leaf_hit = array_is_lhs
-						? CollideLeaves(*child, c2w, other, o2w, leaf)
-						: CollideLeaves(other, o2w, *child, c2w, leaf);
+						? CollideLeaves(*child, a2w, other, o2w, leaf)
+						: CollideLeaves(other, o2w, *child, a2w, leaf);
 					if (!leaf_hit || (hit && leaf.m_depth <= contact.m_depth))
 						continue;
 
@@ -235,7 +283,765 @@ namespace physics_sandbox::diag
 			return collision::Collide(lhs, l2w, rhs, r2w, contact);
 		}
 
-		PenetrationSample MeasurePenetration(Scene const& scene)
+		// A shaped endpoint in committed scene state; full-scene indices include sleeping trees omitted from a submitted GPU frame.
+		struct CollisionPlacement
+		{
+			physics::BodyRef m_identity;
+			physics::BodyRef m_parent_identity;
+			collision::Shape const* m_shape = nullptr;
+			m4x4 m_o2w = m4x4::Identity();
+			BBox m_bounds = {};
+			int m_body_index = -1;
+			int m_articulation = -1;
+			int m_link = -1;
+			int m_parent_index = -1;
+			bool m_collide_parent = false;
+			bool m_collide_self = true;
+			uint32_t m_layer = physics::DefaultCollisionLayer;
+			uint32_t m_mask = physics::DefaultCollisionMask;
+		};
+
+		// Identify geometry independently of sort order, transient GPU slots, and active solver rows.
+		std::string GeometryKey(physics::BodyRef const& identity)
+		{
+			switch (identity.m_type)
+			{
+				case physics::EConstraintBodyType::World: { return "world"; }
+				case physics::EConstraintBodyType::Rigid: { return std::format("r:{}", identity.m_body_id.m_value); }
+				case physics::EConstraintBodyType::ArticulationLink: { return std::format("a:{}:{}:{}", identity.m_articulation_id.m_value, identity.m_link.m_index, identity.m_link.m_generation); }
+				default: { throw std::runtime_error("Unsupported geometry endpoint identity"); }
+			}
+		}
+
+		// Use transient full-scene indices only for the native exclusion table, never history identity.
+		uint64_t CollisionPairKey(int a, int b)
+		{
+			return (uint64_t{static_cast<uint32_t>(std::min(a, b)) + 1U} << 32) | (static_cast<uint32_t>(std::max(a, b)) + 1U);
+		}
+
+		// Share the scan's exact eligibility law with outstanding-pair separation accounting.
+		bool GeometryPairEligible(CollisionPlacement const& a, CollisionPlacement const& b, std::span<uint64_t const> excluded)
+		{
+			if (!physics::CollisionFilterPasses(a.m_layer, a.m_mask, b.m_layer, b.m_mask) ||
+				std::ranges::binary_search(excluded, CollisionPairKey(a.m_body_index, b.m_body_index)))
+				return false;
+
+			if (a.m_articulation >= 0 && a.m_articulation == b.m_articulation)
+			{
+				// Parent contact policy is independent of each link's non-adjacent self-contact policy.
+				auto const a_is_child = a.m_parent_index == b.m_body_index;
+				auto const b_is_child = b.m_parent_index == a.m_body_index;
+				if ((a_is_child && !a.m_collide_parent) || (b_is_child && !b.m_collide_parent))
+					return false;
+
+				if (!a_is_child && !b_is_child && (!a.m_collide_self || !b.m_collide_self))
+					return false;
+			}
+			return true;
+		}
+
+		// Measure committed descriptor geometry, not solver row activation or articulation coordinate shortcuts.
+		struct GeometryLimitSample
+		{
+			m4x4 m_frame_a;
+			m4x4 m_frame_b;
+			quat m_relative;
+			std::array<float, 6> m_coordinates = {};
+			std::array<float, 6> m_excess = {};
+			float m_angular_excess = 0;
+			bool m_has_angular_limit = false;
+			bool m_regular = true;
+		};
+
+		// Return hard interval/lock excess; a drive target is not a hard positional constraint.
+		float GeometryAxisExcess(physics::ConstraintAxisDesc const& axis, float position)
+		{
+			switch (axis.m_mode)
+			{
+				case physics::EConstraintAxisMode::Free:
+				case physics::EConstraintAxisMode::Driven: { return 0; }
+				case physics::EConstraintAxisMode::Locked: { return std::abs(position - axis.m_target_position); }
+				case physics::EConstraintAxisMode::Limited: { return std::max({axis.m_limits.m_beg - position, 0.0f, position - axis.m_limits.m_end}); }
+				default: { throw std::runtime_error("Unsupported geometry axis mode"); }
+			}
+		}
+
+		// Report whether an axis declares a hard positional obligation.
+		bool GeometryHardAxis(physics::ConstraintAxisDesc const& axis)
+		{
+			switch (axis.m_mode)
+			{
+				case physics::EConstraintAxisMode::Free:
+				case physics::EConstraintAxisMode::Driven: { return false; }
+				case physics::EConstraintAxisMode::Locked:
+				case physics::EConstraintAxisMode::Limited: { return true; }
+				default: { throw std::runtime_error("Unsupported geometry axis mode"); }
+			}
+		}
+
+		// Compose the endpoint-local frames and reuse the production coordinate/boundary law unchanged.
+		GeometryLimitSample MeasureGeometryLimit(physics::ConstraintDesc const& desc, m4x4 const& a2w, m4x4 const& b2w)
+		{
+			auto sample = GeometryLimitSample{
+				.m_frame_a = a2w * desc.m_frame_a.m_constraint_to_body,
+				.m_frame_b = b2w * desc.m_frame_b.m_constraint_to_body,
+			};
+			sample.m_relative = ~quat(sample.m_frame_a.rot) * quat(sample.m_frame_b.rot);
+			switch (desc.Type())
+			{
+				case physics::EConstraintType::SphericalAngular:
+				{
+					auto const& parameters = std::get<physics::SphericalAngularConstraintParameters>(desc.m_parameters);
+					auto const pi = constants<float>::tau_by_2;
+					auto const swing_limited = parameters.m_swing_x.m_beg != -pi || parameters.m_swing_x.m_end != pi || parameters.m_swing_z.m_beg != -pi || parameters.m_swing_z.m_end != pi;
+					auto const twist_limited = parameters.m_twist.m_beg != -pi || parameters.m_twist.m_end != pi;
+					auto const coordinates = physics::MeasureSphericalCoordinates(sample.m_relative.xyzw);
+					sample.m_coordinates[3] = coordinates.m_swing.x;
+					sample.m_coordinates[4] = coordinates.m_twist;
+					sample.m_coordinates[5] = coordinates.m_swing.y;
+					sample.m_has_angular_limit = swing_limited || twist_limited;
+					sample.m_regular = !sample.m_has_angular_limit || coordinates.m_regular;
+					if (swing_limited)
+					{
+						auto const boundary = physics::MeasureSwingBoundary(coordinates.m_swing, v2{parameters.m_swing_x.m_beg, parameters.m_swing_x.m_end}, v2{parameters.m_swing_z.m_beg, parameters.m_swing_z.m_end});
+						sample.m_excess[3] = std::max(boundary.m_distance, 0.0f);
+					}
+					if (twist_limited)
+						sample.m_excess[4] = std::max({parameters.m_twist.m_beg - coordinates.m_twist, 0.0f, coordinates.m_twist - parameters.m_twist.m_end});
+
+					sample.m_angular_excess = std::max(sample.m_excess[3], sample.m_excess[4]);
+					break;
+				}
+				case physics::EConstraintType::D6:
+				{
+					auto const delta = (sample.m_frame_b.pos - sample.m_frame_a.pos).w0();
+					auto const [axis, angle] = AxisAngle(sample.m_frame_b.rot * Transpose(sample.m_frame_a.rot));
+					for (int i = 0; i != 3; ++i)
+					{
+						sample.m_coordinates[i] = Dot3(delta, sample.m_frame_a[i]);
+						sample.m_coordinates[3 + i] = Dot3(angle * axis.w0(), sample.m_frame_a[i]);
+						sample.m_excess[i] = GeometryAxisExcess(desc.D6().m_linear[i], sample.m_coordinates[i]);
+						sample.m_excess[3 + i] = GeometryAxisExcess(desc.D6().m_angular[i], sample.m_coordinates[3 + i]);
+						sample.m_has_angular_limit |= GeometryHardAxis(desc.D6().m_angular[i]);
+						sample.m_angular_excess = std::max(sample.m_angular_excess, sample.m_excess[3 + i]);
+					}
+					sample.m_regular = !sample.m_has_angular_limit || angle < constants<float>::tau_by_2;
+					break;
+				}
+				default: { throw std::runtime_error("Unsupported geometry constraint"); }
+			}
+			return sample;
+		}
+
+		// Track sampled episodes only; intervening recovery/reimpact is not excluded by consecutive samples.
+		struct GeometryEpisodes
+		{
+			struct Episode
+			{
+				int m_first;
+				int m_seen;
+			};
+			std::map<std::string, Episode> m_open;
+			std::ostream& m_log;
+			int m_frame = -1;
+			bool m_candidate = false;
+			bool m_lifecycle_censored = false;
+
+			// Report unresolved sampled coverage, including episodes terminated earlier in the history.
+			bool NeedsReview() const
+			{
+				// Removing an ineligible episode cannot supply its missing geometric recovery.
+				return m_candidate || m_lifecycle_censored || !m_open.empty();
+			}
+
+			// Distinguish historical lifecycle termination from obligations still open at run end.
+			std::string_view TerminalReason() const
+			{
+				// Candidate and currently open episodes take precedence; historical censor events retain their own reasons.
+				if (m_candidate)
+					return "investigation_candidate";
+
+				if (!m_open.empty())
+					return "end_censored";
+
+				return NeedsReview() ? "lifecycle_censored" : "sampled_complete";
+			}
+
+			// Start the next complete-scan attempt; gaps must not erase a deadline.
+			void Begin(int frame)
+			{
+				if (frame != m_frame + 1)
+					throw std::runtime_error("Geometry history requires consecutive frames");
+
+				m_frame = frame;
+			}
+
+			// Observe one eligible whole-pair or whole-angular-constraint metric.
+			void Sample(std::string const& key, float value, double level)
+			{
+				if (!std::isfinite(value))
+					throw std::runtime_error("Nonfinite geometry metric: " + key);
+
+				auto iter = m_open.find(key);
+				if (value <= level)
+				{
+					if (iter != m_open.end())
+					{
+						m_log << "recovered," << m_frame << ',' << key << ',' << iter->second.m_first << ',' << iter->second.m_first + 2 << '\n';
+						m_open.erase(iter);
+					}
+					return;
+				}
+				if (iter == m_open.end())
+				{
+					iter = m_open.emplace(key, Episode{m_frame, m_frame}).first;
+					m_log << "started," << m_frame << ',' << key << ',' << m_frame << ',' << m_frame + 2 << '\n';
+				}
+				iter->second.m_seen = m_frame;
+				if (m_frame >= iter->second.m_first + 2)
+				{
+					m_candidate = true;
+					m_log << "investigation_candidate," << m_frame << ',' << key << ',' << iter->second.m_first << ',' << iter->second.m_first + 2 << '\n';
+				}
+			}
+
+			// Lifecycle termination is explicitly not a below-threshold geometric observation.
+			void Censor(std::string const& key, std::string_view reason)
+			{
+				// Only an unresolved episode can lose its opportunity for observed recovery.
+				auto const iter = m_open.find(key);
+				if (iter == m_open.end())
+					return;
+
+				// Preserve the lost coverage after removing this episode from future scan obligations.
+				m_lifecycle_censored = true;
+				m_log << reason << ',' << m_frame << ',' << key << ',' << iter->second.m_first << ',' << iter->second.m_first + 2 << '\n';
+				m_open.erase(iter);
+			}
+
+			// A complete frame must account for every still-open obligation.
+			void Complete() const
+			{
+				for (auto const& [key, episode] : m_open)
+				{
+					if (episode.m_seen != m_frame)
+						throw std::runtime_error("Incomplete geometry scan for " + key);
+				}
+			}
+		};
+
+		// Write explicit round-trip coefficients, never native padding or pointers.
+		void GeometryMatrix(std::ostream& out, m4x4 const& matrix)
+		{
+			for (int c = 0; c != 4; ++c)
+			{
+				for (int r = 0; r != 4; ++r)
+					out << ',' << matrix[c][r];
+			}
+		}
+
+		// Keep representation diagnostics separate from the physical geometry levels.
+		double GeometryRotationError(m4x4 const& matrix)
+		{
+			auto error = 0.0;
+			for (int c = 0; c != 4; ++c)
+			{
+				for (int r = 0; r != 4; ++r)
+				{
+					if (!std::isfinite(matrix[c][r]))
+						throw std::runtime_error("Nonfinite committed geometry transform");
+				}
+			}
+			for (int a = 0; a != 3; ++a)
+			{
+				for (int b = 0; b != 3; ++b)
+				{
+					auto value = 0.0;
+					for (int r = 0; r != 3; ++r)
+						value += static_cast<double>(matrix[a][r]) * matrix[b][r];
+
+					error = std::max(error, std::abs(value - (a == b ? 1.0 : 0.0)));
+				}
+			}
+			return error;
+		}
+
+		// Export only the native leaf kinds used by these workloads; other input is an explicit unsupported case.
+		void GeometryShape(std::ostream& out, collision::Shape const& shape)
+		{
+			out << ',' << static_cast<int>(shape.m_type) << ',' << shape.m_material_id << ',' << static_cast<int>(shape.m_flags);
+			GeometryMatrix(out, shape.m_s2r);
+			for (auto value : {shape.m_bbox.m_centre.x, shape.m_bbox.m_centre.y, shape.m_bbox.m_centre.z, shape.m_bbox.m_radius.x, shape.m_bbox.m_radius.y, shape.m_bbox.m_radius.z})
+				out << ',' << value;
+
+			switch (shape.m_type)
+			{
+				case collision::EShape::Box:
+				{
+					auto const radius = collision::shape_cast<collision::ShapeBox>(shape).m_radius;
+					out << ',' << radius.x << ',' << radius.y << ',' << radius.z;
+					break;
+				}
+				case collision::EShape::Sphere: { out << ',' << collision::shape_cast<collision::ShapeSphere>(shape).m_radius; break; }
+				default: { throw std::runtime_error("Geometry recording supports only native Box and Sphere leaves"); }
+			}
+		}
+
+		// Retain committed evidence in a fresh directory, outside the physics and timing interfaces.
+		struct GeometryHistory
+		{
+			std::ofstream m_primary, m_catalog, m_geometry, m_events;
+			GeometryEpisodes m_episodes;
+			std::map<std::string, std::string> m_catalog_rows;
+			std::map<std::string, std::pair<std::string, std::string>> m_pairs;
+			std::map<std::string, m4x4> m_endpoint_poses;
+			int m_frame = -1;
+			int m_pair_tests = 0;
+			int m_constraint_samples = 0;
+			bool m_finite = true;
+
+			// Refuse overwriting a prior run and make failed writes explicit.
+			explicit GeometryHistory(std::filesystem::path const& directory)
+				: m_episodes{{}, m_events}
+			{
+				if (!std::filesystem::create_directory(directory))
+					throw std::runtime_error("Geometry history requires a new output directory");
+
+				for (auto const& [stream, name] : {std::pair{&m_primary, "primary.bin"}, {&m_catalog, "catalog.csv"}, {&m_geometry, "geometry.csv"}, {&m_events, "events.csv"}})
+				{
+					stream->exceptions(std::ios::failbit | std::ios::badbit);
+					stream->open(directory / name, std::ios::binary);
+					*stream << std::setprecision(17);
+				}
+			}
+
+			// Flush all streams before a metric, dispatch, or terminal decision can fail.
+			void Flush()
+			{
+				m_primary.flush();
+				m_catalog.flush();
+				m_geometry.flush();
+				m_events.flush();
+			}
+
+			// Write a static catalog entry only when its exact resolved coefficients or lifecycle change.
+			bool Catalog(std::string const& key, std::string const& row)
+			{
+				auto const iter = m_catalog_rows.find(key);
+				if (iter != m_catalog_rows.end() && iter->second == row)
+					return false;
+
+				m_catalog << "catalog," << m_frame << ',' << key << ',' << row << '\n';
+				m_catalog_rows[key] = row;
+				return true;
+			}
+
+			// Write raw binary32 coefficients with an explicit keyed offset/count record.
+			void Primary(std::string const& key, std::span<float const> values)
+			{
+				m_geometry << "primary," << m_frame << ',' << key << ',' << m_primary.tellp() << ',' << values.size() << '\n';
+				m_primary.write(reinterpret_cast<char const*>(values.data()), static_cast<std::streamsize>(values.size_bytes()));
+				for (auto value : values)
+					m_finite &= std::isfinite(value);
+			}
+
+			// Record immutable link mass/frame coefficients without using a derived kinematics query.
+			void LinkCatalog(physics::Articulation const& tree, physics::LinkHandle link, int tree_index, int link_index)
+			{
+				auto const key = GeometryKey(physics::BodyRef::Link(tree, link));
+				auto const& desc = tree.LinkDescription(link);
+				auto const parent = tree.Parent(link);
+				auto row = std::ostringstream{};
+				row << std::setprecision(17) << "link," << tree_index << ',' << link_index << ',' << parent.m_index << ',' << parent.m_generation << ',' << static_cast<int>(tree.RootType());
+				for (auto vector : {desc.m_inertia.m_diagonal, desc.m_inertia.m_products, desc.m_inertia.m_com_and_mass})
+				{
+					for (int i = 0; i != 4; ++i)
+						row << ',' << vector[i];
+				}
+				GeometryMatrix(row, desc.m_shape_to_link);
+				if (parent)
+				{
+					auto const& joint = tree.JointDescription(link);
+					row << ',' << static_cast<int>(joint.m_type) << ',' << joint.PositionCount() << ',' << joint.m_dof_count;
+					GeometryMatrix(row, joint.m_joint_to_parent);
+					GeometryMatrix(row, joint.m_joint_to_child);
+					for (int axis = 0; axis != joint.m_dof_count; ++axis)
+					{
+						row << ',' << static_cast<int>(joint.m_axes[axis].m_type);
+						for (int i = 0; i != 4; ++i)
+							row << ',' << joint.m_axes[axis].m_axis[i];
+					}
+				}
+				Catalog(key, row.str());
+			}
+
+			// Retain every primary coefficient before any geometric or finite-state judgment.
+			void Capture(Scene const& scene, int frame, double dt)
+			{
+				m_frame = frame;
+				m_finite = true;
+				m_pair_tests = 0;
+				m_constraint_samples = 0;
+				m_endpoint_poses.clear();
+				m_episodes.Begin(frame);
+				m_geometry << "scan_begin," << frame << ',' << scene.m_clock << ',' << dt << ',' << static_cast<float>(dt) / scene.m_physics_substeps << ','
+					<< (frame == 0 ? 0 : scene.m_physics.LastStepProfile().m_substep_count) << '\n';
+				for (auto const& body : scene.m_body)
+				{
+					auto const key = GeometryKey(physics::BodyRef::Rigid(body));
+					auto const pose = body.O2W();
+					auto const momentum = body.MomentumWS();
+					auto values = std::vector<float>{};
+					for (int c = 0; c != 4; ++c)
+					{
+						for (int r = 0; r != 4; ++r)
+							values.push_back(pose[c][r]);
+					}
+					for (auto vector : {momentum.ang, momentum.lin})
+					{
+						for (int i = 0; i != 3; ++i)
+							values.push_back(vector[i]);
+					}
+					Primary(key, values);
+					m_geometry << "sleep," << frame << ',' << key << ',' << body.Sleeping() << '\n';
+				}
+				for (auto const& tree : scene.m_articulation)
+				{
+					auto const key = GeometryKey(physics::BodyRef::Link(tree, tree.Root()));
+					auto const pose = tree.RootToWorld();
+					auto const velocity = tree.RootVelocity();
+					auto values = std::vector<float>{};
+					for (int c = 0; c != 4; ++c)
+					{
+						for (int r = 0; r != 4; ++r)
+							values.push_back(pose[c][r]);
+					}
+					for (auto vector : {velocity.ang, velocity.lin})
+					{
+						for (int i = 0; i != 3; ++i)
+							values.push_back(vector[i]);
+					}
+					Primary(key, values);
+					m_geometry << "sleep," << frame << ',' << key << ',' << tree.Sleeping() << ',' << tree.NeverSleep() << '\n';
+					for (int i = 1; i != tree.LinkCount(); ++i)
+					{
+						auto const link = tree.LinkAt(i);
+						auto const joint_key = GeometryKey(physics::BodyRef::Link(tree, link));
+						Primary(joint_key + ":q", tree.JointPosition(link));
+						Primary(joint_key + ":v", tree.JointVelocity(link));
+					}
+				}
+				Flush();
+				if (!m_finite)
+					throw std::runtime_error("Nonfinite primary geometry state; raw record retained");
+
+				// Demo kill-zone freezing is a lifecycle stop, not physical geometric recovery.
+				for (auto const& body : scene.m_body)
+				{
+					if (body.Mass() < physics::InfiniteMass * 0.5f && body.O2W().pos.z < scene.m_kill_zone_height)
+						throw std::runtime_error("Rigid endpoint reached the scene kill zone");
+				}
+				for (auto const& tree : scene.m_articulation)
+				{
+					switch (tree.RootType())
+					{
+						case physics::EArticulationRootType::Fixed: { break; }
+						case physics::EArticulationRootType::Floating:
+						{
+							if (tree.RootToWorld().pos.z < scene.m_kill_zone_height)
+								throw std::runtime_error("Articulation reached the scene kill zone");
+
+							break;
+						}
+						default: { throw std::runtime_error("Unsupported articulation root in geometry history"); }
+					}
+				}
+
+				// Catalogs and representation diagnostics follow the already durable raw snapshot.
+				for (int t = 0; t != isize(scene.m_articulation); ++t)
+				{
+					auto const& tree = scene.m_articulation[t];
+					for (int i = 0; i != tree.LinkCount(); ++i)
+					{
+						auto const link = tree.LinkAt(i);
+						auto const key = GeometryKey(physics::BodyRef::Link(tree, link));
+						LinkCatalog(tree, link, t, i);
+						auto const pose = tree.LinkToWorld(link);
+						m_endpoint_poses[key] = pose;
+						m_geometry << "endpoint," << frame << ',' << key;
+						GeometryMatrix(m_geometry, pose);
+						m_geometry << ',' << GeometryRotationError(pose) << '\n';
+						if (i == 0)
+							continue;
+
+						auto const& joint = tree.JointDescription(link);
+						auto const q = tree.JointPosition(link);
+						switch (joint.m_type)
+						{
+							case physics::EArticulationJointType::Spherical:
+							{
+								auto norm_sq = 0.0;
+								for (auto value : q)
+									norm_sq += static_cast<double>(value) * value;
+
+								m_geometry << "quaternion_norm_sq," << frame << ',' << key << ',' << norm_sq << '\n';
+								break;
+							}
+							case physics::EArticulationJointType::Axes:
+							{
+								if (joint.m_dof_count == 1)
+								{
+									switch (joint.m_axes[0].m_type)
+									{
+										case physics::EArticulationAxisType::Revolute:
+										{
+											auto const regular = std::abs(q[0]) < constants<float>::tau_by_2;
+											m_geometry << "hinge_domain," << frame << ',' << key << ',' << q[0] << ',' << regular << '\n';
+											if (!regular)
+												throw std::runtime_error("Committed hinge left the principal domain: " + key);
+
+											break;
+										}
+										case physics::EArticulationAxisType::Prismatic: { break; }
+										default: { throw std::runtime_error("Unsupported recorded articulation axis"); }
+									}
+								}
+								break;
+							}
+							default: { throw std::runtime_error("Unsupported recorded articulation joint"); }
+						}
+					}
+				}
+				for (int i = 0; i != isize(scene.m_body); ++i)
+				{
+					auto const& body = scene.m_body[i];
+					auto const key = GeometryKey(physics::BodyRef::Rigid(body));
+					m_endpoint_poses[key] = body.O2W();
+					Catalog(key, std::format("rigid,{},{}", i, body.Mass()));
+				}
+			}
+
+			// Retain placed leaf input and collision policies before the existing pair scan.
+			void Placements(std::span<CollisionPlacement const> placements)
+			{
+				for (auto const& placement : placements)
+				{
+					auto const key = GeometryKey(placement.m_identity);
+					auto row = std::ostringstream{};
+					row << std::setprecision(17) << "shape," << GeometryKey(placement.m_parent_identity) << ','
+						<< placement.m_collide_parent << ',' << placement.m_collide_self << ',' << placement.m_layer << ',' << placement.m_mask;
+					GeometryShape(row, *placement.m_shape);
+					if (Catalog("shape:" + key, row.str()))
+					{
+						for (auto const& [pair_key, endpoints] : m_pairs)
+						{
+							if (endpoints.first == key || endpoints.second == key)
+								m_episodes.Censor(pair_key, "endpoint_edit");
+						}
+					}
+					m_geometry << "placement," << m_frame << ',' << key << ',' << placement.m_body_index << ',' << placement.m_articulation << ',' << placement.m_link << ',' << placement.m_parent_index;
+					GeometryMatrix(m_geometry, placement.m_o2w);
+					for (auto value : {placement.m_bounds.Lower().x, placement.m_bounds.Lower().y, placement.m_bounds.Lower().z, placement.m_bounds.Upper().x, placement.m_bounds.Upper().y, placement.m_bounds.Upper().z})
+					{
+						m_geometry << ',' << value;
+						if (!std::isfinite(value))
+							throw std::runtime_error("Nonfinite committed shape bounds: " + key);
+					}
+					m_geometry << '\n';
+				}
+			}
+
+			// Keep every colliding pair, and explicit narrow-phase separation for an outstanding pair.
+			void Pair(CollisionPlacement const& a, CollisionPlacement const& b, bool hit, collision::Contact const& contact)
+			{
+				++m_pair_tests;
+				auto key_a = GeometryKey(a.m_identity);
+				auto key_b = GeometryKey(b.m_identity);
+				if (key_b < key_a)
+					std::swap(key_a, key_b);
+
+				auto const key = "pair:" + key_a + "|" + key_b;
+				if (!hit && !m_episodes.m_open.contains(key))
+					return;
+
+				if (hit)
+				{
+					// The query already returns world-space witnesses in its original A/B order, not the sorted episode order.
+					auto const count = contact.Count();
+					auto const feature = static_cast<int>(contact.m_feature);
+					m_geometry << "contact_witness," << m_frame << ',' << key << ',' << GeometryKey(a.m_identity) << ',' << GeometryKey(b.m_identity)
+						<< ",root,root,world," << contact.m_axis.x << ',' << contact.m_axis.y << ',' << contact.m_axis.z << ',' << contact.m_axis.w
+						<< ',' << contact.m_depth << ',' << feature << ',' << contact.m_mat_idA << ',' << contact.m_mat_idB << ',' << count;
+					for (auto const& point : contact.Points())
+						m_geometry << ',' << point.x << ',' << point.y << ',' << point.z << ',' << point.w;
+
+					m_geometry << '\n';
+					if (!std::isfinite(contact.m_depth))
+						throw std::runtime_error("Nonfinite native contact depth: " + key);
+
+					if (feature < 1 || feature > collision::Contact::MaxManifoldPoints || !IsFinite(contact.m_axis))
+						throw std::runtime_error("Invalid native contact witness: " + key);
+
+					for (auto const& point : contact.Points())
+					{
+						if (!IsFinite(point))
+							throw std::runtime_error("Nonfinite native contact point: " + key);
+					}
+				}
+				auto const depth = hit ? std::max(contact.m_depth, 0.0f) : 0.0f;
+				m_geometry << "pair," << m_frame << ',' << key << ',' << (hit ? "contact" : "narrow_separated") << ',' << depth << '\n';
+				m_pairs[key] = {key_a, key_b};
+				m_episodes.Sample(key, depth, 0.005);
+			}
+
+			// Missing pairs need conservative separation or an explicit eligibility change, not an invented zero.
+			void EndPairs(std::span<CollisionPlacement const> placements, std::span<uint64_t const> excluded)
+			{
+				auto current = std::map<std::string, CollisionPlacement const*>{};
+				for (auto const& placement : placements)
+					current.emplace(GeometryKey(placement.m_identity), &placement);
+
+				for (auto const& [key, endpoints] : m_pairs)
+				{
+					auto const episode = m_episodes.m_open.find(key);
+					if (episode == m_episodes.m_open.end() || episode->second.m_seen == m_frame)
+						continue;
+
+					if (!current.contains(endpoints.first) || !current.contains(endpoints.second))
+					{
+						m_episodes.Censor(key, "endpoint_removed");
+						continue;
+					}
+					auto const& a = *current.at(endpoints.first);
+					auto const& b = *current.at(endpoints.second);
+					if (!GeometryPairEligible(a, b, excluded))
+					{
+						m_episodes.Censor(key, "pair_ineligible");
+						continue;
+					}
+					if (IsIntersection(a.m_bounds, b.m_bounds))
+						throw std::runtime_error("Eligible overlapping pair missing from complete geometry scan: " + key);
+
+					m_geometry << "pair," << m_frame << ',' << key << ",bounds_separated,0\n";
+					m_episodes.Sample(key, 0.0f, 0.005);
+				}
+
+				// Only outstanding episodes need endpoint history for the next sparse scan.
+				std::erase_if(m_pairs, [&](auto const& pair)
+				{
+					return !m_episodes.m_open.contains(pair.first);
+				});
+			}
+
+			// Record native and packed descriptors, then measure eligible whole-angular-constraint errors.
+			void Limits(Scene const& scene)
+			{
+				auto const packed = physics::PackGpuConstraints(scene.m_constraints, physics::BodyRemap{scene.m_body_ptrs, scene.m_articulation_ptrs});
+				m_geometry << "revisions," << m_frame << ',' << packed.m_topology_revision << ',' << packed.m_parameter_revision << '\n';
+				auto active = std::map<std::string, bool>{};
+				for (uint32_t index = 0; index != packed.m_endpoints.size(); ++index)
+				{
+					auto const handle = physics::ConstraintHandle{index, packed.m_endpoints[index].generation};
+					auto const key = std::format("constraint:{}:{}", index, handle.m_generation);
+					auto const occupied = scene.m_constraints.Contains(handle);
+					if (!occupied)
+					{
+						Catalog(key, "vacant");
+						m_geometry << "eligibility," << m_frame << ',' << key << ",0,0,0,0\n";
+						continue;
+					}
+					auto const& desc = scene.m_constraints.Get(handle);
+					auto const broken = scene.m_constraints.IsBroken(handle);
+					auto const eligible = desc.m_enabled && !broken;
+					auto row = std::ostringstream{};
+					row << std::setprecision(17) << "constraint," << static_cast<int>(desc.Type()) << ',' << GeometryKey(desc.m_frame_a.m_body) << ',' << GeometryKey(desc.m_frame_b.m_body)
+						<< ',' << desc.m_enabled << ',' << broken << ',' << desc.m_collide_connected << ',' << desc.m_break_force << ',' << desc.m_break_torque;
+					GeometryMatrix(row, desc.m_frame_a.m_constraint_to_body);
+					GeometryMatrix(row, desc.m_frame_b.m_constraint_to_body);
+					switch (desc.Type())
+					{
+						case physics::EConstraintType::D6:
+						{
+							for (auto const& axes : {desc.D6().m_linear, desc.D6().m_angular})
+							{
+								for (auto const& axis : axes)
+									row << ',' << static_cast<int>(axis.m_mode) << ',' << axis.m_limits.m_beg << ',' << axis.m_limits.m_end << ',' << axis.m_target_position << ',' << axis.m_target_velocity << ',' << axis.m_stiffness << ',' << axis.m_damping << ',' << axis.m_max_force;
+							}
+							break;
+						}
+						case physics::EConstraintType::SphericalAngular:
+						{
+							auto const& parameters = std::get<physics::SphericalAngularConstraintParameters>(desc.m_parameters);
+							row << ',' << parameters.m_swing_x.m_beg << ',' << parameters.m_swing_x.m_end << ',' << parameters.m_swing_z.m_beg << ',' << parameters.m_swing_z.m_end << ','
+								<< parameters.m_twist.m_beg << ',' << parameters.m_twist.m_end << ',' << parameters.m_damping;
+							break;
+						}
+						default: { throw std::runtime_error("Unsupported recorded constraint"); }
+					}
+					if (Catalog(key, row.str()))
+					{
+						// Native named coefficients decide lifecycle equality; packed padding never resets an episode.
+						auto const& gpu = packed.m_descriptors[index];
+						auto const bytes = std::as_bytes(std::span{&gpu, 1});
+						auto hex = std::ostringstream{};
+						for (auto value : bytes)
+							hex << std::hex << std::setw(2) << std::setfill('0') << std::to_integer<unsigned>(value);
+
+						m_catalog << "packed_constraint," << m_frame << ',' << key << ',' << hex.str() << '\n';
+						m_episodes.Censor(key, !desc.m_enabled ? "disabled" : broken ? "broken" : "descriptor_edit");
+					}
+
+					active[key] = eligible;
+					m_geometry << "eligibility," << m_frame << ',' << key << ',' << occupied << ',' << desc.m_enabled << ',' << broken << ',' << eligible << '\n';
+					if (!eligible)
+						continue;
+
+					auto endpoint = [&](physics::BodyRef const& body)
+					{
+						return body.IsWorld() ? m4x4::Identity() : m_endpoint_poses.at(GeometryKey(body));
+					};
+					auto const sample = MeasureGeometryLimit(desc, endpoint(desc.m_frame_a.m_body), endpoint(desc.m_frame_b.m_body));
+					++m_constraint_samples;
+					m_geometry << "limit," << m_frame << ',' << key << ',' << sample.m_regular << ',' << sample.m_has_angular_limit << ',' << sample.m_angular_excess;
+					for (auto value : sample.m_coordinates)
+						m_geometry << ',' << value;
+
+					for (auto value : sample.m_excess)
+						m_geometry << ',' << value;
+
+					GeometryMatrix(m_geometry, sample.m_frame_a);
+					GeometryMatrix(m_geometry, sample.m_frame_b);
+					for (int i = 0; i != 4; ++i)
+						m_geometry << ',' << sample.m_relative.xyzw[i];
+
+					m_geometry << '\n';
+					for (auto const& values : {sample.m_coordinates, sample.m_excess})
+					{
+						for (auto value : values)
+						{
+							if (!std::isfinite(value))
+								throw std::runtime_error("Nonfinite committed constraint coordinate: " + key);
+						}
+					}
+					if (!sample.m_regular)
+						throw std::runtime_error("Irregular committed constraint chart: " + key);
+
+					if (sample.m_has_angular_limit)
+						m_episodes.Sample(key, sample.m_angular_excess, 0.02);
+				}
+				auto removed = std::vector<std::string>{};
+				for (auto const& [key, episode] : m_episodes.m_open)
+				{
+					if (key.starts_with("constraint:") && !active.contains(key))
+						removed.push_back(key);
+				}
+				for (auto const& key : removed)
+					m_episodes.Censor(key, "constraint_removed");
+			}
+		};
+
+		// Measure all collision-enabled shaped endpoint pairs after commit, including sleeping bodies and links.
+		PenetrationSample MeasurePenetration(Scene const& scene, GeometryHistory* history = nullptr)
 		{
 			auto sample = PenetrationSample{};
 
@@ -244,68 +1050,672 @@ namespace physics_sandbox::diag
 			for (auto const& articulation : scene.m_articulation)
 				sample.m_kinetic_energy += articulation.KineticEnergy();
 
-			// Measure ordinary rigid-body overlaps, including contacts with the scene ground.
+			// Use the native persistent-constraint owner to preserve enabled/broken and all-free exclusion semantics.
+			auto const remap = physics::BodyRemap{scene.m_body_ptrs, scene.m_articulation_ptrs};
+			auto const constraints = physics::PackGpuConstraints(scene.m_constraints, remap);
+			auto excluded = std::vector<uint64_t>{};
+			for (auto const& pair : constraints.m_collision_exclusions.m_slots)
+			{
+				if (pair.body_idx_a_plus_one != 0)
+					excluded.push_back((uint64_t{pair.body_idx_a_plus_one} << 32) | pair.body_idx_b_plus_one);
+			}
+			for (auto const& [a, b] : scene.m_collision_ignore_indices)
+				excluded.push_back(CollisionPairKey(a, b));
+
+			std::ranges::sort(excluded);
+
+			// Keep native root-space shape transforms and full-scene slots even when intervening links have no shape.
+			auto placements = std::vector<CollisionPlacement>{};
 			for (int i = 0; i != std::ssize(scene.m_body); ++i)
 			{
-				auto const& body_a = scene.m_body[i];
-				if (!body_a.HasShape())
+				auto const& body = scene.m_body[i];
+				if (!body.HasShape())
 					continue;
 
-				for (int j = i + 1; j != std::ssize(scene.m_body); ++j)
+				placements.push_back(CollisionPlacement{
+					.m_identity = physics::BodyRef::Rigid(body),
+					.m_shape = &body.Shape(), .m_o2w = body.O2W(), .m_bounds = body.BBoxWS(), .m_body_index = i,
+					.m_layer = body.CollisionLayer(), .m_mask = body.CollisionMask(),
+				});
+			}
+			for (int articulation_index = 0; articulation_index != isize(scene.m_articulation); ++articulation_index)
+			{
+				auto const& articulation = scene.m_articulation[articulation_index];
+				for (int link_index = 0; link_index != articulation.LinkCount(); ++link_index)
 				{
-					auto const& body_b = scene.m_body[j];
-					if (!body_b.HasShape())
+					auto const link = articulation.LinkAt(link_index);
+					auto const& desc = articulation.LinkDescription(link);
+					if (desc.m_shape == nullptr)
+						continue;
+
+					auto const parent = articulation.Parent(link);
+					auto const shape_to_world = articulation.LinkToWorld(link) * desc.m_shape_to_link;
+					placements.push_back(CollisionPlacement{
+						.m_identity = physics::BodyRef::Link(articulation, link),
+						.m_parent_identity = parent ? physics::BodyRef::Link(articulation, parent) : physics::BodyRef::World(),
+						.m_shape = desc.m_shape, .m_o2w = shape_to_world,
+						.m_bounds = shape_to_world * (desc.m_shape->m_s2r * desc.m_shape->m_bbox),
+						.m_body_index = remap.Resolve(physics::BodyRef::Link(articulation, link)),
+						.m_articulation = articulation_index, .m_link = link_index,
+						.m_parent_index = parent ? remap.Resolve(physics::BodyRef::Link(articulation, parent)) : -1,
+						.m_collide_parent = desc.m_collide_parent, .m_collide_self = desc.m_collide_self,
+					});
+				}
+			}
+
+			// Sweep conservative X intervals before narrow phase; physical screening is separate from engine timing.
+			if (history)
+			{
+				history->Placements(placements);
+				auto ignores = std::ostringstream{};
+				ignores << "excluded";
+				for (auto key : excluded)
+					ignores << ',' << key;
+
+				history->Catalog("collision_exclusions", ignores.str());
+			}
+			std::ranges::sort(placements, {}, [](auto const& placement) { return placement.m_bounds.Lower().x; });
+			for (int i = 0; i != isize(placements); ++i)
+			{
+				auto const& a = placements[i];
+				for (int j = i + 1; j != isize(placements); ++j)
+				{
+					auto const& b = placements[j];
+					if (b.m_bounds.Lower().x > a.m_bounds.Upper().x)
+						break;
+
+					if (!IsIntersection(a.m_bounds, b.m_bounds) || !GeometryPairEligible(a, b, excluded))
 						continue;
 
 					auto contact = collision::Contact{};
-					if (!CollideLeaves(body_a.Shape(), body_a.O2W(), body_b.Shape(), body_b.O2W(), contact))
+					auto const hit = CollideLeaves(*a.m_shape, a.m_o2w, *b.m_shape, b.m_o2w, contact);
+					if (history)
+						history->Pair(a, b, hit, contact);
+
+					if (!hit)
 						continue;
 
 					++sample.m_contact_count;
-					if (contact.m_depth > sample.m_max_depth)
-					{
-						sample.m_max_depth = contact.m_depth;
-						sample.m_body_a = i;
-						sample.m_body_b = j;
-					}
+					if (contact.m_depth <= sample.m_max_depth)
+						continue;
+
+					sample.m_max_depth = contact.m_depth;
+					sample.m_body_a = a.m_body_index;
+					sample.m_body_b = b.m_body_index;
+					auto const& link = a.m_articulation >= 0 ? a : b;
+					sample.m_articulation = link.m_articulation;
+					sample.m_link = link.m_link;
 				}
 			}
-
-			// Articulation links are not present in m_body, so measure their ground overlap explicitly using the same packed-proxy index order as the engine.
-			if (scene.m_ground_body_index != -1)
-			{
-				auto const& ground = scene.m_body[scene.m_ground_body_index];
-				auto proxy_index = static_cast<int>(scene.m_body.size());
-				for (int articulation_index = 0; articulation_index != std::ssize(scene.m_articulation); ++articulation_index)
-				{
-					auto const& articulation = scene.m_articulation[articulation_index];
-					for (int link_index = 0; link_index != articulation.LinkCount(); ++link_index, ++proxy_index)
-					{
-						auto const link = articulation.LinkAt(link_index);
-						auto const& link_desc = articulation.LinkDescription(link);
-						if (link_desc.m_shape == nullptr)
-							continue;
-
-						auto contact = collision::Contact{};
-						auto const shape_to_world = articulation.LinkToWorld(link) * link_desc.m_shape_to_link;
-						if (!CollideLeaves(ground.Shape(), ground.O2W(), *link_desc.m_shape, shape_to_world, contact))
-							continue;
-
-						++sample.m_contact_count;
-						if (contact.m_depth > sample.m_max_depth)
-						{
-							sample.m_max_depth = contact.m_depth;
-							sample.m_body_a = scene.m_ground_body_index;
-							sample.m_body_b = proxy_index;
-							sample.m_articulation = articulation_index;
-							sample.m_link = link_index;
-						}
-					}
-				}
-			}
+			if (history)
+				history->EndPairs(placements, excluded);
 
 			return sample;
 		}
+
+		// Run ordinary scene visits with durable committed-state evidence and a sampled, not continuous, stop rule.
+		SceneDiagnosticResult RunGeometryHistory(Scene& scene, SceneDiagnosticOptions const& options)
+		{
+			auto history = GeometryHistory(options.m_geometry_history);
+			try
+			{
+				// Preserve inputs/settings; recording cannot silently omit non-leaf world geometry.
+				std::filesystem::copy_file(options.m_scene_filepath, options.m_geometry_history / "scene.json");
+				if (scene.m_terrain_surface || scene.m_water || scene.m_atmosphere_gfx)
+					throw std::runtime_error("Geometry history does not record terrain, water, or atmosphere inputs");
+
+				auto const& config = scene.m_physics.Config();
+				#define GEOMETRY_SETTING(name) history.m_catalog << "setting," #name "," << config.name << '\n'
+				GEOMETRY_SETTING(max_collision_pairs); GEOMETRY_SETTING(max_collision_events); GEOMETRY_SETTING(max_internal_substeps);
+				GEOMETRY_SETTING(sleeping_enabled); GEOMETRY_SETTING(sleep_velocity_threshold_lin); GEOMETRY_SETTING(sleep_velocity_threshold_ang); GEOMETRY_SETTING(sleep_delay_s);
+				GEOMETRY_SETTING(solver_iterations); GEOMETRY_SETTING(contact_velocity_tolerance); GEOMETRY_SETTING(fused_colour_sweep_limit); GEOMETRY_SETTING(push_out_iterations);
+				GEOMETRY_SETTING(broadphase_aabb_margin); GEOMETRY_SETTING(contact_sort_propagation_scale); GEOMETRY_SETTING(contact_sort_shock_iterations);
+				GEOMETRY_SETTING(contact_sort_shock_alignment); GEOMETRY_SETTING(contact_sort_shock_min_strength); GEOMETRY_SETTING(contact_sort_shock_decay);
+				GEOMETRY_SETTING(penetration_slop); GEOMETRY_SETTING(velocity_baumgarte); GEOMETRY_SETTING(position_slop); GEOMETRY_SETTING(position_baumgarte);
+				GEOMETRY_SETTING(contact_slop_scale); GEOMETRY_SETTING(support_contact_slop_scale); GEOMETRY_SETTING(warm_start_scale);
+				GEOMETRY_SETTING(constraint_relaxation); GEOMETRY_SETTING(constraint_coupled_relaxation); GEOMETRY_SETTING(constraint_coupled_backtrack_limit);
+				GEOMETRY_SETTING(constraint_position_relaxation); GEOMETRY_SETTING(constraint_position_beta); GEOMETRY_SETTING(constraint_max_position_speed);
+				GEOMETRY_SETTING(constraint_regularization); GEOMETRY_SETTING(constraint_warm_start_factor);
+				GEOMETRY_SETTING(deep_penetration_threshold); GEOMETRY_SETTING(deep_penetration_range); GEOMETRY_SETTING(deep_penetration_baumgarte_min); GEOMETRY_SETTING(deep_penetration_baumgarte_max);
+				GEOMETRY_SETTING(selective_refresh_passes); GEOMETRY_SETTING(selective_refresh_max_pairs); GEOMETRY_SETTING(selective_refresh_body_limit); GEOMETRY_SETTING(selective_refresh_contact_limit);
+				GEOMETRY_SETTING(selective_refresh_solver_iterations); GEOMETRY_SETTING(selective_refresh_position_iterations); GEOMETRY_SETTING(selective_refresh_bias_scale);
+				GEOMETRY_SETTING(selective_refresh_restitution_scale); GEOMETRY_SETTING(selective_refresh_adaptive_body_limit); GEOMETRY_SETTING(selective_refresh_adaptive_solver_iterations);
+				GEOMETRY_SETTING(selective_refresh_support_only); GEOMETRY_SETTING(selective_refresh_resolve_support_only); GEOMETRY_SETTING(selective_refresh_depth_slop);
+				GEOMETRY_SETTING(selective_refresh_support_depth_slop); GEOMETRY_SETTING(selective_refresh_closing_speed_slop); GEOMETRY_SETTING(selective_refresh_support_alignment);
+				GEOMETRY_SETTING(selective_refresh_aabb_margin); GEOMETRY_SETTING(world_collision_layer); GEOMETRY_SETTING(world_collision_mask);
+				#undef GEOMETRY_SETTING
+				history.m_catalog << "scene," << scene.m_body.size() << ',' << scene.m_articulation.size() << ',' << scene.m_constraints.Count() << ','
+					<< scene.m_physics_substeps << ',' << options.m_dt << ',' << scene.m_gravity.x << ',' << scene.m_gravity.y << ',' << scene.m_gravity.z << ',' << scene.m_kill_zone_height << '\n';
+				history.m_catalog << "build," << compute::HasDebugLayer(scene.m_physics.Device()) << ',' << PR_PHYSICS_DIAGNOSTICS << ',' << PR_PHYSICS_PROFILE << '\n';
+				history.m_catalog << "levels," << 0.005 << ',' << 0.02 << ",2\n";
+				history.m_catalog << "packed_descriptor_abi," << sizeof(physics::GpuConstraintDesc) << ',' << offsetof(physics::GpuConstraintDesc, frame_a) << ','
+					<< offsetof(physics::GpuConstraintDesc, frame_b) << ',' << offsetof(physics::GpuConstraintDesc, axes) << ',' << offsetof(physics::GpuConstraintDesc, type) << ','
+					<< offsetof(physics::GpuConstraintDesc, swing_limits) << ',' << offsetof(physics::GpuConstraintDesc, twist_limits) << ',' << offsetof(physics::GpuConstraintDesc, angular_damping) << '\n';
+				for (int i = 0; i != isize(scene.m_articulation_actuation); ++i)
+				{
+					auto const& actuation = scene.m_articulation_actuation[i];
+					history.m_catalog << "actuation," << i << ',' << actuation.m_torque_per_kg << ',' << actuation.m_period_s << ',' << actuation.m_phase << '\n';
+				}
+
+				// A candidate finishes its committed scan, then stops before any subsequent Scene::Step.
+				for (int frame = 0; frame <= options.m_steps; ++frame)
+				{
+					if (frame != 0)
+					{
+						history.m_events << "step_attempt," << frame << '\n';
+						history.Flush();
+						scene.Step(options.m_dt);
+					}
+					history.Capture(scene, frame, options.m_dt);
+					history.Limits(scene);
+					auto const penetration = MeasurePenetration(scene, &history);
+					history.m_episodes.Complete();
+					history.m_geometry << "scan_complete," << frame << ',' << history.m_pair_tests << ',' << penetration.m_contact_count << ',' << penetration.m_max_depth << ','
+						<< history.m_episodes.m_open.size() << ',' << history.m_episodes.m_candidate << ',' << history.m_constraint_samples << '\n';
+					history.Flush();
+					if (history.m_episodes.m_candidate)
+						break;
+				}
+
+				// Record run-end censoring separately from historical lifecycle censoring and successful sampled recovery.
+				auto const needs_review = history.m_episodes.NeedsReview();
+				auto const reason = history.m_episodes.TerminalReason();
+				history.m_events << "terminal," << history.m_frame << ',' << reason << '\n';
+				for (auto const& [key, episode] : history.m_episodes.m_open)
+					history.m_events << "end_censored," << history.m_frame << ',' << key << ',' << episode.m_first << ',' << episode.m_first + 2 << '\n';
+
+				history.Flush();
+				printf("Geometry history: %s at frame %d; impact-travel allowance unmeasured.\n", reason.data(), history.m_frame);
+				return SceneDiagnosticResult{.m_geometry_needs_review = needs_review};
+			}
+			catch (std::exception const& error)
+			{
+				// A native/observer failure leaves the durable primary and an explicitly incomplete scan.
+				history.m_events << "terminal," << history.m_frame << ",failure," << std::quoted(error.what()) << '\n';
+				history.Flush();
+				throw;
+			}
+		}
+
+#if PR_UNITTESTS
+		// Isolate terminal-decision coverage for the class-filtered CPU runner; no scene or Engine is required.
+		PRUnitTestClass(SceneGeometryTerminalTests)
+		{
+			// Check lifecycle-censored review and recovery-only success through the recorder's actual terminal decision.
+			PRUnitTestMethod(LifecycleCensoringRequiresReview, Quick)
+			{
+				// End an unresolved episode before its deadline, leaving neither a candidate nor an open obligation.
+				auto log = std::ostringstream{};
+				auto episodes = GeometryEpisodes{{}, log};
+				episodes.Begin(0);
+				episodes.Sample("pair:a|b", 0.006f, 0.005f);
+				episodes.Complete();
+				PR_EXPECT(episodes.NeedsReview() && episodes.TerminalReason() == "end_censored");
+				episodes.Begin(1);
+				episodes.Censor("pair:a|b", "pair_ineligible");
+				episodes.Complete();
+				PR_EXPECT(episodes.m_open.empty() && !episodes.m_candidate);
+				PR_EXPECT(episodes.NeedsReview());
+				PR_EXPECT(episodes.TerminalReason() == "lifecycle_censored");
+				PR_EXPECT(log.str().find("pair_ineligible,1,pair:a|b,0,2") != std::string::npos);
+				PR_EXPECT(log.str().find("recovered,") == std::string::npos && log.str().find("end_censored,") == std::string::npos);
+
+				// Recovery of a later episode with the same identity does not recover the earlier censored episode.
+				episodes.Begin(2);
+				episodes.Sample("pair:a|b", 0.006f, 0.005f);
+				episodes.Complete();
+				episodes.Begin(3);
+				episodes.Sample("pair:a|b", 0.0f, 0.005f);
+				episodes.Complete();
+				PR_EXPECT(episodes.m_open.empty() && !episodes.m_candidate && episodes.NeedsReview());
+				PR_EXPECT(episodes.TerminalReason() == "lifecycle_censored");
+
+				// A separate recovery-only history succeeds; censoring a key with no open episode is harmless.
+				auto recovered_log = std::ostringstream{};
+				auto recovered = GeometryEpisodes{{}, recovered_log};
+				recovered.Begin(0);
+				recovered.Sample("pair:a|b", 0.006f, 0.005f);
+				recovered.Complete();
+				recovered.Begin(1);
+				recovered.Sample("pair:a|b", 0.0f, 0.005f);
+				recovered.Complete();
+				PR_EXPECT(!recovered.NeedsReview() && recovered.TerminalReason() == "sampled_complete");
+				recovered.Censor("pair:a|b", "pair_ineligible");
+				PR_EXPECT(!recovered.NeedsReview() && recovered.TerminalReason() == "sampled_complete");
+			}
+		};
+
+		// Portable checks of new observation adapters; no Engine construction or native trajectory.
+		PRUnitTestClass(SceneGeometryRecorderTests)
+		{
+			// Check newly composed descriptor frames and whole-angular aggregation, not a duplicate coordinate implementation.
+			PRUnitTestMethod(DescriptorGeometryAdapter, Quick)
+			{
+				auto const frame_a = m4x4::Transform(v4::XAxis(), 0.5f, v4{1, 2, 3, 1});
+				auto const frame_b = m4x4::Transform(v4::YAxis(), -0.25f, v4{-2, 1, 4, 1});
+				auto const endpoint_a = m4x4::Transform(v4::ZAxis(), 0.4f, v4{3, -2, 1, 1});
+				auto const desired = m4x4::Transform(v4::XAxis(), 0.75f, v4::Origin());
+				auto const endpoint_b = endpoint_a * frame_a * desired * InvertOrthonormal(frame_b);
+				auto desc = physics::ConstraintDesc{};
+				desc.m_frame_a.m_constraint_to_body = frame_a;
+				desc.m_frame_b.m_constraint_to_body = frame_b;
+				desc.D6().m_angular[0] = {.m_mode = physics::EConstraintAxisMode::Limited, .m_limits = {-0.1f, 0.2f}};
+				auto const limited = MeasureGeometryLimit(desc, endpoint_a, endpoint_b);
+				PR_EXPECT(limited.m_regular && limited.m_has_angular_limit);
+				PR_EXPECT(std::abs(limited.m_coordinates[3] - 0.75f) < 2.0e-6f);
+				PR_EXPECT(std::abs(limited.m_angular_excess - 0.55f) < 2.0e-6f);
+				desc.D6().m_angular[0].m_mode = physics::EConstraintAxisMode::Driven;
+				auto const driven = MeasureGeometryLimit(desc, endpoint_a, endpoint_b);
+				PR_EXPECT(!driven.m_has_angular_limit && driven.m_angular_excess == 0);
+
+				// A point displaced along an asymmetric ellipse's outward normal has known Euclidean distance.
+				auto const query = v2{0.6f, 0.4f} + 0.2f * Normalise(v2{0.6f, 1.6f});
+				auto const orientation = ExpMap<quat>(0.5f * v3{query.x, 0, query.y});
+				desc.m_parameters = physics::SphericalAngularConstraintParameters{.m_swing_x = {-1, 1}, .m_swing_z = {-0.5f, 0.5f}, .m_twist = {-0.1f, 0.1f}};
+				auto const swing = MeasureGeometryLimit(desc, endpoint_a, endpoint_a * frame_a * m4x4(ToMatrix<m3x3>(orientation), v4::Origin()) * InvertOrthonormal(frame_b));
+				PR_EXPECT(swing.m_regular && std::abs(swing.m_angular_excess - 0.2f) < 3.0e-6f);
+				auto const both = MeasureGeometryLimit(desc, endpoint_a, endpoint_a * frame_a * m4x4(ToMatrix<m3x3>(orientation * ExpMap<quat>(v3{0, 0.3f, 0})), v4::Origin()) * InvertOrthonormal(frame_b));
+				PR_EXPECT(std::abs(both.m_excess[3] - 0.2f) < 3.0e-6f);
+				PR_EXPECT(std::abs(both.m_angular_excess - 0.5f) < 3.0e-6f);
+			}
+
+			// Verify deadlines survive competing identities and that lifecycle changes never report recovery.
+			PRUnitTestMethod(SampledGeometryEpisodes, Quick)
+			{
+				auto log = std::ostringstream{};
+				auto episodes = GeometryEpisodes{{}, log};
+				episodes.Begin(0);
+				episodes.Sample("pair:a|b", 0.006f, 0.005f);
+				episodes.Sample("constraint:1", 0.03f, 0.02f);
+				episodes.Complete();
+				episodes.Begin(1);
+				episodes.Sample("pair:a|b", 0.007f, 0.005f);
+				episodes.Sample("pair:a|c", 0.01f, 0.005f);
+				episodes.Censor("constraint:1", "descriptor_edit");
+				episodes.Sample("constraint:1", 0.03f, 0.02f);
+				episodes.Complete();
+				PR_EXPECT(!episodes.m_candidate && episodes.m_open.at("constraint:1").m_first == 1);
+				episodes.Begin(2);
+				episodes.Sample("pair:a|b", 0.006f, 0.005f);
+				episodes.Sample("pair:a|c", 0.0f, 0.005f);
+				episodes.Censor("constraint:1", "broken");
+				episodes.Complete();
+				PR_EXPECT(episodes.m_candidate && episodes.m_open.size() == 1);
+				PR_EXPECT(log.str().find("recovered,2,pair:a|c") != std::string::npos);
+				PR_EXPECT(log.str().find("recovered,2,constraint:1") == std::string::npos);
+				PR_EXPECT(log.str().find("investigation_candidate,2,pair:a|b,0,2") != std::string::npos);
+				PR_THROWS(episodes.Begin(4), std::runtime_error);
+
+				// Whole-joint identity stays constant when the maximum switches from swing to twist.
+				auto joint_log = std::ostringstream{};
+				auto joint = GeometryEpisodes{{}, joint_log};
+				for (int frame = 0; frame != 3; ++frame)
+				{
+					joint.Begin(frame);
+					auto const swing = frame == 1 ? 0.0f : 0.03f;
+					auto const twist = frame == 1 ? 0.04f : 0.0f;
+					joint.Sample("joint", std::max(swing, twist), 0.02f);
+					joint.Complete();
+				}
+				PR_EXPECT(joint.m_candidate);
+			}
+
+			// Check the recorder's eligibility adapter and explicit unsupported-shape handling without a GPU scene.
+			PRUnitTestMethod(PairAndShapeRecordingAdapter, Quick)
+			{
+				auto const shape = collision::ShapeSphere(1);
+				auto a = CollisionPlacement{.m_shape = &shape.m_base, .m_body_index = 0, .m_articulation = 0, .m_link = 0};
+				auto b = CollisionPlacement{.m_shape = &shape.m_base, .m_body_index = 1, .m_articulation = 0, .m_link = 1, .m_parent_index = 0};
+				PR_EXPECT(!GeometryPairEligible(a, b, {}));
+				b.m_collide_parent = true;
+				PR_EXPECT(GeometryPairEligible(a, b, {}));
+				auto const exclusions = std::array{CollisionPairKey(0, 1)};
+				PR_EXPECT(!GeometryPairEligible(a, b, exclusions));
+				auto output = std::ostringstream{};
+				GeometryShape(output, shape.m_base);
+				PR_EXPECT(!output.str().empty());
+				auto unsupported = shape.m_base;
+				unsupported.m_type = collision::EShape::Array;
+				PR_THROWS(GeometryShape(output, unsupported), std::runtime_error);
+			}
+
+			// Exercise the actual recorder's durable raw writer and sparse-pair completion adapter without constructing an Engine.
+			PRUnitTestMethod(SparsePairRecording, Quick)
+			{
+				auto const directory = std::filesystem::temp_directory_path() / std::format("rylogic-geometry-{}", std::chrono::steady_clock::now().time_since_epoch().count());
+				{
+					auto history = GeometryHistory(directory);
+					auto const shape = collision::ShapeSphere(1);
+					auto placements = std::array{
+						CollisionPlacement{.m_identity = {.m_type = physics::EConstraintBodyType::Rigid, .m_body_id = {17}}, .m_shape = &shape.m_base, .m_bounds = BBox(v4::Origin(), v4{1, 1, 1, 0}), .m_body_index = 0},
+						CollisionPlacement{.m_identity = {.m_type = physics::EConstraintBodyType::Rigid, .m_body_id = {19}}, .m_shape = &shape.m_base, .m_bounds = BBox(v4::Origin(), v4{1, 1, 1, 0}), .m_body_index = 1},
+					};
+					auto contact = collision::Contact{};
+					contact.m_depth = 0.006f;
+					contact.m_axis = v4{0, 1, 0, 0};
+					contact.m_feature = collision::EFeature::Edge;
+					contact.m_mat_idA = 7;
+					contact.m_mat_idB = 11;
+					contact.m_manifold[0] = v4{1, 2, 3, 1};
+					contact.m_manifold[1] = v4{4, 5, 6, 1};
+					history.m_frame = 0;
+					history.m_episodes.Begin(0);
+					auto const raw = std::array{0.125f, -0.25f, 0.5f, 0.75f};
+					history.Primary("raw", raw);
+					history.Placements(placements);
+					history.Pair(placements[1], placements[0], true, contact);
+					history.EndPairs(placements, {});
+					history.m_episodes.Complete();
+					history.Flush();
+					auto input = std::ifstream(directory / "primary.bin", std::ios::binary);
+					auto actual = std::array<float, 4>{};
+					input.read(reinterpret_cast<char*>(actual.data()), sizeof(actual));
+					PR_EXPECT(actual == raw && std::filesystem::file_size(directory / "primary.bin") == sizeof(raw));
+
+					// A conservative bounds proof closes a missing outstanding pair, without reporting every separated pair.
+					history.m_frame = 1;
+					history.m_episodes.Begin(1);
+					placements[1].m_bounds = BBox(v4{5, 0, 0, 1}, v4{1, 1, 1, 0});
+					history.Placements(placements);
+					history.EndPairs(placements, {});
+					history.m_episodes.Complete();
+					PR_EXPECT(history.m_episodes.m_open.empty() && history.m_pairs.empty());
+
+					// Exclusion terminates a new episode without fabricating below-threshold geometry.
+					history.m_frame = 2;
+					history.m_episodes.Begin(2);
+					placements[1].m_bounds = placements[0].m_bounds;
+					history.Placements(placements);
+					history.Pair(placements[0], placements[1], true, contact);
+					history.m_episodes.Complete();
+
+					// A nonfinite signed depth must remain raw failure evidence, never a clamped recovery.
+					contact.m_depth = -std::numeric_limits<float>::infinity();
+					PR_THROWS(history.Pair(placements[0], placements[1], true, contact), std::runtime_error);
+					PR_EXPECT(history.m_episodes.m_open.contains("pair:r:17|r:19"));
+					history.m_frame = 3;
+					history.m_episodes.Begin(3);
+					auto const excluded = std::array{CollisionPairKey(0, 1)};
+					history.EndPairs(placements, excluded);
+					history.m_episodes.Complete();
+					PR_EXPECT(history.m_episodes.m_open.empty() && history.m_pairs.empty() && !history.m_episodes.m_candidate);
+					history.Flush();
+				}
+				auto events_file = std::ifstream(directory / "events.csv");
+				auto const events = std::string(std::istreambuf_iterator<char>(events_file), {});
+				PR_EXPECT(events.find("recovered,1,pair:r:17|r:19") != std::string::npos);
+				PR_EXPECT(events.find("pair_ineligible,3,pair:r:17|r:19") != std::string::npos);
+				PR_EXPECT(events.find("recovered,2,") == std::string::npos);
+				events_file.close();
+
+				// Canonical pair identity must not change the native witness's argument order, points or material order.
+				auto geometry_file = std::ifstream(directory / "geometry.csv");
+				auto const geometry = std::string(std::istreambuf_iterator<char>(geometry_file), {});
+				PR_EXPECT(geometry.find("contact_witness,0,pair:r:17|r:19,r:19,r:17,root,root,world,0,1,0,0,") != std::string::npos);
+				PR_EXPECT(geometry.find(",2,7,11,2,1,2,3,1,4,5,6,1\n") != std::string::npos);
+				PR_EXPECT(geometry.find(",-inf,2,7,11,2,1,2,3,1,4,5,6,1\n") != std::string::npos);
+				geometry_file.close();
+
+				// Only this test's four named files and now-empty directory are removed.
+				for (auto const* name : {"primary.bin", "catalog.csv", "geometry.csv", "events.csv"})
+					std::filesystem::remove(directory / name);
+
+				std::filesystem::remove(directory);
+			}
+		};
+
+		// A periodic orientation must not hide scalar hinge coordinates outside the workload's principal-angle domain.
+		PRUnitTestClass(SceneHingeDomainTests)
+		{
+			// A full turn plus a legal principal angle remains outside the scalar domain.
+			PRUnitTestMethod(UnwrappedHingesCannotAliasLegalPrincipalAngles, Quick)
+			{
+				// Include non-angular and quaternion joints so only the genuine scalar hinge contributes.
+				auto builder = physics::ArticulationBuilder{};
+				auto const inertia = physics::ArticulationLinkDesc{.m_inertia = physics::Inertia::Sphere(0.25f, 1)};
+				auto const root = builder.AddFixedRoot(inertia);
+				auto const hinge = builder.AddLink(root, physics::ArticulationJointDesc::Revolute(v4::XAxis()), inertia);
+				auto slider = physics::ArticulationJointDesc::Prismatic();
+				slider.m_initial_position[0] = 100;
+				builder.AddLink(root, slider, inertia);
+				builder.AddLink(root, physics::ArticulationJointDesc::Spherical(), inertia);
+				auto trees = std::vector<physics::Articulation>{};
+				trees.push_back(builder.Build());
+				auto tree_ptrs = std::array{&trees[0]};
+				auto constraints = physics::ConstraintSet{};
+				auto desc = physics::ConstraintDesc{
+					.m_frame_a = {.m_body = physics::BodyRef::Link(trees[0], root)},
+					.m_frame_b = {.m_body = physics::BodyRef::Link(trees[0], hinge)},
+				};
+				desc.D6().m_angular[0].m_mode = physics::EConstraintAxisMode::Limited;
+				desc.D6().m_angular[0].m_limits = {-0.5f, 0.5f};
+				constraints.Add(desc);
+				auto const remap = physics::BodyRemap{{}, tree_ptrs};
+				for (auto const q : {0.2f, constants<float>::tau + 0.2f, -constants<float>::tau - 0.2f})
+				{
+					// The actual CPU D6 compiler sees a legal principal angle for all three scalar coordinates.
+					trees[0].JointPosition(hinge, std::span{&q, 1});
+					auto const rows = physics::CompileConstraints(constraints, remap).m_rows;
+					PR_EXPECT(rows.size() == 1);
+					PR_EXPECT(FEqlAbsolute(std::abs(rows[0].m_position), 0.2f, 1.0e-5f));
+					auto const sample = MeasureHingeDomain(trees);
+					PR_EXPECT(sample.m_count == 1 && sample.m_max_abs_q == std::abs(q));
+					PR_EXPECT(sample.m_outside_principal_count == (q == 0.2f ? 0 : 1));
+					log_stream() << "q=" << q << " principal=" << rows[0].m_position << " max_abs_hinge_q=" << sample.m_max_abs_q
+						<< " outside_principal=" << sample.m_outside_principal_count << '\n';
+				}
+
+				// Both cuts of the principal chart are outside the strict domain.
+				for (auto const q : {-constants<float>::tau_by_2, constants<float>::tau_by_2})
+				{
+					trees[0].JointPosition(hinge, std::span{&q, 1});
+					PR_EXPECT(MeasureHingeDomain(trees).m_outside_principal_count == 1);
+				}
+			}
+		};
+
+		// Geometry screens must see every articulated pair category and honor the same explicit exclusions as native collision.
+		PRUnitTestClass(SceneCommittedGeometryTests)
+		{
+			// Nonidentity and nested array frames must not move already root-space leaf transforms a second time.
+			PRUnitTestMethod(ArrayLeavesKeepTheirRootSpaceTransforms, Quick)
+			{
+				// ShapeArray stores contiguous variable-size children, not owning pointers.
+				struct SphereArray
+				{
+					collision::ShapeArray m_array{m4x4::Translation(10, 0, 0)};
+					collision::ShapeSphere m_leaf{1.0f, m4x4::Translation(1, 0, 0)};
+				};
+				struct NestedArray
+				{
+					collision::ShapeArray m_array{m4x4::Translation(-7, 0, 0)};
+					SphereArray m_child;
+				};
+				static_assert(offsetof(SphereArray, m_leaf) == sizeof(collision::ShapeArray));
+				static_assert(offsetof(NestedArray, m_child) == sizeof(collision::ShapeArray));
+				auto nested = NestedArray{};
+				nested.m_child.m_array.Complete(1);
+				nested.m_array.Complete(1);
+				auto sphere = collision::ShapeSphere{1.0f};
+				auto const other_to_world = m4x4::Translation(1.5f, 0, 0);
+				for (auto shape : {&nested.m_child.m_array.m_base, &nested.m_array.m_base})
+				{
+					PR_EXPECT(IsIntersection(shape->m_s2r * shape->m_bbox, other_to_world * sphere.m_base.m_bbox));
+					for (auto swap : {false, true})
+					{
+						auto contact = collision::Contact{};
+						auto const hit = swap
+							? CollideLeaves(sphere.m_base, other_to_world, *shape, m4x4::Identity(), contact)
+							: CollideLeaves(*shape, m4x4::Identity(), sphere.m_base, other_to_world, contact);
+						PR_EXPECT(hit);
+						PR_EXPECT(FEqlAbsolute(contact.m_depth, 1.5f, 1.0e-5f));
+					}
+				}
+			}
+
+			// Floating root overlaps need no ground or ordinary body to be observable.
+			PRUnitTestMethod(FloatingRootsRigidLinksAndExplicitExclusions, Extended)
+			{
+				auto sphere = collision::ShapeSphere{1.0f};
+				auto scene = Scene(nullptr);
+				for (int index = 0; index != 2; ++index)
+				{
+					auto builder = physics::ArticulationBuilder{};
+					builder.AddFloatingRoot(physics::ArticulationLinkDesc{.m_inertia = physics::Inertia::Sphere(1, 1), .m_shape = &sphere.m_base}, m4x4::Translation(static_cast<float>(index), 0, 10));
+					scene.m_articulation.push_back(builder.Build());
+				}
+				scene.m_articulation_actuation.resize(2);
+				scene.RebuildStepInputs();
+				auto sample = MeasurePenetration(scene);
+				PR_EXPECT(sample.m_contact_count == 1);
+				PR_EXPECT(FEqlAbsolute(sample.m_max_depth, 1.0f, 1.0e-5f));
+
+				// Even an all-free enabled descriptor may suppress collision; disabling it must release the pair.
+				auto const handle = scene.m_constraints.Add(physics::ConstraintDesc{
+					.m_frame_a = {.m_body = physics::BodyRef::Link(scene.m_articulation[0], scene.m_articulation[0].LinkAt(0))},
+					.m_frame_b = {.m_body = physics::BodyRef::Link(scene.m_articulation[1], scene.m_articulation[1].LinkAt(0))},
+				});
+				PR_EXPECT(MeasurePenetration(scene).m_contact_count == 0);
+				scene.m_constraints.SetEnabled(handle, false);
+				PR_EXPECT(MeasurePenetration(scene).m_contact_count == 1);
+
+				// A non-ground rigid body can be the deepest overlap, and its layer mask must still apply to links.
+				scene.m_body.emplace_back(nullptr, &sphere.m_base, m4x4::Translation(0.25f, 0, 10), physics::Inertia::Sphere(1, 1));
+				scene.RebuildStepInputs();
+				sample = MeasurePenetration(scene);
+				PR_EXPECT(FEqlAbsolute(sample.m_max_depth, 1.75f, 1.0e-5f));
+				PR_EXPECT(sample.m_body_a == 0 || sample.m_body_b == 0);
+				scene.m_body[0].CollisionFilter(2U, 2U);
+				PR_EXPECT(MeasurePenetration(scene).m_contact_count == 1);
+
+				// Explicit ordinary-body ignore pairs remain effective without any persistent constraint.
+				scene.ClearSimulationObjects();
+				scene.m_body.emplace_back(nullptr, &sphere.m_base, m4x4::Translation(0, 0, 10), physics::Inertia::Sphere(1, 1));
+				scene.m_body.emplace_back(nullptr, &sphere.m_base, m4x4::Translation(1, 0, 10), physics::Inertia::Sphere(1, 1));
+				scene.m_collision_ignore_indices.emplace_back(0, 1);
+				scene.RebuildStepInputs();
+				PR_EXPECT(MeasurePenetration(scene).m_contact_count == 0);
+				scene.m_collision_ignore_indices.clear();
+				scene.RebuildStepInputs();
+				PR_EXPECT(MeasurePenetration(scene).m_contact_count == 1);
+			}
+
+			// Parent overlap and enabled nonparent overlap are separate policies, not a whole-tree collision toggle.
+			PRUnitTestMethod(ParentAndNonparentPoliciesRemainIndependent, Extended)
+			{
+				auto sphere = collision::ShapeSphere{1.0f};
+				auto scene = Scene(nullptr);
+				for (auto const& [self, parent, expected] : {std::tuple{false, false, 0}, std::tuple{true, false, 1}, std::tuple{false, true, 2}})
+				{
+					scene.ClearSimulationObjects();
+					auto builder = physics::ArticulationBuilder{};
+					auto const desc = physics::ArticulationLinkDesc{
+						.m_inertia = physics::Inertia::Sphere(1, 1), .m_shape = &sphere.m_base, .m_collide_parent = parent, .m_collide_self = self,
+					};
+					auto const root = builder.AddFloatingRoot(desc, m4x4::Translation(0, 0, 10));
+					auto const joint = physics::ArticulationJointDesc::Fixed(m4x4::Translation(0.25f, 0, 0));
+					auto const child = builder.AddLink(root, joint, desc);
+					builder.AddLink(child, joint, desc);
+					scene.m_articulation.push_back(builder.Build());
+					scene.m_articulation_actuation.resize(1);
+					scene.RebuildStepInputs();
+					PR_EXPECT(MeasurePenetration(scene).m_contact_count == expected);
+				}
+			}
+
+			// The converted authored workloads must reach native typed storage without losing forces, limits, or damping.
+			PRUnitTestMethod(ConvertedRagdollsRetainNativeLawsAndInitialSeparation, Extended)
+			{
+				auto scene = Scene(nullptr);
+				for (auto const& [filename, torque_per_kg] : {std::pair{"articulation_ragdoll_dispersed.json", 3.0f}, std::pair{"articulation_ragdoll_pile.json", 1.5f}})
+				{
+					auto const source = scene_loader::LoadFromFile(std::filesystem::path("projects\\tests\\physics-sandbox\\scenes") / filename);
+					scene.LoadScene(source);
+					PR_EXPECT(scene.m_articulation.size() == 100);
+					PR_EXPECT(scene.m_constraints.Count() == 1300);
+					PR_EXPECT(scene.m_articulation_actuation.size() == 100);
+					PR_EXPECT(scene.m_physics_substeps == 3);
+					auto const& config = scene.m_physics.Config();
+					PR_EXPECT(config.solver_iterations == 10 && config.push_out_iterations == 1);
+					PR_EXPECT(config.constraint_position_beta == 0.2f && config.constraint_max_position_speed == 2.0f);
+					auto const native = physics::PackGpuConstraints(scene.m_constraints, physics::BodyRemap{scene.m_body_ptrs, scene.m_articulation_ptrs});
+					PR_EXPECT(native.m_descriptors.size() == 1300 && native.m_coupled_active_count == 1300);
+					auto spherical_count = 0;
+					auto limit_count = 0;
+					auto damper_count = 0;
+					for (int index = 0; index != isize(source.constraints); ++index)
+					{
+						auto const& expected = source.constraints[index];
+						auto const& actual = native.m_descriptors[index];
+						switch (expected.m_type)
+						{
+							case scene_loader::ConstraintDesc::EType::SphericalAngular:
+							{
+								++spherical_count;
+								PR_EXPECT(actual.type == physics::GpuConstraintType_SphericalAngular);
+								PR_EXPECT(All(actual.swing_limits == v4(expected.m_spherical.m_swing_x.m_beg, expected.m_spherical.m_swing_x.m_end, expected.m_spherical.m_swing_z.m_beg, expected.m_spherical.m_swing_z.m_end)));
+								PR_EXPECT(All(actual.twist_limits == v2(expected.m_spherical.m_twist.m_beg, expected.m_spherical.m_twist.m_end)));
+								PR_EXPECT(actual.angular_damping == expected.m_spherical.m_damping);
+								break;
+							}
+							case scene_loader::ConstraintDesc::EType::D6:
+							{
+								PR_EXPECT(actual.type == physics::GpuConstraintType_D6);
+								limit_count += actual.axes[3].mode == static_cast<int>(physics::EConstraintAxisMode::Limited);
+								damper_count += actual.axes[3].mode == static_cast<int>(physics::EConstraintAxisMode::Driven);
+								for (int axis = 0; axis != 6; ++axis)
+								{
+									auto const& wanted = axis < 3 ? expected.m_linear[axis] : expected.m_angular[axis - 3];
+									auto const& packed = actual.axes[axis];
+									PR_EXPECT(packed.mode == static_cast<int>(wanted.m_mode));
+									PR_EXPECT(packed.lower_limit == wanted.m_limits.m_beg && packed.upper_limit == wanted.m_limits.m_end);
+									PR_EXPECT(packed.damping == wanted.m_damping && packed.stiffness == wanted.m_stiffness);
+									PR_EXPECT(packed.target_velocity == wanted.m_target_velocity && packed.max_force == wanted.m_max_force);
+								}
+								break;
+							}
+							default: { throw std::runtime_error("Unexpected constraint in converted ragdoll workload"); }
+						}
+					}
+					PR_EXPECT(spherical_count == 500 && limit_count == 400 && damper_count == 400);
+
+					// Check per-tree authored phase/period and the three-velocity spherical force domain.
+					scene.ApplyArticulationActuation(0.125);
+					auto links = 0;
+					auto joint_velocities = 0;
+					auto max_force_error = 0.0f;
+					for (int index = 0; index != 100; ++index)
+					{
+						auto const& tree = scene.m_articulation[index];
+						auto const& actuation = source.articulations[index].m_actuation;
+						links += tree.LinkCount();
+						PR_EXPECT(tree.LinkCount() == 10 && actuation.m_torque_per_kg == torque_per_kg);
+						auto coordinate = 0;
+						for (int link_index = 1; link_index != tree.LinkCount(); ++link_index)
+						{
+							auto const link = tree.LinkAt(link_index);
+							for (auto force : tree.JointForce(link))
+							{
+								auto const phase = static_cast<float>(0.125 / actuation.m_period_s) * constants<float>::tau + actuation.m_phase + 2.39996323f * static_cast<float>(coordinate++);
+								auto const expected = actuation.m_torque_per_kg * tree.LinkDescription(link).m_inertia.Mass() * std::sin(phase);
+								PR_EXPECT(std::isfinite(force) && std::isfinite(expected));
+								max_force_error = std::max(max_force_error, std::abs(force - expected));
+							}
+						}
+						joint_velocities += coordinate;
+					}
+					PR_EXPECT(links == 1000 && joint_velocities == 1900 && max_force_error <= 1.0e-5f);
+					auto const geometry = MeasurePenetration(scene);
+					PR_EXPECT(geometry.m_contact_count == 0 && geometry.m_max_depth == 0.0f);
+					log_stream() << filename << " trees=100 links=" << links << " spherical=" << spherical_count << " hinge_limits=" << limit_count << " hinge_dampers=" << damper_count
+						<< " joint_velocities=" << joint_velocities << " torque_per_kg=" << torque_per_kg << " force_error=" << max_force_error << " initial_contacts=" << geometry.m_contact_count
+						<< " stepping=3/10/1 beta=" << config.constraint_position_beta << " max_position_speed=" << config.constraint_max_position_speed
+						<< " has_debug_layer=" << compute::HasDebugLayer(scene.m_physics.Device()) << '\n';
+				}
+			}
+		};
+#endif
+
 		float BoxHeight(scene_loader::BodyDesc const& body)
 		{
 			return body.box_dimensions.z;
@@ -730,6 +2140,40 @@ namespace physics_sandbox::diag
 				hash = pr::hash::Hash64CT(bytes, bytes + sizeof(state), hash);
 			}
 			return hash;
+		}
+
+		// Retain committed primary articulation state without warming derived link-kinematics caches.
+		void PrintArticulationProfileState(std::ofstream& log, int step, Scene const& scene)
+		{
+			auto output = std::ostringstream{};
+			output << std::setprecision(std::numeric_limits<float>::max_digits10);
+			for (int tree = 0; tree != isize(scene.m_articulation); ++tree)
+			{
+				auto const& articulation = scene.m_articulation[tree];
+				auto const& pose = articulation.RootToWorld();
+				auto const velocity = articulation.RootVelocity();
+				output << "articulation_root," << step << ',' << tree;
+				for (auto value : {pose.x.x, pose.x.y, pose.x.z, pose.y.x, pose.y.y, pose.y.z, pose.z.x, pose.z.y, pose.z.z,
+					pose.pos.x, pose.pos.y, pose.pos.z, velocity.ang.x, velocity.ang.y, velocity.ang.z, velocity.lin.x, velocity.lin.y, velocity.lin.z})
+					output << ',' << value;
+
+				output << '\n';
+				for (int link_index = 1; link_index != articulation.LinkCount(); ++link_index)
+				{
+					auto const link = articulation.LinkAt(link_index);
+					auto const q = articulation.JointPosition(link);
+					auto const v = articulation.JointVelocity(link);
+					output << "articulation_joint," << step << ',' << tree << ',' << link_index << ',' << q.size() << ',' << v.size();
+					for (auto value : q)
+						output << ',' << value;
+
+					for (auto value : v)
+						output << ',' << value;
+
+					output << '\n';
+				}
+			}
+			Emit(log, output.str());
 		}
 
 		// Report phase averages and the final rigid state of this reporting interval.
@@ -1316,6 +2760,22 @@ namespace physics_sandbox::diag
 
 	SceneDiagnosticResult RunSceneDiagnostic(SceneDiagnosticOptions const& options)
 	{
+		// Install the optional GPU capture layer before scene loading can create any D3D12 objects.
+		if (!options.m_pix_capture_path.empty() || options.m_pix_capture_step != 0)
+		{
+			if (options.m_pix_capture_path.empty() || options.m_pix_capture_step < 1 || options.m_pix_capture_step > options.m_steps)
+				throw std::invalid_argument("PIX capture requires -pix_capture <path> and -pix_capture_step within [1, steps]");
+
+			if (std::filesystem::exists(options.m_pix_capture_path))
+				throw std::invalid_argument("PIX capture output already exists");
+
+			#if PR_PIX_ENABLED
+			compute::pix::LoadLatestWinPixGpuCapturer();
+			#else
+			throw std::runtime_error("This build does not support PIX capture");
+			#endif
+		}
+
 		auto log_path = AppDataPath() / "scene_diagnostic.log";
 		auto log = std::ofstream(log_path, std::ios::out | std::ios::trunc);
 		auto result = SceneDiagnosticResult{};
@@ -1328,6 +2788,13 @@ namespace physics_sandbox::diag
 		metric_count += options.m_sleep_metric ? 1 : 0;
 		if (metric_count > 1)
 			throw std::runtime_error("Scene diagnostic metrics are mutually exclusive: use one of -column_metric, -pyramid_metric, -cradle_metric, -dzhanibekov_metric, or -sleep_metric");
+
+		// Geometry histories require every ordinary committed frame, not a branch that skips its measurements.
+		if (!options.m_geometry_history.empty() && (options.m_engine_profile || metric_count != 0 || options.m_trace_body != -1 || options.m_scan_bodies || !options.m_pix_capture_path.empty()))
+			throw std::runtime_error("Geometry history is separate from profile, trace, other metrics, and GPU captures");
+
+		if (!options.m_geometry_history.empty() && (options.m_steps < 0 || options.m_steps == std::numeric_limits<int>::max() || !(options.m_dt > 0) || !std::isfinite(options.m_dt)))
+			throw std::runtime_error("Geometry history requires a finite positive interval and a representable nonnegative frame count");
 
 		Emit(log, std::format("Scene diagnostic log: {}\n", log_path.string()));
 		Emit(log, std::format("Scene diagnostic scene: {}\n", options.m_scene_filepath.string()));
@@ -1517,6 +2984,10 @@ namespace physics_sandbox::diag
 			config.m_air.m_density = *options.m_air_density;
 			scene.m_physics.Water(config);
 		}
+		// The recorder owns its complete scan loop without adding observer work to timed or unrelated diagnostics.
+		if (!options.m_geometry_history.empty())
+			return RunGeometryHistory(scene, options);
+
 		Emit(log, std::format(
 			"load_profile,total_ms={:.4f},prepare_ms={:.4f},bbox_ms={:.4f},shapes_ms={:.4f},bodies_ms={:.4f},buoyancy_ms={:.4f},bodies={},articulations={},constraints={},shapes={}\n",
 			scene.m_last_load_profile.m_total_ms,
@@ -1541,6 +3012,11 @@ namespace physics_sandbox::diag
 				config.m_air.m_density));
 		}
 		PrintPolytopeProfile(log, scene);
+		auto const& engine_config = scene.m_physics.Config();
+		Emit(log, std::format(
+			"engine_settings,substeps={},velocity_sweeps={},position_sweeps={},beta={},max_position_speed={},has_debug_layer={},physics_diagnostics={},physics_profile={}\n",
+			scene.m_physics_substeps, engine_config.solver_iterations, engine_config.push_out_iterations, engine_config.constraint_position_beta,
+			engine_config.constraint_max_position_speed, compute::HasDebugLayer(scene.m_physics.Device()), PR_PHYSICS_DIAGNOSTICS, PR_PHYSICS_PROFILE));
 		auto dzhanibekov_metric = options.m_dzhanibekov_metric ? CreateDzhanibekovMetric(scene) : DzhanibekovMetricState{};
 		if (column_metric.Enabled())
 		{
@@ -1625,18 +3101,34 @@ namespace physics_sandbox::diag
 
 		auto profile = EngineProfileAccumulator{};
 
+		// The existing event reports the first rejection per owner in a frame, not every rejected trial or sweep.
+		auto step_rejections = std::vector<physics::ConstraintRejectionEvent>{};
+		if (options.m_engine_profile)
+		{
+			scene.m_physics.ConstraintRejections += [&](auto&, std::span<physics::ConstraintRejectionEvent const> events)
+			{
+				step_rejections.assign(events.begin(), events.end());
+			};
+			PrintArticulationProfileState(log, 0, scene);
+		}
+
 		// Capture terrain diagnostics before stepping and report them outside the timed physics interval.
 		auto terrain_metric = TerrainMetric(scene);
 		terrain_metric.Print(log, 0, scene);
 		for (int step = 0; step != options.m_steps; ++step)
 		{
+			step_rejections.clear();
 			auto before = BodyTraceState{};
 			if (options.m_trace_body != -1)
 				before = CaptureBodyState(scene.m_body[options.m_trace_body]);
 			if (options.m_trace_body != -1 || options.m_scan_bodies)
 				trace_contacts.resize(0);
 
-			scene.Step(options.m_dt);
+			{
+				// Scene::Step waits for its submitted GPU work, so capture closes after this tick's completion fence.
+				auto capture = compute::pix::CaptureScope(options.m_pix_capture_path, step + 1 == options.m_pix_capture_step);
+				scene.Step(options.m_dt);
+			}
 			if ((step + 1) % std::max(options.m_report_interval, 1) == 0 || step + 1 == options.m_steps)
 				terrain_metric.Print(log, step + 1, scene);
 
@@ -1665,6 +3157,22 @@ namespace physics_sandbox::diag
 
 			if (options.m_engine_profile)
 			{
+				// These counts are for this completed frame, separately from the interval-averaged host timing row.
+				auto const& features = scene.m_physics.LastFeatureStats();
+				auto const& work = features.m_coupled.m_velocity_work;
+				Emit(log, std::format("coupled_work,step={},has_snapshots={},sweeps={},recorded_velocity_dispatches={},owner_sweeps={},started_trials={},accepted_owner_sweeps={},zero_attempt_accepted_owner_sweeps={},admission_rejected_owner_sweeps={},solve_rejected_owner_sweeps={},numerical_failure_owner_sweeps={},recorded_coupled_dispatches={},distinct_rejected_owners={}\n",
+					step + 1, work.m_has_snapshots, work.m_sweeps, work.m_recorded_dispatches, work.m_owner_sweeps, work.m_started_trials,
+					work.m_accepted_owner_sweeps, work.m_zero_attempt_accepted_owner_sweeps, work.m_admission_rejected_owner_sweeps, work.m_solve_rejected_owner_sweeps,
+					work.m_numerical_failure_owner_sweeps, features.m_coupled.m_resources.m_dispatch_count, step_rejections.size()));
+				for (auto const& rejection : step_rejections)
+				{
+					Emit(log, std::format("first_owner_rejection,step={},owner={},index={},generation={},phase={},outcome={},substep={},attempts={},flags={},relaxation={:.9g},merit_change={:.9g}\n",
+						step + 1, static_cast<int>(rejection.m_owner), rejection.m_index, rejection.m_generation, static_cast<int>(rejection.m_phase),
+						static_cast<int>(rejection.m_outcome), rejection.m_substep_index, rejection.m_iteration_count,
+						rejection.m_failure_flags, rejection.m_relaxation, rejection.m_merit_change));
+				}
+				PrintArticulationProfileState(log, step + 1, scene);
+
 				profile.Add(scene.m_last_step_profile, scene.m_physics.LastCollisionStats().LastContactCount());
 				auto report_interval = std::max(options.m_report_interval, 1);
 				if ((step + 1) % report_interval == 0 || step + 1 == options.m_steps)
@@ -1815,6 +3323,10 @@ namespace physics_sandbox::diag
 
 			{
 				auto sample = MeasurePenetration(scene);
+				auto const hinges = MeasureHingeDomain(scene.m_articulation);
+				result.m_hinge_count = hinges.m_count;
+				result.m_max_abs_hinge_q = std::max(result.m_max_abs_hinge_q, hinges.m_max_abs_q);
+				result.m_hinge_outside_principal_steps += hinges.m_outside_principal_count != 0 ? 1 : 0;
 				if (sample.m_max_depth > result.m_max_depth)
 				{
 					result.m_max_depth = sample.m_max_depth;
@@ -1829,6 +3341,12 @@ namespace physics_sandbox::diag
 				if ((step + 1) % report_interval == 0 || step + 1 == options.m_steps)
 				{
 					PrintSample(log, step + 1, scene.m_clock, sample);
+					if (hinges.m_count != 0)
+					{
+						// Report the prerequisite separately from geometric error; it is not a restriction on valid engine motion.
+						Emit(log, std::format("hinge_domain,step={},hinges={},max_abs_hinge_q={:.9f},outside_principal={},principal_hinge_domain={}\n",
+							step + 1, hinges.m_count, hinges.m_max_abs_q, hinges.m_outside_principal_count, hinges.m_outside_principal_count == 0));
+					}
 				}
 			}
 		}
@@ -1845,6 +3363,12 @@ namespace physics_sandbox::diag
 				result.m_body_b,
 				result.m_articulation,
 				result.m_link));
+			if (result.m_hinge_count != 0)
+			{
+				// Retain excursions from unreported steps so returning to the principal interval cannot hide them.
+				Emit(log, std::format("worst_hinges,max_abs_hinge_q={:.9f},outside_principal_steps={},principal_hinge_domain={}\n",
+					result.m_max_abs_hinge_q, result.m_hinge_outside_principal_steps, result.m_hinge_outside_principal_steps == 0));
+			}
 		}
 
 		return result;

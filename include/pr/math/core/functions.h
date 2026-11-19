@@ -4042,7 +4042,23 @@ namespace pr::math
 		using Vec = typename vt::component_t;
 		pr_assert(IsOrthonormal(mat) && "Matrix is not a pure rotation matrix");
 
-		auto angle = std::acos(S(0.5) * (Trace(mat) - S(1)));
+		// The skew part retains small rotations when the trace has rounded to three; acos(trace) loses that first-order information.
+		auto const sine_axis = S(0.5) * Vec{
+			vec(vec(mat).y).z - vec(vec(mat).z).y,
+			vec(vec(mat).z).x - vec(vec(mat).x).z,
+			vec(vec(mat).x).y - vec(vec(mat).y).x
+		};
+		auto const sine = Length(sine_axis);
+		auto const cosine = S(0.5) * (Trace(mat) - S(1));
+		auto angle = std::atan2(sine, cosine);
+		if (cosine >= S(0))
+		{
+			// Near identity, I-R is almost zero and its numerical null space does not reliably identify the rotation axis.
+			// The skew part directly supplies the signed axis; no subtraction of nearly equal diagonal entries is needed.
+			return sine != S(0) ? std::tuple{ sine_axis / sine, angle } : std::tuple{ Vec{1, 0, 0}, S(0) };
+		}
+
+		// Away from identity the null space is well separated, and remains usable at pi where the skew part vanishes.
 		auto axis = S(1000) * Kernel(Identity<Mat>() - mat);
 		if (LengthSq(axis) == 0)
 			return { Vec{1, 0, 0}, S(0) };

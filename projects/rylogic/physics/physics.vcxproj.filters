@@ -78,6 +78,15 @@
     <ClCompile Include="src\atmosphere\atmosphere.cpp">
       <Filter>src\atmosphere</Filter>
     </ClCompile>
+    <ClCompile Include="src\dll\atmosphere_record.cpp">
+      <Filter>src\atmosphere</Filter>
+    </ClCompile>
+    <ClInclude Include="src\dll\atmosphere_record.h">
+      <Filter>src\atmosphere</Filter>
+    </ClInclude>
+    <ClInclude Include="src\dll\api_exception.h">
+      <Filter>src\atmosphere</Filter>
+    </ClInclude>
     <ClCompile Include="src\buoyancy\gpu_water.cpp">
       <Filter>src\buoyancy</Filter>
     </ClCompile>

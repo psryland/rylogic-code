@@ -315,6 +315,25 @@ PR_CONSTRAINT_INLINE bool ProjectConstraintBox(int dimension, float PR_CONSTRAIN
 	return false;
 }
 
+// Take one relaxed block step and project total coefficients in the supplied inverse-response metric.
+PR_CONSTRAINT_INLINE bool ProjectConstraintVelocityStep(int dimension, float PR_CONSTRAINT_CONST inverse[36], float PR_CONSTRAINT_CONST residual[6], float PR_CONSTRAINT_CONST impulses[6], float PR_CONSTRAINT_CONST lower[6], float PR_CONSTRAINT_CONST upper[6], float relaxation, PR_CONSTRAINT_ARRAY_OUT(float, projected, 6))
+{
+	// Both staged and live-state callers use the same numerical step; ownership and publication are separate from this algebra.
+	float candidate[6];
+	for (int row = 0; row != dimension; ++row)
+	{
+		// The full inverse couples changes in saturated and free row directions.
+		float correction = 0.0f;
+		for (int column = 0; column != dimension; ++column)
+		{
+			// Preserve the existing ordered reduction.
+			correction += inverse[row * 6 + column] * residual[column];
+		}
+		candidate[row] = impulses[row] - relaxation * correction;
+	}
+	return ProjectConstraintBox(dimension, inverse, candidate, lower, upper, projected);
+}
+
 #undef PR_CONSTRAINT_INLINE
 #undef PR_CONSTRAINT_CONST
 #undef PR_CONSTRAINT_OUT

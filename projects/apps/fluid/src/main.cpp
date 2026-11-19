@@ -98,7 +98,7 @@ struct Main :Form, IProbeActions
 			.main_wnd()
 			.dbl_buffer()
 			.wndclass(RegisterWndClass<Main>()))
-		, m_rdr(rdr12::RdrSettings(hinst).DebugLayer())
+		, m_rdr(rdr12::RdrSettings(hinst).DeviceDebug())
 		, m_wnd(m_rdr, rdr12::WndSettings(CreateHandle(), true, m_rdr.Settings()).BackgroundColour(0xFFA0A080))
 		, m_scn(m_wnd)
 		, m_gpu(m_rdr.D3DDevice(), m_rdr.GfxQueue())
@@ -604,6 +604,8 @@ int __stdcall wWinMain(HINSTANCE hinstance, HINSTANCE, LPWSTR, int)
 	{
 		InitCom com;
 
+		// Preserve the demo's validation choice, applying it before the renderer or any other device exists.
+		pr::compute::ConfigureProcessDiagnostics(pr::compute::EProcessDiagnostics::DebugLayer);
 		Main main(hinstance);
 		main.Show();
 		return main.Run();

@@ -197,11 +197,11 @@ namespace pr::physics::tests
 		PRUnitTestMethod(EngineZeroImpulseCouplingPreservesAcceleration, Extended)
 		{
 			auto [articulation, child] = BuildMobilityAccelerationFixture();
-			auto desc = D6ConstraintDesc{};
+			auto desc = ConstraintDesc{};
 			desc.m_frame_a.m_body = BodyRef::Link(articulation, child);
 			desc.m_frame_b.m_body = BodyRef::World();
-			desc.m_linear[0].m_mode = EConstraintAxisMode::Limited;
-			desc.m_linear[0].m_limits = {-10.0f, +10.0f};
+			desc.D6().m_linear[0].m_mode = EConstraintAxisMode::Limited;
+			desc.D6().m_linear[0].m_limits = {-10.0f, +10.0f};
 			auto constraints = ConstraintSet{};
 			constraints.Add(desc);
 			auto forest = std::array{&articulation};

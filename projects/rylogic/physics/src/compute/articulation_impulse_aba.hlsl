@@ -23,6 +23,7 @@ struct cbArticulationImpulseAba
 	int mobility_count;
 };
 
+#ifndef PR_ARTICULATION_IMPULSE_ABA_CUSTOM_RESOURCES
 ConstantBuffer<cbArticulationImpulseAba> resource(g_impulse, b0);
 StructuredBuffer<GpuArticulationMobilityRange> resource(g_mobility_ranges, t0);
 StructuredBuffer<GpuArticulation> resource(g_aba_articulations, t1);
@@ -43,6 +44,7 @@ RWStructuredBuffer<float> resource(g_aba_inverse_joint_inertia, u4);
 RWStructuredBuffer<GpuArticulationSpatialVector> resource(g_impulse_work, u5);
 RWStructuredBuffer<uint> resource(g_impulse_results, u6);
 RWStructuredBuffer<float> resource(g_impulse_velocity_deltas, u7);
+#endif
 
 #ifdef __cplusplus
 }
@@ -219,6 +221,7 @@ void ImpulseRecoverChild(GpuArticulationMobilityRange range, GpuArticulation art
 }
 
 // Validate one compact range and return its packed articulation without mutating any resource.
+#ifndef PR_ARTICULATION_IMPULSE_ABA_NO_ENTRYPOINTS
 bool ImpulseLoadTree(int range_index, out_(GpuArticulationMobilityRange) range, out_(GpuArticulation) articulation)
 {
 	range = g_mobility_ranges[range_index];
@@ -237,9 +240,10 @@ bool ImpulseLoadTree(int range_index, out_(GpuArticulationMobilityRange) range, 
 		return false;
 	return true;
 }
+#endif
 
-// Evaluate one complete simultaneous response into detached work buffers without changing generalized or cached link velocities.
-bool ImpulseEvaluateTree(GpuArticulationMobilityRange range, GpuArticulation articulation, bool invalidate_tree)
+// Evaluate a finite complete-tree linear response without interpreting it through any live or staged baseline.
+bool ImpulseEvaluateResponseTree(GpuArticulationMobilityRange range, GpuArticulation articulation, bool invalidate_tree)
 {
 	// Reject the complete tree before mutation if any gathered impulse is non-finite.
 	for (int local_link_index = 0; local_link_index != articulation.link_count; ++local_link_index)
@@ -276,6 +280,31 @@ bool ImpulseEvaluateTree(GpuArticulationMobilityRange range, GpuArticulation art
 	for (int local_link_index = 1; local_link_index != articulation.link_count; ++local_link_index)
 		ImpulseRecoverChild(range, articulation, local_link_index);
 
+	// Response representability does not depend on which primary state will receive it.
+	for (int local_link_index = 0; local_link_index != articulation.link_count; ++local_link_index)
+	{
+		// Derived link response is required by merit evaluation as well as the eventual physical publication.
+		if (!ImpulseSpatialFinite(g_impulse_work[range.mobility_offset + local_link_index]))
+			return ImpulseRejectCandidate(articulation.link_offset, invalidate_tree);
+	}
+	for (int component = 0; component != articulation.velocity_count; ++component)
+	{
+		// Fixed and floating trees use the same compact generalized-response range.
+		if (!isfinite(g_impulse_velocity_deltas[range.velocity_delta_offset + component]))
+			return ImpulseRejectCandidate(articulation.link_offset, invalidate_tree);
+	}
+	return true;
+}
+
+// Evaluate a response and validate its addition to the supplied generalized state and matching link caches.
+bool ImpulseEvaluateTree(GpuArticulationMobilityRange range, GpuArticulation articulation, bool invalidate_tree)
+{
+	// The linear operator is independent of baseline ownership; admission owns the prospective physical sums.
+	if (!ImpulseEvaluateResponseTree(range, articulation, invalidate_tree))
+		return false;
+
+	GpuArticulationSpatialVector root_delta = g_impulse_work[range.mobility_offset];
+
 	// Validate every prospective complete-tree update before committing any persistent velocity.
 	for (int local_link_index = 0; local_link_index != articulation.link_count; ++local_link_index)
 	{
@@ -301,6 +330,59 @@ bool ImpulseEvaluateTree(GpuArticulationMobilityRange range, GpuArticulation art
 		}
 	}
 	return true;
+}
+
+// Reconstruct selected link caches at fixed geometry without applying even a zero impulse.
+#ifndef PR_ARTICULATION_IMPULSE_ABA_NO_ENTRYPOINTS
+numthreads(CSRefreshArticulationImpulseVelocities, ArticulationThreadCount, 1, 1)
+void CSRefreshArticulationImpulseVelocities(int3 DTID(dtid))
+{
+	// The caller supplies both velocity buffers and selection; detached caches never overwrite the physical cache implicitly.
+	if (dtid.x >= g_impulse.participating_articulation_count)
+		return;
+
+	if (g_impulse_selection[dtid.x] == 0u)
+		return;
+
+	GpuArticulationMobilityRange range;
+	GpuArticulation articulation;
+	if (!ImpulseLoadTree(dtid.x, range, articulation))
+	{
+		// Report invalid configuration without changing persistent factors.
+		g_impulse_results[dtid.x] = 0u;
+		return;
+	}
+	ImpulseRefreshLinkVelocities(articulation);
+	uint valid = 1u;
+	for (int local_link_index = 0; local_link_index != articulation.link_count; ++local_link_index)
+	{
+		// All represented spatial speeds must be finite before the owning transaction can publish any member.
+		if (!ImpulseSpatialFinite(g_aba_scratch[articulation.link_offset + local_link_index].link_velocity))
+			valid = 0u;
+	}
+	g_impulse_results[dtid.x] = valid;
+}
+
+// Evaluate selected finite responses without a prospective physical addition.
+numthreads(CSEvaluateArticulationImpulseResponse, ArticulationThreadCount, 1, 1)
+void CSEvaluateArticulationImpulseResponse(int3 DTID(dtid))
+{
+	// Response-only use supports a transaction that owns admission against its own explicit baseline.
+	if (dtid.x >= g_impulse.participating_articulation_count)
+		return;
+
+	if (g_impulse_selection[dtid.x] == 0u)
+		return;
+
+	GpuArticulationMobilityRange range;
+	GpuArticulation articulation;
+	if (!ImpulseLoadTree(dtid.x, range, articulation))
+	{
+		// Never evaluate an invalid range through speculative shader boolean evaluation.
+		g_impulse_results[dtid.x] = 0u;
+		return;
+	}
+	g_impulse_results[dtid.x] = ImpulseEvaluateResponseTree(range, articulation, false) ? 1u : 0u;
 }
 
 // Commit a previously validated detached response as one complete articulation state transition.
@@ -386,6 +468,8 @@ void CSArticulationCommitImpulses(int3 DTID(dtid))
 
 	ImpulseCommitTree(range, articulation);
 }
+
+#endif
 
 #ifdef __cplusplus
 }

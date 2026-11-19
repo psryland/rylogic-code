@@ -55,6 +55,7 @@
   </Target>
   <!-- Files -->
   <ItemGroup>
+    <ClCompile Include="src\mixed_host_diagnostics_tests.cpp" />
     <Text Include="$(RylogicRoot)include\pr\collision\_readme.txt" />
     <ClInclude Include="$(RylogicRoot)include\pr\algorithm\algorithm.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\algorithm\astar_search.h" />

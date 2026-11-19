@@ -205,7 +205,8 @@ namespace pr::compute
 		// Cancel reservations beyond the last submitted fence point. The caller must exclusively own recording on this
 		// buffer/fence and first abandon every unsubmitted command list and allocation handle. Never call after Execute
 		// without a successful queue Signal. A page shared with earlier submissions stays protected by their last fence point.
-		void CancelUnsubmitted()
+		// Cancellation does not recycle pages; normal purging or destruction releases them after that fence.
+		void CancelUnsubmitted() noexcept
 		{
 			// Remove only the unsubmitted reservation; do not rewind offsets or claim that earlier GPU work has completed.
 			auto last_submitted = m_gsync->LastAddedSyncPoint();
@@ -215,18 +216,17 @@ namespace pr::compute
 					block.m_sync_point = last_submitted;
 			}
 			EndReuseWindow();
-			PurgeCompleted(false);
 		}
 
-	private:
-
 		// Forget uploads that later commands may no longer share
-		void EndReuseWindow()
+		void EndReuseWindow() noexcept
 		{
 			// A new id invalidates addresses that callers cached against the old one
 			m_lookup.clear();
 			m_reuse_id = ++s_reuse_ids;
 		}
+
+	private:
 
 		// Recycle blocks that the GPU has finished with
 		void PurgeCompleted(bool shutdown)

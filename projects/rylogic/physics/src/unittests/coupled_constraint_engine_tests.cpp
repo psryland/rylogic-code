@@ -75,13 +75,13 @@ namespace pr::physics::tests
 		}
 
 		// Return one hard linear row between arbitrary supported endpoints.
-		D6ConstraintDesc CoupledEngineLinear(BodyRef endpoint_a, BodyRef endpoint_b, int axis = 0)
+		ConstraintDesc CoupledEngineLinear(BodyRef endpoint_a, BodyRef endpoint_b, int axis = 0)
 		{
-			auto desc = D6ConstraintDesc{};
+			auto desc = ConstraintDesc{};
 			desc.m_frame_a.m_body = endpoint_a;
 			desc.m_frame_b.m_body = endpoint_b;
-			desc.m_linear[axis].m_mode = EConstraintAxisMode::Locked;
-			desc.m_linear[axis].m_max_force = 10000.0f;
+			desc.D6().m_linear[axis].m_mode = EConstraintAxisMode::Locked;
+			desc.D6().m_linear[axis].m_max_force = 10000.0f;
 			return desc;
 		}
 
@@ -231,7 +231,7 @@ namespace pr::physics::tests
 			PR_EXPECT(FEqlAbsolute(body.MomentumWS().lin, v4::Zero(), 1.0e-6f));
 		}
 
-		// Solve a link-to-link island with no ordinary rigid bodies while retaining one submission, wait, and readback.
+		// Solve a link-to-link island with substep submissions but only one completion wait and readback.
 		PRUnitTestMethod(ArticulationToArticulationRunsWithoutRigidBodies, Quick)
 		{
 			auto tree_a = MakeEnginePrismaticTree(v4::XAxis(), 0.0f, 0.2f);
@@ -255,7 +255,7 @@ namespace pr::physics::tests
 			auto const final_error = Abs(tree_a.m_articulation.LinkToWorld(tree_a.m_link).pos.x - tree_b.m_articulation.LinkToWorld(tree_b.m_link).pos.x);
 			auto const& profile = engine.LastStepProfile();
 			PR_EXPECT(final_error < initial_error);
-			PR_EXPECT(profile.m_submission_count == 1);
+			PR_EXPECT(profile.m_submission_count == 4);
 			PR_EXPECT(profile.m_wait_count == 1);
 			PR_EXPECT(profile.m_readback_copy_count == 1);
 		}
@@ -289,44 +289,6 @@ namespace pr::physics::tests
 			PR_EXPECT(four_substep_dispatches > single_substep_dispatches);
 		}
 
-		// A zero-mobility coupled island reports bounded rejection without aborting publication or adding a readback.
-		PRUnitTestMethod(CoupledNonConvergenceUsesFrameReadback, Extended)
-		{
-			auto builder = ArticulationBuilder{};
-			auto const root = builder.AddFixedRoot(CoupledEngineLink());
-			auto articulation = builder.Build();
-			auto constraints = ConstraintSet{};
-			constraints.Add(CoupledEngineLinear(BodyRef::Link(articulation, root), BodyRef::World()));
-			auto articulation_ptrs = std::array<Articulation*, 1>{&articulation};
-			auto failures = std::vector<CoupledConstraintFailureEvent>{};
-			auto& engine = SharedEngine();
-			ConfigureCoupledEngine(engine);
-			engine.CoupledConstraintFailures += [&](Engine&, std::span<CoupledConstraintFailureEvent const> events)
-			{
-				failures.insert(failures.end(), events.begin(), events.end());
-			};
-
-			engine.Step(Engine::StepInput{
-				.m_articulations = articulation_ptrs,
-				.m_constraints = &constraints,
-				.m_elapsed_seconds = 1.0f / 60.0f,
-				.m_substep_count = 2,
-			});
-
-			PR_EXPECT(failures.size() == 1);
-			if (!failures.empty())
-			{
-				PR_EXPECT(failures[0].m_substep_index == 0);
-				PR_EXPECT(failures[0].m_island_index == 0);
-				PR_EXPECT(failures[0].m_iteration_count > 0);
-				PR_EXPECT(failures[0].m_failure_flags != 0);
-			}
-			auto const& stats = engine.LastFeatureStats();
-			PR_EXPECT(stats.m_failure.m_reason == EStepFailure::CoupledConstraintNonConvergence);
-			PR_EXPECT(stats.m_frame_output.m_coupled_failure_count == 1);
-			PR_EXPECT(stats.m_frame_output.m_readback_count == 1);
-			PR_EXPECT(engine.LastStepProfile().m_readback_copy_count == 1);
-		}
 
 		// A rejected frame must not expose the temporary wake-up required to stage a coupled constraint.
 		PRUnitTestMethod(PreSubmitFailureRestoresSleepingArticulation, Extended)
@@ -897,7 +859,7 @@ namespace pr::physics::tests
 				PR_EXPECT(final_energy <= 1.001f);
 				PR_EXPECT(Abs(velocity_a + velocity_b + root_velocity) < 2.0e-3f);
 				PR_EXPECT(engine.LastStepProfile().m_substep_count == 4);
-				PR_EXPECT(engine.LastStepProfile().m_submission_count == 1);
+				PR_EXPECT(engine.LastStepProfile().m_submission_count == 4);
 				PR_EXPECT(engine.LastStepProfile().m_wait_count == 1);
 				PR_EXPECT(engine.LastStepProfile().m_readback_copy_count == 1);
 				return std::array{
@@ -979,7 +941,7 @@ namespace pr::physics::tests
 			auto body = RigidBody{&shape, m4x4::Translation(1.0f, 0.0f, 0.0f), Inertia::Sphere(shape.m_radius, 1.0f)};
 			body.VelocityWS(v4::Zero(), v4::XAxis());
 			auto desc = CoupledEngineLinear(BodyRef::World(), BodyRef::Rigid(body));
-			desc.m_linear[0].m_stiffness = 1.0e-36f;
+			desc.D6().m_linear[0].m_stiffness = 1.0e-36f;
 			auto constraints = ConstraintSet{};
 			auto handle = constraints.Add(desc);
 			auto body_ptrs = std::array<RigidBody*, 1>{&body};
@@ -998,41 +960,18 @@ namespace pr::physics::tests
 			PR_EXPECT(engine.LastFeatureStats().m_failure.m_item_index == static_cast<int>(handle.m_index));
 			PR_EXPECT(FEqlAbsolute(body.O2W().pos.x, 1.0f, 1.0e-7f));
 			PR_EXPECT(FEqlAbsolute(body.VelocityWS().lin.x, 1.0f, 1.0e-7f));
-			PR_EXPECT(engine.LastStepProfile().m_submission_count == 1);
+			PR_EXPECT(engine.LastStepProfile().m_submission_count == 2);
 			PR_EXPECT(engine.LastStepProfile().m_wait_count == 1);
 			PR_EXPECT(engine.LastStepProfile().m_readback_copy_count == 1);
 
 			// Corrected input starts a new frame and must not inherit the preceding failure latch.
-			desc.m_linear[0].m_stiffness = 0.01f;
+			desc.D6().m_linear[0].m_stiffness = 0.01f;
 			constraints.Update(handle, desc);
 			engine.Step(input);
-			PR_EXPECT(engine.LastFeatureStats().m_failure.Succeeded());
+			PR_EXPECT(!engine.LastFeatureStats().m_failure.HasTerminalFailure());
 			PR_EXPECT(body.O2W().pos.x > 1.0f);
 		}
 
-		// Coupled soft-row arithmetic uses the same validity gate and reports rejected island work through the existing frame output.
-		PRUnitTestMethod(CoupledNumericalFailureUsesFrameDiagnostics, Quick)
-		{
-			auto [articulation, root] = MakeEngineFloatingRoot(1.0f);
-			auto desc = CoupledEngineLinear(BodyRef::World(), BodyRef::Link(articulation, root));
-			desc.m_linear[0].m_stiffness = 1.0e-36f;
-			auto constraints = ConstraintSet{};
-			constraints.Add(desc);
-			auto articulation_ptrs = std::array<Articulation*, 1>{&articulation};
-			auto& engine = SharedEngine();
-			ConfigureCoupledEngine(engine);
-			engine.Step(Engine::StepInput{
-				.m_articulations = articulation_ptrs,
-				.m_constraints = &constraints,
-				.m_elapsed_seconds = 1.0f / 60.0f,
-			});
-			PR_EXPECT(engine.LastFeatureStats().m_failure.m_reason == EStepFailure::CoupledConstraintNonConvergence);
-			PR_EXPECT(AllSet(engine.LastFeatureStats().m_failure.m_status, static_cast<int>(GpuCoupledConstraintFailure_NonFinite)));
-			PR_EXPECT(FEqlAbsolute(articulation.RootToWorld().pos.x, 1.0f, 1.0e-7f));
-			PR_EXPECT(engine.LastStepProfile().m_submission_count == 1);
-			PR_EXPECT(engine.LastStepProfile().m_wait_count == 1);
-			PR_EXPECT(engine.LastStepProfile().m_readback_copy_count == 1);
-		}
 
 		// Saturating a driven row must leave the other coupled hard row satisfied.
 		PRUnitTestMethod(BoundedCoupledBlockKeepsItsUnboundedRowSatisfied, Quick)
@@ -1040,13 +979,13 @@ namespace pr::physics::tests
 			auto builder = ArticulationBuilder{};
 			auto const root = builder.AddFloatingRoot(ArticulationLinkDesc{.m_inertia = Inertia{1.0f, 1.0f}}, m4x4::Identity(), v8motion{v4::Zero(), v4{-1.0f, -1.0f, 0.0f, 0.0f}});
 			auto articulation = builder.Build();
-			auto desc = D6ConstraintDesc{};
+			auto desc = ConstraintDesc{};
 			desc.m_frame_a.m_constraint_to_body = m4x4::Translation(1.0f, -1.0f, 0.0f);
 			desc.m_frame_b.m_body = BodyRef::Link(articulation, root);
 			desc.m_frame_b.m_constraint_to_body = desc.m_frame_a.m_constraint_to_body;
-			desc.m_linear[0].m_mode = EConstraintAxisMode::Locked;
-			desc.m_linear[1].m_mode = EConstraintAxisMode::Driven;
-			desc.m_linear[1].m_max_force = 6.0f;
+			desc.D6().m_linear[0].m_mode = EConstraintAxisMode::Locked;
+			desc.D6().m_linear[1].m_mode = EConstraintAxisMode::Driven;
+			desc.D6().m_linear[1].m_max_force = 6.0f;
 			auto constraints = ConstraintSet{};
 			constraints.Add(desc);
 			auto articulation_ptrs = std::array<Articulation*, 1>{&articulation};
@@ -1079,13 +1018,13 @@ namespace pr::physics::tests
 			auto builder = ArticulationBuilder{};
 			auto const root = builder.AddFloatingRoot(ArticulationLinkDesc{.m_inertia = Inertia{1.0f, 1.0f}}, m4x4::Identity());
 			auto articulation = builder.Build();
-			auto desc = D6ConstraintDesc{};
+			auto desc = ConstraintDesc{};
 			desc.m_frame_a.m_constraint_to_body = m4x4::Translation(2.0f, -0.9999f, 0.0f);
 			desc.m_frame_b.m_body = BodyRef::Link(articulation, root);
 			desc.m_frame_b.m_constraint_to_body = m4x4::Translation(1.0f, -1.0f, 0.0f);
-			desc.m_linear[0].m_mode = EConstraintAxisMode::Locked;
-			desc.m_linear[1].m_mode = EConstraintAxisMode::Limited;
-			desc.m_linear[1].m_limits = {0.0f, 1.0f};
+			desc.D6().m_linear[0].m_mode = EConstraintAxisMode::Locked;
+			desc.D6().m_linear[1].m_mode = EConstraintAxisMode::Limited;
+			desc.D6().m_linear[1].m_limits = {0.0f, 1.0f};
 			auto constraints = ConstraintSet{};
 			constraints.Add(desc);
 			auto articulation_ptrs = std::array<Articulation*, 1>{&articulation};
@@ -1109,7 +1048,7 @@ namespace pr::physics::tests
 			PR_EXPECT(Abs(articulation.RootToWorld().pos.x - expected_translation_x) < 1.0e-4f);
 			PR_EXPECT(Length(articulation.LinkVelocity(root).lin) < 1.0e-6f);
 			PR_EXPECT(Length(articulation.LinkVelocity(root).ang) < 1.0e-6f);
-			PR_EXPECT(engine.LastFeatureStats().m_failure.Succeeded());
+			PR_EXPECT(!engine.LastFeatureStats().m_failure.HasTerminalFailure());
 		}
 
 		// A tangential slip must not determine the normal impulse of a frictionless contact.
@@ -1236,7 +1175,7 @@ namespace pr::physics::tests
 			PR_EXPECT(tree_velocity < -0.2f);
 			PR_EXPECT(body.VelocityWS().lin.x > -1.8f);
 			PR_EXPECT(Abs(tree_velocity + body.MomentumWS().lin.x + 2.0f) < 0.005f);
-			PR_EXPECT(engine.LastStepProfile().m_submission_count == 1);
+			PR_EXPECT(engine.LastStepProfile().m_submission_count == substep_count);
 			PR_EXPECT(engine.LastStepProfile().m_wait_count == 1);
 			PR_EXPECT(engine.LastStepProfile().m_readback_copy_count == 1);
 			if (substep_count > 1)
@@ -1286,7 +1225,7 @@ namespace pr::physics::tests
 			PR_EXPECT(FEqlAbsolute(articulation.RootToWorld().pos, v4{0.0f, 0.0f, 5.0f, 1.0f}, 1.0e-7f));
 			PR_EXPECT(Length(articulation.LinkVelocity(root).lin) == 0.0f);
 			PR_EXPECT(engine.LastCollisionStats().m_contact_count == 0);
-			PR_EXPECT(engine.LastStepProfile().m_submission_count == 1);
+			PR_EXPECT(engine.LastStepProfile().m_submission_count == 3);
 			PR_EXPECT(engine.LastStepProfile().m_wait_count == 1);
 			PR_EXPECT(engine.LastStepProfile().m_readback_copy_count == 1);
 		}
@@ -1620,5 +1559,843 @@ namespace pr::physics::tests
 			ExerciseSleepIslandRefresh(true);
 		}
 	};
+	// Exercise accepted-epoch and membership lifetime through completed public Engine frames.
+	PRUnitTestClass(EngineMigrationLifetimeTests)
+	{
+
+		// Historical loads are not completed-substep samples; exact thresholds and repaired stable identities retain their existing semantics.
+		PRUnitTestMethod(SkippedHistoricalLoadsAndStrictRepairThresholds, Extended)
+		{
+			auto shape = collision::ShapeSphere{0.2f};
+			auto body = RigidBody{&shape, m4x4::Identity(), Inertia::Sphere(0.2f, 1.0f)};
+			auto [articulation, root] = MakeEngineFloatingRoot(10.0f);
+			auto desc = CoupledEngineLinear(BodyRef::World(), BodyRef::Rigid(body));
+			desc.D6().m_linear[0].m_mode = EConstraintAxisMode::Driven;
+			desc.D6().m_linear[0].m_target_velocity = 1.0f;
+			desc.m_break_force = 16.0f;
+			auto linked = CoupledEngineLinear(BodyRef::World(), BodyRef::Link(articulation, root));
+			linked.D6().m_linear[0] = desc.D6().m_linear[0];
+			linked.m_break_force = desc.m_break_force;
+			auto constraints = ConstraintSet{};
+			auto const ordinary_handle = constraints.Add(desc);
+			auto const coupled_handle = constraints.Add(linked);
+			auto bodies = std::array{&body};
+			auto forest = std::array{&articulation};
+			auto input = Engine::StepInput{.m_bodies = bodies, .m_articulations = forest, .m_constraints = &constraints, .m_elapsed_seconds = 1.0f / 16.0f};
+			auto& engine = SharedEngine();
+			ConfigureCoupledEngine(engine);
+			auto config = engine.Config();
+			config.solver_iterations = 1;
+			config.push_out_iterations = 0;
+			config.constraint_relaxation = 0.5f;
+			config.constraint_coupled_relaxation = 0.5f;
+			config.constraint_warm_start_factor = 1.0f;
+			engine.Config(config);
+			auto events = std::vector<ConstraintBreakEvent>{};
+			engine.ConstraintsBroken += [&](Engine&, std::span<ConstraintBreakEvent const> values)
+			{
+				events.insert(events.end(), values.begin(), values.end());
+			};
+			engine.Step(input);
+			PR_EXPECT(events.empty());
+
+			// The old .5 impulse implies load8, but no acceptance in this new zero-sweep epoch may sample it against threshold4.
+			desc.m_break_force = linked.m_break_force = 4.0f;
+			constraints.Update(ordinary_handle, desc);
+			constraints.Update(coupled_handle, linked);
+			config.solver_iterations = 0;
+			engine.Config(config);
+			engine.Step(input);
+			PR_EXPECT(events.empty());
+			PR_EXPECT(!constraints.IsBroken(ordinary_handle) && !constraints.IsBroken(coupled_handle));
+			PR_EXPECT(FEqlAbsolute(body.VelocityWS().lin.x, 0.5f, 1.0e-6f));
+			PR_EXPECT(FEqlAbsolute(articulation.LinkVelocity(root).lin.x, 0.5f, 1.0e-6f));
+
+			// Binary-exact h makes the next cold .25/h load exactly4: equality must not break.
+			config.solver_iterations = 1;
+			engine.Config(config);
+			engine.Step(input);
+			PR_EXPECT(events.empty());
+			PR_EXPECT(FEqlAbsolute(body.VelocityWS().lin.x, 0.75f, 1.0e-6f));
+			PR_EXPECT(FEqlAbsolute(articulation.LinkVelocity(root).lin.x, 0.75f, 1.0e-6f));
+			desc.m_break_force = linked.m_break_force = 1.0f;
+			constraints.Update(ordinary_handle, desc);
+			constraints.Update(coupled_handle, linked);
+			engine.Step(input);
+			PR_EXPECT(events.size() == 2);
+			PR_EXPECT(constraints.IsBroken(ordinary_handle) && constraints.IsBroken(coupled_handle));
+			for (auto const& value : events)
+			{
+				PR_EXPECT(value.m_constraint == ordinary_handle || value.m_constraint == coupled_handle);
+				PR_EXPECT(value.m_force == 2.0f);
+				PR_EXPECT(value.m_substep_index == 0);
+			}
+
+			// Repair keeps the public generation, clears the disposition, and cold-starts the next exact equality load1.
+			events.clear();
+			constraints.Repair(ordinary_handle);
+			constraints.Repair(coupled_handle);
+			engine.Step(input);
+			PR_EXPECT(events.empty());
+			PR_EXPECT(!constraints.IsBroken(ordinary_handle) && !constraints.IsBroken(coupled_handle));
+			PR_EXPECT(FEqlAbsolute(body.VelocityWS().lin.x, 0.9375f, 1.0e-6f));
+			PR_EXPECT(FEqlAbsolute(articulation.LinkVelocity(root).lin.x, 0.9375f, 1.0e-6f));
+		}
+
+		// Fresh-frame repacking must preserve physical history and never redirect a retained response to an unrelated body or tree.
+		PRUnitTestMethod(RepackedOwnersKeepTheirPhysicalIdentities, Extended)
+		{
+			auto shape = collision::ShapeSphere{0.2f};
+			auto body = RigidBody{&shape, m4x4::Identity(), Inertia::Sphere(0.2f, 1.0f)};
+			auto decoy = RigidBody{&shape, m4x4::Translation(100, 0, 0), Inertia::Sphere(0.2f, 1.0f)};
+			decoy.VelocityWS(v8motion{v4::Zero(), 2.0f * v4::XAxis()});
+			auto [articulation, root] = MakeEngineFloatingRoot(10.0f);
+			auto builder = ArticulationBuilder{};
+			auto const other_root = builder.AddFloatingRoot(CoupledEngineLink(), m4x4::Translation(200, 0, 0), v8motion{v4::Zero(), 3.0f * v4::XAxis()});
+			auto other = builder.Build();
+			auto desc = CoupledEngineLinear(BodyRef::World(), BodyRef::Rigid(body));
+			desc.D6().m_linear[0].m_mode = EConstraintAxisMode::Driven;
+			desc.D6().m_linear[0].m_target_velocity = 1.0f;
+			auto linked = CoupledEngineLinear(BodyRef::World(), BodyRef::Link(articulation, root));
+			linked.D6().m_linear[0] = desc.D6().m_linear[0];
+			auto constraints = ConstraintSet{};
+			constraints.Add(desc);
+			constraints.Add(linked);
+			auto first_bodies = std::array{&body};
+			auto first_forest = std::array{&articulation};
+			auto& engine = SharedEngine();
+			ConfigureCoupledEngine(engine);
+			auto config = engine.Config();
+			config.solver_iterations = 1;
+			config.push_out_iterations = 0;
+			config.constraint_relaxation = 0.5f;
+			config.constraint_coupled_relaxation = 0.5f;
+			config.constraint_warm_start_factor = 1.0f;
+			engine.Config(config);
+			engine.Step(Engine::StepInput{.m_bodies = first_bodies, .m_articulations = first_forest, .m_constraints = &constraints, .m_elapsed_seconds = 1.0f / 60.0f});
+			PR_EXPECT(FEqlAbsolute(body.VelocityWS().lin.x, 0.5f, 2.0e-5f));
+			PR_EXPECT(FEqlAbsolute(articulation.LinkVelocity(root).lin.x, 0.5f, 2.0e-5f));
+
+			// Ordinary identity receipts survive repacking; the coupled packed-response membership changes and deliberately starts cold.
+			auto repacked_bodies = std::array{&decoy, &body};
+			auto repacked_forest = std::array{&other, &articulation};
+			engine.Step(Engine::StepInput{.m_bodies = repacked_bodies, .m_articulations = repacked_forest, .m_constraints = &constraints, .m_elapsed_seconds = 1.0f / 60.0f});
+			printf("repacked owners: ordinary=%.9g coupled=%.9g unrelated-body=%.9g unrelated-root=%.9g\n",
+				body.VelocityWS().lin.x, articulation.LinkVelocity(root).lin.x, decoy.VelocityWS().lin.x, other.LinkVelocity(other_root).lin.x);
+			PR_EXPECT(FEqlAbsolute(body.VelocityWS().lin.x, 1.0f, 2.0e-5f));
+			PR_EXPECT(FEqlAbsolute(articulation.LinkVelocity(root).lin.x, 0.75f, 2.0e-5f));
+			PR_EXPECT(FEqlAbsolute(decoy.VelocityWS().lin.x, 2.0f, 2.0e-5f));
+			PR_EXPECT(FEqlAbsolute(other.LinkVelocity(other_root).lin.x, 3.0f, 2.0e-5f));
+			PR_EXPECT(!engine.LastFeatureStats().m_failure.HasTerminalFailure());
+		}
+
+
+		// Skipped persistent work retains accepted dt; disabling, removal and slot reuse must invalidate future guesses, not physical history.
+		PRUnitTestMethod(SkippedWorkAndMembershipPreservePhysicalHistory, Extended)
+		{
+			auto [articulation, root] = MakeEngineFloatingRoot(10.0f);
+			auto shape = collision::ShapeSphere{0.2f};
+			auto body = RigidBody{&shape, m4x4::Identity(), Inertia::Sphere(shape.m_radius, 1.0f)};
+			auto rigid_desc = CoupledEngineLinear(BodyRef::World(), BodyRef::Rigid(body));
+			rigid_desc.D6().m_linear[0].m_mode = EConstraintAxisMode::Driven;
+			rigid_desc.D6().m_linear[0].m_target_velocity = 1.0f;
+			auto coupled_desc = CoupledEngineLinear(BodyRef::World(), BodyRef::Link(articulation, root));
+			coupled_desc.D6().m_linear[0] = rigid_desc.D6().m_linear[0];
+			auto constraints = ConstraintSet{};
+			auto rigid_handle = constraints.Add(rigid_desc);
+			auto coupled_handle = constraints.Add(coupled_desc);
+			auto bodies = std::array{&body};
+			auto forest = std::array{&articulation};
+			auto input = Engine::StepInput{.m_bodies = bodies, .m_articulations = forest, .m_constraints = &constraints, .m_elapsed_seconds = 1.0f / 60.0f};
+			auto& engine = SharedEngine();
+			ConfigureCoupledEngine(engine);
+			auto config = engine.Config();
+			config.solver_iterations = 1;
+			config.push_out_iterations = 0;
+			config.constraint_relaxation = 0.5f;
+			config.constraint_coupled_relaxation = 0.5f;
+			config.constraint_warm_start_factor = 1.0f;
+			engine.Config(config);
+
+			// Both owners have unit translational response and no angular motion, so the root's local axes stay aligned with world space.
+			auto CheckSpeed = [&](float expected)
+			{
+				PR_EXPECT(FEqlAbsolute(body.VelocityWS().lin.x, expected, 3.0e-5f));
+				PR_EXPECT(FEqlAbsolute(articulation.LinkVelocity(root).lin.x, expected, 3.0e-5f));
+				PR_EXPECT(!engine.LastFeatureStats().m_failure.HasTerminalFailure());
+				printf("Engine owner lifetime: expected=%.9g rigid=%.9g coupled=%.9g\n", expected, body.VelocityWS().lin.x, articulation.LinkVelocity(root).lin.x);
+			};
+			engine.Step(input);
+			CheckSpeed(0.5f);
+
+			// This longer zero-sweep frame must neither publish a warm seed nor replace the accepted h with 2h.
+			config.solver_iterations = 0;
+			config.constraint_warm_start_factor = 2.0e38f;
+			engine.Config(config);
+			input.m_elapsed_seconds *= 2.0f;
+			engine.Step(input);
+			CheckSpeed(0.5f);
+			config.solver_iterations = 1;
+			config.constraint_warm_start_factor = 1.0f;
+			engine.Config(config);
+			input.m_elapsed_seconds *= 0.5f;
+			engine.Step(input);
+			CheckSpeed(1.0f);
+
+			// Re-enabling is cold: stale .5 support would instead produce 1.25 under the same half-relaxed solve.
+			constraints.SetEnabled(rigid_handle, false);
+			constraints.SetEnabled(coupled_handle, false);
+			engine.Step(input);
+			CheckSpeed(1.0f);
+			constraints.SetEnabled(rigid_handle, true);
+			constraints.SetEnabled(coupled_handle, true);
+			engine.Step(input);
+			CheckSpeed(1.0f);
+
+			// Create nonzero accepted coefficients again before destroying and reusing both public slots.
+			rigid_desc.D6().m_linear[0].m_target_velocity = 2.0f;
+			coupled_desc.D6().m_linear[0].m_target_velocity = 2.0f;
+			constraints.Update(rigid_handle, rigid_desc);
+			constraints.Update(coupled_handle, coupled_desc);
+			engine.Step(input);
+			CheckSpeed(1.5f);
+			constraints.Remove(rigid_handle);
+			constraints.Remove(coupled_handle);
+			engine.Step(input);
+			CheckSpeed(1.5f);
+			auto const replacement_rigid = constraints.Add(rigid_desc);
+			auto const replacement_coupled = constraints.Add(coupled_desc);
+			PR_EXPECT(replacement_rigid != rigid_handle && replacement_coupled != coupled_handle);
+			engine.Step(input);
+			CheckSpeed(1.75f);
+		}
+
+		// An overloaded constituent becomes inactive without invalidating the uploaded island's surviving row in the next substep.
+		PRUnitTestMethod(BrokenConstituentLeavesSurvivingIslandScheduled, Extended)
+		{
+			auto [articulation, root] = MakeEngineFloatingRoot(0.0f);
+			auto desc_x = CoupledEngineLinear(BodyRef::World(), BodyRef::Link(articulation, root));
+			desc_x.D6().m_linear[0].m_mode = EConstraintAxisMode::Driven;
+			desc_x.D6().m_linear[0].m_target_velocity = 1.0f;
+			desc_x.m_break_force = 24.0f;
+			auto desc_y = CoupledEngineLinear(BodyRef::World(), BodyRef::Link(articulation, root), 1);
+			desc_y.D6().m_linear[1].m_mode = EConstraintAxisMode::Driven;
+			desc_y.D6().m_linear[1].m_target_velocity = 2.0f;
+			auto constraints = ConstraintSet{};
+			auto const x = constraints.Add(desc_x);
+			auto const y = constraints.Add(desc_y);
+			auto forest = std::array{&articulation};
+			auto& engine = SharedEngine();
+			ConfigureCoupledEngine(engine);
+			auto config = engine.Config();
+			config.solver_iterations = 1;
+			config.push_out_iterations = 0;
+			config.constraint_coupled_relaxation = 0.5f;
+			config.constraint_warm_start_factor = 1.0f;
+			engine.Config(config);
+			auto broken = std::vector<ConstraintBreakEvent>{};
+			engine.ConstraintsBroken += [&](Engine&, std::span<ConstraintBreakEvent const> events)
+			{
+				broken.insert(broken.end(), events.begin(), events.end());
+			};
+			engine.Step(Engine::StepInput{.m_articulations = forest, .m_constraints = &constraints, .m_elapsed_seconds = 1.0f / 30.0f, .m_substep_count = 2});
+
+			// First accepted load is (.5,1)/h. Only X breaks; Y's next accepted total reaches speed2.
+			auto const velocity = articulation.LinkVelocity(root).lin;
+			printf("broken island constituent: vx=%.9g vy=%.9g events=%zu\n", velocity.x, velocity.y, broken.size());
+			PR_EXPECT(constraints.IsBroken(x));
+			PR_EXPECT(!constraints.IsBroken(y));
+			PR_EXPECT(FEqlAbsolute(velocity.x, 0.5f, 3.0e-5f));
+			PR_EXPECT(FEqlAbsolute(velocity.y, 2.0f, 3.0e-5f));
+			PR_EXPECT(broken.size() == 1);
+			if (!broken.empty())
+			{
+				PR_EXPECT(broken[0].m_constraint == x);
+				PR_EXPECT(broken[0].m_substep_index == 0);
+				PR_EXPECT(FEqlAbsolute(broken[0].m_force, 30.0f, 0.002f));
+			}
+		}
+	};
+
+	// Selective continuation must preserve earlier reports and replace, rather than peak-sample, transient accepted loads.
+	PRUnitTestClass(EngineMigrationSelectiveTests)
+	{
+		// Changed unilateral membership distinguishes accepted replacement, rejected replacement and completed-substep load eligibility.
+		PRUnitTestMethod(SelectivePublicationPreservesReportsAndSamplesFinalAcceptance, Extended)
+		{
+			for (auto const relaxation : {0.5f, 0.9f, 0.3f})
+			{
+				// An independent rigid overlap opens the real selective gate without adding contact impulses to the unshaped articulation.
+				auto sphere = collision::ShapeSphere{0.5f};
+				auto box = collision::ShapeBox{v4{5, 5, 0.5f, 0}};
+				auto body = RigidBody{&sphere, m4x4::Translation(0, 0, 0.15f), Inertia::Sphere(0.5f, 1.0f)};
+				auto ground = RigidBody{&box, m4x4::Translation(0, 0, -0.5f), Inertia::Infinite()};
+				auto bodies = std::array{&body, &ground};
+				auto& engine = SharedEngine();
+				ConfigureCoupledEngine(engine);
+				auto config = engine.Config();
+				config.solver_iterations = 1;
+				config.push_out_iterations = 0;
+				config.velocity_baumgarte = 0.0f;
+				config.deep_penetration_baumgarte_min = 0.0f;
+				config.deep_penetration_baumgarte_max = 0.0f;
+				config.warm_start_scale = 0.0f;
+				config.constraint_coupled_relaxation = relaxation;
+				config.constraint_coupled_backtrack_limit = 0;
+				config.constraint_position_beta = 1.0f;
+				config.constraint_position_relaxation = 0.5f;
+				config.constraint_max_position_speed = 100.0f;
+				config.selective_refresh_passes = 1;
+				config.selective_refresh_solver_iterations = 1;
+				config.selective_refresh_adaptive_body_limit = 0;
+				config.selective_refresh_position_iterations = 1;
+				config.selective_refresh_support_only = false;
+				config.selective_refresh_depth_slop = 0.0f;
+				config.selective_refresh_support_depth_slop = 0.0f;
+				engine.Config(config);
+				engine.Material(Material{.m_id = Material::DefaultID, .m_friction_static = 0.0f, .m_elasticity_norm = 0.0f});
+				engine.Step(1.0f / 60.0f, bodies);
+				PR_EXPECT(engine.LastCollisionStats().m_contact_count != 0);
+
+				// Main position work crosses both upper limits. The third case activates ten opposite limits to reject the later replacement.
+				auto const reject_selective = relaxation == 0.3f;
+				auto builder = ArticulationBuilder{};
+				auto const root = builder.AddFloatingRoot(CoupledEngineLink(), m4x4::Translation(0.1f, 0, 0), v8motion{v4::Zero(), v4::XAxis()});
+				auto articulation = builder.Build();
+				auto desc = CoupledEngineLinear(BodyRef::World(), BodyRef::Link(articulation, root));
+				auto limited = desc;
+				limited.D6().m_linear[0].m_mode = EConstraintAxisMode::Limited;
+				limited.D6().m_linear[0].m_limits = {-100.0f, 0.0f};
+				limited.m_break_force = reject_selective ? 12.0f : 20.0f;
+				auto constraints = ConstraintSet{};
+				auto const first = constraints.Add(limited);
+				auto const second = constraints.Add(limited);
+				for (int index = 0; index != (reject_selective ? 4 : 1); ++index)
+					constraints.Add(desc);
+
+				if (reject_selective)
+				{
+					auto lower = limited;
+					lower.m_break_force = std::numeric_limits<float>::infinity();
+					lower.D6().m_linear[0].m_limits = {0.0f, 100.0f};
+					for (int index = 0; index != 10; ++index)
+						constraints.Add(lower);
+				}
+				auto forest = std::array{&articulation};
+				auto rejections = std::vector<ConstraintRejectionEvent>{};
+				auto breaks = std::vector<ConstraintBreakEvent>{};
+				engine.ConstraintRejections += [&](Engine&, std::span<ConstraintRejectionEvent const> events)
+				{
+					rejections.insert(rejections.end(), events.begin(), events.end());
+				};
+				engine.ConstraintsBroken += [&](Engine&, std::span<ConstraintBreakEvent const> events)
+				{
+					breaks.insert(breaks.end(), events.begin(), events.end());
+				};
+				config.push_out_iterations = 1;
+				engine.Config(config);
+				engine.Step(Engine::StepInput{.m_bodies = bodies, .m_articulations = forest, .m_constraints = &constraints, .m_elapsed_seconds = 1.0f / 60.0f});
+
+				// The first two cases accept -.75 from a compatible -.5 guess or -.9 cold. The third must preserve its main accepted total -1.8.
+				auto const accepted_main = relaxation == 0.5f;
+				auto const expected_speed = reject_selective ? -0.8f : accepted_main ? 0.25f : 0.1f;
+				auto const speed = articulation.LinkVelocity(root).lin.x;
+				printf("selective ownership: relaxation=%.9g speed=%.9g x=%.9g passes=%d rejections=%zu breaks=%zu\n",
+					relaxation, speed, articulation.RootToWorld().pos.x, engine.LastStepProfile().m_selective_refresh_pass_count, rejections.size(), breaks.size());
+				PR_EXPECT(engine.LastStepProfile().m_selective_refresh_pass_count == 1);
+				PR_EXPECT(articulation.RootToWorld().pos.x < -0.01f);
+				PR_EXPECT(FEqlAbsolute(speed, expected_speed, 3.0e-5f));
+				PR_EXPECT(constraints.IsBroken(first) == reject_selective);
+				PR_EXPECT(constraints.IsBroken(second) == reject_selective);
+				PR_EXPECT(breaks.size() == (reject_selective ? 2u : 0u));
+				for (auto const& value : breaks)
+				{
+					// Accepted upper-limit impulses remain .3/h = 18 despite their now-inactive prepared geometry.
+					PR_EXPECT(value.m_constraint == first || value.m_constraint == second);
+					PR_EXPECT(value.m_substep_index == 0);
+					PR_EXPECT(FEqlAbsolute(value.m_force, 18.0f, 0.002f));
+				}
+				PR_EXPECT(!engine.LastFeatureStats().m_failure.HasTerminalFailure());
+				PR_EXPECT(engine.LastStepProfile().m_readback_copy_count == 1);
+				PR_EXPECT(rejections.size() == (accepted_main ? 0u : 1u));
+				if (!accepted_main && !rejections.empty())
+				{
+					// The report survives later scratch reuse. In the last case seed -.2 plus proposed delta .84 gives merit .1848.
+					PR_EXPECT(rejections[0].m_owner == EConstraintRejectionOwner::CoupledIsland);
+					PR_EXPECT(rejections[0].m_index == 0 && rejections[0].m_generation == 0);
+					PR_EXPECT(rejections[0].m_phase == EConstraintRejectionPhase::Velocity);
+					PR_EXPECT(rejections[0].m_substep_index == 0);
+					PR_EXPECT(rejections[0].m_outcome == EConstraintRejectionOutcome::SolveRejected);
+					PR_EXPECT(rejections[0].m_failure_flags == GpuCoupledConstraintFailure_Merit);
+					PR_EXPECT(rejections[0].m_iteration_count == 1);
+					PR_EXPECT(FEqlAbsolute(rejections[0].m_relaxation, relaxation, 1.0e-6f));
+					PR_EXPECT(FEqlAbsolute(rejections[0].m_merit_change, reject_selective ? 0.1848f : 0.945f, 2.0e-5f));
+				}
+			}
+		}
+	};
+
+	// Focused controls for the coordinated Engine ownership and public-boundary migration.
+	PRUnitTestClass(EngineMigrationReportingTests)
+	{
+		// A zero-mobility coupled island reports bounded rejection without aborting publication or adding a readback.
+		PRUnitTestMethod(CoupledNonConvergenceUsesFrameReadback, Extended)
+		{
+			auto builder = ArticulationBuilder{};
+			auto const root = builder.AddFixedRoot(CoupledEngineLink());
+			auto articulation = builder.Build();
+			auto constraints = ConstraintSet{};
+			constraints.Add(CoupledEngineLinear(BodyRef::Link(articulation, root), BodyRef::World()));
+			auto articulation_ptrs = std::array<Articulation*, 1>{&articulation};
+			auto failures = std::vector<ConstraintRejectionEvent>{};
+			auto& engine = SharedEngine();
+			ConfigureCoupledEngine(engine);
+			engine.ConstraintRejections += [&](Engine&, std::span<ConstraintRejectionEvent const> events)
+			{
+				failures.insert(failures.end(), events.begin(), events.end());
+			};
+
+			engine.Step(Engine::StepInput{
+				.m_articulations = articulation_ptrs,
+				.m_constraints = &constraints,
+				.m_elapsed_seconds = 1.0f / 60.0f,
+				.m_substep_count = 2,
+			});
+
+			PR_EXPECT(failures.size() == 1);
+			if (!failures.empty())
+			{
+				PR_EXPECT(failures[0].m_substep_index == 0);
+				PR_EXPECT(failures[0].m_owner == EConstraintRejectionOwner::CoupledIsland);
+				PR_EXPECT(failures[0].m_index == 0 && failures[0].m_generation == 0);
+				PR_EXPECT(failures[0].m_outcome == EConstraintRejectionOutcome::SolveRejected);
+				PR_EXPECT(failures[0].m_iteration_count == 0);
+				PR_EXPECT(failures[0].m_failure_flags != 0);
+			}
+			auto const& stats = engine.LastFeatureStats();
+			PR_EXPECT(!stats.m_failure.HasTerminalFailure());
+			PR_EXPECT(stats.m_frame_output.m_constraint_rejection_slot_count == 2);
+			PR_EXPECT(stats.m_frame_output.m_readback_count == 1);
+			PR_EXPECT(engine.LastStepProfile().m_readback_copy_count == 1);
+		}
+
+		// Coupled soft-row arithmetic uses the same validity gate and reports rejected island work through the existing frame output.
+		PRUnitTestMethod(CoupledNumericalFailureUsesFrameDiagnostics, Quick)
+		{
+			auto [articulation, root] = MakeEngineFloatingRoot(1.0f);
+			auto desc = CoupledEngineLinear(BodyRef::World(), BodyRef::Link(articulation, root));
+			desc.D6().m_linear[0].m_stiffness = 1.0e-36f;
+			auto constraints = ConstraintSet{};
+			constraints.Add(desc);
+			auto articulation_ptrs = std::array<Articulation*, 1>{&articulation};
+			auto& engine = SharedEngine();
+			ConfigureCoupledEngine(engine);
+			auto rejections = std::vector<ConstraintRejectionEvent>{};
+			engine.ConstraintRejections += [&](Engine&, std::span<ConstraintRejectionEvent const> events)
+			{
+				rejections.insert(rejections.end(), events.begin(), events.end());
+			};
+			engine.Step(Engine::StepInput{
+				.m_articulations = articulation_ptrs,
+				.m_constraints = &constraints,
+				.m_elapsed_seconds = 1.0f / 60.0f,
+			});
+			PR_EXPECT(!engine.LastFeatureStats().m_failure.HasTerminalFailure());
+			PR_EXPECT(rejections.size() == 1);
+			if (!rejections.empty())
+			{
+				PR_EXPECT(rejections[0].m_outcome == EConstraintRejectionOutcome::SolveRejected);
+				PR_EXPECT(AllSet(rejections[0].m_failure_flags, GpuCoupledConstraintFailure_NonFinite));
+			}
+			PR_EXPECT(FEqlAbsolute(articulation.RootToWorld().pos.x, 1.0f, 1.0e-7f));
+			PR_EXPECT(engine.LastStepProfile().m_submission_count == 1);
+			PR_EXPECT(engine.LastStepProfile().m_wait_count == 1);
+			PR_EXPECT(engine.LastStepProfile().m_readback_copy_count == 1);
+		}
+	};
+
+	// Exercise actual published passive energy, independently of the local scalar merit diagnostic.
+	PRUnitTestClass(PassiveMeritScaleTests)
+	{
+		// Configure one physical sweep without contact, positional, selective, force or drive work.
+		static void ConfigurePassive(Engine& engine, float warm_factor)
+		{
+			ConfigureCoupledEngine(engine);
+			auto config = engine.Config();
+			config.solver_iterations = 1;
+			config.push_out_iterations = 0;
+			config.selective_refresh_passes = 0;
+			config.velocity_baumgarte = 0.0f;
+			config.position_baumgarte = 0.0f;
+			config.constraint_warm_start_factor = warm_factor;
+			config.warm_start_scale = 0.0f;
+			config.constraint_coupled_relaxation = 0.9f;
+			config.constraint_coupled_backtrack_limit = 4;
+			engine.Config(config);
+		}
+
+		// Evaluate this unit-mass sphere fixture's actual kinetic energy using double intermediates.
+		static double Energy(v8motion velocity)
+		{
+			auto const linear_squared = double(velocity.lin.x) * velocity.lin.x + double(velocity.lin.y) * velocity.lin.y + double(velocity.lin.z) * velocity.lin.z;
+			auto const angular_squared = double(velocity.ang.x) * velocity.ang.x + double(velocity.ang.y) * velocity.ang.y + double(velocity.ang.z) * velocity.ang.z;
+			return 0.5 * linear_squared + 0.5 * (2.0 / 5.0) * 0.2 * 0.2 * angular_squared;
+		}
+
+		// Passive duplicate rows must dissipate at contrasting speeds and active row counts with unchanged retry budgets.
+		PRUnitTestMethod(ThreePassiveLocksAtContrastingSpeeds, Extended)
+		{
+			// N identical rows yield v'=(1-N*alpha)v; the first decreasing candidates use alpha .9, .45 and .225 respectively.
+			for (auto const [row_count, expected_speed_ratio] : {std::pair{1, 0.1}, std::pair{3, -0.35}, std::pair{7, -0.575}})
+			for (auto const speed : {1.0f, 1.0e-3f, 1.0e-6f})
+			{
+				auto builder = ArticulationBuilder{};
+				auto const root = builder.AddFloatingRoot(CoupledEngineLink(), m4x4::Identity(), v8motion{v4::Zero(), speed * v4::XAxis()});
+				auto articulation = builder.Build();
+				articulation.GravityWS(root, v4::Zero());
+				auto constraints = ConstraintSet{};
+				for (int index = 0; index != row_count; ++index)
+					constraints.Add(CoupledEngineLinear(BodyRef::World(), BodyRef::Link(articulation, root)));
+
+				// Only one physical sweep runs; no force, contact, position, warm seed or selective visit can supply energy.
+				auto& engine = SharedEngine();
+				ConfigurePassive(engine, 0.0f);
+				auto rejection_count = 0;
+				engine.ConstraintRejections += [&](Engine&, std::span<ConstraintRejectionEvent const> events)
+				{
+					rejection_count += isize(events);
+				};
+				auto forest = std::array{&articulation};
+				auto const before = articulation.RootVelocity();
+				engine.Step(Engine::StepInput{.m_articulations = forest, .m_constraints = &constraints, .m_elapsed_seconds = 1.0f / 60.0f, .m_substep_count = 1});
+				auto const after = articulation.RootVelocity();
+
+				// Independent double-precision energy uses the unit mass and solid-sphere inertia, not the solver merit or Engine energy routine.
+				auto const energy_before = Energy(before);
+				auto const energy_after = Energy(after);
+				auto const energy_ratio = energy_after / energy_before;
+				auto const speed_ratio = double(after.lin.x) / before.lin.x;
+				auto const first_impulse = -double(row_count) * 0.9 * double(before.lin.x);
+				auto const first_work = first_impulse * double(before.lin.x) + 0.5 * first_impulse * first_impulse;
+				auto const old_tolerance = 64.0 * std::numeric_limits<float>::epsilon() * (1.0 + std::abs(first_work));
+				printf("passive-scale: rows=%d speed=%.17g before_x=%.17g after_x=%.17g speed_ratio=%.17g energy_before=%.17g energy_after=%.17g energy_change=%.17g energy_ratio=%.17g first_work=%.17g old_tolerance=%.17g engine_energy=%.17g rejections=%d terminal=%u contacts=%d\n",
+					row_count, double(speed), double(before.lin.x), double(after.lin.x), speed_ratio, energy_before, energy_after, energy_after - energy_before, energy_ratio, first_work, old_tolerance, double(articulation.KineticEnergy()), rejection_count, static_cast<unsigned>(engine.LastFeatureStats().m_failure.m_reason), engine.LastCollisionStats().m_contact_count);
+
+				// These actual-state expectations fail under the previous absolute energy allowance at both small scales.
+				PR_EXPECT(energy_after < energy_before);
+				PR_EXPECT(std::abs(speed_ratio - expected_speed_ratio) < 2.0e-5);
+				PR_EXPECT(std::abs(energy_ratio - expected_speed_ratio * expected_speed_ratio) < 8.0e-5);
+				PR_EXPECT(std::abs(double(articulation.KineticEnergy()) - energy_after) < 2.0e-6 * energy_before);
+				PR_EXPECT(All(after.ang == v4::Zero()));
+				PR_EXPECT(after.lin.y == 0.0f && after.lin.z == 0.0f);
+				PR_EXPECT(rejection_count == 0);
+				PR_EXPECT(!engine.LastFeatureStats().m_failure.HasTerminalFailure());
+				PR_EXPECT(engine.LastCollisionStats().m_contact_count == 0);
+				PR_EXPECT(engine.LastFeatureStats().m_coupled.m_constraint_count == row_count);
+				PR_EXPECT(engine.LastFeatureStats().m_coupled.m_contact_capacity == 0);
+				PR_EXPECT(engine.LastStepProfile().m_readback_copy_count == 1);
+			}
+		}
+
+		// Track 600 consecutive published states without resetting the engine, state or owner between visits.
+		PRUnitTestMethod(RepeatedPassiveLocksColdAndWarm, Extended)
+		{
+			// Run every requested scale/ownership case before asserting, so a surviving energy-growth witness remains complete.
+			auto all_valid = true;
+			auto all_bounded = true;
+			for (auto const warm_factor : {0.0f, 1.0f})
+			for (auto const speed : {1.0f, 1.0e-3f, 1.0e-6f, std::ldexp(1.0f, -100)})
+			{
+				// The additional FTZ-range case keeps the reviewed full-warm, half-relaxed three-row recurrence.
+				auto const ftz_case = speed == std::ldexp(1.0f, -100);
+				if (ftz_case && warm_factor == 0.0f)
+					continue;
+
+				auto builder = ArticulationBuilder{};
+				auto const root = builder.AddFloatingRoot(CoupledEngineLink(), m4x4::Identity(), v8motion{v4::Zero(), speed * v4::XAxis()});
+				auto articulation = builder.Build();
+				articulation.GravityWS(root, v4::Zero());
+				auto constraints = ConstraintSet{};
+				for (int index = 0; index != 3; ++index)
+					constraints.Add(CoupledEngineLinear(BodyRef::World(), BodyRef::Link(articulation, root)));
+
+				auto& engine = SharedEngine();
+				ConfigurePassive(engine, warm_factor);
+				if (ftz_case)
+				{
+					auto config = engine.Config();
+					config.constraint_coupled_relaxation = 0.45f;
+					engine.Config(config);
+				}
+				printf("passive-case: warm=%.9g speed=%.17g relaxation=%.9g\n", double(warm_factor), double(speed), double(engine.Config().constraint_coupled_relaxation));
+				auto rejection_count = 0;
+				engine.ConstraintRejections += [&](Engine&, std::span<ConstraintRejectionEvent const> events)
+				{
+					rejection_count += isize(events);
+				};
+				auto forest = std::array{&articulation};
+				auto const input = Engine::StepInput{.m_articulations = forest, .m_constraints = &constraints, .m_elapsed_seconds = 1.0f / 60.0f, .m_substep_count = 1};
+				auto const initial_energy = Energy(articulation.RootVelocity());
+				auto previous_energy = initial_energy;
+				auto max_increase = 0.0;
+				auto max_energy = initial_energy;
+				auto positive_work = 0.0;
+				auto visits = 0;
+				for (; visits != 600; ++visits)
+				{
+					engine.Step(input);
+					auto const velocity = articulation.RootVelocity();
+					auto const energy = Energy(velocity);
+					auto const increase = std::max(0.0, energy - previous_energy);
+					max_energy = std::max(max_energy, energy);
+					max_increase = std::max(max_increase, increase);
+					positive_work += increase;
+					printf("passive-visit: warm=%.9g speed=%.17g step=%d x=%.17g energy=%.17g change=%.17g rejections=%d terminal=%u\n",
+						double(warm_factor), double(speed), visits + 1, double(velocity.lin.x), energy, energy - previous_energy, rejection_count, static_cast<unsigned>(engine.LastFeatureStats().m_failure.m_reason));
+					previous_energy = energy;
+					auto const valid = std::isfinite(energy) && All(velocity.ang == v4::Zero()) && velocity.lin.y == 0.0f && velocity.lin.z == 0.0f &&
+						!engine.LastFeatureStats().m_failure.HasTerminalFailure() && engine.LastCollisionStats().m_contact_count == 0 &&
+						engine.LastFeatureStats().m_coupled.m_constraint_count == 3 && engine.LastFeatureStats().m_coupled.m_contact_capacity == 0 &&
+						engine.LastStepProfile().m_readback_copy_count == 1;
+					all_valid &= valid;
+					if (!valid)
+						break;
+
+				}
+
+				// "Material" here is ten parts per million of initial energy, not a physical-unit allowance or an arbitrary-duration claim.
+				printf("passive-repeated: warm=%.9g speed=%.17g visits=%d initial=%.17g final=%.17g max_energy=%.17g max_increase=%.17g positive_work=%.17g rejections=%d\n",
+					double(warm_factor), double(speed), visits, initial_energy, previous_energy, max_energy, max_increase, positive_work, rejection_count);
+				all_valid &= visits == 600;
+				all_bounded &= previous_energy < initial_energy && max_energy <= initial_energy * (1.0 + 1.0e-5) && positive_work <= initial_energy * 1.0e-5;
+			}
+			PR_EXPECT(all_valid);
+			PR_EXPECT(all_bounded);
+		}
+	};
+
+	// Terminal abandonment does not reset GpuJob recording, so this class intentionally never submits again after abandonment.
+	PRUnitTestClass(EngineMigrationAbandonTests)
+	{
+		// A real submitted frame can be abandoned without publishing its physical state or constraint events.
+		PRUnitTestMethod(SubmittedAbandonPreservesCallerState, Extended)
+		{
+			auto shape = collision::ShapeSphere{0.2f};
+			auto body = RigidBody{&shape, m4x4::Identity(), Inertia::Sphere(0.2f, 1.0f)};
+			auto [articulation, root] = MakeEngineFloatingRoot(10.0f);
+			auto ordinary = CoupledEngineLinear(BodyRef::World(), BodyRef::Rigid(body));
+			ordinary.D6().m_linear[0].m_mode = EConstraintAxisMode::Driven;
+			ordinary.D6().m_linear[0].m_target_velocity = 1.0f;
+			auto coupled = CoupledEngineLinear(BodyRef::World(), BodyRef::Link(articulation, root));
+			coupled.D6().m_linear[0] = ordinary.D6().m_linear[0];
+			auto constraints = ConstraintSet{};
+			constraints.Add(ordinary);
+			constraints.Add(coupled);
+			auto bodies = std::array{&body};
+			auto forest = std::array{&articulation};
+			auto input = Engine::StepInput{.m_bodies = bodies, .m_articulations = forest, .m_constraints = &constraints, .m_elapsed_seconds = 1.0f / 60.0f};
+			auto& engine = SharedEngine();
+			ConfigureCoupledEngine(engine);
+			auto config = engine.Config();
+			config.solver_iterations = 1;
+			config.push_out_iterations = 0;
+			config.constraint_relaxation = 0.5f;
+			config.constraint_coupled_relaxation = 0.5f;
+			config.constraint_warm_start_factor = 1.0f;
+			engine.Config(config);
+			engine.Step(input);
+			PR_EXPECT(FEqlAbsolute(body.VelocityWS().lin.x, 0.5f, 2.0e-5f));
+			PR_EXPECT(FEqlAbsolute(articulation.LinkVelocity(root).lin.x, 0.5f, 2.0e-5f));
+			auto const body_before = PackDynamics(body, 0);
+			auto const root_pose = articulation.RootToWorld();
+			auto const root_velocity = articulation.LinkVelocity(root);
+			auto event_count = 0;
+			engine.ConstraintRejections += [&](Engine&, std::span<ConstraintRejectionEvent const> values)
+			{
+				event_count += isize(values);
+			};
+			engine.ConstraintsBroken += [&](Engine&, std::span<ConstraintBreakEvent const> values)
+			{
+				event_count += isize(values);
+			};
+
+			// The second frame has real persistent work, but waiting through terminal abandonment is not CPU publication.
+			engine.BeginStep(input);
+			PR_EXPECT(engine.StepPending());
+			engine.AbandonStep();
+			PR_EXPECT(!engine.StepPending());
+			PR_EXPECT(event_count == 0);
+			auto const body_after = PackDynamics(body, 0);
+			auto const pose_after = articulation.RootToWorld();
+			auto const velocity_after = articulation.LinkVelocity(root);
+			PR_EXPECT(std::memcmp(&body_before, &body_after, sizeof(body_before)) == 0);
+			PR_EXPECT(std::memcmp(&pose_after, &root_pose, sizeof(root_pose)) == 0);
+			PR_EXPECT(std::memcmp(&velocity_after, &root_velocity, sizeof(root_velocity)) == 0);
+		}
+	};
+	// Focused controls for the coordinated Engine owner and phase migration.
+	PRUnitTestClass(EngineMigrationFailureTests)
+	{
+		// A naturally rejected gathered frame must not leave GPU-only accepted guesses usable by either persistent owner.
+		PRUnitTestMethod(RejectedFrameInvalidatesBothOwnersBeforeReuse, Extended)
+		{
+			// Keep initial and rejected frames identical; only the recovery clock and warm factor vary.
+			for (auto const scaled_recovery : {false, true})
+			{
+				auto shape = collision::ShapeSphere{0.2f};
+				auto body = RigidBody{&shape, m4x4::Identity(), Inertia::Sphere(0.2f, 1.0f)};
+				auto crowd = std::array{
+					RigidBody{&shape, m4x4::Translation(100, 0, 0), Inertia::Sphere(0.2f, 1.0f)},
+					RigidBody{&shape, m4x4::Translation(200, 0, 0), Inertia::Sphere(0.2f, 1.0f)},
+					RigidBody{&shape, m4x4::Translation(300, 0, 0), Inertia::Sphere(0.2f, 1.0f)},
+				};
+				auto [articulation, root] = MakeEngineFloatingRoot(10.0f);
+				auto ordinary = CoupledEngineLinear(BodyRef::World(), BodyRef::Rigid(body));
+				ordinary.D6().m_linear[0].m_mode = EConstraintAxisMode::Driven;
+				ordinary.D6().m_linear[0].m_target_velocity = 1.0f;
+				auto coupled = CoupledEngineLinear(BodyRef::World(), BodyRef::Link(articulation, root));
+				coupled.D6().m_linear[0] = ordinary.D6().m_linear[0];
+				auto constraints = ConstraintSet{};
+				constraints.Add(ordinary);
+				constraints.Add(coupled);
+				auto bodies = std::array{&body, &crowd[0], &crowd[1], &crowd[2]};
+				auto forest = std::array{&articulation};
+				auto input = Engine::StepInput{.m_bodies = bodies, .m_articulations = forest, .m_constraints = &constraints, .m_elapsed_seconds = 1.0f / 60.0f};
+				auto& engine = SharedEngine();
+				ConfigureCoupledEngine(engine);
+				auto config = engine.Config();
+				config.max_collision_pairs = 1;
+				config.solver_iterations = 1;
+				config.push_out_iterations = 0;
+				config.velocity_baumgarte = 0.0f;
+				config.deep_penetration_baumgarte_min = 0.0f;
+				config.deep_penetration_baumgarte_max = 0.0f;
+				config.warm_start_scale = 0.0f;
+				config.constraint_relaxation = 0.5f;
+				config.constraint_coupled_relaxation = 0.5f;
+				config.constraint_warm_start_factor = 1.0f;
+				engine.Config(config);
+				engine.Step(input);
+				PR_EXPECT(FEqlAbsolute(body.VelocityWS().lin.x, 0.5f, 2.0e-5f));
+				PR_EXPECT(FEqlAbsolute(articulation.LinkVelocity(root).lin.x, 0.5f, 2.0e-5f));
+
+				// Keep topology, packed counts and owner identities unchanged: only independent collision geometry exceeds the existing capacity.
+				for (auto& value : crowd)
+					value.O2W(m4x4::Translation(100, 0, 0));
+
+				auto const body_before = PackDynamics(body, 0);
+				auto const root_pose = articulation.RootToWorld();
+				auto const root_velocity = articulation.LinkVelocity(root);
+				PR_THROWS(engine.Step(input), std::runtime_error);
+				PR_EXPECT(engine.LastFeatureStats().m_failure.m_reason == EStepFailure::CollisionPairCapacity);
+				PR_EXPECT(!engine.StepPending());
+				auto const body_after = PackDynamics(body, 0);
+				auto const pose_after = articulation.RootToWorld();
+				auto const velocity_after = articulation.LinkVelocity(root);
+				PR_EXPECT(std::memcmp(&body_before, &body_after, sizeof(body_before)) == 0);
+				PR_EXPECT(std::memcmp(&pose_after, &root_pose, sizeof(root_pose)) == 0);
+				PR_EXPECT(std::memcmp(&velocity_after, &root_velocity, sizeof(root_velocity)) == 0);
+
+				// Cold recovery reaches .75. With unchanged h, retained ordinary support instead reaches 1; shared row revisions mask coupled support.
+				for (int index = 0; index != isize(crowd); ++index)
+					crowd[index].O2W(m4x4::Translation(100.0f * (index + 1), 0, 0));
+
+				if (scaled_recovery)
+				{
+					// Retained acceptance overflows its provisional scale before invalidated row receipts can discard guesses; fresh ownership has scale zero.
+					input.m_elapsed_seconds *= 2.0f;
+					config.constraint_warm_start_factor = 2.0e38f;
+					engine.Config(config);
+				}
+				auto rejections = std::vector<ConstraintRejectionEvent>{};
+				engine.ConstraintRejections += [&](Engine&, std::span<ConstraintRejectionEvent const> values)
+				{
+					rejections.insert(rejections.end(), values.begin(), values.end());
+				};
+				engine.Step(input);
+				printf("rejected-frame recovery: scaled=%d ordinary=%.9g coupled=%.9g rejections=%zu\n", scaled_recovery, body.VelocityWS().lin.x, articulation.LinkVelocity(root).lin.x, rejections.size());
+				for (auto const& event : rejections)
+				{
+					printf("recovery rejection: owner=%u index=%u outcome=%u flags=%u phase=%u substep=%d terminal=%u\n", static_cast<unsigned>(event.m_owner), event.m_index, static_cast<unsigned>(event.m_outcome), event.m_failure_flags, static_cast<unsigned>(event.m_phase), event.m_substep_index, static_cast<unsigned>(engine.LastFeatureStats().m_failure.m_reason));
+				}
+				PR_EXPECT(FEqlAbsolute(body.VelocityWS().lin.x, 0.75f, 2.0e-5f));
+				PR_EXPECT(FEqlAbsolute(articulation.LinkVelocity(root).lin.x, 0.75f, 2.0e-5f));
+				PR_EXPECT(rejections.empty());
+				PR_EXPECT(!engine.LastFeatureStats().m_failure.HasTerminalFailure());
+			}
+		}
+
+		// Unrepresentable finite soft-row coefficients retain the existing terminal slot failure and invalidate both unpublished owners.
+		PRUnitTestMethod(FatalCompileFailureInvalidatesUnpublishedOwners, Extended)
+		{
+			auto shape = collision::ShapeSphere{0.2f};
+			auto body = RigidBody{&shape, m4x4::Identity(), Inertia::Sphere(0.2f, 1.0f)};
+			auto auxiliary = RigidBody{&shape, m4x4::Translation(100, 0, 0), Inertia::Sphere(0.2f, 1.0f)};
+			auto [articulation, root] = MakeEngineFloatingRoot(10.0f);
+			auto ordinary = CoupledEngineLinear(BodyRef::World(), BodyRef::Rigid(body));
+			ordinary.D6().m_linear[0].m_mode = EConstraintAxisMode::Driven;
+			ordinary.D6().m_linear[0].m_target_velocity = 1.0f;
+			auto coupled = CoupledEngineLinear(BodyRef::World(), BodyRef::Link(articulation, root));
+			coupled.D6().m_linear[0] = ordinary.D6().m_linear[0];
+			auto soft = CoupledEngineLinear(BodyRef::World(), BodyRef::Rigid(auxiliary));
+			soft.D6().m_linear[0].m_mode = EConstraintAxisMode::Driven;
+			soft.D6().m_linear[0].m_damping = 1.0f;
+			auto constraints = ConstraintSet{};
+			constraints.Add(ordinary);
+			constraints.Add(coupled);
+			auto const soft_handle = constraints.Add(soft);
+			auto bodies = std::array{&body, &auxiliary};
+			auto forest = std::array{&articulation};
+			auto input = Engine::StepInput{.m_bodies = bodies, .m_articulations = forest, .m_constraints = &constraints, .m_elapsed_seconds = 1.0f / 16.0f};
+			auto& engine = SharedEngine();
+			ConfigureCoupledEngine(engine);
+			auto config = engine.Config();
+			config.solver_iterations = 1;
+			config.push_out_iterations = 0;
+			config.constraint_relaxation = 0.5f;
+			config.constraint_coupled_relaxation = 0.5f;
+			config.constraint_warm_start_factor = 1.0f;
+			engine.Config(config);
+			engine.Step(input);
+			PR_EXPECT(FEqlAbsolute(body.VelocityWS().lin.x, 0.5f, 2.0e-5f));
+			PR_EXPECT(FEqlAbsolute(articulation.LinkVelocity(root).lin.x, 0.5f, 2.0e-5f));
+
+			// Gamma = 1/(h*c) cannot be represented. Inputs, membership and h remain valid; no fault seam or device loss is used.
+			soft.D6().m_linear[0].m_damping = 2.0e-38f;
+			constraints.Update(soft_handle, soft);
+			auto const body_before = PackDynamics(body, 0);
+			auto const auxiliary_before = PackDynamics(auxiliary, 1);
+			auto const root_pose = articulation.RootToWorld();
+			auto const root_velocity = articulation.LinkVelocity(root);
+			auto rejection_count = 0;
+			engine.ConstraintRejections += [&](Engine&, std::span<ConstraintRejectionEvent const> values)
+			{
+				rejection_count += isize(values);
+			};
+			PR_THROWS(engine.Step(input), std::runtime_error);
+			PR_EXPECT(engine.LastFeatureStats().m_failure.m_reason == EStepFailure::ConstraintNumerics);
+			PR_EXPECT(engine.LastFeatureStats().m_failure.m_item_index == static_cast<int>(soft_handle.m_index));
+			PR_EXPECT(rejection_count == 0);
+			PR_EXPECT(!engine.StepPending());
+			auto const body_after = PackDynamics(body, 0);
+			auto const auxiliary_after = PackDynamics(auxiliary, 1);
+			auto const pose_after = articulation.RootToWorld();
+			auto const velocity_after = articulation.LinkVelocity(root);
+			PR_EXPECT(std::memcmp(&body_before, &body_after, sizeof(body_before)) == 0);
+			PR_EXPECT(std::memcmp(&auxiliary_before, &auxiliary_after, sizeof(auxiliary_before)) == 0);
+			PR_EXPECT(std::memcmp(&pose_after, &root_pose, sizeof(root_pose)) == 0);
+			PR_EXPECT(std::memcmp(&velocity_after, &root_velocity, sizeof(root_velocity)) == 0);
+
+			// The recovered owners must start cold from the still-published speed .5, not from the failed frame's GPU-only caches.
+			soft.D6().m_linear[0].m_damping = 1.0f;
+			constraints.Update(soft_handle, soft);
+			engine.Step(input);
+			printf("fatal-frame recovery: ordinary=%.9g coupled=%.9g\n", body.VelocityWS().lin.x, articulation.LinkVelocity(root).lin.x);
+			PR_EXPECT(FEqlAbsolute(body.VelocityWS().lin.x, 0.75f, 2.0e-5f));
+			PR_EXPECT(FEqlAbsolute(articulation.LinkVelocity(root).lin.x, 0.75f, 2.0e-5f));
+			PR_EXPECT(!engine.LastFeatureStats().m_failure.HasTerminalFailure());
+		}
+	};
+
 }
 #endif

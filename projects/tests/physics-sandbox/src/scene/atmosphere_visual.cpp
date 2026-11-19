@@ -73,26 +73,37 @@ namespace physics_sandbox
 		, m_show_grid(m_desc.m_visual.m_show_grid)
 		, m_show_particles(m_desc.m_visual.m_show_particles)
 	{
-		// The scene's outside air is static, so the solver keeps it for every step. An empty list leaves the calm default.
-		if (!m_desc.m_outside_air.empty())
-			m_solver.SetOutsideAir(m_desc.m_outside_air);
-
-		// Tracers are optional so diagnostic-only atmosphere scenes can omit particle cost.
-		if (m_desc.m_tracers.m_particle_count > 0)
+		try
 		{
-			m_tracers = std::make_unique<physics::atmosphere::AtmosphereTracers>(m_solver, m_gpu, m_desc.m_tracers, &shader_cache);
-			m_particles = m_tracers->ReadBack(m_gpu.m_job);
-			CreateTracerGfx();
-			m_tracers_stale = true;
+			// The scene's outside air is static, so the solver keeps it for every step. An empty list leaves the calm default.
+			if (!m_desc.m_outside_air.empty())
+			{
+				if (auto const check = m_solver.SetOutsideAir(m_desc.m_outside_air); !check.Accepted())
+					throw std::runtime_error(check.m_rejection);
+			}
+
+			// Tracers are optional so diagnostic-only atmosphere scenes can omit particle cost.
+			if (m_desc.m_tracers.m_particle_count > 0)
+			{
+				m_tracers = std::make_unique<physics::atmosphere::AtmosphereTracers>(m_solver, m_gpu, m_desc.m_tracers, &shader_cache);
+				m_particles = m_tracers->ReadBack(m_gpu.m_job);
+				CreateTracerGfx();
+				m_tracers_stale = true;
+			}
+		}
+		catch (...)
+		{
+			// The enclosing destructor does not run after failed construction; retire readback before solver members unwind.
+			m_gpu.m_job.QuiesceForDestruction();
+			throw;
 		}
 	}
 
 	// Wait for any climate step still in flight before the GPU resources are released.
 	AtmosphereVisual::~AtmosphereVisual()
 	{
-		// The solver and tracer buffers must outlive GPU work that references them.
-		if (m_pending)
-			m_gpu.m_job.Abandon(m_pending);
+		// Include interrupted submissions whose public handle was never returned, without recording or running observers.
+		m_gpu.m_job.QuiesceForDestruction();
 	}
 
 	// Advance simulated time, collecting finished climate steps and submitting new ones at the fixed climate rate.
@@ -125,7 +136,9 @@ namespace physics_sandbox
 		m_unstepped_time -= step_period;
 
 		// Record the solver, tracers, and particle copy in submission order, then submit without waiting. The scene's heat sources are static.
-		m_solver.Step(job, step_period, m_desc.m_heat_sources);
+		if (auto const check = m_solver.Step(job, step_period, m_desc.m_heat_sources); !check.Accepted())
+			throw std::runtime_error(check.m_rejection);
+
 		if (m_tracers != nullptr)
 		{
 			// The particle copy is collected when this submission completes.

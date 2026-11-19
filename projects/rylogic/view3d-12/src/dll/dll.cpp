@@ -75,6 +75,16 @@ static Context& Dll()
 	throw std::runtime_error("View3d not initialised");
 }
 
+// Startup calls are ordered by the host, like Initialise; only this DLL's history is observable here.
+struct DeviceDiagnostics
+{
+	bool m_enable;
+	bool m_break_on_errors;
+};
+static bool g_process_configured = false;
+static std::optional<DeviceDiagnostics> g_device_diagnostics;
+static bool g_context_created = false;
+
 // Types
 using LockGuard = std::lock_guard<std::recursive_mutex>;
 
@@ -87,6 +97,74 @@ using LockGuard = std::lock_guard<std::recursive_mutex>;
 
 // Dll Context ****************************
 
+// Report startup failure without allocating or allowing a callback exception across the C boundary.
+static BOOL ReportStartupFailure(view3d::ReportErrorCB error_cb, char const* message) noexcept
+{
+	try
+	{
+		if (error_cb)
+			error_cb(message, "", 0, 0);
+	}
+	catch (...)
+	{
+		// Preserve the primary diagnostic when the caller's reporting path itself fails.
+		OutputDebugStringA("View3D startup error callback failed: ");
+		OutputDebugStringA(message);
+		OutputDebugStringA("\n");
+	}
+	return FALSE;
+}
+
+// Apply the host's process policy before this DLL can create a device.
+VIEW3D_API BOOL __stdcall View3D_ConfigureProcessDiagnostics(view3d::EProcessDiagnostics mode, view3d::ReportErrorCB error_cb)
+{
+	try
+	{
+		// Calls through other modules remain the host's responsibility.
+		if (g_process_configured || g_context_created)
+			throw std::runtime_error("Configure process diagnostics once, before View3D_Initialise");
+
+		static_assert(s_cast<int>(view3d::EProcessDiagnostics::None) == s_cast<int>(compute::EProcessDiagnostics::None));
+		static_assert(s_cast<int>(view3d::EProcessDiagnostics::DebugLayer) == s_cast<int>(compute::EProcessDiagnostics::DebugLayer));
+		static_assert(s_cast<int>(view3d::EProcessDiagnostics::GpuValidation) == s_cast<int>(compute::EProcessDiagnostics::GpuValidation));
+		compute::ConfigureProcessDiagnostics(s_cast<compute::EProcessDiagnostics>(mode));
+		g_process_configured = true;
+		return TRUE;
+	}
+	catch (std::exception const& ex)
+	{
+		return ReportStartupFailure(error_cb, ex.what());
+	}
+	catch (...)
+	{
+		return ReportStartupFailure(error_cb, "Failed to configure process diagnostics: unknown exception");
+	}
+}
+
+// Select device-local reporting without reconfiguring the process or removing another owner's device.
+VIEW3D_API BOOL __stdcall View3D_ConfigureDeviceDiagnostics(BOOL enable, BOOL break_on_errors, view3d::ReportErrorCB error_cb)
+{
+	try
+	{
+		// Validate the single startup choice before recording it.
+		if (g_device_diagnostics.has_value() || g_context_created)
+			throw std::runtime_error("Configure device diagnostics once, before View3D_Initialise");
+		if (break_on_errors && !enable)
+			throw std::invalid_argument("Breaking on errors requires device diagnostics");
+
+		g_device_diagnostics = DeviceDiagnostics{.m_enable = enable != FALSE, .m_break_on_errors = break_on_errors != FALSE};
+		return TRUE;
+	}
+	catch (std::exception const& ex)
+	{
+		return ReportStartupFailure(error_cb, ex.what());
+	}
+	catch (...)
+	{
+		return ReportStartupFailure(error_cb, "Failed to configure device diagnostics: unknown exception");
+	}
+}
+
 // Initialise calls are reference counted and must be matched with Shutdown calls.
 // The first Initialise call binds the dll context to the calling thread. Later Initialise calls, and all Shutdown calls, must be made on that thread
 // until the last Shutdown call destroys the context. 'global_error_cb' receives initialisation errors and, until the matching Shutdown call, errors
@@ -97,7 +175,12 @@ VIEW3D_API DllHandle  __stdcall View3D_Initialise(view3d::ReportErrorCB global_e
 	{
 		// Create the dll context on the first call. Otherwise, reject callers on other threads because the renderer is bound to its creating thread.
 		if (g_ctx == nullptr)
-			g_ctx = new Context(g_hInstance);
+		{
+			// A failed construction may already have created a device, so do not reopen process startup on failure.
+			g_context_created = true;
+			auto const options = g_device_diagnostics.value_or(DeviceDiagnostics{.m_enable = false, .m_break_on_errors = false});
+			g_ctx = new Context(g_hInstance, options.m_enable, options.m_break_on_errors);
+		}
 		else if (std::this_thread::get_id() != g_ctx->m_main_thread_id)
 			throw std::runtime_error("View3D is already initialised on a different thread. All clients must use the thread that first initialised View3D");
 

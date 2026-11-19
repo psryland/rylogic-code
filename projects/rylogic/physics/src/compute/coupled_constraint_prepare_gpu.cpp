@@ -22,8 +22,8 @@ namespace pr::physics
 			int mobility_count;
 			float timestep;
 			float regularization;
-			float warm_start_scale;
-			int retain_current_impulses;
+			float pad0;
+			int pad1;
 		};
 		static_assert(sizeof(cbCoupledConstraintPrepare) == 32);
 
@@ -72,8 +72,6 @@ namespace pr::physics
 		, m_source()
 		, m_slot_count()
 		, m_active_count()
-		, m_previous_timestep()
-		, m_frame_warm_start_scale()
 		, m_stats()
 	{
 		auto root_sig = RootSig(ERootSigFlags::ComputeOnly)
@@ -126,8 +124,8 @@ namespace pr::physics
 			.mobility_count = mobility.m_mobility_count,
 			.timestep = 1.0f,
 			.regularization = m_config.constraint_regularization,
-			.warm_start_scale = 0.0f,
-			.retain_current_impulses = 0,
+			.pad0 = 0.0f,
+			.pad1 = 0,
 		};
 		job.m_cmd_list.SetPipelineState(m_cs_prepare_position.m_pso.get());
 		job.m_cmd_list.SetComputeRootSignature(m_cs_prepare_position.m_sig.get());
@@ -157,8 +155,6 @@ namespace pr::physics
 		m_source = nullptr;
 		m_slot_count = 0;
 		m_active_count = 0;
-		m_previous_timestep = 0.0f;
-		m_frame_warm_start_scale = 0.0f;
 		m_stats = {};
 	}
 
@@ -196,11 +192,6 @@ namespace pr::physics
 		if (m_constraints.m_source != upload.m_source || m_constraints.m_slot_count != isize(upload.m_endpoints))
 			throw std::logic_error("Coupled metadata must be uploaded after the matching shared constraint streams");
 
-		if (m_source != upload.m_source)
-		{
-			m_previous_timestep = 0.0f;
-			m_frame_warm_start_scale = 0.0f;
-		}
 		m_source = upload.m_source;
 		m_slot_count = isize(upload.m_endpoints);
 		m_active_count = s_cast<int>(upload.m_coupled_active_count);
@@ -223,8 +214,8 @@ namespace pr::physics
 		return true;
 	}
 
-	// Compile link-coordinate rows and exact-self preconditioners, optionally retaining already-applied current-frame impulses.
-	void GpuCoupledConstraintPrepare::Run(GpuJob& job, float timestep, int body_count, ID3D12Resource* bodies, ID3D12Resource* link_to_world, GpuArticulationMobility& mobility, bool retain_current_impulses)
+	// Compile current link-coordinate rows and exact-self preconditioners without changing accepted physical ownership.
+	void GpuCoupledConstraintPrepare::Run(GpuJob& job, float timestep, int body_count, ID3D12Resource* bodies, ID3D12Resource* link_to_world, GpuArticulationMobility& mobility)
 	{
 		if (m_active_count == 0)
 			return;
@@ -240,8 +231,7 @@ namespace pr::physics
 			bodies,
 			link_to_world,
 			mobility.m_r_mobilities.get(),
-			mobility.m_aba.m_r_scratch.get(),
-			retain_current_impulses);
+			mobility.m_aba.m_r_scratch.get());
 	}
 
 	// Record the preparation pass against explicit production or diagnostic resources.
@@ -254,8 +244,7 @@ namespace pr::physics
 		ID3D12Resource* bodies,
 		ID3D12Resource* link_to_world,
 		ID3D12Resource* mobilities,
-		ID3D12Resource* aba_scratch,
-		bool retain_current_impulses)
+		ID3D12Resource* aba_scratch)
 	{
 		if (m_active_count == 0)
 			return;
@@ -265,24 +254,6 @@ namespace pr::physics
 			throw std::invalid_argument("Coupled constraint preparation received invalid packed counts");
 		if (bodies == nullptr || link_to_world == nullptr || mobilities == nullptr || aba_scratch == nullptr)
 			throw std::invalid_argument("Coupled constraint preparation requires every bound resource");
-
-		// Continuation rows retain current-frame accumulators because their impulses are already present in authoritative state.
-		if (retain_current_impulses)
-		{
-			m_frame_warm_start_scale = 1.0f;
-		}
-		else
-		{
-			// Cross-frame warm starts remain bounded across timestep discontinuities.
-			m_frame_warm_start_scale = 0.0f;
-			if (m_previous_timestep > 0.0f)
-			{
-				auto const timestep_ratio = timestep / m_previous_timestep;
-				if (timestep_ratio >= 0.25f && timestep_ratio <= 4.0f)
-					m_frame_warm_start_scale = m_config.constraint_warm_start_factor * timestep_ratio;
-			}
-			m_previous_timestep = timestep;
-		}
 
 		job.m_barriers.Transition(bodies, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition(m_constraints.m_r_endpoints.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
@@ -303,8 +274,8 @@ namespace pr::physics
 			.mobility_count = mobility_count,
 			.timestep = timestep,
 			.regularization = m_config.constraint_regularization,
-			.warm_start_scale = m_frame_warm_start_scale,
-			.retain_current_impulses = retain_current_impulses ? 1 : 0,
+			.pad0 = 0.0f,
+			.pad1 = 0,
 		};
 		job.m_cmd_list.SetPipelineState(m_cs_prepare.m_pso.get());
 		job.m_cmd_list.SetComputeRootSignature(m_cs_prepare.m_sig.get());
@@ -360,8 +331,7 @@ namespace pr::physics
 			r_bodies.get(),
 			r_link_to_world.get(),
 			r_mobilities.get(),
-			r_aba_scratch.get(),
-			false);
+			r_aba_scratch.get());
 
 		// Gather all stable-slot diagnostics in the caller's existing one-submission job.
 		result.m_blocks.resize(m_slot_count);

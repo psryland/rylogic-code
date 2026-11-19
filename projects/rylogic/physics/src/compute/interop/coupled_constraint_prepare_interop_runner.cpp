@@ -34,15 +34,13 @@ namespace pr::physics
 	void CoupledConstraintPrepareInteropRunner::Run(
 		float timestep,
 		float regularization,
-		float warm_start_scale,
 		GpuConstraintUpload const& upload,
 		std::span<GpuRigidBody const> bodies,
 		std::span<GpuConstraintFrame const> link_to_world,
 		std::span<GpuArticulationSpatialMobility const> mobilities,
 		std::span<GpuArticulationAbaScratch const> aba_scratch,
-		std::span<GpuConstraintBlock const> retained_blocks,
-		std::span<GpuConstraintRow const> retained_rows,
-		bool retain_current_impulses)
+		std::span<GpuConstraintBlock const> prepared_blocks,
+		std::span<GpuConstraintRow const> prepared_rows)
 	{
 		if (upload.m_coupled_endpoints.size() != upload.m_endpoints.size())
 			throw std::invalid_argument("Coupled replay requires stable-slot link metadata");
@@ -52,18 +50,18 @@ namespace pr::physics
 			throw std::invalid_argument("Coupled replay requires a finite positive timestep");
 
 		auto const slot_count = isize(upload.m_endpoints);
-		if ((!retained_blocks.empty() || !retained_rows.empty()) &&
-			(isize(retained_blocks) != slot_count || isize(retained_rows) != GpuConstraintRowsPerBlock * slot_count))
+		if ((!prepared_blocks.empty() && isize(prepared_blocks) != slot_count) ||
+			(!prepared_rows.empty() && isize(prepared_rows) != GpuConstraintRowsPerBlock * slot_count))
 			throw std::invalid_argument("Coupled replay retained runtime streams do not match the stable-slot layout");
 
 		m_bodies.assign(bodies.begin(), bodies.end());
-		m_blocks.assign(retained_blocks.begin(), retained_blocks.end());
-		m_rows.assign(retained_rows.begin(), retained_rows.end());
+		m_blocks.assign(prepared_blocks.begin(), prepared_blocks.end());
 		m_blocks.resize(slot_count);
+		m_rows.assign(prepared_rows.begin(), prepared_rows.end());
 		m_rows.resize(GpuConstraintRowsPerBlock * slot_count);
 		m_preconditioners.resize(slot_count);
 
-		// Bind immutable packed input and retained stable-slot output exactly as the hardware pass does.
+		// The shared geometry buffer is not a physical cache; coupled compilation overwrites its own coefficients with zero.
 		g_coupled_prepare = cbCoupledConstraintPrepare{
 			.slot_count = slot_count,
 			.body_count = isize(bodies),
@@ -71,12 +69,10 @@ namespace pr::physics
 			.mobility_count = isize(mobilities),
 			.timestep = timestep,
 			.regularization = regularization,
-			.warm_start_scale = warm_start_scale,
-			.retain_current_impulses = retain_current_impulses ? 1 : 0,
 		};
 		g_coupled_bodies.assign(CoupledSpanOf(m_bodies));
 		g_coupled_constraint_endpoints.assign(std::span<GpuConstraintEndpoint const>{upload.m_endpoints});
-		g_coupled_descriptors.assign(std::span<GpuD6ConstraintDesc const>{upload.m_descriptors});
+		g_coupled_descriptors.assign(std::span<GpuConstraintDesc const>{upload.m_descriptors});
 		g_coupled_link_endpoints.assign(std::span<GpuCoupledConstraintEndpoint const>{upload.m_coupled_endpoints});
 		g_coupled_link_to_world.assign(link_to_world);
 		g_coupled_link_mobilities.assign(mobilities);

@@ -186,8 +186,11 @@ namespace pr::physics
 		// because the implicit response treats them as part of the body's load. Records nothing when the frame has no wet hulls.
 		void Apply(GpuJob& job, ID3D12Resource* bodies, float dt, double time_s, bool final_substep);
 
-		// Publish the diagnostics and GPU time read back by the completed step.
+		// Publish completed diagnostics and GPU time. Call RejectStep if this or later frame publication fails.
 		void CompleteStep();
+
+		// Release pending readback reservations and clear diagnostics from a rejected or abandoned step.
+		void RejectStep() noexcept;
 
 		// Return the GPU time of the water dispatches in the last completed step (ms). Zero for dry frames.
 		double GpuTimeMs() const

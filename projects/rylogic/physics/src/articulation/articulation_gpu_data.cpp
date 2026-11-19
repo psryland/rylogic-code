@@ -165,6 +165,7 @@ namespace pr::physics
 				auto packed_dof_offset = -1;
 				auto joint_matrix_offset = -1;
 				auto dof_count = 0;
+				auto joint_type = GpuArticulationJointType_Axes;
 				auto depth = 0;
 				auto joint_to_parent = m4x4::Identity();
 				auto joint_to_child = m4x4::Identity();
@@ -181,6 +182,12 @@ namespace pr::physics
 					depth = upload.m_links[parent_link_index].depth + 1;
 					auto const& joint = articulation->JointDescription(link_handle);
 					dof_count = joint.m_dof_count;
+					switch (joint.m_type)
+					{
+						case EArticulationJointType::Axes: { joint_type = GpuArticulationJointType_Axes; break; }
+						case EArticulationJointType::Spherical: { joint_type = GpuArticulationJointType_Spherical; break; }
+						default: { throw std::invalid_argument("Articulation joint type cannot be represented on the GPU"); }
+					}
 					position_index = isize(upload.m_positions);
 					velocity_index = isize(upload.m_velocities);
 					packed_dof_offset = isize(upload.m_dofs);
@@ -191,7 +198,7 @@ namespace pr::physics
 					joint_matrix_offset = upload.m_joint_matrix_scratch_count;
 					upload.m_joint_matrix_scratch_count += dof_count * dof_count;
 
-					// Generalized arrays and ordered screw axes share the same per-joint scalar order.
+					// Configuration coordinates have their own range; velocities, forces and ABA scratch share the joint's DOF ordering.
 					auto const position = articulation->JointPosition(link_handle);
 					auto const velocity = articulation->JointVelocity(link_handle);
 					auto const force = articulation->JointForce(link_handle);
@@ -201,7 +208,21 @@ namespace pr::physics
 					upload.m_forces.insert(upload.m_forces.end(), force.begin(), force.end());
 					upload.m_accelerations.insert(upload.m_accelerations.end(), acceleration.begin(), acceleration.end());
 					for (int axis_index = 0; axis_index != dof_count; ++axis_index)
-						upload.m_dofs.push_back(PackDof(joint.m_axes[axis_index]));
+					{
+						// Spherical motion uses canonical child-frame XYZ, independent of the unused scalar axis descriptions.
+						switch (joint.m_type)
+						{
+							case EArticulationJointType::Axes: { upload.m_dofs.push_back(PackDof(joint.m_axes[axis_index])); break; }
+							case EArticulationJointType::Spherical:
+							{
+								auto axis = v4{};
+								axis[axis_index] = 1.0f;
+								upload.m_dofs.push_back(GpuArticulationDof{.axis_and_type = axis});
+								break;
+							}
+							default: { throw std::invalid_argument("Articulation joint type cannot be represented on the GPU"); }
+						}
+					}
 				}
 
 				upload.m_links.push_back(GpuArticulationLink{
@@ -216,7 +237,7 @@ namespace pr::physics
 					.proxy_body_index = -1,
 					.depth = depth,
 					.joint_matrix_offset = joint_matrix_offset,
-					.pad1 = 0,
+					.joint_type = joint_type,
 					.joint_to_parent = PackGpuTransform(joint_to_parent),
 					.joint_to_child = PackGpuTransform(joint_to_child),
 					.shape_to_link = PackGpuTransform(link_desc.m_shape_to_link),
@@ -464,8 +485,7 @@ namespace pr::physics
 				!PackedRangeValid(articulation.link_offset, articulation.link_count, upload.m_links.size()) ||
 				!PackedRangeValid(articulation.position_offset, articulation.position_count, upload.m_positions.size()) ||
 				!PackedRangeValid(articulation.velocity_offset, articulation.velocity_count, upload.m_velocities.size()) ||
-				!PackedRangeValid(articulation.dof_offset, articulation.dof_count, upload.m_dofs.size()) ||
-				articulation.position_count != articulation.dof_count)
+				!PackedRangeValid(articulation.dof_offset, articulation.dof_count, upload.m_dofs.size()))
 				throw std::invalid_argument("GPU articulation header partition is invalid");
 
 			auto const root_velocity_count = PackedRootVelocityCount(articulation.root_type);
@@ -479,6 +499,7 @@ namespace pr::physics
 				root.position_offset != -1 ||
 				root.dof_offset != -1 ||
 				root.dof_count != 0 ||
+				root.joint_type != GpuArticulationJointType_Axes ||
 				root.joint_matrix_offset != -1 ||
 				root.velocity_offset != (root_velocity_count != 0 ? articulation.velocity_offset : -1))
 				throw std::invalid_argument("GPU articulation root descriptor is invalid");
@@ -522,6 +543,22 @@ namespace pr::physics
 				if (link.dof_count < 0 || link.dof_count > 6)
 					throw std::invalid_argument("GPU articulation joint dimension is invalid");
 
+				// Quaternion coordinates occupy four slots but retain exactly three angular velocity entries.
+				auto position_count = link.dof_count;
+				switch (link.joint_type)
+				{
+					case GpuArticulationJointType_Axes: { break; }
+					case GpuArticulationJointType_Spherical:
+					{
+						if (link.dof_count != 3)
+							throw std::invalid_argument("GPU spherical articulation joint dimension is invalid");
+
+						position_count = 4;
+						break;
+					}
+					default: { throw std::invalid_argument("GPU articulation joint type is invalid"); }
+				}
+
 				auto const matrix_count = link.dof_count * link.dof_count;
 				if (link.parent_link_index >= link_index ||
 					upload.m_links[link.parent_link_index].articulation_index != link.articulation_index ||
@@ -529,7 +566,7 @@ namespace pr::physics
 					link.position_offset != joint_position_cursor ||
 					link.velocity_offset != joint_velocity_cursor ||
 					link.dof_offset != joint_dof_cursor ||
-					!PackedRangeValid(link.position_offset, link.dof_count, upload.m_positions.size()) ||
+					!PackedRangeValid(link.position_offset, position_count, upload.m_positions.size()) ||
 					!PackedRangeValid(link.velocity_offset, link.dof_count, upload.m_velocities.size()) ||
 					!PackedRangeValid(link.dof_offset, link.dof_count, upload.m_dofs.size()) ||
 					link.joint_matrix_offset != matrix_cursor ||
@@ -537,16 +574,31 @@ namespace pr::physics
 					throw std::invalid_argument("GPU articulation non-root link range is invalid");
 
 				if (link.position_offset < articulation.position_offset ||
-					link.position_offset + link.dof_count > articulation.position_offset + articulation.position_count ||
+					link.position_offset + position_count > articulation.position_offset + articulation.position_count ||
 					link.velocity_offset < articulation.velocity_offset ||
 					link.velocity_offset + link.dof_count > articulation.velocity_offset + articulation.velocity_count ||
 					link.dof_offset < articulation.dof_offset ||
 					link.dof_offset + link.dof_count > articulation.dof_offset + articulation.dof_count)
 					throw std::invalid_argument("GPU articulation link generalized range crosses its owning tree");
-				joint_position_cursor += link.dof_count;
+				joint_position_cursor += position_count;
 				joint_velocity_cursor += link.dof_count;
 				joint_dof_cursor += link.dof_count;
 				matrix_cursor += matrix_count;
+				switch (link.joint_type)
+				{
+					case GpuArticulationJointType_Axes: { break; }
+					case GpuArticulationJointType_Spherical:
+					{
+						// Packed snapshots can be supplied directly, without passing through the Articulation setter.
+						auto const* position = upload.m_positions.data() + link.position_offset;
+						auto const orientation = v4{position[0], position[1], position[2], position[3]};
+						if (!IsFinite(orientation) || Abs(LengthSq(orientation) - 1.0f) > 1.0e-5f)
+							throw std::invalid_argument("GPU spherical articulation orientation must be a unit quaternion");
+
+						break;
+					}
+					default: { throw std::invalid_argument("GPU articulation joint type is invalid"); }
+				}
 			}
 			else
 			{
@@ -554,6 +606,13 @@ namespace pr::physics
 				joint_velocity_cursor = articulation.velocity_offset + PackedRootVelocityCount(articulation.root_type);
 				joint_dof_cursor = articulation.dof_offset;
 			}
+
+			// A later tree must not hide unused coordinates in the preceding tree's header.
+			if (link_index + 1 == articulation.link_offset + articulation.link_count &&
+				(joint_position_cursor != articulation.position_offset + articulation.position_count ||
+				 joint_velocity_cursor != articulation.velocity_offset + articulation.velocity_count ||
+				 joint_dof_cursor != articulation.dof_offset + articulation.dof_count))
+				throw std::invalid_argument("GPU articulation joint streams do not completely cover their owning tree");
 
 			for (int offset = 0; offset != link.child_count; ++offset)
 			{

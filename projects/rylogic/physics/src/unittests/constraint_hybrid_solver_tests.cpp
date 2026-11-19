@@ -53,12 +53,12 @@ namespace pr::physics::tests
 		}
 
 		// Return one hard linear-X constraint between arbitrary supported endpoints.
-		D6ConstraintDesc LinearXConstraint(BodyRef body_a, BodyRef body_b)
+		ConstraintDesc LinearXConstraint(BodyRef body_a, BodyRef body_b)
 		{
-			auto desc = D6ConstraintDesc{};
+			auto desc = ConstraintDesc{};
 			desc.m_frame_a.m_body = body_a;
 			desc.m_frame_b.m_body = body_b;
-			desc.m_linear[0].m_mode = EConstraintAxisMode::Locked;
+			desc.D6().m_linear[0].m_mode = EConstraintAxisMode::Locked;
 			return desc;
 		}
 
@@ -152,13 +152,13 @@ namespace pr::physics::tests
 					m4x4::Identity(),
 					v8motion{v4::Zero(), v4{initial_speed, initial_speed, 0, 0}});
 				auto articulation = builder.Build();
-				auto desc = D6ConstraintDesc{};
+				auto desc = ConstraintDesc{};
 				desc.m_frame_a = BodyFrame{BodyRef::World(), m4x4::Translation(1.0f, -1.0f, 0.0f)};
 				desc.m_frame_b = BodyFrame{BodyRef::Link(articulation, root), desc.m_frame_a.m_constraint_to_body};
-				desc.m_linear[0].m_mode = EConstraintAxisMode::Locked;
-				desc.m_linear[1].m_mode = EConstraintAxisMode::Driven;
-				desc.m_linear[1].m_target_velocity = initial_speed == 0.0f ? 3.0f : 0.0f;
-				desc.m_linear[1].m_max_force = 1.0f;
+				desc.D6().m_linear[0].m_mode = EConstraintAxisMode::Locked;
+				desc.D6().m_linear[1].m_mode = EConstraintAxisMode::Driven;
+				desc.D6().m_linear[1].m_target_velocity = initial_speed == 0.0f ? 3.0f : 0.0f;
+				desc.D6().m_linear[1].m_max_force = 1.0f;
 				auto constraints = ConstraintSet{};
 				constraints.Add(desc);
 				auto articulation_ptrs = std::array<Articulation*, 1>{&articulation};
@@ -184,7 +184,7 @@ namespace pr::physics::tests
 		{
 			auto tree = MakePrismaticTree(1.0f, 1.0f);
 			auto desc = LinearXConstraint(BodyRef::World(), BodyRef::Link(tree.m_articulation, tree.m_link));
-			desc.m_linear[0].m_stiffness = 0.01f;
+			desc.D6().m_linear[0].m_stiffness = 0.01f;
 			auto constraints = ConstraintSet{};
 			constraints.Add(desc);
 			auto articulation_ptrs = std::array<Articulation*, 1>{&tree.m_articulation};
@@ -250,12 +250,12 @@ namespace pr::physics::tests
 			auto builder = ArticulationBuilder{};
 			auto const root = builder.AddFloatingRoot(ArticulationLinkDesc{.m_inertia = Inertia{1.0f, 1.0f}});
 			auto articulation = builder.Build();
-			auto desc = D6ConstraintDesc{};
+			auto desc = ConstraintDesc{};
 			desc.m_frame_a = BodyFrame{BodyRef::World(), m4x4::Translation(1.0f, -1.0f, 0.0f)};
 			desc.m_frame_b = BodyFrame{BodyRef::Link(articulation, root), desc.m_frame_a.m_constraint_to_body};
-			desc.m_linear[0].m_mode = EConstraintAxisMode::Locked;
-			desc.m_linear[1].m_mode = EConstraintAxisMode::Locked;
-			desc.m_linear[1].m_target_position = 0.01f;
+			desc.D6().m_linear[0].m_mode = EConstraintAxisMode::Locked;
+			desc.D6().m_linear[1].m_mode = EConstraintAxisMode::Locked;
+			desc.D6().m_linear[1].m_target_position = 0.01f;
 			auto constraints = ConstraintSet{};
 			constraints.Add(desc);
 			auto articulation_ptrs = std::array<Articulation*, 1>{&articulation};
@@ -333,10 +333,10 @@ namespace pr::physics::tests
 			auto const link_b = builder.AddLink(link_a, joint_b, HybridLink());
 			auto articulation = builder.Build();
 
-			auto desc = D6ConstraintDesc{};
+			auto desc = ConstraintDesc{};
 			desc.m_frame_a.m_body = BodyRef::Link(articulation, link_a);
 			desc.m_frame_b.m_body = BodyRef::Link(articulation, link_b);
-			desc.m_angular[2].m_mode = EConstraintAxisMode::Locked;
+			desc.D6().m_angular[2].m_mode = EConstraintAxisMode::Locked;
 			auto constraints = ConstraintSet{};
 			constraints.Add(desc);
 			auto articulation_ptrs = std::array<Articulation*, 1>{&articulation};

@@ -207,6 +207,75 @@ The normal impulse obeys scalar nonpenetration complementarity. Given that norma
 local sweeps update the normal and tangent responses, followed by endpoint-degree relaxation of the complete feasible change. A joint-style response-metric
 projection onto the whole friction cone is not used: minimizing kinetic energy over that cone can invent normal support from pure tangential slip.
 
+### Contact cache identity and reduction order
+
+Warm-cache equality includes both packed body indices, both full leaf indices and the quantised local centroid, not just its hash. Packed indices are
+frame-local: Engine records the exact ordered persistent rigid-body and articulation identities after frame filtering and adding its owned world endpoint.
+A changed layout invalidates both main and selective caches, including replacement, reorder, omission and empty-frame transitions. A tree's immutable
+topology makes its identity and order sufficient for its link slots; callers need not preserve submission order.
+Every submission requires non-null owners with unique body identities and unique tree identities, whether or not constraints are supplied.
+A rigid-body copy retains its identity and can replace that owner after relocation; submitting both copies as independent bodies is outside this domain.
+
+Finite binary32 coordinates use a 1/64 m grid, rounding half-cells toward positive infinity and identifying signed zeros. Large coordinates already on that grid retain their original
+bits without an overflowing scale or a narrowing integer conversion. Each nonzero stored contact claims its own empty slot in a power-of-two table at
+most half full; lookup visits the complete chain. An integer avalanche folds high coordinate bits into low power-of-two bucket bits, and the centroid key
+is computed once per lookup/store rather than once per probe. Duplicate identities select one impulse by rounded squared magnitude and then raw component bits.
+This is an insertion-order-independent priority, not an energy certificate. Existing normal projection, motion-reset filtering and physical admission remain.
+
+Zero velocity sweeps skip warm preload/application and cache promotion at the resolver owner. Retirement selects the already-cleared output cache, so guesses
+cannot become physical response or a newly accepted cache without a solve. Raw helper load/store fixtures are separate from this publication contract.
+
+Coupled-contact endpoints are first grouped by target, then sorted once by immutable body/leaf, material, geometry and endpoint-side inputs. The in-place
+per-segment heap sort uses O(k log k) work and constant scratch; it does not assume short contact lists or use append indices as tie-breaks. Inactive manifold
+storage and mutable impulse accumulators do not determine the order. Repeated target reductions use this fixed order rather than atomic append order.
+These are cache and reduction guarantees, not a claim that every solver path or whole simulation is bitwise deterministic.
+
+### Native ragdoll workload and geometry screens
+
+The dispersed and pile sandbox inputs each retain 100 ten-link trees, 500 typed spherical-angular limits/dampers, 400 angular-X D6 limits and
+400 separate angular-X D6 dampers. Their authored joint excitation remains distinct: 3 N*m/kg for dispersed and 1.5 N*m/kg for pile, with each tree's
+original period and phase. Scene-owned actuation samples the submitted frame's starting time and applies mass-scaled sinusoidal forces in joint
+velocity coordinates; a spherical quaternion has three such coordinates, not four. Zero amplitude leaves independently supplied forces unchanged.
+Both inputs retain 3/10/1 substeps/velocity sweeps/position sweeps; runtime receipts also bind beta 0.2 and maximum position speed 2 m/s.
+
+Committed-state geometry screens include rigid/rigid, rigid/link, inter-tree and enabled nonparent self pairs, rather than only articulation/ground.
+They apply collision-layer masks, explicit ignored pairs, the native enabled/nonbroken constraint exclusion table, and separate parent/self policies.
+Full-scene endpoint indices include sleeping trees even when a submitted GPU frame omits them. Conservative bounds prune narrow-phase work.
+Compound leaves already carry root-space transforms; array recursion does not multiply array frames into them again.
+
+The ordinary geometry diagnostic also reads unwrapped `JointPosition` values of one-axis revolute joints. `hinge_domain` reports their count,
+`max_abs_hinge_q` in radians and whether every coordinate lies strictly inside `(-pi, pi)`; `worst_hinges` retains excursions across all measured steps,
+including steps between reports. The converted workloads have four such pure-X hinges per tree. This is a necessary domain check for that workload's
+scalar-to-principal-angle equivalence, not a general restriction on valid revolute motion or a sufficient proof for arbitrary joint frames.
+A full turn plus 0.2 rad is outside this domain even though the D6 principal rotation-vector coordinate can report a legal 0.2 rad.
+
+These screens and the existing kinetic-energy sum are not an external-work/potential/dissipation ledger. Headless `-engine_profile` bypasses geometry
+screening and provides characterization only, not physical-quality or rendered 60-FPS acceptance. Ordinary sandbox startup makes no process-validation
+request; the unit-test host requests the debug layer. Diagnostic receipts record the actual device's debug-layer state and runtime build diagnostics.
+
+Headless GPU capture uses `-pix_capture <new-file.wpix> -pix_capture_step N`, with a one-based tick inside the requested step range.
+The GPU capturer loads before scene/device creation; capture brackets one synchronous `Scene::Step`, including its completion fence, without a Present.
+With `PR_PIX_DETAIL=1`, named velocity/transaction/ABA pass regions include their dependency barriers. PIX replay intervals are not exclusive shader
+time or comparable live ordinary timing. Leave `PR_GPU_STAMPS` unset for these captures: its fixed-slot-lag harvesting is not a completion fence.
+
+The same detail flag copies island attempt counters and transaction outcomes after **every** coupled velocity sweep, before the next begin resets them.
+CPU aggregation occurs only after the existing job completion fence. `coupled_work` separates recorded velocity dispatches (including guarded no-ops),
+started/selected numerical trials, accepted/rejected **owner-sweeps**, zero-attempt accepted owner-sweeps (a subset, including retirement), and distinct
+first-rejection owners. `has_snapshots=false` can mean disabled detail, zero sweeps, or no owners; it does not claim an observed zero workload.
+Started trials increment at the Pending-only begin-trial kernel, before later cache/admission checks; they do not prove every later candidate ran.
+The first-rejection event bank is not a cumulative rejection counter and does not determine how many other owner-sweeps accepted.
+`-engine_profile` also emits primary articulation state each tick without refreshing derived kinematics: `articulation_root` contains step/tree,
+the three rotation columns, position, then root-frame angular/linear velocity; `articulation_joint` contains step/tree/link, q/v counts, then q and v.
+These round-trip float records retain spherical quaternions and unwrapped scalar hinges. Neither their presence nor transaction acceptance certifies
+physical trajectory quality, external work, conservation, or rendered throughput.
+
+Host submission counts and prepare/execute/reset totals include every existing between-substep `Flush` plus the final `Submit`/`Complete`.
+Three substeps therefore produce three queue submissions and one final host wait, without changing the cadence. These are host costs, not GPU
+execution durations; earlier characterization rows counted only the final submission and omitted prefix-flush phase costs.
+
+Initialization admission evaluates the Free-to-Current work once when its chosen reference is Free, reusing both signed value and error for the
+identical descent comparison. Other references retain their own evaluation. Range arithmetic, finite checks, and both admission gates are unchanged.
+
 ### Soft constraints
 
 For stiffness $k$, damping $d$, timestep $h$, and positional error $C$:
@@ -251,8 +320,17 @@ using internal substeps.
 For an articulation participant with simultaneous contact degree $d$, the first fixed-manifold sweep uses
 $\rho\min(1,1/\max(\beta d,1))$ relaxation and later sweeps use $\rho/d$. A coherent equal-depth response therefore moves by at most $\rho C$ on the
 accelerated sweep, independent of $d$, so $\rho\leq1$ introduces no intentional support gap. The maximum correction speed can only reduce this bound.
-A contact that first requires correction on a later sweep always uses the conservative $\rho/d$ rule. Accepted normal correction remains monotone only within
-the current manifold; pseudo state and position impulses are cleared before the next frame.
+A contact that first requires correction on a later sweep always uses the conservative $\rho/d$ rule. Each update projects the new total normal impulse
+onto the nonnegative half-line; its change may be negative when another contact supplies some of the required separation. Preventing this release violates
+complementarity even when all contacts reach their minimum separation speed. Pseudo state and position impulses are cleared before the next frame.
+
+For a fixed normal response $D$, target $u$, and total pseudo impulse $\lambda$, the law is $\lambda\geq0$, $r=D\lambda-u\geq0$, and
+$\lambda_i r_i=0$. The native shared-body fixture realizes $D=((1,.5),(.5,2))$ and $u=(.5,2)$ through two unit-mass floating roots and a fixed endpoint.
+Its accelerated first sweep has $\lambda=(.5,1)$; subsequent projected sweeps must release the first support and approach $(0,1)$.
+The fixture uses 32 sweeps to test this frozen linear problem, independently reconstructing impulses from root momentum responses. It then applies the
+contact-produced pseudo state once, refreshes link proxies, and checks both root/proxy poses against `dt*pseudo_speed`, with physical speeds unchanged.
+This does not establish convergence with the scene's one-position-iteration setting. Transaction acceptance still checks finite state, not a final global
+complementarity tolerance.
 
 ### Restitution and motors
 
@@ -418,12 +496,12 @@ and the iteration retried. After a bounded retry count, the solver retains the l
 For a mixed rigid/articulation island:
 
 ```text
-Warm-start all active blocks
+Prepare current geometry, response factors and persistent owner context
 
 repeat outer_iteration_count:
-    Solve one coloured rigid-only PGS sweep
+    Stage and publish ordinary blocks in dependency order
     UAV barrier
-    Solve one articulation-coupled projected/ABA sweep
+    Stage, solve and publish each articulation-coupled island privately
     UAV barrier
 ```
 
@@ -454,7 +532,7 @@ Special cases remain cheap:
 | `SleepWake` | Wake complete constrained islands and complete articulations |
 | `BroadPhase` | Include current articulation link proxy bounds |
 | `Collide` | Generate contacts against ordinary bodies and link proxies |
-| `Resolve` | Compile blocks, warm-start, and run rigid PGS plus articulation-coupled ABA sweeps |
+| `Resolve` | Compile current-pose rows, prepare phase-specific inverses, and commit ordinary/coupled persistent transactions; contact warm ownership is separate |
 | Position solve | Correct rigid transforms and articulation generalized coordinates |
 | `SelectiveRefresh` | Refresh affected contacts after correction and recompute residuals |
 | `SleepUpdate` | Include constraints, motors, external link wrenches, and unresolved residuals |
@@ -496,24 +574,23 @@ BeginStep(frame_dt, substep_count)
         CSCompileContactBlocks
         CSCompilePersistentConstraintBlocks
         CSBuildEndpointAdjacency
-        CSAssignRigidColoursAndFallbacks
-        CSWarmStartRigidBlocks
-        CSWarmStartCoupledBlocksThroughABA
+        Prepare persistent acceptance epochs and private working storage
+        Apply contact warm caches only
 
+        # Coupled-lane branch shown; rigid-only work runs Position before Velocity.
         repeat outer_iteration_count:
-            repeat active_rigid_colours:
-                CSRigidBlockPGS
+            repeat ordinary_dependency_levels:
+                Stage and publish complete ordinary blocks
                 UAV barrier
 
-            CSCoupledResidualAndProjection
-            CSCoupledGatherEndpointWrenches
-            CSApplyRigidWrenches
-            CSImpulseABAInward
-            CSImpulseABAOutward
-            CSCoupledAcceptOrBacktrack
+            Recover private coupled free state and admit compatible coefficient guesses
+            Run unchanged bounded projected/ABA numerical solve on private state
+            Admit and publish the complete coupled result
+            Capture first rejection per owner before position scratch reuse
             UAV barrier
 
         Initialize shared detached position state for the fixed manifold
+        Assign ordinary position colours/fallback and prepare position inverses
         repeat position_iteration_count:
             Solve ordinary contacts and rigid joints against shared rigid pseudo velocities
             Solve articulated contacts and coupled joints against shared link/generalized pseudo state
@@ -522,7 +599,7 @@ BeginStep(frame_dt, substep_count)
         CSWriteLinkProxyTransformsAndBounds
 
         CSSelectiveContactRefresh, repeating prepare/solve/apply for its new manifold when enabled
-        CSConstraintCleanupAndBreakDetection
+        Sample final accepted completed-substep loads and latch breaks
         CSSleepUpdate
         if collision subscribers exist:
             CSCompactCollisionEventsAndReserveRange
@@ -532,7 +609,7 @@ BeginStep(frame_dt, substep_count)
 
     GPU-to-GPU CopyBufferRegion final ordinary-body range into packed output
     GPU-to-GPU CopyBufferRegion optional rigid numerical-failure word into header padding
-    GPU-to-GPU CopyBufferRegion optional break and coupled-failure ranges
+    GPU-to-GPU CopyBufferRegion optional break and owner-tagged rejection ranges
     CSGatherFrameArticulations when articulations exist
     GPU-to-CPU CopyBufferRegion(one contiguous packed output)
     ExecuteCommandLists once
@@ -647,12 +724,25 @@ namespace pr::physics
 		float m_max_force;
 	};
 
-	struct D6ConstraintDesc
+	struct D6ConstraintParameters
+	{
+		std::array<ConstraintAxisDesc, 3> m_linear;
+		std::array<ConstraintAxisDesc, 3> m_angular;
+	};
+
+	struct SphericalAngularConstraintParameters
+	{
+		Range<float> m_swing_x;
+		Range<float> m_swing_z;
+		Range<float> m_twist;
+		float m_damping;
+	};
+
+	struct ConstraintDesc
 	{
 		BodyFrame m_frame_a;
 		BodyFrame m_frame_b;
-		std::array<ConstraintAxisDesc, 3> m_linear;
-		std::array<ConstraintAxisDesc, 3> m_angular;
+		std::variant<D6ConstraintParameters, SphericalAngularConstraintParameters> m_parameters;
 		float m_break_force;
 		float m_break_torque;
 		bool m_collide_connected;
@@ -662,17 +752,17 @@ namespace pr::physics
 	class ConstraintSet
 	{
 	public:
-		ConstraintHandle Add(D6ConstraintDesc const& desc);
+		ConstraintHandle Add(ConstraintDesc const& desc);
 		ConstraintHandle Add(BallSocketConstraintDesc const& desc);
 		ConstraintHandle Add(HingeConstraintDesc const& desc);
 		ConstraintHandle Add(SliderConstraintDesc const& desc);
 		ConstraintHandle Add(WeldConstraintDesc const& desc);
 
-		void Update(ConstraintHandle handle, D6ConstraintDesc const& desc);
+		void Update(ConstraintHandle handle, ConstraintDesc const& desc);
 		void SetEnabled(ConstraintHandle handle, bool enabled);
 		void Repair(ConstraintHandle handle);
 		void Remove(ConstraintHandle handle);
-		D6ConstraintDesc const& Get(ConstraintHandle handle) const;
+		ConstraintDesc const& Get(ConstraintHandle handle) const;
 		bool Contains(ConstraintHandle handle) const;
 		bool IsBroken(ConstraintHandle handle) const;
 	};
@@ -689,7 +779,9 @@ namespace pr::physics
 }
 ```
 
-`D6ConstraintDesc` is the general primitive. Named joint descriptors are convenience interfaces that compile to it.
+`ConstraintDesc` owns one typed parameter alternative, with D6 as its default. `D6()` provides checked access to D6 parameters.
+Named joint descriptors construct the D6 alternative. Spherical angular constraints share persistent ownership and CPU/rigid-GPU/coupled-GPU row
+solving with D6; their preparation keeps ellipse/twist gradients separate from physical viscous damping.
 
 Additional API rules:
 
@@ -703,9 +795,12 @@ Additional API rules:
 - Link self-collision and connected-body collision are configurable: an adjacent parent/child pair requires the child link's `collide_parent`, while a
   non-adjacent pair in the same articulation requires `collide_self` on both links.
 - Per-row impulses remain GPU-resident unless diagnostics explicitly request them.
-- `ConstraintsBroken` and `CoupledConstraintFailures` deliver bounded post-readback events; GPU break disabling takes effect during the substep that detects it.
+- `ConstraintsBroken` samples final accepted completed-substep loads; `ConstraintRejections` retains the first non-terminal rejection per owner per frame.
+  Later acceptance does not erase that rejection. A broken constituent stays inert in the uploaded scheduling superset until next-frame repacking.
 - `LastFeatureStats()` reports active counts, retained capacities, dispatches, logical bytes, allocated bytes, packed output size, and terminal failure state.
-- The ABI 2.0 DLL surface mirrors the generational engine, shape, and body handles.
+- API `0x000B0000` carries the coordinated timing and owner-tagged event contract across native/C/managed; descriptor-header and checkpoint versions are separate.
+- Physical elapsed time and its represented float duration after substep division must be finite and positive. Reject invalid timing before command,
+  force, kinematic-target or completed-output mutation. Zero-time stepping is not a maintenance operation.
 
 Articulation creation is explicit:
 
@@ -722,7 +817,274 @@ auto articulation = builder.Build();
 `Articulation` owns immutable tree topology, generalized state, stable link handles, link kinematics, per-link gravity/external wrenches, and whole-tree sleeping
 state. Hidden link proxies are transient engine resources; the articulation does not own unrelated ordinary rigid bodies.
 
-The versioned C ABI exposes the same model through:
+Native C++ spherical joints use `ArticulationJointDesc::Spherical(parent_frame, child_frame)`. Their configuration is a unit quaternion
+`(x,y,z,w)` mapping the child joint frame into the parent joint frame, while the three generalized velocities and forces are angular velocity and torque
+in the child joint frame. Input quaternions must be normalized; opposite signs describe the same physical state. The physical child-link transform is
+`parent_frame * Rotation(q) * Inverse(child_frame)`. These joints have a constant three-column child-frame motion subspace, not three ordered Euler rotations.
+Their quaternion update right-multiplies by the exponential of the child-frame angular displacement and removes normalization roundoff.
+Midpoint integration and detached position correction use the same configuration convention, without interpreting quaternion components as scalar speeds.
+Position and velocity offsets are independently packed across mixed spherical, fixed, revolute and prismatic joints.
+CPU detached correction stages every joint and the floating-root transform before publishing or waking the tree. Rejected drift leaves accepted
+coordinates, physical generalized velocities, sleep state and cached transforms unchanged.
+
+`JointPosition` returns four entries for a spherical joint and `JointVelocity` returns three; `PositionCount()` and `m_dof_count` specify the respective
+dimensions. Scalar joints retain their ordered screw representation. This native spherical foundation does not by itself establish angular-limit,
+multi-contact convergence, scene-quality or performance acceptance. Spherical creation is available through native C++ and sandbox JSON; the C ABI below
+still exposes scalar-axis joint creation. The sandbox README specifies the explicit quaternion joint and separate spherical-angular constraint schema.
+
+D6 angular rows measure components of `Log(Ra^T Rb)` in frame A, not independent finite Euler rotations. Their velocity covectors include the
+inverse rotation-log differential; using the frame axes alone is correct only at zero relative orientation (or along the rotation axis).
+The principal coordinate chart is differentiable for relative angles strictly below pi. Coordinate springs, damping, velocity targets and force
+bounds are conjugate to these coordinates. In particular, three equal coordinate damping coefficients are not an isotropic physical angular damper
+away from identity; a physical viscous torque proportional to relative angular velocity has a separate contract.
+
+The shared spherical coordinate geometry uses `q = swing * twist`, with Y twist and the X/Z components of the shortest swing rotation vector.
+The first nonzero quaternion component in `(w,y,x,z)` is chosen positive. A no-twist half-turn swing has diagnostic twist zero but no regular
+swing/twist differential. Gradients use parent-joint-frame relative angular velocity and do not differentiate across the signed twist branch cut.
+Swing range endpoints specify quadrant-wise ellipse half-axes, not independent box bounds. The geometry helper measures signed Euclidean distance
+to the nearest boundary across all four quadrants, including zero-width side segments. Smooth arcs retain their analytic outward normal; axis features
+use their normal cone, rather than deriving a smooth Jacobian from a tiny difference between rounded points.
+Break torque is measured from the summed physical angular wrench, not the norm of nonorthogonal coordinate impulses.
+
+The spherical angular block has six fixed slots: 0-1 for up to two swing faces, 2 for twist, and 3-5 for physical damping along an orthonormal parent
+joint basis. A smooth ellipse uses one swing slot. Zero-width sides use independent unilateral coordinate faces; a completely collapsed swing axis
+leaves a segment, requiring its bilateral lock and the remaining coordinate interval. A side/arc corner has one coordinate face and one curved face.
+Two side faces meet at the origin, strictly inside the outer arc, so no third swing face is required. Feature identities reset incompatible retained
+impulses when a slot changes between a coordinate face and an ellipse row.
+
+All physical damper rows have zero target speed, zero stiffness, and implicit coefficient `gamma = 1/(dt*c)`. Thus their committed angular impulse is
+`-dt*c*omega_relative`, independent of the swing/twist chart. Full `[-pi,pi]` ranges are unrestricted; they create no artificial cut-boundary rows.
+Limited split coordinates require a regular chart. Preparation reports failure for an undefined split or nonfinite gradients, rather than clamping
+derivatives; conditioning near the antipode and behavior through limited coordinate cuts are not covered by the bounded fixtures.
+
+Single-joint native fixtures reconstruct committed rigid and coupled GPU impulses and final physical velocities for damping-only, simultaneous
+noncircular ellipse/twist limits plus damping, two zero-width side faces plus damping, and all six locked/viscous obligations. Independent coordinate
+finite differences and the physical inertia equation check the hard and viscous laws; the CPU solver reaches the same velocities. This is local
+velocity-law evidence, not multi-joint convergence, position/contact quality, scene-energy acceptance or rendered-performance clearance.
+
+Additional fixtures use two moving, unequal-inertia endpoints and check equal-and-opposite world impulse, the implicit relative-speed equation, and
+a two-rigid-body reference. Maximum-row coverage includes two supported swing faces, a geometrically active but separating twist, and three nonzero
+damper impulses; both GPU preparation masks are checked. Exact-antipode limited preparation must reject without committing any damper, followed by
+ordinary limited recovery and unrestricted damping at that same antipode.
+
+Coupled fresh-solve feature replay checks a same-state upper-side-to-upper-ellipse change with the owner unchanged and a nonzero retained damper control.
+Warm and cold solves start from the same free input. Changed-pose continuation uses the response ownership described below, not reinterpretation of retained
+coefficients through a new Jacobian or a preparation flag.
+
+`constraint_transaction.hlsli` provides the resource-independent staging core used by both Engine owners. It separates the last
+accepted epoch/timestep from attempted preparation, stages `free = live - owned_response` only within that accepted epoch, and proposes publication
+as `live + (replacement_response - owned_response)`. Its recorded response uses the represented primary-state change. A new substep logically resets
+response ownership without subtracting accepted physical history; a rejected new-substep attempt retains the old cache's timestep. Coefficient
+compatibility still requires matching row state and feature. Zero-row acceptance clears coefficients and accepted loads even for null-response support.
+
+Rigid staging uses world-COM momentum; generalized scalar staging uses the articulation's existing velocity-component frames. Wake state follows only
+a represented accepted physical change, not a nonzero provisional seed. The accepted-load reduction retains the detector's linear-row impulse norm
+and pure-angular-row resultant; moments from linear impulses in the world-COM response ledger are not break torque. The caller must validate and commit
+every member of the owning transaction together; these helpers do not write GPU resources or provide that owner-level publication gate.
+
+The ordinary rigid stage also forms a provisional seed from compatible coefficients at the new geometry, solves one block step, and stages the resulting
+total response. It consumes a successfully prepared active-row inverse and uses `ProjectConstraintVelocityStep`, the same numerical algebra called by the
+production rigid shader. Physical-admission rejection is distinct from input/projection failure. Two-moving-endpoint CPU and D3D12 fixtures check actual
+proposed momenta against independent viscous equations after changed basis/mobility and interleaved impulses. Exact-dyadic fixtures check no-effect wake,
+fresh-substep damping, rejection/retry and zero-row retirement. Those resource-independent numerical-stage checks do not themselves establish GPU publication.
+
+`GpuConstraintSolver::PrepareVelocityTransactions` and `CommitVelocityTransactions` provide the ordinary owner's actual staged GPU pipeline. Each stable
+ordinary slot owns a 128-byte accepted record (16-byte epoch/dt stamp, 48-byte coefficient/load cache, and 64 bytes of endpoint world-COM momentum response)
+plus a 4-byte attempt result. Prepared rows supply geometry, bounds and an inverse, not accepted coefficients. Existing dependency levels visit enabled
+zero-current-row slots as well as active rows and give each body one block writer per dispatch. Both prospective bodies, their sleep state and the record
+are published only after complete-block admission; contacts and other owners cannot interleave inside that dispatch. Distinct endpoint identity remains
+the validated caller contract, matching `ConstraintSet`'s rejection of self-connections. Different valid blocks can share a body across transactions.
+Each upload assigns a per-slot invalidation revision for semantic input changes or an explicit reset request. The CPU retains a four-byte clock per
+high-water slot for the owner's lifetime, independently of source changes and shadow, upload-buffer, or accepted-record allocation. Allocation alone
+does not create a semantic invalidation, and no new source or regrown slot restarts a clock that an accepted record could still reference. An accepted coefficient cache acknowledges
+that revision; preparation flags are not cache authority. Repeated preparation without Upload therefore continues accepted guesses, while rejection
+followed by an unchanged Upload cannot erase a pending invalidation. Existing padding holds the 30-bit revision and two endpoint-body reset acknowledgements;
+revision exhaustion throws rather than wrapping a live receipt. A newly raised body reset invalidates once in the accepted epoch; a historical cache still
+honours a raised reset, and lowering the flag does not restart a current solve. Slot generation remains separate.
+The body flag is shared step-scoped input produced by `RigidBody::Motion` and cleared by `UnpackDynamics` after the step, not by a constraint block.
+Each accepted block acknowledges its own A/B observations; accepting one block cannot consume the event for another block sharing either endpoint.
+
+Transaction storage advertises nonzero capacity only after both resources, their initialization, and preparation have been recorded. Replacement first
+retains displaced resources in the job's existing fence-bound KeepAlive. A failed replacement keeps returned resources owned but advertises zero capacity,
+so retry must recreate the complete set rather than reuse partial buffers. Allocation failures propagate; they are not physical admission rejections.
+The Upload/Prepare dependencies follow the same rule. The shared upload-buffer set advertises zero capacity from the start of replacement until its
+complete initialization and CPU shadows have been recorded. Pseudo-velocity and optional break-state helpers publish their new capacity only after
+successful resource creation; both retain displaced resources, including a break buffer removed by an upload. Successful one-to-two-body growth is
+covered with two preparations retained in one unsubmitted job and with zero position iterations. Allocation-failure behavior remains source-traced,
+not fault-injection evidence.
+
+Direct native diagnostics execute those owner phases with GPU readback. They cover two moving unequal-inertia endpoints with independent physical-impulse
+checks after pose/mobility changes, preservation of interleaved input, unchanged replay, accepted-only wake, zero iterations, and inactive cache/load
+retirement including nonzero coefficients with zero represented response. Rejection preserves complete body and record bytes. Accepted timestep provenance
+survives rejected `h/2` and `h/4` attempts; an under-relaxed retry discriminates correct scaling from the last accepted `h`. A finite momentum seed whose
+current-mobility twist is nonfinite produces non-terminal admission rejection before projection. An invalid change to an already accepted epoch's timestep
+still uses the fatal numerical transport. Existing compiler/factor/projection failures are not reclassified.
+
+The shared guess-scale helper reports context validity separately from the derived scale's representability. A finite warm factor and an in-window
+timestep ratio can produce an infinite provisional scale; both owners reject that attempt as `AdmissionRejected` before consuming coefficients, while
+retaining all live and accepted state and leaving the fatal-slot stream clear. The helper does not cap the factor or substitute a cold guess for this
+overflow. Invalid context, including changed dt within an accepted epoch, still produces `NumericalFailure`. The existing out-of-window warm policy
+is unchanged. Direct-owner controls use accepted `h = 1/60`, fresh `2h`, and finite factor `2e38` in both lanes and contrast reused-epoch `2h`.
+
+The Engine uses these explicit phases; there is no separately published persistent-constraint warm path. The staged sequence physically publishes no
+persistent provisional guesses when there is no accepted solve, including zero persistent velocity iterations. This is not a guarantee about contact warm caches.
+
+`GpuCoupledConstraintVelocity` exposes the same explicit staged preparation and publication to Engine and bounded native diagnostics.
+Each coupled island owns an accepted epoch/dt, each constituent slot owns accepted coefficients/load/reset receipts, and each target
+owns actual response components: world-COM momentum for ordinary rigid bodies and native generalized velocity increments for complete articulations.
+The ordinary and coupled lanes partition slots, not physical bodies. A validated graph `A -- C0 -- R0 -- R -- R1 -- C1 -- B` therefore has independent
+C0, R, and C1 accounting even though their consecutive commits share R0/R1.
+
+One coupled attempt copies live bodies and the ABA working cache. Recovery writes every participating complete-tree generalized component, so a separate
+whole-forest primary-velocity copy is unnecessary; the omitted copy is exactly `4 * N_velocity` bytes per attempt, not an allocation saving or measured speedup.
+It recovers private `free = live - old_owned` only for
+this epoch's accepted response, derives compatible provisional guesses from accepted cache provenance, and runs the existing numerical/backtracking
+sweep on those private buffers. With live input, membership, configuration factors, and outside writers unchanged during the attempt, the identical
+free state can be reconstructed again: `new_response = actual_private_result - free`. Publication stages
+`proposed = live + (new_response - old_owned)` and `proposed_owned = old_owned + (proposed - live)`. This avoids both a second free-state snapshot and
+reinterpretation of old impulses through new mobility. Contact and ordinary commits may interleave between attempts, never inside one attempt.
+One complete-island admission gate publishes bodies, generalized speeds, reconstructed link velocities, responses, cache, and stamp; a final UAV barrier
+is the visibility boundary. Other physical ABA fields remain unchanged. Prepared rows remain provisional geometry/numerical scratch, not cache authority.
+
+Physical overflow of a new free/seed/final candidate is non-terminal admission rejection. Existing numerical rejection retains its original island
+flags and a distinct result. Invalid accepted-epoch context or invalid participating-link factor state uses the fatal slot-tagged transport. Every link,
+not just the root, is checked before response-only ABA failures may be classified as new physical representability failures. Input revisions and body
+reset levels are acknowledged per accepted block, without clearing another block's shared body event. Wake follows only the accepted physical difference.
+Enabled limits with zero current rows still retire cached coefficients/load, including cancelling support with a zero response record. Removing every
+law from a descriptor can remove it from lowered topology; that is not a same-membership zero-row visit.
+
+The shared result name `SolveRejected` identifies retained numerical rejection separately from physical admission and fatal context failures.
+Three valid world-to-floating-link X drives with unit mass, target one, zero softness, and no backtracking demonstrate this outcome without injected
+faults. Relaxation one quarter accepts nominal coefficients `(0.25,0.25,0.25)`, speed `0.75`, and merit change `-0.46875`. A same-epoch full-relaxation
+attempt proposes speed `1.5` with merit change `+0.09375`; it rejects with the existing Merit flag while preserving all live/accepted state and leaving
+the fatal-slot stream clear. Assertions allow small preconditioner-regularization differences rather than requiring bit-exact nominal impulses.
+
+Native diagnostics cover the original non-coaxially rotated fixed-root spherical damper, unchanged-pose and cold controls, and fresh-substep/zero-iteration
+behavior with a nonzero cache. A two-revolute-link fixture changes actual articulated mobility and independently applies link impulses before rebasing.
+Its analytic mass matrix is `M = [[3.8 + 2*cos(q2), 1.4 + cos(q2)], [1.4 + cos(q2), 1.4]]`, and two isotropic link dampers give
+`C = 6*[[2,1],[1,1]]`; the independent equation is `(M_new + dt*C)*v_new = M_new*(1,2)^T + external_impulse`.
+The mixed-owner fixture checks complete rejected-owner bytes, independent island acceptance, an intervening ordinary commit, retry, and an exact sleeping
+replay with nonzero support. A diagnostic child-validity fault distinguishes invalid factor context from provisional overflow. These are direct-owner
+checks, not public Engine selective-refresh, scene, C ABI, default-budget convergence, or rendered-performance acceptance.
+
+Coupled storage replacement keeps a partial set unusable and retains displaced resources through recording retirement. Topology allocation groups
+publish capacity only after every member exists; uploaded streams and trial initialization retain their existing owning boundaries. CPU membership
+keys are allocated before their joint publication. These exception paths are source-traced, not allocation-failure injection evidence. Response payload
+is O(generalized components + bodies); per-island provenance, per-slot cache, and the private body/ABA working state are additional, explicitly reported costs.
+
+### Engine phase, epoch and publication contract
+
+Each physical internal substep consumes a fresh monotonic epoch. Its main and selective visits share that epoch and dt; rejected or abandoned attempts
+never make an epoch reusable. Coupled packed-response membership changes require fresh ownership, while harmless ordinary body repacking preserves stable
+identity. Disabling, removing, repairing or reusing a slot invalidates future guesses without undoing already-published physical history.
+
+The rigid-only branch retains Position then Velocity: `CompileRows(q0)`, one shared pseudo clear, position colouring/inverse/sweeps/application, explicit
+`CompileRows(q1)`, then `PrepareVelocitySolve(q1)` and staged physical sweeps. The additional compile is visible in Resolve, not hidden in a compound
+preparation call. Compilation does not clear pseudo state or invalidate accepted records. Physical inverse and rows describe the same current pose.
+With a coupled constraint/contact lane, Velocity remains before Position. Each selective visit recompiles geometry and rebuilds mobility at its current
+pose before further same-epoch work. Configured outer, position, selective and backtracking budgets are unchanged; no final extra velocity solve is added.
+
+One completed-substep detector samples only that epoch's final accepted load, after all main/selective/position work. Frame peaks cover those samples.
+An earlier acceptance remains eligible after a later rejected replacement even if current geometry makes its rows inactive. A later accepted zero-row
+replacement retires the load. Historical-only coefficients and provisional guesses do not count. Force and pure-angular torque thresholds remain strict.
+The uploaded graph remains an inactive scheduling superset after disposition until the next frame; no solve follows disposition in the same epoch.
+Unrepresentable accepted-load diagnostics reject frame publication through the existing fatal slot channel rather than clamping or hiding the sample.
+
+One sparse owner-tagged rejection bank replaces the coupled-only stream. Ordinary entries identify stable slots and generations; coupled entries identify
+frame-local islands, without fake constraint handles. Velocity results are captured before position scratch reuse. Admission rejection has no numerical
+reason or details; numerical rejection retains its reason, phase and actual per-island attempt count. Fixed later no-op retry dispatches do not count.
+A recorded joint-drift failure takes count and relaxation from the same island attempt and reports merit zero because that drift has no merit reduction.
+The first record survives subsequent acceptance. Native, C and managed consumers share Event size 232 and the exact version check; short event buffers
+receive no partial copy and reading does not drain completed events.
+
+Terminal solver/capacity diagnostics remain separate from non-terminal reports. `HasTerminalFailure()` records a failure, not the inverse claim that
+absence proves CPU publication. Allocating internal sleep-ID conversion completes before the caller-owned publication marker. A rejected gathered output
+invalidates both persistent owners and restores rejected sleep input; later callback exceptions do not undo already-published state.
+Actual terminal abandonment waits without publishing caller dynamics or events and invalidates both owners. Reuse after `GpuJob::Abandon` remains blocked
+by that independent terminal lifecycle, which does not reset recording; this migration does not repair it or claim recovery from device removal.
+
+Focused controls distinguish post-position rows and inverse with independent anisotropic physical equations and separate omissions; accepted load versus
+current prepared masks; retained rejection versus later acceptance; timing validation versus command mutation; ordinary/coupled failed-frame invalidation;
+historical epochs, exact break thresholds and repair; and actual C/managed numerical details. These are bounded native/public-boundary controls, not scene,
+default-budget convergence or rendered-performance acceptance. The separate contact skipped-work ownership, passive small-scale merit tolerance, and
+whole-island position-coordinate publication issues remain open physical-quality work; their numerical laws are not changed in this migration.
+In particular, prospective speed validation does not prove that final joint integration succeeds, or that every final drift rejection is reported before
+another constituent publishes its coordinates.
+
+### Complete physical trial work and its local evaluation allowance
+
+The physical coupled owner evaluates one current-row objective,
+`F(x,lambda) = K_q(x) - sum_i s_i*lambda_i + .5*sum_i gamma_i*lambda_i^2`,
+where `s = target - bias - prescribed endpoint row speed`. Coefficients do not reconstruct physical ownership: a nonzero accepted coefficient can have
+zero represented response. `B` is the actual owner-free primary state, with zero coefficients. The other reference slot first captures the actual
+same-epoch incumbent `C`, then holds the admitted numerical initial state `I`. A compatible, finite, feasible current-row incumbent is retained only
+when its current objective is justified against B. The provisional warm initialization must satisfy both B's cap and descent from that trusted reference;
+otherwise the same solver initializes from that reference before constructing a direction.
+
+Every numerical trial restores I, constructs the ordinary projected direction, applies it privately, stages its actual publication candidate, refreshes
+complete-tree link velocities, and compares that final candidate against both B and I. Candidate/projection/gather formulas, relaxation and retry budgets
+are unchanged. Only Pending islands execute this loop; accepted staged output is preserved across later attempts. There is one final publication, not an
+additive commit after the work check. Zero-row retirement remains structural rather than requiring passive numerical descent. Invalid required reference
+arithmetic is admission rejection; an evaluated unavailable trial allowance follows bounded solve retry/rejection. Attempt counts count selected directions,
+not initialization comparisons. Prepared row coefficients are private scratch; accepted rows and actual response ledgers remain authoritative on rejection.
+
+For a rigid body, K uses stored world-COM momentum and the frozen symmetric inverse metric:
+`.5*inverse_mass*(p_lin^2 + (r*p_ang)^T*unit_inverse_inertia*(r*p_ang))`.
+For a tree, primary values are native generalized speeds. Each link's motion is reconstructed from its parent and retained motion screws, then contributes
+`.5*mass*(omega^T*unit_inertia*omega + |v_origin + omega cross COM|^2)`.
+Fixed roots have zero base motion; their movable descendants still contribute. Quaternion/frame transport and metric multiplication are inside the local
+evaluation bound. Independently rounded momentum/twist pairs are not treated as exactly constitutive. Moving kinematic rigid endpoints supply prescribed
+source work, not dynamic K; non-kinematic zero-inverse-mass endpoints have exact zero twist before any inertia product.
+
+`coupled_constraint_work.hlsli` evaluates midpoint/difference forms of these fixed symmetric metrics and the current source/softness terms. Midpoints use
+`.5*a + .5*b`, not `.5*(a+b)`. Exactly equal finite primary/coefficient pairs bypass polarization, including signed zeros and equal subnormals; distinct
+subnormals decode exactly before arithmetic. Rigid targets, complete trees, and active rows reduce in stable order. Each vector dot has individually rounded products
+and left-to-right addition. Local `precise` scalar operations forbid contraction/reassociation; C++ replay uses stored volatile scalar results.
+
+The shader carries an independently scaled value/error pair for each scalar: `(q +/- e)*2^k`, with finite binary32 mantissas, nonnegative e, and a signed
+64-bit exponent encoded in two unsigned 32-bit words. A nonzero enclosure has `.5 <= max(abs(q),e) < 1`; exact zero is canonical. No shader 64-bit
+arithmetic feature is required. The shader does not propagate uncertainty through the preceding
+gather/ABA pipeline or prove that its stored geometry and inertia inputs represent an exact mechanical system. For an addition, the propagated error is
+`e_a + e_b + rho`. For multiplication it is `abs(a_hat)*e_b + abs(b_hat)*e_a + e_a*e_b + rho`. Here `rho` is one output ULP, a conservative rounding
+bound, with exact zero/identity cases omitted. Signed value arithmetic can cancel; these nonnegative contributions cannot. This operation-by-operation
+recurrence replaces a global `gamma_(N+10)` estimate: reduction error follows the actual active operation count, with no `1-N*u` denominator or
+capacity-based estimate. It is deliberately conservative rather than a sharp error estimate.
+
+Stored float bits, including subnormals, decode into exact normal mantissas plus exponents. Addition first aligns both enclosures to the greater exponent;
+an exponent gap of at least 26 discards the smaller point and encloses its entire magnitude with mantissa error `2^-24`. Multiplication adds exponents.
+Every operation renormalizes. Bound operations round upward by positive-float successor; nonzero mantissa FTZ loss is enclosed by `eta=2^-126` in those
+mantissa units, not physical work units. Error rescaling is bounded before point rescaling loss is added. Exact empty work has zero error.
+
+The whole mechanical/source/softness reduction returns `abs(Q*2^-k-q) <= e`, with one positive common factor for the complete comparison. Individual term
+mantissas are never summed without their exponents. A large unchanged motion component therefore cannot erase a small changing component. The fresh
+allowance is derived for this arithmetic, not obtained by scaling the old physical-unit FTZ floor.
+
+The fixed linear parent transport/quadratic energy graph uses fewer than `512*(M+V+R+6*S+1)` elementary enclosure operations. Its exponent magnitude is
+bounded by `2*152` times that count; for nonnegative signed-32-bit buffer counts this is at most `3008263812349952 < 2^53`, within the two-word exponent.
+Transport is linear in parent motion; accumulated kinetic energy never feeds descendant motion. Checked two-word arithmetic marks signed overflow
+unavailable rather than wrapping. This argument is specific to the fixed evaluation graph, not a new limit on caller speed or inertia.
+
+A nonfinite work value or nonfinite allowance never passes the finite acceptance check. An unrepresentable allowance follows the existing bounded
+retry/rejection path; it is not converted into permission, a clamped finite claim, or a new invalid-Engine-input restriction. Consumed invalid enclosures
+propagate before zero multiplication or identity shortcuts; an unused raw input skipped before decoding is a different case. Residual/row
+nonfinite failures retain their existing early-rejection path. The policy remains provisionally `Q_hat <= E_eval`, **not** certified strict descent:
+even a valid evaluation bound can admit exact positive work up to `2*E_eval`. It is not a whole-Engine or arbitrary-duration no-growth theorem.
+Position pseudo-merit and final-coordinate publication remain separate gates.
+
+All validity and work comparisons precede conversion of `merit_change` into physical-unit float diagnostics. That field retains best-effort zero for
+unavailable or unrepresentable work, including underflow; it is not the normalized mantissa. Diagnostic conversion never changes a valid Merit rejection
+into NonFinite, never changes admission, and cannot establish that actual work is zero.
+
+The retained pre-range native capsule **fails at FTZ range**. With unit mass, three equality rows, initial speed `2^-100`, full warm reuse and
+relaxation `.45`, returned-state energy grows from `3.111507638930571e-61` to `1.0459465474558259e-42` J with no rejection or terminal error.
+The second energy is already `2.8899995368` times the first. The six cold/warm cases at speeds 1, .001 and .000001 pass their finite-window material
+criterion, but finite FTZ allowances still admit real positive work. This is not physical acceptance, a bounded-speed input contract, or a reason to
+add damping. The retained native failure is immutable and remains separate from validation of the scaled evaluator. Range handling is not a strict
+passivity proof: even identity-metric `(1,0,0) -> (0,1,2^-100)` has positive exact work `2^-201` that can lie inside cancellation uncertainty and pass
+the provisional policy. No damping, policy tightening, physical staging or budget change accompanies this arithmetic cut.
+
+The existing C ABI exposes axis-joint articulations and D6 constraints through the entries below. Quaternion spherical configuration and typed spherical
+angular descriptors are available through native C++ and sandbox JSON, but not these C ABI entries:
 
 - `Physics_ArticulationCreate`, state get/set, link-state copy, link force, and link gravity calls.
 - `Physics_ConstraintCreateD6`, get/update, enable/disable, repair, and destroy calls.
@@ -771,23 +1133,27 @@ The production rigid-constraint layouts are enforced by `static_assert`:
 | Resource | Cost |
 |---|---:|
 | Stable endpoint | 32 B/slot |
-| Persistent D6 descriptor | 256 B/slot |
+| Persistent typed descriptor | 288 B/slot |
 | Compiled block header | 32 B/slot |
-| Compiled scalar row, including accumulated impulse | 96 B/row |
+| Prepared scalar row, including numerical scratch | 96 B/row |
 | Six-row block storage | 576 B/slot |
-| Complete persistent slot | **896 B/slot** |
-| Rigid split-correction pseudo velocity | 32 B/participating body |
+| Inverse, dependency task and colour masks | 184 B/slot |
+| Complete prepared slot | **1112 B/slot** |
+| Accepted ordinary record plus attempt result | 132 B/allocated owner slot |
+| Shared first-rejection record | 40 B/stable slot or coupled island |
+| Rigid split-correction pseudo velocity | 32 B/packed body |
 | Break latch, when any slot is breakable | 32 B/slot |
-| Colour-overflow and frame-sticky numerical-failure state, when slots exist | 8 B total |
+| Colour-overflow and frame-sticky numerical-failure state, when slots exist | 16 B total |
 
-For $S$ stable slots, $N$ participating rigid bodies, and $K$ breakable constraints, exact logical storage is:
+For $S$ stable slots, $T$ ordinary record slots when that storage is present, $R$ rejection records, $N$ packed rigid pseudo entries,
+and $K$ breakable constraints, the ordinary/shared owner reports logical storage as:
 
 $$
-896S + 8[S>0] + 32N + 32S[K>0]
+1112S + 132T + 40R + 16[S>0] + 32N + 32S[K>0]
 $$
 
 Retained allocation substitutes the reported slot, body, and break capacities for the logical counts. Capacities grow geometrically and can therefore exceed
-current logical use after a workload shrinks. An empty `ConstraintSet` reports zero constraint allocation and dispatches.
+current logical use after a workload shrinks. An empty lane performs no constraint dispatches; retained resources still contribute to allocated-byte counts.
 
 Articulation-coupled persistent constraints allocate additional matrix-free transaction storage only when a constraint touches a link:
 
@@ -797,12 +1163,28 @@ Articulation-coupled persistent constraints allocate additional matrix-free tran
 | Velocity block topology, transaction scratch, and two link contributions | 144 B/slot |
 | Target plus target impulse | 64 B/target |
 | Endpoint adjacency | 4 B/entry |
-| Island state, failure state, and selection | 68 B/island |
+| Shared velocity/position island descriptor, numerical state and failure word | 40 B/island |
 | Island block index | 4 B/index |
 | Participating articulation range | 12 B/range |
 | Exact self-link mobility | 96 B/participating link plus 16 B/range |
 | Detached impulse ABA | 64 B/participating link plus 4 B/generalized velocity |
 | Position transaction | 32 B/participating link plus 4 B/generalized velocity |
+
+Persistent ordinary ownership adds 128 B/slot plus a 4 B attempt result. The shared first-rejection bank adds 40 B per ordinary stable slot and coupled
+island. Coupled ownership separately retains a 16 B acceptance stamp and 4 B result per island, 48 B accepted rows per stable slot, 32 B world-COM response
+per packed body, 4 B generalized response per component, and private bodies/generalized/ABA working buffers. Those buffers are not an additional solver path.
+
+Complete-work evaluation adds `64*R + 8*V + 24*S + 4*(R+A) + 20*N + 192*M` bytes: R participating rigid targets, V participating native speed
+components, S stable slots, A participating trees, N islands and M participating links. The 64-byte rigid and 8-byte speed records hold B and C/I;
+24 bytes per slot hold I's six coefficients. Compact grouped indices, 16-byte spans and 4-byte choices belong to the same velocity owner.
+The evaluator-only 192-byte link record contains 96-byte Delta and Mid records, each with six independently scaled 16-byte scalar enclosures. Each comparison traverses the packed parent-before-child
+range once, reading its parent once and writing its link once; the record is reused for B/C, warm/reference and both trial comparisons. No accepted-epoch
+error state or second ABA forest is retained.
+
+Capture writes C before recovery, B after its refresh, and I after initialization admission/restoration. Trial restoration reads I before each direction;
+the work evaluator is the last reader after staging and refresh. Compact layout resources change with packing/membership; references and motion scratch
+are transient contents reused between visits. The work signature is one root CBV plus 17 SRVs and 14 UAVs, exactly 64 DWORDs; its last UAV is the
+linear motion scratch. Existing stage/refresh resources and allocation-retirement ownership are reused.
 
 Contacts and joints alias the same detached position state rather than maintaining independent corrections. Rigid pseudo storage belongs to the rigid
 constraint solver when present. Articulated contacts own canonical complete-forest link/generalized storage; coupled joint rows map their compact response
@@ -859,8 +1241,8 @@ o_p &= o_a + 64A \\
 o_v &= \operatorname{align}_{16}(o_p + 4P) \\
 o_{\dot v} &= \operatorname{align}_{16}(o_v + 4V) \\
 o_k &= \operatorname{align}_{16}(o_{\dot v} + 4V) \\
-o_f &= \operatorname{align}_{16}(o_k + 32S) \\
-\text{readback bytes} &= o_f + 32I
+o_r &= \operatorname{align}_{16}(o_k + 32S) \\
+\text{readback bytes} &= o_r + 40R
 \end{aligned}
 $$
 
@@ -870,12 +1252,12 @@ where:
 - $E_c$ is collision-event capacity; it is zero unless the `Collisions` event has a subscriber.
 - $A$, $P$, and $V$ are articulation, generalized-position, and generalized-velocity counts; acceleration contributes the second $4V$ term.
 - $S$ is the persistent constraint slot count when break latches are present.
-- $I$ is the coupled-island count when failure records are present.
+- $R$ is the shared rejection-bank size: persistent stable slots plus coupled islands when that output is present.
 
-The 64-byte header carries final and peak collision counters, bounded event state, substep provenance, and the rigid constraint numerical-failure slot. Each public collision event is 240 bytes and retains
+The 64-byte header carries final and peak collision counters, bounded event state, substep provenance, and the rigid constraint numerical-failure slot. Each gathered GPU collision record is 240 bytes and retains
 the event-time relative transform, post-solve relative velocity, and collision timing needed to publish a coherent `RbContact`; warm-start and solver-response
-state remain excluded. Articulation output is 64 bytes/tree plus generalized position, velocity, and acceleration scalars; link transforms are reconstructed
-from accepted generalized state. Whole-tree sleeping reuses articulation-output padding. Break and coupled-failure records are 32 bytes each.
+state remain excluded. This GPU record is distinct from the C ABI's 232-byte `Event`. Articulation output is 64 bytes/tree plus generalized position, velocity, and acceleration scalars; link transforms are reconstructed
+from accepted generalized state. Whole-tree sleeping reuses articulation-output padding. Break records are 32 bytes; owner-tagged rejection records are 40 bytes.
 
 The packed UAV retains at least one 240-byte event element as a safe zero-capacity binding, and a 16-byte substep reservation exists only when collision counters
 must be accumulated. The readback itself excludes these sentinels. A multi-substep frame additionally retains 32 B/packed body of immutable frame force, but
@@ -913,7 +1295,7 @@ The implementation uses:
 - Warm-start scaling when $h$ changes.
 - Warm-start invalidation after material feature, normal, topology, or endpoint changes.
 - Maximum-endpoint-degree partitioning of simultaneous physical contact impulses, preserving passivity for redundant shared-tree contacts.
-- Capped position correction separated from physical velocity, with penetration-limited initial acceleration and degree-damped monotone refinements inside each fixed manifold.
+- Capped position correction separated from physical velocity, with penetration-limited initial acceleration and degree-damped projected refinements inside each fixed manifold.
 - Bounded rotation-log errors for angular correction.
 - Finite-state validation in debug kernels.
 - Explicit regularization and diagnostics for singular systems.
@@ -1125,7 +1507,7 @@ For both the asymmetric rigid body and free-floating articulation:
 | Conservation and Dzhanibekov | Rigid and floating-root torque-free regressions preserve qualitative flips, momentum envelopes, and bounded energy |
 | Passive constraints and restitution | Passive work guard, soft rows, friction, motors, split correction, and elastic restitution regressions pass without artificial energy clamps |
 | Pathological systems | Redundancy, contradiction, colour exhaustion, $10^6:1$ mass ratio, loops, capacity, stale handles, and bounded failure tests pass |
-| Submission/readback contract | Every measured 1-, 2-, and 4-substep demo frame reports one submission, one wait, and one GPU-to-CPU readback copy |
+| Submission/readback reports | The measured 1-, 2-, and 4-substep demo frames reported one final submission, one wait, and one readback copy; that submission field did not account for prefix flushes |
 
 The legacy benchmark uses warmed medians on the same RTX 3080 Ti. Nineteen of 22 scenes are within 10% of baseline or faster. The remaining three are not
 equivalent workloads after correctness changes increased their generated contacts:
@@ -1269,8 +1651,9 @@ FPS is the measured interval after a 300-step warm-up in the final production Re
 | `constraint-stress` | Cyclic two-dimensional graph and fixed-iteration scaling | 60 | 92.23 |
 | `constraints-full-showcase` | Rigid joints, loops, breakage, fixed/floating articulations, motors, limits, mixed coupling, and self-contact | 60 | 43.68 |
 
-The final ragdoll scene uses three internal substeps, 10 physical contact sweeps, and one detached position sweep while retaining one submission, wait, and
-readback per frame. Three 10-second runs settled to 35.4-50.7 mm maximum ground penetration with a 54.0 mm worst impact transient. Its warmed three-run median
+The final ragdoll scene uses three internal substeps, 10 physical contact sweeps, and one detached position sweep with one final wait and
+readback per frame. Its historical submission field counted only the final submission, not prefix flushes. Three 10-second runs settled to
+35.4-50.7 mm maximum ground penetration with a 54.0 mm worst impact transient. Its warmed three-run median
 was 49.65 physics FPS; the conservative final all-demo acceptance sample was 40.44 FPS. Visual checks at construction and after settling confirmed six
 separated bodies, outward-facing arms, uncrossed legs, and no deep ground clipping.
 

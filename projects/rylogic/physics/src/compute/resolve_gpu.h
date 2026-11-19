@@ -5,6 +5,7 @@
 #pragma once
 #include "pr/physics/forward.h"
 #include "src/utility/gpu.h"
+#include "src/compute/constraint_transaction.hlsli"
 
 namespace pr::physics
 {
@@ -64,7 +65,7 @@ namespace pr::physics
 		explicit GpuResolver(Gpu& gpu, EngineConfig const& config, IShaderCache* shader_cache);
 
 		// Resolve ordinary rigid contacts while retaining proxy-touching contacts for the coupled articulation lane.
-		void Resolve(GpuJob& job, float dt, int body_count, int rigid_body_count, int max_contacts, D3DPtr<ID3D12Resource> dispatch, D3DPtr<ID3D12Resource> counters, D3DPtr<ID3D12Resource> contacts, D3DPtr<ID3D12Resource> bodies, std::span<GpuMaterial const> materials, float bias_scale = 1.0f, int solver_iterations = -1, int position_iterations = -1, float restitution_scale = 1.0f, bool support_only = false, GpuConstraintSolver* constraint_solver = nullptr, GpuCoupledConstraintSolver* coupled_constraint_solver = nullptr, GpuCoupledContactSolver* coupled_contact_solver = nullptr, bool retain_constraint_impulses = false, int substep_index = 0);
+		void Resolve(GpuJob& job, float dt, int body_count, int rigid_body_count, int max_contacts, D3DPtr<ID3D12Resource> dispatch, D3DPtr<ID3D12Resource> counters, D3DPtr<ID3D12Resource> contacts, D3DPtr<ID3D12Resource> bodies, std::span<GpuMaterial const> materials, float bias_scale = 1.0f, int solver_iterations = -1, int position_iterations = -1, float restitution_scale = 1.0f, bool support_only = false, GpuConstraintSolver* constraint_solver = nullptr, GpuCoupledConstraintSolver* coupled_constraint_solver = nullptr, GpuCoupledContactSolver* coupled_contact_solver = nullptr, GpuConstraintEpoch epoch = {}, int substep_index = 0);
 
 		// Mark the material buffer dirty so it is re-uploaded on the next resolve.
 		void MaterialsDirty();

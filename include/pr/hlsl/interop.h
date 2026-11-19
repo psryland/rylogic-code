@@ -1298,7 +1298,8 @@ namespace pr::hlsl
 		original_value = atomic.exchange(value);
 	}
 	// C++ equivalent of HLSL InterlockedCompareExchange. Thread-safe using std::atomic_ref.
-	inline void InterlockedCompareExchange(uint32_t& dest, uint32_t compare_value, uint32_t value, uint32_t& original_value)
+	template <typename T> requires (std::same_as<T, int32_t> || std::same_as<T, uint32_t>)
+	inline void InterlockedCompareExchange(T& dest, T compare_value, T value, T& original_value)
 	{
 		auto atomic = std::atomic_ref(dest);
 		original_value = compare_value;

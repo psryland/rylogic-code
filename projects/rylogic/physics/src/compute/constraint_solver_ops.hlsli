@@ -39,7 +39,7 @@ GpuConstraintBlock EmptyConstraintBlock()
 	block.colour = MaxColours;
 	block.row_states = 0u;
 	block.flags = 0u;
-	block.pad0 = 0u;
+	block.row_identities = 0u;
 	return block;
 }
 

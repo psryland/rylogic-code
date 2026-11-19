@@ -4,6 +4,7 @@
 //*********************************************
 #pragma once
 #include "pr/physics/forward.h"
+#include "pr/physics/integrator/engine_diagnostics.h"
 #include "src/compute/articulation_mobility_gpu.h"
 #include "src/compute/articulation_impulse_aba_gpu.h"
 #include "src/compute/coupled_constraint_prepare_gpu.h"
@@ -46,11 +47,8 @@ namespace pr::physics
 		// Upload frame-local coupled topology after the matching shared constraint and articulation streams.
 		bool Upload(GpuJob& job, GpuConstraintUpload const& constraint_upload, GpuArticulationUpload const& articulation_upload);
 
-		// Rebuild mobility and physical rows, optionally retaining impulses already applied earlier in the current substep.
-		void PrepareVelocity(GpuJob& job, float timestep, int body_count, ID3D12Resource* bodies, bool retain_current_impulses = false);
-
-		// Apply retained coupled impulses through atomic rigid and complete-tree updates.
-		void ApplyWarmStart(GpuJob& job, int body_count, ID3D12Resource* bodies);
+		// Rebuild current-pose mobility/rows and prepare explicit persistent ownership without physical publication.
+		void PrepareVelocity(GpuJob& job, GpuConstraintEpoch epoch, int body_count, ID3D12Resource* bodies);
 
 		// Execute one transactional coupled velocity sweep.
 		void SolveVelocityIteration(GpuJob& job, int body_count, ID3D12Resource* bodies, int substep_index);
@@ -65,18 +63,24 @@ namespace pr::physics
 		void SolvePositionIteration(GpuJob& job, ID3D12Resource* bodies, int substep_index);
 
 		// Apply all shared rigid and articulation pseudo state exactly once.
-		void ApplyPosition(GpuJob& job, ID3D12Resource* bodies);
+		void ApplyPosition(GpuJob& job, ID3D12Resource* bodies, int substep_index);
 
 		// True when the latest upload contains at least one enabled articulation-coupled block.
 		bool Active() const;
 
-		// Return the frame-sticky rejection stream for inclusion in the sole owning-frame readback.
-		GpuCoupledConstraintFailureOutput FailureOutput();
+		// Return accepted coupled load ownership for the completed-substep detector.
+		GpuCoupledConstraintLoadOutput LoadOutput();
+
+		// Discard cache provenance from a frame that never became caller-visible, without releasing recorded resources.
+		void InvalidateRuntimeState();
 
 		// Release all topology-dependent coupled resources and invalidate retained warm-start timing.
 		void Deactivate();
 
 		// Return aggregate logical, retained, and dispatch costs for the complete current frame.
 		GpuCoupledConstraintSolverStats Stats() const;
+
+		// Read per-frame opt-in velocity work after the owning job's completion fence and before its next upload/reset.
+		CoupledVelocityWorkStats CompletedVelocityWork() const;
 	};
 }

@@ -125,13 +125,13 @@ namespace pr::physics
 		// Replace the floating root's link-frame spatial velocity.
 		void RootVelocity(v8motion velocity);
 
-		// Return the current reduced positions for one non-root joint.
+		// Return scalar joint coordinates, or the four unit-quaternion components (x,y,z,w) of a spherical joint.
 		std::span<float const> JointPosition(LinkHandle link) const;
 
-		// Replace all reduced positions for one non-root joint.
+		// Replace all configuration coordinates; spherical inputs must be unit quaternions, not three Euler angles.
 		void JointPosition(LinkHandle link, std::span<float const> position);
 
-		// Return the current reduced velocities for one non-root joint.
+		// Return generalized joint speeds; a spherical joint returns three child-joint-frame angular velocities.
 		std::span<float const> JointVelocity(LinkHandle link) const;
 
 		// Replace all reduced velocities for one non-root joint.

@@ -46,7 +46,8 @@ namespace pr::rdr12
 		std::recursive_mutex m_mutex;
 		std::thread::id      m_main_thread_id; // The thread that created the context. Initialise and Shutdown calls must be made on this thread.
 
-		explicit Context(HINSTANCE instance);
+		// Renderer-local diagnostics require host-configured process validation; breaking requires device_debug.
+		Context(HINSTANCE instance, bool device_debug, bool break_on_errors);
 		Context(Context&&) = delete;
 		Context(Context const&) = delete;
 		Context& operator=(Context&) = delete;

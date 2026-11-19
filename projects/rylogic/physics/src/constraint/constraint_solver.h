@@ -47,11 +47,12 @@ namespace pr::physics
 	{
 	private:
 
-		// Cached canonical D6 impulses remain associated with a generational source handle.
+		// Canonical impulses remain associated with a generational source handle and the feature that defined each row.
 		struct WarmStartEntry
 		{
 			std::array<float, 6> m_impulses = {};
 			float m_timestep = 0.0f;
+			uint32_t m_row_identities = 0;
 		};
 
 		std::unordered_map<uint64_t, WarmStartEntry> m_warm_start;

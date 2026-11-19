@@ -553,6 +553,13 @@ namespace pr
 		#pragma endregion
 
 		#pragma region API Compatibility
+		// Host-owned process diagnostics, separate from renderer-local validation messages and debug objects.
+		enum class EProcessDiagnostics :int
+		{
+			None = 0,
+			DebugLayer = 1,
+			GpuValidation = 2,
+		};
 		enum class ERayTracingTier :int
 		{
 			NotSupported,
@@ -1238,6 +1245,16 @@ namespace pr
 extern "C"
 {
 	// Dll Context ****************************
+	// Configure D3D12 validation once before any module creates a device. None leaves external settings unchanged.
+	// Unavailable diagnostics report failure without changing settings; repeated/late calls through this DLL are rejected.
+	// Calls/devices in other modules cannot be observed here; the host owns ordering. Renderer diagnostics are chosen separately.
+	VIEW3D_API BOOL __stdcall View3D_ConfigureProcessDiagnostics(pr::view3d::EProcessDiagnostics mode, pr::view3d::ReportErrorCB error_cb);
+
+	// Choose renderer device diagnostics once before Initialise. Requires process validation when enabled.
+	// Enables validation filters, DXGI/D3D11 debug objects and live-object reports; optionally breaks on validation errors/warnings.
+	// Never changes process policy and may follow another module's device creation. Adapter devices are shared across the process.
+	// Without this call no renderer-local diagnostics are requested. Breaking requires enable; errors return false through error_cb.
+	VIEW3D_API BOOL __stdcall View3D_ConfigureDeviceDiagnostics(BOOL enable, BOOL break_on_errors, pr::view3d::ReportErrorCB error_cb);
 	
 	// Initialise calls are reference counted and must be matched with Shutdown calls.
 	// The first Initialise call binds View3D to the calling thread. Later Initialise calls, and all Shutdown calls, must be made on that thread until

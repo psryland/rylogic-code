@@ -6,6 +6,7 @@
 #include "pr/physics/forward.h"
 #include "src/constraint/constraint_gpu.h"
 #include "src/utility/gpu.h"
+#include "src/compute/constraint_transaction.hlsli"
 
 namespace pr::physics
 {
@@ -35,7 +36,38 @@ namespace pr::physics
 		int m_slot_count = 0;
 	};
 
-	// Lazily allocated GPU lane for persistent rigid D6 constraints.
+	// Borrowed first-rejection-per-owner frame stream, including empty ordinary slots and coupled island entries.
+	struct GpuConstraintRejectionOutput
+	{
+		ID3D12Resource* m_states = nullptr;
+		int m_slot_count = 0;
+	};
+
+	// Borrowed coupled acceptance and slot mapping for completed-substep load sampling.
+	struct GpuCoupledConstraintLoadOutput
+	{
+		ID3D12Resource* m_acceptance = nullptr;
+		ID3D12Resource* m_rows = nullptr;
+		ID3D12Resource* m_topology = nullptr;
+		int m_island_count = 0;
+	};
+
+	// Borrowed stable-slot transaction resources for ordered GPU consumers and native readback.
+	struct GpuConstraintTransactionOutput
+	{
+		ID3D12Resource* m_records;
+		ID3D12Resource* m_results;
+		int m_slot_count;
+	};
+
+	// Completed native diagnostic ownership state; prepared geometry does not contain accepted physical coefficients.
+	struct GpuConstraintSolveResult
+	{
+		std::vector<GpuConstraintRigidRecord> m_records;
+		std::vector<uint32_t> m_results;
+	};
+
+	// Lazily allocated GPU lane for typed persistent rigid constraints.
 	struct GpuConstraintSolver
 	{
 	private:
@@ -49,17 +81,14 @@ namespace pr::physics
 		ComputeStep m_cs_reset_colours;
 		ComputeStep m_cs_assign_colour_level;
 		ComputeStep m_cs_finish_colours;
-		ComputeStep m_cs_apply_warm_start;
 		ComputeStep m_cs_clear_pseudo_velocity;
 		ComputeStep m_cs_prepare_position_solve;
 		ComputeStep m_cs_solve_position;
 		ComputeStep m_cs_apply_position;
 		ComputeStep m_cs_prepare_velocity_solve;
-		ComputeStep m_cs_solve_velocity;
+		ComputeStep m_cs_commit_velocity_transaction;
 		ComputeStep m_cs_detect_breakage;
-		ComputeStep m_cs_apply_warm_start_fused;
 		ComputeStep m_cs_solve_position_fused;
-		ComputeStep m_cs_solve_velocity_fused;
 		D3DPtr<ID3D12Resource> m_r_endpoints;
 		D3DPtr<ID3D12Resource> m_r_descriptors;
 		D3DPtr<ID3D12Resource> m_r_blocks;
@@ -71,10 +100,20 @@ namespace pr::physics
 		D3DPtr<ID3D12Resource> m_r_solve_cache;
 		D3DPtr<ID3D12Resource> m_r_colour_schedule;
 		D3DPtr<ID3D12Resource> m_r_colour_masks;
+		D3DPtr<ID3D12Resource> m_r_rigid_records;
+		D3DPtr<ID3D12Resource> m_r_transaction_results;
+		D3DPtr<ID3D12Resource> m_r_frame_rejections;
+		int m_rejection_capacity = 0;
+		int m_rejection_count = 0;
+		GpuConstraintEpoch m_transaction_epoch;
+		ConstraintSet const* m_transaction_source;
+		int m_transaction_capacity;
 		D3DPtr<ID3D12CommandSignature> m_cmd_sig;
 		std::vector<GpuConstraintEndpoint> m_endpoint_shadow;
 		std::vector<ConstraintEndpointIdentity> m_endpoint_identity_shadow;
-		std::vector<GpuD6ConstraintDesc> m_descriptor_shadow;
+		std::vector<GpuConstraintDesc> m_descriptor_shadow;
+		// Per-slot input clocks outlive source changes and allocation/shadow resizing, so no retained receipt can alias a new event.
+		std::vector<uint32_t> m_invalidation_revisions;
 		std::vector<int> m_body_degrees;
 		ConstraintColourSchedule m_colour_schedule;
 		ConstraintSet const* m_source;
@@ -87,9 +126,6 @@ namespace pr::physics
 		int m_colour_count;
 		int m_body_count;
 		int m_dispatch_count;
-		float m_previous_timestep;
-		float m_frame_warm_start_scale;
-		bool m_retain_current_impulses;
 		int m_break_substep_index;
 
 	public:
@@ -100,11 +136,11 @@ namespace pr::physics
 		// Upload shared frame-local endpoints and changed persistent descriptors, returning whether independent rigid work is active.
 		bool Upload(GpuJob& job, GpuConstraintUpload const& upload);
 
-		// Compile rows, assign colours, and clear pseudo velocity before any position producer writes; optionally retain applied physical impulses.
-		void Prepare(GpuJob& job, float timestep, int body_count, D3DPtr<ID3D12Resource> bodies, bool retain_current_impulses = false);
+		// Compile geometry at the current pose without changing accepted ownership or position scratch.
+		void CompileRows(GpuJob& job, float timestep, int body_count, D3DPtr<ID3D12Resource> bodies);
 
-		// Apply retained physical impulses before the new velocity solve.
-		void ApplyWarmStart(GpuJob& job, float timestep, int body_count, D3DPtr<ID3D12Resource> bodies);
+		// Initialize ordinary-owned position scratch before the first position writer.
+		void ClearPositionState(GpuJob& job, float timestep, int body_count, D3DPtr<ID3D12Resource> bodies);
 
 		// Build each block's split-position response once before the position iterations. Call after every position producer is initialized.
 		void PreparePositionSolve(GpuJob& job, float timestep, int body_count, int position_iterations, D3DPtr<ID3D12Resource> bodies);
@@ -121,14 +157,26 @@ namespace pr::physics
 		// Build each block's physical response once before the velocity iterations. Call after the last body transform change in the substep.
 		void PrepareVelocitySolve(GpuJob& job, float timestep, int body_count, D3DPtr<ID3D12Resource> bodies);
 
-		// Execute one complete coloured physical block-PGS sweep.
-		void SolveVelocityIteration(GpuJob& job, float timestep, int body_count, D3DPtr<ID3D12Resource> bodies);
+		// Prepare owner storage/context only, without geometry, pseudo clearing, or physical publication.
+		void PrepareVelocityTransactions(GpuJob& job, GpuConstraintEpoch epoch);
 
-		// Latch force or torque threshold crossings after one main or selective velocity solve.
-		void DetectBreakage(GpuJob& job, float timestep, int substep_index, int body_count, D3DPtr<ID3D12Resource> bodies);
+		// Solve and publish complete ordinary blocks in dependency order. Zero-row owners still retire their accepted cache and response.
+		void CommitVelocityTransactions(GpuJob& job, int body_count, D3DPtr<ID3D12Resource> bodies, int substep_index = 0);
+
+		// Return the prepared owner's accepted records and latest attempt results without recording work.
+		GpuConstraintTransactionOutput TransactionOutput();
+
+		// Direct native diagnostic of the production transaction phases, with committed records and per-owner admission results.
+		void SolveTransactions(GpuJob& job, GpuConstraintEpoch epoch, GpuConstraintUpload const& upload, std::span<GpuRigidBody> bodies, std::span<GpuConstraintRigidRecord> records, std::span<uint32_t> results);
+
+		// Sample final accepted completed-substep loads and latch strict thresholds; no solve may follow in this epoch.
+		void DetectBreakage(GpuJob& job, GpuConstraintEpoch epoch, int substep_index, GpuCoupledConstraintLoadOutput coupled = {});
 
 		// Return the optional full stable-slot break stream for the final frame gather.
 		GpuConstraintBreakOutput BreakOutput();
+
+		// Return the only persistent-constraint rejection stream for the frame gather.
+		GpuConstraintRejectionOutput RejectionOutput();
 
 		// Return the current nonempty upload's frame-local solver state, or null when no slot stream was submitted.
 		ID3D12Resource* FrameState();
@@ -148,12 +196,12 @@ namespace pr::physics
 		// Invalidate retained frame timing when a step does not submit this optional solver lane.
 		void Deactivate();
 
-		// CPU-side testing: upload, solve, and read back bodies and runtime state in one GPU job.
-		void Solve(GpuJob& job, float timestep, GpuConstraintUpload const& upload, std::span<GpuRigidBody> bodies, std::span<GpuConstraintBlock> blocks = {}, std::span<GpuConstraintRow> rows = {}, std::span<GpuConstraintBreakState> break_states = {});
+		// Complete the production position/velocity phases and return accepted records/results; optional spans expose prepared geometry and break samples.
+		GpuConstraintSolveResult Solve(GpuJob& job, GpuConstraintEpoch epoch, GpuConstraintUpload const& upload, std::span<GpuRigidBody> bodies, std::span<GpuConstraintBlock> blocks = {}, std::span<GpuConstraintRow> rows = {}, std::span<GpuConstraintBreakState> break_states = {});
 
 	private:
 
-		// Create or grow feature-dependent buffers while preserving stable-slot capacity.
+		// Create required upload buffers; Upload must finish initialization before publishing their capacity.
 		bool ResizeBuffers(GpuJob& job, int capacity);
 
 		// Create or grow shared rigid pseudo-twist storage for either independent or coupled position correction.

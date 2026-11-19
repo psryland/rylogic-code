@@ -22,6 +22,13 @@ namespace pr::physics
 		Prismatic,
 	};
 
+	// Selects scalar screw coordinates or a unit quaternion with three child-joint angular velocities.
+	enum class EArticulationJointType
+	{
+		Axes,
+		Spherical,
+	};
+
 	// One ordered scalar degree of freedom in a reduced-coordinate joint.
 	struct ArticulationAxisDesc
 	{
@@ -29,7 +36,8 @@ namespace pr::physics
 		v4 m_axis = v4::ZAxis();
 	};
 
-	// A reduced-coordinate joint expressed as an ordered product of zero to six scalar screw motions.
+	// A reduced joint with scalar screw coordinates, or a spherical quaternion (x,y,z,w) mapping child joint frame to parent joint frame.
+	// Spherical velocity and force entries are angular velocity and torque in the child joint frame; m_axes is unused for this type.
 	struct ArticulationJointDesc
 	{
 		m4x4 m_joint_to_parent = m4x4::Identity();
@@ -38,6 +46,10 @@ namespace pr::physics
 		std::array<float, 6> m_initial_position = {};
 		std::array<float, 6> m_initial_velocity = {};
 		int m_dof_count = 0;
+		EArticulationJointType m_type = EArticulationJointType::Axes;
+
+		// Return the configuration dimension, which differs from the velocity dimension for spherical joints.
+		int PositionCount() const;
 
 		// Return a fixed joint whose two joint frames remain coincident.
 		static ArticulationJointDesc Fixed(m4x4 const& joint_to_parent = m4x4::Identity(), m4x4 const& joint_to_child = m4x4::Identity());
@@ -47,6 +59,9 @@ namespace pr::physics
 
 		// Return a one-DOF prismatic joint along a joint-local unit axis.
 		static ArticulationJointDesc Prismatic(v4 axis = v4::ZAxis(), m4x4 const& joint_to_parent = m4x4::Identity(), m4x4 const& joint_to_child = m4x4::Identity());
+
+		// Return a spherical joint with identity orientation and three child-joint angular velocities.
+		static ArticulationJointDesc Spherical(m4x4 const& joint_to_parent = m4x4::Identity(), m4x4 const& joint_to_child = m4x4::Identity());
 	};
 
 	// Immutable mass and collision policy for one articulation link.

@@ -10,6 +10,8 @@
 #include <memory>
 #include <functional>
 #include <vector>
+#include <variant>
+#include <bit>
 #include <array>
 #include <initializer_list>
 #include <iterator>
@@ -29,6 +31,8 @@
 #include <cmath>
 #include <limits>
 #include <stdexcept>
+#include <exception>
+#include <optional>
 
 #include "pr/common/assert.h"
 #include "pr/common/assert_reporting.h"
@@ -48,6 +52,7 @@
 #include "pr/geometry/intersect.h"
 #include "pr/hlsl/interop.h"
 #include "pr/compute/gpu_job.h"
+#include "pr/compute/utility/process_diagnostics.h"
 #include "pr/compute/shaders/shader_cache.h"
 #include "pr/compute/shaders/shader_precompile.h"
 
@@ -105,7 +110,7 @@ namespace pr::physics
 	struct BodyId;
 	struct ConstraintHandle;
 	struct ConstraintBreakEvent;
-	struct CoupledConstraintFailureEvent;
+	struct ConstraintRejectionEvent;
 	struct ArticulationId;
 	struct LinkHandle;
 	class Articulation;
@@ -113,7 +118,7 @@ namespace pr::physics
 	struct BodyRef;
 	struct BodyFrame;
 	struct ConstraintAxisDesc;
-	struct D6ConstraintDesc;
+	struct ConstraintDesc;
 	struct BallSocketConstraintDesc;
 	struct HingeConstraintDesc;
 	struct SliderConstraintDesc;

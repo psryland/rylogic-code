@@ -88,7 +88,9 @@ namespace pr::physics::shader_code
 	extern ByteCode const begin_coupled_contact_transaction;
 	extern ByteCode const build_coupled_contact_warm_start;
 	extern ByteCode const build_coupled_contact_candidates;
+	extern ByteCode const build_coupled_contact_components;
 	extern ByteCode const build_coupled_contact_position_candidates;
+	extern ByteCode const canonicalise_coupled_contact_endpoints;
 	extern ByteCode const gather_coupled_contact_targets;
 	extern ByteCode const validate_coupled_contact_trees;
 	extern ByteCode const validate_coupled_contact_position_trees;
@@ -102,17 +104,22 @@ namespace pr::physics::shader_code
 	extern ByteCode const reset_constraint_colours;
 	extern ByteCode const assign_constraint_colour_level;
 	extern ByteCode const finish_constraint_colours;
-	extern ByteCode const apply_constraint_warm_start;
 	extern ByteCode const clear_constraint_pseudo_velocity;
 	extern ByteCode const prepare_constraint_position_solve;
 	extern ByteCode const solve_constraint_position;
 	extern ByteCode const apply_constraint_position;
 	extern ByteCode const prepare_constraint_velocity_solve;
-	extern ByteCode const solve_constraint_velocity;
+	extern ByteCode const commit_constraint_velocity_transaction;
+	extern ByteCode const recover_coupled_transaction;
+	extern ByteCode const select_coupled_transaction_trees;
+	extern ByteCode const validate_coupled_transaction_trees;
+	extern ByteCode const admit_coupled_transaction_seed;
+	extern ByteCode const seed_coupled_transaction;
+	extern ByteCode const collect_coupled_transaction_solve;
+	extern ByteCode const stage_coupled_transaction;
+	extern ByteCode const publish_coupled_transaction;
 	extern ByteCode const detect_broken_constraints;
-	extern ByteCode const apply_constraint_warm_start_fused;
 	extern ByteCode const solve_constraint_position_fused;
-	extern ByteCode const solve_constraint_velocity_fused;
 	extern ByteCode const prepare_coupled_constraints;
 	extern ByteCode const prepare_coupled_position_preconditioners;
 	extern ByteCode const clear_coupled_position_state;
@@ -134,6 +141,11 @@ namespace pr::physics::shader_code
 	extern ByteCode const validate_coupled_velocity_trees;
 	extern ByteCode const validate_coupled_velocity_warm_start;
 	extern ByteCode const evaluate_coupled_velocity_merit;
+	extern ByteCode const capture_coupled_reference;
+	extern ByteCode const choose_coupled_reference;
+	extern ByteCode const admit_coupled_initialization;
+	extern ByteCode const restore_coupled_reference;
+	extern ByteCode const begin_coupled_velocity_trial;
 	extern ByteCode const commit_coupled_velocity;
 	extern ByteCode const finalize_coupled_velocity_islands;
 
@@ -147,6 +159,8 @@ namespace pr::physics::shader_code
 	extern ByteCode const articulation_apply_impulses;
 	extern ByteCode const articulation_evaluate_impulses;
 	extern ByteCode const articulation_commit_impulses;
+	extern ByteCode const evaluate_articulation_impulse_response;
+	extern ByteCode const refresh_articulation_impulse_velocities;
 	extern ByteCode const articulation_refresh_proxies;
 
 	// Selective refresh

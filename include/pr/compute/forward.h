@@ -15,6 +15,11 @@
 
 #include <vector>
 #include <string>
+#include <string_view>
+#include <format>
+#include <cstdio>
+#include <cstdlib>
+#include <exception>
 #include <list>
 #include <new>
 #include <memory>

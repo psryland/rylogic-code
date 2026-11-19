@@ -126,7 +126,7 @@ namespace pr::physics
 	}
 
 	// Validate a descriptor before it can enter persistent storage.
-	void ConstraintSet::Validate(D6ConstraintDesc const& desc)
+	void ConstraintSet::Validate(ConstraintDesc const& desc)
 	{
 		ValidateFrame(desc.m_frame_a);
 		ValidateFrame(desc.m_frame_b);
@@ -135,17 +135,49 @@ namespace pr::physics
 		if (!desc.m_frame_a.m_body.IsWorld() && desc.m_frame_a.m_body == desc.m_frame_b.m_body)
 			throw std::invalid_argument("A constraint cannot connect an endpoint to itself");
 
-		for (auto const& axis : desc.m_linear)
-			ValidateAxis(axis);
-		for (auto const& axis : desc.m_angular)
-			ValidateAxis(axis);
+		// Validate only the selected law; angular-only parameters cannot be mistaken for D6 coordinate drives.
+		switch (desc.Type())
+		{
+			case EConstraintType::D6:
+			{
+				// D6 modes retain their existing coordinate-domain and force-cap rules.
+				for (auto const& axis : desc.D6().m_linear)
+					ValidateAxis(axis);
+
+				for (auto const& axis : desc.D6().m_angular)
+					ValidateAxis(axis);
+
+				break;
+			}
+			case EConstraintType::SphericalAngular:
+			{
+				// The swing/twist chart uses finite principal-angle ranges containing the identity orientation.
+				auto const& angular = std::get<SphericalAngularConstraintParameters>(desc.m_parameters);
+				auto const pi = math::constants<float>::tau_by_2;
+				for (auto const range : {angular.m_swing_x, angular.m_swing_z, angular.m_twist})
+				{
+					// Zero endpoints are intentional hinge sides; no arbitrary minimum angular width is imposed.
+					if (!std::isfinite(range.m_beg) || !std::isfinite(range.m_end) || range.m_beg < -pi || range.m_end > pi || range.m_beg > 0.0f || range.m_end < 0.0f)
+						throw std::invalid_argument("Spherical angular ranges must lie within [-pi,pi] and contain zero");
+				}
+				if (!std::isfinite(angular.m_damping) || angular.m_damping < 0.0f)
+					throw std::invalid_argument("Physical angular damping must be finite and non-negative");
+
+				break;
+			}
+			default:
+			{
+				// An unsupported law must not be admitted as an all-free constraint.
+				throw std::invalid_argument("Unknown constraint type");
+			}
+		}
 
 		if (!IsNonNegativeLimit(desc.m_break_force) || !IsNonNegativeLimit(desc.m_break_torque))
 			throw std::invalid_argument("Constraint break force and torque must be non-negative");
 	}
 
-	// Add a general D6 constraint and return its generational handle.
-	ConstraintHandle ConstraintSet::Add(D6ConstraintDesc const& desc)
+	// Add a typed constraint and return its generational handle.
+	ConstraintHandle ConstraintSet::Add(ConstraintDesc const& desc)
 	{
 		Validate(desc);
 
@@ -203,13 +235,13 @@ namespace pr::physics
 	}
 
 	// Replace a persistent descriptor while preserving its handle.
-	void ConstraintSet::Update(ConstraintHandle handle, D6ConstraintDesc const& desc)
+	void ConstraintSet::Update(ConstraintHandle handle, ConstraintDesc const& desc)
 	{
 		Update(std::span{&handle, 1}, std::span{&desc, 1});
 	}
 
 	// Replace several persistent descriptors while preserving their handles.
-	void ConstraintSet::Update(std::span<ConstraintHandle const> handles, std::span<D6ConstraintDesc const> descs)
+	void ConstraintSet::Update(std::span<ConstraintHandle const> handles, std::span<ConstraintDesc const> descs)
 	{
 		// Check every entry first so that a failure leaves the set unchanged
 		if (handles.size() != descs.size())
@@ -264,7 +296,7 @@ namespace pr::physics
 	void ConstraintSet::Remove(ConstraintHandle handle)
 	{
 		auto& slot = Require(handle);
-		slot.m_desc = D6ConstraintDesc{};
+		slot.m_desc = ConstraintDesc{};
 		slot.m_desc.m_enabled = false;
 		slot.m_occupied = false;
 		slot.m_dirty = true;
@@ -277,7 +309,7 @@ namespace pr::physics
 	}
 
 	// Return a persistent descriptor or reject an invalid or stale handle.
-	D6ConstraintDesc const& ConstraintSet::Get(ConstraintHandle handle) const
+	ConstraintDesc const& ConstraintSet::Get(ConstraintHandle handle) const
 	{
 		return Require(handle).m_desc;
 	}

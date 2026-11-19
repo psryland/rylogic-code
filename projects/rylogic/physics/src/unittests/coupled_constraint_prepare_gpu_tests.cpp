@@ -69,7 +69,7 @@ namespace pr::physics::tests
 				m_body.SetMassProperties(Inertia::Box(v4{0.21f, 0.26f, 0.34f, 0}, 1.8f, v4{0.02f, 0.03f, -0.01f, 0}));
 				m_body.O2W(m4x4::Transform(Normalise(v4{-1, 1, 2, 0}), -0.19f, v4{1.1f, 0.2f, -0.3f, 1}));
 
-				auto desc = D6ConstraintDesc{};
+				auto desc = ConstraintDesc{};
 				desc.m_frame_a = BodyFrame{
 					BodyRef::Link(m_articulation, m_child),
 					m4x4::Transform(v4::XAxis(), 0.18f, v4{0.12f, -0.08f, 0.16f, 1}),
@@ -78,14 +78,14 @@ namespace pr::physics::tests
 					BodyRef::Rigid(m_body),
 					m4x4::Transform(v4::ZAxis(), -0.14f, v4{-0.09f, 0.11f, -0.13f, 1}),
 				};
-				desc.m_linear[0].m_mode = EConstraintAxisMode::Locked;
-				desc.m_linear[0].m_max_force = 120.0f;
-				desc.m_linear[1].m_mode = EConstraintAxisMode::Limited;
-				desc.m_linear[1].m_limits = Range<float>{-0.05f, +0.05f};
-				desc.m_linear[1].m_max_force = 140.0f;
-				desc.m_angular[2].m_mode = EConstraintAxisMode::Driven;
-				desc.m_angular[2].m_target_velocity = 0.35f;
-				desc.m_angular[2].m_max_force = 90.0f;
+				desc.D6().m_linear[0].m_mode = EConstraintAxisMode::Locked;
+				desc.D6().m_linear[0].m_max_force = 120.0f;
+				desc.D6().m_linear[1].m_mode = EConstraintAxisMode::Limited;
+				desc.D6().m_linear[1].m_limits = Range<float>{-0.05f, +0.05f};
+				desc.D6().m_linear[1].m_max_force = 140.0f;
+				desc.D6().m_angular[2].m_mode = EConstraintAxisMode::Driven;
+				desc.D6().m_angular[2].m_target_velocity = 0.35f;
+				desc.D6().m_angular[2].m_max_force = 90.0f;
 				m_constraint = m_constraints.Add(desc);
 			}
 		};
@@ -206,6 +206,43 @@ namespace pr::physics::tests
 		}
 	}
 
+	// Articulated endpoints must receive the same angular-coordinate derivative in their own link frame.
+	PRUnitTestClass(AngularCoordinateCoupledGpuTests)
+	{
+		// Compare all three angular rows at an oblique relative orientation through actual coupled GPU preparation.
+		PRUnitTestMethod(LinkRowsMatchCpuAndHardware, Extended)
+		{
+			// Keep existing rotated link attachments and enable every angular coordinate without linear-row dependence.
+			auto fixture = CoupledPrepareFixture{};
+			auto desc = fixture.m_constraints.Get(fixture.m_constraint);
+			desc.D6().m_linear = {};
+			for (auto& axis : desc.D6().m_angular)
+			{
+				axis = {};
+				axis.m_mode = EConstraintAxisMode::Locked;
+				axis.m_max_force = 90.0f;
+			}
+			fixture.m_constraints.Update(fixture.m_constraint, desc);
+			auto inputs = MakeCoupledPrepareInputs(fixture);
+			auto replay_upload = inputs.m_constraints;
+			replay_upload.m_endpoints[fixture.m_constraint.m_index].flags |= GpuConstraintEndpointFlags_ResetWarmStart;
+			auto replay = CoupledConstraintPrepareInteropRunner{};
+			replay.Run(1.0f / 60.0f, 1.0e-6f, replay_upload, inputs.m_bodies, inputs.m_link_to_world, inputs.m_mobilities, inputs.m_aba_scratch);
+			auto shared = GpuConstraintSolver{CoupledPrepareTestGpu(), EngineConfig{}};
+			auto solver = GpuCoupledConstraintPrepare{shared, EngineConfig{}};
+			auto const hardware = solver.Solve(CoupledPrepareTestGpu().m_job, 1.0f / 60.0f, inputs.m_constraints, inputs.m_bodies, inputs.m_link_to_world, inputs.m_mobilities, inputs.m_aba_scratch);
+
+			// Both derivative signs and the world-to-link conversion must agree with the public CPU compiler.
+			ExpectCoupledHardwareNear(hardware, replay);
+			for (int axis = 0; axis != 3; ++axis)
+			{
+				auto const index = fixture.m_constraint.m_index * GpuConstraintRowsPerBlock + 3 + axis;
+				ExpectCoupledRowNear(replay.Rows()[index], inputs.m_compiled.m_rows[axis], 2.0e-5f);
+				ExpectCoupledRowNear(hardware.m_rows[index], inputs.m_compiled.m_rows[axis], 2.0e-5f);
+			}
+		}
+	};
+
 	PRUnitTestClass(CoupledConstraintPrepareGpuTests)
 	{
 		// Match CPU link-coordinate row compilation and prove the packed inverse is the exact-self block inverse.
@@ -217,7 +254,6 @@ namespace pr::physics::tests
 			runner.Run(
 				1.0f / 60.0f,
 				1.0e-6f,
-				0.0f,
 				inputs.m_constraints,
 				inputs.m_bodies,
 				inputs.m_link_to_world,
@@ -262,73 +298,6 @@ namespace pr::physics::tests
 			}
 		}
 
-		// Retain, scale, project, and explicitly invalidate cached coupled impulses under the same stable-row contract as rigid constraints.
-		PRUnitTestMethod(ReplayRetainsCompatibleWarmStart, Quick)
-		{
-			auto fixture = CoupledPrepareFixture{};
-			auto inputs = MakeCoupledPrepareInputs(fixture);
-			auto initial = CoupledConstraintPrepareInteropRunner{};
-			initial.Run(
-				1.0f / 60.0f,
-				1.0e-6f,
-				0.0f,
-				inputs.m_constraints,
-				inputs.m_bodies,
-				inputs.m_link_to_world,
-				inputs.m_mobilities,
-				inputs.m_aba_scratch);
-
-			auto retained_blocks = std::vector<GpuConstraintBlock>(initial.Blocks().begin(), initial.Blocks().end());
-			auto retained_rows = std::vector<GpuConstraintRow>(initial.Rows().begin(), initial.Rows().end());
-			auto const row_idx = fixture.m_constraint.m_index * GpuConstraintRowsPerBlock;
-			retained_rows[row_idx].bounds.z = 0.5f;
-
-			auto scaled = CoupledConstraintPrepareInteropRunner{};
-			scaled.Run(
-				1.0f / 60.0f,
-				1.0e-6f,
-				0.4f,
-				inputs.m_constraints,
-				inputs.m_bodies,
-				inputs.m_link_to_world,
-				inputs.m_mobilities,
-				inputs.m_aba_scratch,
-				retained_blocks,
-				retained_rows);
-			PR_EXPECT(FEqlAbsolute(scaled.Rows()[row_idx].bounds.z, 0.2f, 1.0e-6f));
-
-			auto reset_upload = inputs.m_constraints;
-			reset_upload.m_endpoints[fixture.m_constraint.m_index].flags |= GpuConstraintEndpointFlags_ResetWarmStart;
-			auto reset = CoupledConstraintPrepareInteropRunner{};
-			reset.Run(
-				1.0f / 60.0f,
-				1.0e-6f,
-				0.4f,
-				reset_upload,
-				inputs.m_bodies,
-				inputs.m_link_to_world,
-				inputs.m_mobilities,
-				inputs.m_aba_scratch,
-				retained_blocks,
-				retained_rows);
-			PR_EXPECT(reset.Rows()[row_idx].bounds.z == 0.0f);
-
-			// A same-frame continuation must preserve an already-applied accumulator even when the original upload requested a reset.
-			auto continuation = CoupledConstraintPrepareInteropRunner{};
-			continuation.Run(
-				1.0f / 60.0f,
-				1.0e-6f,
-				0.4f,
-				reset_upload,
-				inputs.m_bodies,
-				inputs.m_link_to_world,
-				inputs.m_mobilities,
-				inputs.m_aba_scratch,
-				retained_blocks,
-				retained_rows,
-				true);
-			PR_EXPECT(FEqlAbsolute(continuation.Rows()[row_idx].bounds.z, 0.5f, 1.0e-6f));
-		}
 
 		// Match CPU compilation and suppress the impulse Jacobian for a fixed world endpoint.
 		PRUnitTestMethod(WorldEndpointHasNoJacobian, Quick)
@@ -340,7 +309,6 @@ namespace pr::physics::tests
 			runner.Run(
 				1.0f / 60.0f,
 				1.0e-6f,
-				0.0f,
 				inputs.m_constraints,
 				inputs.m_bodies,
 				inputs.m_link_to_world,
@@ -372,7 +340,6 @@ namespace pr::physics::tests
 			runner.Run(
 				1.0f / 60.0f,
 				1.0e-6f,
-				0.0f,
 				inputs.m_constraints,
 				inputs.m_bodies,
 				inputs.m_link_to_world,
@@ -399,7 +366,6 @@ namespace pr::physics::tests
 			replay.Run(
 				1.0f / 60.0f,
 				1.0e-6f,
-				0.0f,
 				replay_upload,
 				inputs.m_bodies,
 				inputs.m_link_to_world,
@@ -443,7 +409,6 @@ namespace pr::physics::tests
 			replay.Run(
 				1.0f / 60.0f,
 				1.0e-6f,
-				0.0f,
 				replay_upload,
 				inputs.m_bodies,
 				inputs.m_link_to_world,
@@ -465,5 +430,72 @@ namespace pr::physics::tests
 			ExpectCoupledHardwareNear(hardware, replay);
 		}
 	};
+	// Focused controls for the coordinated Engine ownership and public-boundary migration.
+	PRUnitTestClass(CoupledPreparationOwnershipTests)
+	{
+		// Prepared coupled storage never owns the accepted physical cache, with or without a repeated reset observation.
+		PRUnitTestMethod(ReplayCompilationDiscardsProvisionalCoefficients, Quick)
+		{
+			auto fixture = CoupledPrepareFixture{};
+			auto inputs = MakeCoupledPrepareInputs(fixture);
+			auto initial = CoupledConstraintPrepareInteropRunner{};
+			initial.Run(
+				1.0f / 60.0f,
+				1.0e-6f,
+				inputs.m_constraints,
+				inputs.m_bodies,
+				inputs.m_link_to_world,
+				inputs.m_mobilities,
+				inputs.m_aba_scratch);
+
+			auto retained_blocks = std::vector<GpuConstraintBlock>(initial.Blocks().begin(), initial.Blocks().end());
+			auto retained_rows = std::vector<GpuConstraintRow>(initial.Rows().begin(), initial.Rows().end());
+			auto const row_idx = fixture.m_constraint.m_index * GpuConstraintRowsPerBlock;
+			retained_rows[row_idx].bounds.z = 0.5f;
+
+			auto scaled = CoupledConstraintPrepareInteropRunner{};
+			scaled.Run(
+				1.0f / 60.0f,
+				1.0e-6f,
+				inputs.m_constraints,
+				inputs.m_bodies,
+				inputs.m_link_to_world,
+				inputs.m_mobilities,
+				inputs.m_aba_scratch,
+				retained_blocks,
+				retained_rows);
+			PR_EXPECT(scaled.Rows()[row_idx].bounds.z == 0.0f);
+
+			auto reset_upload = inputs.m_constraints;
+			reset_upload.m_endpoints[fixture.m_constraint.m_index].flags |= GpuConstraintEndpointFlags_ResetWarmStart;
+			auto reset = CoupledConstraintPrepareInteropRunner{};
+			reset.Run(
+				1.0f / 60.0f,
+				1.0e-6f,
+				reset_upload,
+				inputs.m_bodies,
+				inputs.m_link_to_world,
+				inputs.m_mobilities,
+				inputs.m_aba_scratch,
+				retained_blocks,
+				retained_rows);
+			PR_EXPECT(reset.Rows()[row_idx].bounds.z == 0.0f);
+
+			// A geometry refresh also discards provisional coefficients; accepted ownership lives in a separate record.
+			auto continuation = CoupledConstraintPrepareInteropRunner{};
+			continuation.Run(
+				1.0f / 60.0f,
+				1.0e-6f,
+				reset_upload,
+				inputs.m_bodies,
+				inputs.m_link_to_world,
+				inputs.m_mobilities,
+				inputs.m_aba_scratch,
+				retained_blocks,
+				retained_rows);
+			PR_EXPECT(continuation.Rows()[row_idx].bounds.z == 0.0f);
+		}
+	};
+
 }
 #endif

@@ -245,12 +245,12 @@ namespace pr::physics::tests
 				auto body = MakeBody();
 				body.SetMassProperties(Inertia{1.0f, 1.0f});
 				body.VelocityWS(v8motion{v4::Zero(), v4{-1, -1, 0, 0}});
-				auto desc = D6ConstraintDesc{};
+				auto desc = ConstraintDesc{};
 				desc.m_frame_a = BodyFrame{BodyRef::World(), m4x4::Translation(1.0f, -1.0f, 0.0f)};
 				desc.m_frame_b = BodyFrame{BodyRef::Rigid(body), desc.m_frame_a.m_constraint_to_body};
-				desc.m_linear[0] = LockedAxis();
-				desc.m_linear[1].m_mode = EConstraintAxisMode::Driven;
-				desc.m_linear[1].m_max_force = 1.0f;
+				desc.D6().m_linear[0] = LockedAxis();
+				desc.D6().m_linear[1].m_mode = EConstraintAxisMode::Driven;
+				desc.D6().m_linear[1].m_max_force = 1.0f;
 				auto constraints = ConstraintSet{};
 				constraints.Add(desc);
 				auto body_ptrs = std::array<RigidBody*, 1>{&body};
@@ -278,13 +278,13 @@ namespace pr::physics::tests
 				auto body = MakeBody();
 				body.SetMassProperties(Inertia{1.0f, 1.0f});
 				body.VelocityWS(v8motion{v4::Zero(), v4{initial_speed, initial_speed, 0, 0}});
-				auto desc = D6ConstraintDesc{};
+				auto desc = ConstraintDesc{};
 				desc.m_frame_a = BodyFrame{BodyRef::World(), m4x4::Translation(1.0f, -1.0f, 0.0f)};
 				desc.m_frame_b = BodyFrame{BodyRef::Rigid(body), desc.m_frame_a.m_constraint_to_body};
-				desc.m_linear[0] = LockedAxis();
-				desc.m_linear[1].m_mode = EConstraintAxisMode::Driven;
-				desc.m_linear[1].m_target_velocity = initial_speed == 0.0f ? 3.0f : 0.0f;
-				desc.m_linear[1].m_max_force = 1.0f;
+				desc.D6().m_linear[0] = LockedAxis();
+				desc.D6().m_linear[1].m_mode = EConstraintAxisMode::Driven;
+				desc.D6().m_linear[1].m_target_velocity = initial_speed == 0.0f ? 3.0f : 0.0f;
+				desc.D6().m_linear[1].m_max_force = 1.0f;
 				auto constraints = ConstraintSet{};
 				constraints.Add(desc);
 				auto body_ptrs = std::array<RigidBody*, 1>{&body};
@@ -313,12 +313,12 @@ namespace pr::physics::tests
 			body_b.SetMassProperties(Inertia{1.0f, 1.0f});
 			body_a.VelocityWS(v8motion{v4::ZAxis(), v4::Zero()});
 			body_b.VelocityWS(v8motion{v4::ZAxis(), 2.0f * v4::YAxis()});
-			auto desc = D6ConstraintDesc{};
+			auto desc = ConstraintDesc{};
 			desc.m_frame_a.m_body = BodyRef::Rigid(body_a);
 			desc.m_frame_b.m_body = BodyRef::Rigid(body_b);
-			desc.m_linear[1] = LockedAxis();
-			desc.m_linear[2] = LockedAxis();
-			for (auto& axis : desc.m_angular)
+			desc.D6().m_linear[1] = LockedAxis();
+			desc.D6().m_linear[2] = LockedAxis();
+			for (auto& axis : desc.D6().m_angular)
 				axis = LockedAxis();
 
 			// Coincident endpoint orientations and free X translation admit exactly this rigid motion.
@@ -345,10 +345,10 @@ namespace pr::physics::tests
 		{
 			auto body = MakeBody(1.0f, m4x4::Translation(1.0f, 0.0f, 0.0f));
 			body.VelocityWS(v8motion{v4::Zero(), v4::XAxis()});
-			auto desc = D6ConstraintDesc{};
+			auto desc = ConstraintDesc{};
 			desc.m_frame_b.m_body = BodyRef::Rigid(body);
-			desc.m_linear[0] = LockedAxis();
-			desc.m_linear[0].m_stiffness = 0.01f;
+			desc.D6().m_linear[0] = LockedAxis();
+			desc.D6().m_linear[0].m_stiffness = 0.01f;
 			auto constraints = ConstraintSet{};
 			constraints.Add(desc);
 			auto body_ptrs = std::array<RigidBody*, 1>{&body};
@@ -367,9 +367,9 @@ namespace pr::physics::tests
 		{
 			auto body = MakeBody(1.0e6f);
 			body.VelocityWS(v8motion{v4::Zero(), v4::XAxis()});
-			auto desc = D6ConstraintDesc{};
+			auto desc = ConstraintDesc{};
 			desc.m_frame_b.m_body = BodyRef::Rigid(body);
-			desc.m_linear[0] = LockedAxis();
+			desc.D6().m_linear[0] = LockedAxis();
 			auto constraints = ConstraintSet{};
 			constraints.Add(desc);
 			auto body_ptrs = std::array<RigidBody*, 1>{&body};
@@ -385,12 +385,12 @@ namespace pr::physics::tests
 		{
 			auto body = MakeBody();
 			body.SetMassProperties(Inertia{1.0f, 1.0f});
-			auto desc = D6ConstraintDesc{};
+			auto desc = ConstraintDesc{};
 			desc.m_frame_a = BodyFrame{BodyRef::World(), m4x4::Translation(1.0f, -1.0f, 0.0f)};
 			desc.m_frame_b = BodyFrame{BodyRef::Rigid(body), desc.m_frame_a.m_constraint_to_body};
-			desc.m_linear[0] = LockedAxis();
-			desc.m_linear[1] = LockedAxis();
-			desc.m_linear[1].m_target_position = 0.01f;
+			desc.D6().m_linear[0] = LockedAxis();
+			desc.D6().m_linear[1] = LockedAxis();
+			desc.D6().m_linear[1].m_target_position = 0.01f;
 			auto constraints = ConstraintSet{};
 			constraints.Add(desc);
 			auto body_ptrs = std::array<RigidBody*, 1>{&body};
@@ -557,19 +557,19 @@ namespace pr::physics::tests
 			limited_body.VelocityWS(v8motion{v4::Zero(), v4{+10.0f, 0.0f, 0.0f, 0}});
 			motor_body.VelocityWS(v8motion{v4::Zero(), v4::Zero()});
 
-			auto limited = D6ConstraintDesc{};
+			auto limited = ConstraintDesc{};
 			limited.m_frame_a.m_body = BodyRef::World();
 			limited.m_frame_b.m_body = BodyRef::Rigid(limited_body);
-			limited.m_linear[0].m_mode = EConstraintAxisMode::Limited;
-			limited.m_linear[0].m_limits = Range<float>{-1.0f, +1.0f};
-			limited.m_linear[0].m_max_force = 2.0f;
+			limited.D6().m_linear[0].m_mode = EConstraintAxisMode::Limited;
+			limited.D6().m_linear[0].m_limits = Range<float>{-1.0f, +1.0f};
+			limited.D6().m_linear[0].m_max_force = 2.0f;
 
-			auto motor = D6ConstraintDesc{};
+			auto motor = ConstraintDesc{};
 			motor.m_frame_a.m_body = BodyRef::World();
 			motor.m_frame_b.m_body = BodyRef::Rigid(motor_body);
-			motor.m_linear[1].m_mode = EConstraintAxisMode::Driven;
-			motor.m_linear[1].m_target_velocity = 4.0f;
-			motor.m_linear[1].m_max_force = 2.0f;
+			motor.D6().m_linear[1].m_mode = EConstraintAxisMode::Driven;
+			motor.D6().m_linear[1].m_target_velocity = 4.0f;
+			motor.D6().m_linear[1].m_max_force = 2.0f;
 
 			auto constraints = ConstraintSet{};
 			constraints.Add(limited);
@@ -590,12 +590,12 @@ namespace pr::physics::tests
 		PRUnitTestMethod(ComplianceUsesImplicitSpringDamper, Quick)
 		{
 			auto body = MakeBody(1.0f, m4x4::Translation(+1.0f, 0.0f, 0.0f));
-			auto desc = D6ConstraintDesc{};
+			auto desc = ConstraintDesc{};
 			desc.m_frame_a.m_body = BodyRef::World();
 			desc.m_frame_b.m_body = BodyRef::Rigid(body);
-			desc.m_linear[0] = LockedAxis();
-			desc.m_linear[0].m_stiffness = 100.0f;
-			desc.m_linear[0].m_damping = 10.0f;
+			desc.D6().m_linear[0] = LockedAxis();
+			desc.D6().m_linear[0].m_stiffness = 100.0f;
+			desc.D6().m_linear[0].m_damping = 10.0f;
 
 			auto constraints = ConstraintSet{};
 			constraints.Add(desc);
@@ -617,10 +617,10 @@ namespace pr::physics::tests
 			body.VelocityWS(v8motion{v4{0.0f, 0.0f, 0.5f, 0}, v4{0.0f, 1.0f, 0.0f, 0}});
 			auto const momentum_before = body.MomentumWS();
 
-			auto desc = D6ConstraintDesc{};
+			auto desc = ConstraintDesc{};
 			desc.m_frame_a.m_body = BodyRef::World();
 			desc.m_frame_b.m_body = BodyRef::Rigid(body);
-			desc.m_linear[0] = LockedAxis();
+			desc.D6().m_linear[0] = LockedAxis();
 			auto constraints = ConstraintSet{};
 			constraints.Add(desc);
 			auto body_ptrs = std::array<RigidBody*, 1>{&body};
@@ -649,10 +649,10 @@ namespace pr::physics::tests
 			auto body = MakeBody();
 			body.VelocityWS(v8motion{v4::Zero(), v4{1.0f, 0.0f, 0.0f, 0}});
 
-			auto desc = D6ConstraintDesc{};
+			auto desc = ConstraintDesc{};
 			desc.m_frame_a.m_body = BodyRef::Rigid(support);
 			desc.m_frame_b.m_body = BodyRef::Rigid(body);
-			desc.m_linear[0] = LockedAxis();
+			desc.D6().m_linear[0] = LockedAxis();
 			auto constraints = ConstraintSet{};
 			constraints.Add(desc);
 			auto body_ptrs = std::array<RigidBody*, 2>{&support, &body};
@@ -669,11 +669,11 @@ namespace pr::physics::tests
 		PRUnitTestMethod(WarmStartScalesAndInvalidates, Quick)
 		{
 			auto body = MakeBody();
-			auto desc = D6ConstraintDesc{};
+			auto desc = ConstraintDesc{};
 			desc.m_frame_a.m_body = BodyRef::World();
 			desc.m_frame_b.m_body = BodyRef::Rigid(body);
-			desc.m_linear[0].m_mode = EConstraintAxisMode::Driven;
-			desc.m_linear[0].m_target_velocity = 2.0f;
+			desc.D6().m_linear[0].m_mode = EConstraintAxisMode::Driven;
+			desc.D6().m_linear[0].m_target_velocity = 2.0f;
 			auto constraints = ConstraintSet{};
 			auto const handle = constraints.Add(desc);
 			auto body_ptrs = std::array<RigidBody*, 1>{&body};
@@ -695,7 +695,7 @@ namespace pr::physics::tests
 			PR_EXPECT(FEqlAbsolute(body.VelocityWS().lin.x, 2.0f, 1.0e-6f));
 
 			// A parameter revision clears the cache before the changed target can inherit a stale impulse.
-			desc.m_linear[0].m_target_velocity = 3.0f;
+			desc.D6().m_linear[0].m_target_velocity = 3.0f;
 			constraints.Update(handle, desc);
 			body.VelocityWS(v8motion{});
 			solver.Solve(CompileConstraints(constraints, remap), remap, 0.1f, reuse);
@@ -745,11 +745,11 @@ namespace pr::physics::tests
 			constraints.Add(HingeConstraintDesc{.m_frame_a = BodyFrame{.m_body = BodyRef::World()}, .m_frame_b = BodyFrame{.m_body = BodyRef::Rigid(bodies[1])}});
 			constraints.Add(SliderConstraintDesc{.m_frame_a = BodyFrame{.m_body = BodyRef::World()}, .m_frame_b = BodyFrame{.m_body = BodyRef::Rigid(bodies[2])}});
 			constraints.Add(WeldConstraintDesc{.m_frame_a = BodyFrame{.m_body = BodyRef::World()}, .m_frame_b = BodyFrame{.m_body = BodyRef::Rigid(bodies[3])}});
-			auto d6 = D6ConstraintDesc{};
+			auto d6 = ConstraintDesc{};
 			d6.m_frame_a.m_body = BodyRef::World();
 			d6.m_frame_b.m_body = BodyRef::Rigid(bodies[4]);
-			d6.m_linear[0] = LockedAxis();
-			d6.m_angular[2] = LockedAxis();
+			d6.D6().m_linear[0] = LockedAxis();
+			d6.D6().m_angular[2] = LockedAxis();
 			constraints.Add(d6);
 
 			auto body_ptrs = std::array<RigidBody*, 5>{&bodies[0], &bodies[1], &bodies[2], &bodies[3], &bodies[4]};

@@ -9,6 +9,8 @@
 #include "pr/hlsl/quaternions.hlsli"
 #include "pr/hlsl/spatial_algebra.hlsli"
 #include "physics/src/compute/physics_types.hlsli"
+#include "physics/src/compute/constraint_transaction.hlsli"
+#include "physics/src/compute/articulation_joint.hlsli"
 
 #ifdef __cplusplus
 namespace pr::physics {
@@ -72,7 +74,7 @@ RWStructuredBuffer<GpuArticulationSpatialVector> resource(g_coupled_position_lin
 RWStructuredBuffer<float> resource(g_coupled_position_generalized_pseudo, u15);
 RWStructuredBuffer<GpuArticulation> resource(g_coupled_position_articulations, u16);
 RWStructuredBuffer<float> resource(g_coupled_position_positions, u17);
-RWStructuredBuffer<GpuCoupledConstraintFailureState> resource(g_coupled_position_frame_failures, u18);
+RWStructuredBuffer<GpuConstraintRejectionState> resource(g_coupled_position_rejections, u18);
 
 #define PR_CONSTRAINT_SOLVER_OPS_CPP_NAMESPACE coupled_constraint_position_ops_detail
 #include "physics/src/compute/constraint_solver_ops.hlsli"
@@ -335,6 +337,7 @@ void CSBeginCoupledPosition(int3 DTID(dtid))
 		state.failure_flags = GpuCoupledConstraintFailure_None;
 		state.relaxation = g_coupled_position.relaxation;
 		state.merit_change = 0.0f;
+		state.iteration_count = 0u;
 		g_coupled_position_island_states[index] = state;
 		g_coupled_position_island_failures[index] = GpuCoupledConstraintFailure_None;
 	}
@@ -647,6 +650,8 @@ void CSEvaluateCoupledPositionMerit(int3 DTID(dtid))
 	if (state.status != GpuCoupledConstraintIslandStatus_Pending)
 		return;
 
+	// Count only evaluated attempts, including an early failure discovered by this attempt's candidate passes.
+	++state.iteration_count;
 	state.failure_flags = g_coupled_position_island_failures[island_idx];
 	if (state.failure_flags != GpuCoupledConstraintFailure_None)
 	{
@@ -832,20 +837,23 @@ void CSFinalizeCoupledPositionIslands(int3 DTID(dtid))
 		return;
 
 	GpuCoupledConstraintIslandState state = g_coupled_position_island_states[dtid.x];
+	int report_idx = g_coupled_position.slot_count + dtid.x;
 	if (
 		state.status == GpuCoupledConstraintIslandStatus_Rejected &&
-		g_coupled_position_frame_failures[dtid.x].substep_index < 0)
+		g_coupled_position_rejections[report_idx].substep_index < 0)
 	{
-		GpuCoupledConstraintFailureState failure;
+		GpuConstraintRejectionState failure;
 		failure.failure_flags = state.failure_flags;
 		failure.substep_index = g_coupled_position.substep_index;
 		failure.phase = GpuCoupledConstraintFailurePhase_Position;
-		failure.iteration_count = g_coupled_position.backtrack_limit + 1;
+		failure.iteration_count = (int)state.iteration_count;
 		failure.relaxation = state.relaxation;
 		failure.merit_change = state.merit_change;
-		failure.status = state.status;
-		failure.pad0 = 0u;
-		g_coupled_position_frame_failures[dtid.x] = failure;
+		failure.outcome = GpuConstraintStage_SolveRejected;
+		failure.owner = 1u;
+		failure.index = (uint)dtid.x;
+		failure.generation = 0u;
+		g_coupled_position_rejections[report_idx] = failure;
 	}
 	if (state.status == GpuCoupledConstraintIslandStatus_Accepted)
 		state.status = GpuCoupledConstraintIslandStatus_Committed;
@@ -939,26 +947,37 @@ void CSApplyCoupledPosition(int3 DTID(dtid))
 	for (int local_link_idx = 1; local_link_idx != articulation.link_count; ++local_link_idx)
 	{
 		GpuArticulationLink link = g_coupled_position_links[articulation.link_offset + local_link_idx];
-		for (int row = 0; row != link.dof_count; ++row)
+		int velocity_offset = range.velocity_delta_offset + link.velocity_offset - articulation.velocity_offset;
+		if (!IntegrateArticulationJoint(link, g_coupled_position_positions, g_coupled_position_generalized_pseudo, velocity_offset, g_coupled_position.timestep, g_coupled_position_positions, false))
 		{
-			int local_velocity_idx = link.velocity_offset - articulation.velocity_offset + row;
-			float position =
-				g_coupled_position_positions[link.position_offset + row] +
-				g_coupled_position.timestep * g_coupled_position_generalized_pseudo[range.velocity_delta_offset + local_velocity_idx];
-			if (!isfinite(position))
-				return;
+			// A failed configuration drift reaches the same public frame-failure boundary as rejected constraint impulses.
+			int island_index = g_coupled_position_articulation_islands[index];
+			int report_idx = g_coupled_position.slot_count + island_index;
+			int previous_substep;
+			InterlockedCompareExchange(g_coupled_position_rejections[report_idx].substep_index, -1, g_coupled_position.substep_index, previous_substep);
+			if (previous_substep == -1)
+			{
+				// Count and relaxation describe the same last numerical attempt; the failed coordinate drift has no merit reduction.
+				GpuCoupledConstraintIslandState state = g_coupled_position_island_states[island_index];
+				g_coupled_position_rejections[report_idx].failure_flags = GpuCoupledConstraintFailure_NonFinite;
+				g_coupled_position_rejections[report_idx].phase = GpuCoupledConstraintFailurePhase_Position;
+				g_coupled_position_rejections[report_idx].outcome = GpuConstraintStage_SolveRejected;
+				g_coupled_position_rejections[report_idx].owner = 1u;
+				g_coupled_position_rejections[report_idx].index = (uint)island_index;
+				g_coupled_position_rejections[report_idx].generation = 0u;
+				g_coupled_position_rejections[report_idx].iteration_count = (int)state.iteration_count;
+				g_coupled_position_rejections[report_idx].relaxation = state.relaxation;
+				g_coupled_position_rejections[report_idx].merit_change = 0.0f;
+			}
+			return;
 		}
 	}
 
 	for (int local_link_idx = 1; local_link_idx != articulation.link_count; ++local_link_idx)
 	{
 		GpuArticulationLink link = g_coupled_position_links[articulation.link_offset + local_link_idx];
-		for (int row = 0; row != link.dof_count; ++row)
-		{
-			int local_velocity_idx = link.velocity_offset - articulation.velocity_offset + row;
-			g_coupled_position_positions[link.position_offset + row] +=
-				g_coupled_position.timestep * g_coupled_position_generalized_pseudo[range.velocity_delta_offset + local_velocity_idx];
-		}
+		int velocity_offset = range.velocity_delta_offset + link.velocity_offset - articulation.velocity_offset;
+		IntegrateArticulationJoint(link, g_coupled_position_positions, g_coupled_position_generalized_pseudo, velocity_offset, g_coupled_position.timestep, g_coupled_position_positions, true);
 	}
 	articulation.root_to_world = root_to_world;
 	g_coupled_position_articulations[range.articulation_index] = articulation;

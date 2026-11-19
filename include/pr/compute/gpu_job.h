@@ -70,6 +70,26 @@ namespace pr::compute
 		//  - Creating a CommandQueue is slow. GpuJob is meant to be a long-lived object.
 		//    You call Run() on it each frame rather than creating a new GpuJob each frame.
 		//
+		// Submission lifecycle:
+		//  - Recording: 'm_cmd_list' is open. Commands may be recorded, and 'Submit', 'Flush', 'Run' and 'RetireRecordedWork' are valid.
+		//  - Pending: a 'Submit' succeeded. Only 'Complete' or 'Abandon' with the returned handle are valid. Synchronous wrappers ('Run' and
+		//    'RetireRecordedWork') hold no handle after they return, so they never leave the job pending.
+		//  - Interrupted: recording is closed but every command that reached the queue has a completion fence owned by this job. This is
+		//    the state after 'Abandon', or after a failed submission, wait, wait follow-up, or recording reset. Queued work may still be in
+		//    flight. 'RetireRecordedWork' waits for the job's last fence and reopens recording. Nothing is executed again.
+		//  - Unfenced: commands reached the queue but no completion fence could be signalled while the device was still healthy. No
+		//    quiescence point is known, so submission throws. Each 'RetireRecordedWork' call makes one attempt to signal a new fence on the
+		//    same queue. The queue runs work in order, so that fence also covers the unfenced commands, which are never executed again.
+		//    A failed attempt leaves the job unfenced. The caller chooses whether and when to try again.
+		//  - Destruction: 'QuiesceForDestruction' waits until the GPU has finished every command this job queued. It is valid in any state
+		//    and on any thread that has exclusive use of the job. An owner calls it before releasing resources the job's commands use,
+		//    and the destructor calls it again. An unfenced job gets one fence signal that notifies no observers. If that signal fails on
+		//    a healthy device, or the host wait fails, the GPU may still use memory that destruction would free, so the process is
+		//    terminated after a diagnostic. A wait for a known fence has no time limit.
+		//  - A command list whose 'Close' failed or threw is never executed. Its recording and allocator are discarded. Its transfer
+		//    reservations stay reserved until the job's next fence or destruction, so callers' allocation handles stay memory-safe.
+		//    Objects that hold the raw list pointer, such as PIX event scopes, must therefore not span 'Submit' or 'Flush'.
+		//  - Recording into a job that is not recording is a caller error. 'IsRecording' reports the state.
 		using Gpu = Gpu<QueueType>;
 		using GpuViewHeap = GpuDescriptorHeap<D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV>;
 		using CmdListCollection = CmdListCollection<QueueType>;
@@ -88,12 +108,15 @@ namespace pr::compute
 		GpuUploadBuffer            m_upload;     // Upload buffer for the compute shader
 		GpuReadbackBuffer          m_readback;   // Read back buffer for the compute shader
 
+		// Phase timings of a submission, and the number of host waits entered for it. 'Complete' counts a wait when it starts waiting, so the
+		// count is valid even when the wait or later work throws. A failure before the wait (for example while closing) counts no wait.
 		struct RunProfile
 		{
 			double m_prepare_ms = 0;
 			double m_execute_ms = 0;
 			double m_wait_ms = 0;
 			double m_reset_ms = 0;
+			int m_wait_count = 0;
 		};
 		struct RunHandle
 		{
@@ -114,6 +137,10 @@ namespace pr::compute
 			, m_upload(m_gsync, 0)
 			, m_readback(m_gsync, 0)
 			, m_pending_sync_point()
+			, m_name(name != nullptr ? name : "")
+			, m_pix_colour(pix_colour)
+			, m_recording(true)
+			, m_unfenced(false)
 		{
 			auto heaps = { m_view_heap.get() };
 			m_cmd_list.SetDescriptorHeaps({ heaps.begin(), heaps.size() });
@@ -127,13 +154,53 @@ namespace pr::compute
 		{
 		}
 
+		// The transfer buffers' fence observers refer to this job's members, so a job cannot be moved or copied.
+		GpuJob(GpuJob&&) = delete;
+		GpuJob(GpuJob const&) = delete;
+		GpuJob& operator=(GpuJob&&) = delete;
+		GpuJob& operator=(GpuJob const&) = delete;
+
+		// Destroying the job first waits until the GPU has finished every command it queued (see 'QuiesceForDestruction'). Commands that
+		// never reached the queue cannot run anymore, so transfer reservations made for them are cancelled rather than waited for.
+		~GpuJob()
+		{
+			// Quiescence makes the last added fence cover every queued command, or terminates the process. Only this job executes its
+			// lists, so the open or discarded list can never execute now, and callers must have released their allocation handles before
+			// destroying the job. That meets the conditions of 'CancelUnsubmitted', which cannot fail.
+			QuiesceForDestruction();
+			m_upload.CancelUnsubmitted();
+			m_readback.CancelUnsubmitted();
+		}
+
 		uint64_t m_pending_sync_point; // The submitted-but-not-yet-completed sync point.
 
+	private:
+
+		std::string m_name;    // The debug name given to each command list this job creates.
+		uint32_t m_pix_colour; // The PIX colour given to each command list this job creates.
+		bool m_recording;      // True while 'm_cmd_list' is open for recording. See 'Submission lifecycle'.
+		bool m_unfenced;       // True after commands reached the queue without a completion fence. See 'Submission lifecycle'.
+
+	public:
+
+		// True while commands can be recorded and submitted. False while a submission is pending or recording is interrupted.
+		bool IsRecording() const
+		{
+			return m_recording;
+		}
+
+		// True when commands reached the queue but no completion fence was signalled. See 'Submission lifecycle'.
+		bool HasUnfencedSubmission() const
+		{
+			return m_unfenced;
+		}
+
 		// Submit the recorded commands and return without waiting for completion.
+		// On failure, no handle is returned and recording is interrupted until 'RetireRecordedWork' is called.
 		RunHandle Submit(RunProfile* profile = nullptr)
 		{
-			if (m_pending_sync_point != 0)
-				throw std::runtime_error("GpuJob::Submit called while a previous submission is still pending");
+			// Only an open recording can be submitted.
+			RequireRecording("GpuJob::Submit");
 
 			auto const timestamp = [profile]
 			{
@@ -142,8 +209,7 @@ namespace pr::compute
 			auto const prepare_beg = timestamp();
 
 			// Job complete
-			m_barriers.Commit();
-			m_cmd_list.Close();
+			CloseRecording();
 
 			auto const execute_beg = timestamp();
 
@@ -167,20 +233,43 @@ namespace pr::compute
 		// Execute the commands recorded so far without waiting, then continue recording into a fresh command list.
 		// The queue executes work in order, so the handle from the next 'Submit' also covers the flushed commands.
 		// Resource-state tracking restarts as it does after 'Submit', so callers must not rely on a non-default state set before the flush.
-		void Flush()
+		// 'profile', when given, receives the close, execute, and recording-reset times of this flush.
+		// On failure, recording is interrupted until 'RetireRecordedWork' is called.
+		void Flush(RunProfile* profile = nullptr)
 		{
-			// Flushing is part of recording, which is not possible while a submission is pending.
-			if (m_pending_sync_point != 0)
-				throw std::runtime_error("GpuJob::Flush called while a submission is pending");
+			// Flushing is part of recording, which is not possible while a submission is pending or recording is interrupted.
+			RequireRecording("GpuJob::Flush");
+
+			auto const timestamp = [profile]
+			{
+				return profile != nullptr ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+			};
+			auto const prepare_beg = timestamp();
 
 			// Execute the recorded prefix, then record later commands with an allocator the GPU is not using.
-			m_barriers.Commit();
-			m_cmd_list.Close();
+			CloseRecording();
+			auto const execute_beg = timestamp();
 			ExecuteRecorded();
-			ResetRecording();
+			auto const reset_beg = timestamp();
+			OpenRecording();
+
+			// Report the phase durations in the same terms as 'Submit' and 'Complete'.
+			if (profile != nullptr)
+			{
+				auto const reset_end = timestamp();
+				auto elapsed_ms = [](auto beg, auto end)
+				{
+					return std::chrono::duration<double, std::milli>(end - beg).count();
+				};
+				profile->m_prepare_ms = elapsed_ms(prepare_beg, execute_beg);
+				profile->m_execute_ms = elapsed_ms(execute_beg, reset_beg);
+				profile->m_reset_ms = elapsed_ms(reset_beg, reset_end);
+			}
 		}
 
 		// Wait for a submitted job, then reset command recording for the next submission.
+		// If the wait fails, the submission stays pending and 'handle' stays valid, so the caller can retry or 'Abandon' it.
+		// If the work after a successful wait fails, 'handle' is cleared and recording is interrupted until 'RetireRecordedWork' is called.
 		void Complete(RunHandle& handle, RunProfile* profile = nullptr)
 		{
 			if (!handle || handle.m_sync_point != m_pending_sync_point)
@@ -192,13 +281,19 @@ namespace pr::compute
 			};
 			auto const wait_beg = timestamp();
 
-			// Wait for the GPU to finish
+			// Wait for the GPU to finish. The wait is counted before it starts, so a failed wait is still reported as entered.
+			if (profile != nullptr)
+				++profile->m_wait_count;
+
 			if (!m_gsync.Wait(handle.m_sync_point))
 			{
 				auto reason = m_gsync.DeviceRemovedReason();
 				throw DeviceRemovedException(m_device.get(), reason);
 			}
 
+			// The submission has completed, so it is no longer pending even if the follow-up work below fails.
+			m_pending_sync_point = 0;
+			handle = {};
 			auto const reset_beg = timestamp();
 
 			// Notify that sync points have been reached (recycles command allocators,
@@ -207,7 +302,7 @@ namespace pr::compute
 			m_gsync.Poll();
 
 			// Reset for the next job
-			ResetRecording();
+			OpenRecording();
 
 			if (profile != nullptr)
 			{
@@ -219,12 +314,10 @@ namespace pr::compute
 				profile->m_wait_ms = elapsed_ms(wait_beg, reset_beg);
 				profile->m_reset_ms = elapsed_ms(reset_beg, reset_end);
 			}
-
-			m_pending_sync_point = 0;
-			handle = {};
 		}
 
 		// Wait for submitted work during terminal cleanup without touching thread-affine recording state.
+		// Recording stays interrupted. A job that is used again must first call 'RetireRecordedWork' on its recording thread.
 		void Abandon(RunHandle& handle)
 		{
 			if (!handle || handle.m_sync_point != m_pending_sync_point)
@@ -235,43 +328,274 @@ namespace pr::compute
 			handle = {};
 		}
 
-		// Submit and retire a partially recorded list so staged allocations and tracked resource states reach a completed fence boundary.
+		// Wait until the GPU has finished every command this job queued, so that resources those commands use can be released.
+		// Valid in any state, on any thread with exclusive use of the job, and safe to call more than once. A pending submission is
+		// forgotten, which invalidates its run handle. Recording state, command lists, transfer buffers, and observers are not touched.
+		// The wait has no time limit. Terminates the process if quiescence cannot be established (see 'Submission lifecycle').
+		void QuiesceForDestruction() noexcept
+		{
+			// The last added fence covers a pending submission, so only the pending point is forgotten.
+			m_pending_sync_point = 0;
+
+			// Unfenced commands need one fence after them. The signal notifies no observers, because observers may do work that is not
+			// valid here (such as releasing memory or touching thread-affine state). On a removed device the GPU no longer runs the
+			// commands, so there is nothing left to wait for.
+			if (m_unfenced)
+			{
+				auto signal_result = m_gsync.AddSyncPointWithoutNotify(m_queue.get());
+				if (FAILED(signal_result) && !FAILED(m_gsync.DeviceRemovedReason()))
+					TerminateUnquiesced("signalling a completion fence for unfenced commands failed", signal_result, nullptr);
+
+				m_unfenced = false;
+			}
+
+			// Wait for the last added fence, even while recording, because flushed prefixes may still be running. A removed device
+			// reports every fence as reached, so its result is not an error here. A host wait that throws leaves the GPU state unknown.
+			try
+			{
+				(void)m_gsync.Wait(m_gsync.LastAddedSyncPoint());
+			}
+			catch (std::exception const& ex)
+			{
+				TerminateUnquiesced("waiting for the last completion fence failed", S_OK, ex.what());
+			}
+			catch (...)
+			{
+				TerminateUnquiesced("waiting for the last completion fence failed", S_OK, "unknown exception");
+			}
+		}
+
+		// Return the job to an empty open recording at a completed fence boundary, after a recording, submission, or completion failure.
+		// An open recording is run, so its valid prefix executes and keeps CPU-side resource-state tracking consistent.
+		// An interrupted job executes nothing again: it waits for its last fence, ends the transfer reuse windows, and reopens recording.
+		// An unfenced job first makes one attempt to signal a fence that covers its queued commands (see 'Submission lifecycle').
+		// Transfer allocations made for discarded commands stay reserved until a later fence of this job completes, so their handles stay
+		// memory-safe, but they never receive GPU-produced contents. Handles may be kept across this call and released later.
+		// Throws if a submission is pending, or if the fence attempt for unfenced commands fails. Call only on the recording thread.
 		void RetireRecordedWork()
 		{
-			// Executing the valid prefix keeps CPU-side resource-state tracking consistent with the actual GPU state.
-			auto handle = Submit();
+			// Retirement needs a known point at which the GPU has finished every queued command.
+			if (m_pending_sync_point != 0)
+				throw std::runtime_error("GpuJob::RetireRecordedWork called while a submission is pending. Call 'Complete' or 'Abandon' first");
 
-			// Complete normally so transient allocations are reclaimed and the command list is reset for reuse.
-			Complete(handle);
+			// Unfenced commands get one new fence on the same queue, so they are covered without being executed again.
+			if (m_unfenced)
+				FenceUnfencedSubmission();
+
+			// An open recording contains only a valid prefix, so run it normally. 'Run' never leaves the job pending.
+			if (m_recording)
+			{
+				Run();
+				return;
+			}
+
+			// Every command that reached the queue is covered by the last added fence, so waiting for it makes the GPU idle for this job.
+			if (!m_gsync.Wait(m_gsync.LastAddedSyncPoint()))
+			{
+				auto reason = m_gsync.DeviceRemovedReason();
+				throw DeviceRemovedException(m_device.get(), reason);
+			}
+			m_gsync.Poll();
+
+			// An interrupted submission may have skipped the transfer buffers' sync point notification, so end their reuse windows here.
+			// Reservations for discarded commands keep their stamp, which is a fence this job has not signalled yet. The next submission
+			// signals it, after which they are recycled normally. Destruction cancels them instead (see '~GpuJob').
+			m_upload.EndReuseWindow();
+			m_readback.EndReuseWindow();
+			m_upload.PurgeCompleted();
+			m_readback.PurgeCompleted();
+			OpenRecording();
 		}
 
 		// Run the job and block till complete.
+		// The job is never left pending, because the caller has no handle. On failure recording is interrupted and work may still be in
+		// flight, so the caller must call 'RetireRecordedWork' before releasing resources that the recorded commands use.
 		void Run(RunProfile* profile = nullptr)
 		{
+			// Submit, then wait. A failed wait is not retried here: a removed device fails again immediately and a failed wait call
+			// would fail again. The pending point is handed to the interrupted state, whose retirement waits for the job's last fence.
 			auto handle = Submit(profile);
-			Complete(handle, profile);
+			try
+			{
+				Complete(handle, profile);
+			}
+			catch (...)
+			{
+				if (handle)
+					InterruptPending(handle);
+
+				throw;
+			}
 		}
 
 	private:
 
+		// Make one attempt to signal a fence that covers commands queued without one. Nothing is executed again. On success the job is
+		// interrupted. If the signal fails the job stays unfenced. If an observer throws after the signal, the fence exists, so the job is
+		// interrupted and the observer's error is rethrown.
+		void FenceUnfencedSubmission()
+		{
+			// Mirror 'ExecuteRecorded'. The executed list's allocator must not be reused until the GPU reaches this fence.
+			auto const sync_point = m_gsync.NextSyncPoint();
+			try
+			{
+				m_gsync.AddSyncPoint(m_queue.get());
+			}
+			catch (...)
+			{
+				if (m_gsync.LastAddedSyncPoint() >= sync_point)
+				{
+					m_unfenced = false;
+					m_cmd_list.SyncPoint(sync_point);
+				}
+				throw;
+			}
+			m_unfenced = false;
+			m_cmd_list.SyncPoint(sync_point);
+		}
+
+		// Report why quiescence could not be established, then terminate. Memory that the GPU may still use cannot be released safely.
+		// 'hr' is reported only when it is a failure code. 'detail' is optional extra text, such as an exception message. Never allocates.
+		[[noreturn]] void TerminateUnquiesced(char const* reason, HRESULT hr, char const* detail) const noexcept
+		{
+			// The report is built in fixed stack buffers, because the failure may come with exhausted memory and the report must still
+			// be written. Text that does not fit is truncated. The system error text is written into a caller buffer, so it allocates nothing.
+			char hr_text[512] = {};
+			if (FAILED(hr))
+			{
+				char sys_text[384] = {};
+				auto len = FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, nullptr, static_cast<DWORD>(hr), 0, &sys_text[0], static_cast<DWORD>(std::size(sys_text)), nullptr);
+				while (len != 0 && (sys_text[len - 1] == '\r' || sys_text[len - 1] == '\n' || sys_text[len - 1] == ' ' || sys_text[len - 1] == '.'))
+				{
+					// Drop the trailing line break and full stop that system messages end with.
+					sys_text[--len] = '\0';
+				}
+				std::snprintf(&hr_text[0], std::size(hr_text), " (HRESULT 0x%08lX%s%s)", static_cast<unsigned long>(hr), len != 0 ? ": " : "", &sys_text[0]);
+			}
+			char msg[1024] = {};
+			std::snprintf(&msg[0], std::size(msg), "GpuJob '%s': cannot establish GPU quiescence for destruction: %s%s%s%s%s. Terminating.\n",
+				m_name.c_str(), reason, &hr_text[0], detail != nullptr ? " (" : "", detail != nullptr ? detail : "", detail != nullptr ? ")" : "");
+
+			// Write the reason to both the debugger and stderr, because a terminating process may have neither attached.
+			OutputDebugStringA(&msg[0]);
+			std::fputs(&msg[0], stderr);
+			std::fflush(stderr);
+			std::terminate();
+		}
+
+		// Hand a pending submission to the interrupted state without waiting. Every queued command stays covered by the job's last
+		// added fence, which 'RetireRecordedWork' waits for. Recording is already closed while a submission is pending.
+		void InterruptPending(RunHandle& handle) noexcept
+		{
+			// Forget the pending point only. The fence it names is no later than 'LastAddedSyncPoint'.
+			m_pending_sync_point = 0;
+			handle = {};
+		}
+
+		// Throw unless the job is open for recording. 'operation' names the caller in the error message.
+		void RequireRecording(char const* operation) const
+		{
+			// Report the state that prevents the operation.
+			if (m_unfenced)
+				throw std::runtime_error(std::string(operation) + " called after commands were executed without a completion fence. Call 'RetireRecordedWork' first");
+			if (m_pending_sync_point != 0)
+				throw std::runtime_error(std::string(operation) + " called while a previous submission is still pending");
+			if (!m_recording)
+				throw std::runtime_error(std::string(operation) + " called while recording is interrupted. Call 'RetireRecordedWork' first");
+		}
+
+		// End recording and close the command list so it can be executed. A list that cannot be closed is discarded and never executed.
+		void CloseRecording()
+		{
+			// Recording ends here, whether or not the list can be executed.
+			m_recording = false;
+
+			// 'CmdList::Close' can throw after the native list has closed, while it retains the used resources. A successful native close is
+			// therefore not enough to execute the list. Commit the pending barriers first, so they are part of the closed list.
+			auto result = S_OK;
+			try
+			{
+				m_barriers.Commit();
+				result = m_cmd_list.Close();
+			}
+			catch (...)
+			{
+				DiscardRecording();
+				throw;
+			}
+
+			// D3D12 reports recording errors (such as invalid arguments or out of memory) from 'Close'. Such a list must not be executed.
+			if (FAILED(result))
+			{
+				DiscardRecording();
+				Check(result);
+			}
+		}
+
 		// Execute the closed command list and return the sync point that marks its completion.
 		uint64_t ExecuteRecorded()
 		{
-			// The allocator cannot be reused until the GPU reaches the sync point that follows these commands.
+			// 'Close' has already checked the recording thread, so getting the list cannot fail once the commands are queued.
 			CmdListCollection cmd_lists = { m_cmd_list.get() };
 			m_queue->ExecuteCommandLists(cmd_lists.count(), cmd_lists.data());
-			auto sync_point = m_gsync.AddSyncPoint(m_queue.get());
+
+			// The commands are now queued and must be covered by a fence this job owns. 'AddSyncPoint' records a signalled fence before it notifies
+			// observers, so after an observer failure the fence exists and the job is only interrupted. If the signal itself failed, nothing covers the
+			// queued commands. With a removed device every fence reads as complete, but on a healthy device there is no known completion point.
+			auto const sync_point = m_gsync.NextSyncPoint();
+			try
+			{
+				m_gsync.AddSyncPoint(m_queue.get());
+			}
+			catch (...)
+			{
+				if (m_gsync.LastAddedSyncPoint() >= sync_point)
+					m_cmd_list.SyncPoint(sync_point);
+				else
+					m_unfenced = true;
+
+				throw;
+			}
+
+			// The allocator cannot be reused until the GPU reaches the sync point that follows these commands.
 			m_cmd_list.SyncPoint(sync_point);
 			return sync_point;
 		}
 
-		// Reopen the command list with an available allocator, ready for further recording.
-		void ResetRecording()
+		// Open the command list for recording with an available allocator. A discarded list is recreated rather than reset.
+		void OpenRecording()
 		{
-			// Reset clears the bound descriptor heaps, so rebind the view heap.
-			m_cmd_list.Reset(m_cmd_pool.Get());
-			auto heaps = { m_view_heap.get() };
-			m_cmd_list.SetDescriptorHeaps({ heaps.begin(), heaps.size() });
+			// A list whose reset failed is in an unknown state, so it is discarded and the next open creates a new one.
+			try
+			{
+				if (m_cmd_list.get() == nullptr)
+					m_cmd_list = CmdList(m_device.get(), m_cmd_pool.Get(), nullptr, m_name.c_str(), m_pix_colour);
+				else
+					m_cmd_list.Reset(m_cmd_pool.Get());
+
+				// Reset clears the bound descriptor heaps, so rebind the view heap.
+				auto heaps = { m_view_heap.get() };
+				m_cmd_list.SetDescriptorHeaps({ heaps.begin(), heaps.size() });
+			}
+			catch (...)
+			{
+				DiscardRecording();
+				throw;
+			}
+			m_recording = true;
+		}
+
+		// Discard a recording that will never be executed.
+		void DiscardRecording()
+		{
+			// Release the native list rather than reusing it, because a list whose 'Close' or 'Reset' failed is in an unknown state.
+			// Its allocator returns to the pool and is reused after the next completed fence. Resources it retained are released by that
+			// fence, or when the pool is destroyed after waiting for the last fence. Transfer reservations made for the discarded commands
+			// are not cancelled, because callers may still hold their handles (see 'RetireRecordedWork').
+			{
+				auto discarded = std::move(m_cmd_list);
+			}
+			m_barriers.m_barriers.resize(0);
 		}
 
 	public:

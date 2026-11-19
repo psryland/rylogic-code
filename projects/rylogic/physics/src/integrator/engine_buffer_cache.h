@@ -4,6 +4,7 @@
 //*********************************************
 #pragma once
 #include "pr/physics/forward.h"
+#include "pr/physics/articulation/articulation.h"
 #include "src/compute/physics_types.h"
 #include "src/collision/shape_cache.h"
 #include "src/diagnostics/physics_log.h"
@@ -44,6 +45,10 @@ namespace pr::physics
 		// Persists across frames
 		ShapeCache m_shape_cache;
 
+		// Packed contact indices remain valid only for these ordered persistent identities.
+		std::vector<BodyId> m_contact_body_ids;
+		std::vector<ArticulationId> m_contact_articulation_ids;
+
 		// Staging buffer for packing body dynamics
 		std::vector<GpuRigidBody> m_rb_dynamics;
 		int m_rigid_body_count;
@@ -67,6 +72,8 @@ namespace pr::physics
 
 		EngineBufferCache()
 			: m_shape_cache()
+			, m_contact_body_ids()
+			, m_contact_articulation_ids()
 			, m_rb_dynamics()
 			, m_rigid_body_count()
 			, m_contacts_cpu()
@@ -111,6 +118,8 @@ namespace pr::physics
 		{
 			// Called when the previously-seen shapes/bodies may no longer be valid (e.g. between independent unit-test scenarios that share a single engine).
 			m_shape_cache.Reset();
+			m_contact_body_ids.clear();
+			m_contact_articulation_ids.clear();
 			m_rb_dynamics.clear();
 			m_rigid_body_count = 0;
 			m_contacts_cpu.clear();
@@ -128,6 +137,33 @@ namespace pr::physics
 			m_broadphase_axis_sample_count = 0;
 			m_broadphase_sort_axis = 0;
 			m_log.Close();
+		}
+
+		// Record the actual packed body/tree order and report whether cached contact indices changed identity.
+		bool UpdateContactLayout(std::span<RigidBody* const> bodies, std::span<Articulation* const> articulations)
+		{
+			// A tree's topology is immutable, so its identity and position also determine the order of all its link proxies.
+			auto const same_bodies = std::ranges::equal(m_contact_body_ids, bodies, [](BodyId id, RigidBody const* body)
+			{
+				return id == body->Id();
+			});
+			auto const same_articulations = std::ranges::equal(m_contact_articulation_ids, articulations, [](ArticulationId id, Articulation const* articulation)
+			{
+				return id == articulation->Id();
+			});
+			if (same_bodies && same_articulations)
+				return false;
+
+			// Keep no borrowed pointers; omitted, replaced and reordered owners all change this exact layout.
+			m_contact_body_ids.resize(bodies.size());
+			m_contact_articulation_ids.resize(articulations.size());
+			for (size_t index = 0; index != bodies.size(); ++index)
+				m_contact_body_ids[index] = bodies[index]->Id();
+
+			for (size_t index = 0; index != articulations.size(); ++index)
+				m_contact_articulation_ids[index] = articulations[index]->Id();
+
+			return true;
 		}
 
 		// Number of cached rigid bodies staged for GPU upload this frame.

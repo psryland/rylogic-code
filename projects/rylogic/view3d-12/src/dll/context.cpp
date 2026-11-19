@@ -23,7 +23,6 @@
 #include "view3d-12/src/ldraw/sources/source_binary.h"
 #include "view3d-12/src/ldraw/sources/source_string.h"
 #include "view3d-12/src/dll/context.h"
-#include "view3d-12/src/dll/diagnostics_policy.h"
 #include "view3d-12/src/dll/v3d_window.h"
 
 namespace pr::rdr12
@@ -136,11 +135,8 @@ namespace pr::rdr12
 		}
 
 		// Create renderer settings with ray tracing capability available to per-window settings.
-		RdrSettings MakeRdrSettings(HINSTANCE instance)
+		RdrSettings MakeRdrSettings(HINSTANCE instance, bool device_debug, bool break_on_errors)
 		{
-			// Validate diagnostics before any adapter or factory exists; Debug assertions remain independent of this policy.
-			auto device_debug = ReadDeviceDebugEnvironment();
-
 			// Allow falling back to the software (WARP) adapter if the app opts in via the
 			// VIEW3D_ALLOW_SOFTWARE_ADAPTER environment variable. This lets view3d render (slowly)
 			// on machines without a hardware DX12 adapter, e.g. inside a VM. Off by default.
@@ -151,15 +147,15 @@ namespace pr::rdr12
 			}();
 
 			return RdrSettings(instance)
-				.DebugLayer(device_debug)
+				.DeviceDebug(device_debug, break_on_errors)
 				.AllowSoftwareAdapter(allow_software_adapter)
 				.DefaultAdapter()
 				.RayTracingSupport();
 		}
 	}
 
-	Context::Context(HINSTANCE instance)
-		: m_rdr(MakeRdrSettings(instance))
+	Context::Context(HINSTANCE instance, bool device_debug, bool break_on_errors)
+		: m_rdr(MakeRdrSettings(instance, device_debug, break_on_errors))
 		, m_windows()
 		, m_sources(m_rdr, *this)
 		, m_inits()

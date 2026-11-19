@@ -96,6 +96,8 @@ namespace pr::physics
 		,m_cs_apply_impulses()
 		,m_cs_evaluate_impulses()
 		,m_cs_commit_impulses()
+		,m_cs_evaluate_response()
+		,m_cs_refresh_velocities()
 		,m_r_link_impulses()
 		,m_r_work()
 		,m_r_velocity_deltas()
@@ -154,6 +156,10 @@ namespace pr::physics
 		m_cs_evaluate_impulses.m_pso = ComputePSO(transactional_root_sig.get(), shader_code::articulation_evaluate_impulses).Create(m_gpu, "Physics:ArticulationEvaluateImpulsesPSO");
 		m_cs_commit_impulses.m_sig = transactional_root_sig;
 		m_cs_commit_impulses.m_pso = ComputePSO(transactional_root_sig.get(), shader_code::articulation_commit_impulses).Create(m_gpu, "Physics:ArticulationCommitImpulsesPSO");
+		m_cs_evaluate_response.m_sig = transactional_root_sig;
+		m_cs_evaluate_response.m_pso = ComputePSO(transactional_root_sig.get(), shader_code::evaluate_articulation_impulse_response).Create(m_gpu, "Physics:EvaluateArticulationImpulseResponsePSO");
+		m_cs_refresh_velocities.m_sig = transactional_root_sig;
+		m_cs_refresh_velocities.m_pso = ComputePSO(transactional_root_sig.get(), shader_code::refresh_articulation_impulse_velocities).Create(m_gpu, "Physics:RefreshArticulationImpulseVelocitiesPSO");
 	}
 
 	// Allocate compact participating-link impulse and work buffers without initializing the impulse stream.
@@ -270,15 +276,41 @@ namespace pr::physics
 	}
 
 	// Evaluate selected tree responses into detached work buffers and one caller-owned validity result per range.
-	void GpuArticulationImpulseAba::Evaluate(GpuJob& job, ID3D12Resource* selection, ID3D12Resource* results)
+	void GpuArticulationImpulseAba::Evaluate(GpuJob& job, ID3D12Resource* selection, ID3D12Resource* results, GpuArticulationVelocityBuffers state)
 	{
-		DispatchTransactional(job, m_cs_evaluate_impulses, selection, results);
+		// Admission uses the caller's explicit baseline without substituting physical buffers.
+		DispatchTransactional(job, m_cs_evaluate_impulses, selection, results, state);
 	}
 
 	// Commit previously evaluated responses for the caller-selected valid ranges.
-	void GpuArticulationImpulseAba::Commit(GpuJob& job, ID3D12Resource* selection, ID3D12Resource* results)
+	void GpuArticulationImpulseAba::Commit(GpuJob& job, ID3D12Resource* selection, ID3D12Resource* results, GpuArticulationVelocityBuffers state)
 	{
-		DispatchTransactional(job, m_cs_commit_impulses, selection, results);
+		// Only the supplied primary state and its cache receive the evaluated response.
+		DispatchTransactional(job, m_cs_commit_impulses, selection, results, state);
+	}
+
+	// Evaluate the finite linear response without adding it to any physical baseline or changing factor state.
+	void GpuArticulationImpulseAba::EvaluateResponse(GpuJob& job, ID3D12Resource* selection, ID3D12Resource* results)
+	{
+		// This entry reads configuration factors but writes only response and validity work.
+		DispatchTransactional(job, m_cs_evaluate_response, selection, results, VelocityBuffers());
+	}
+
+	// Reconstruct and validate selected link caches from the supplied generalized speeds without applying impulses.
+	void GpuArticulationImpulseAba::RefreshVelocities(GpuJob& job, ID3D12Resource* selection, ID3D12Resource* results, GpuArticulationVelocityBuffers state)
+	{
+		// Cache reconstruction is explicit rather than a side effect of applying zero impulses.
+		DispatchTransactional(job, m_cs_refresh_velocities, selection, results, state);
+	}
+
+	// Return the owning articulation's current physical velocity buffers.
+	GpuArticulationVelocityBuffers GpuArticulationImpulseAba::VelocityBuffers() const
+	{
+		// Empty generalized state still needs a valid binding, but no shader invocation may index its sentinel.
+		return {
+			.m_velocities = (m_aba.m_velocity_count != 0 ? m_aba.m_r_velocities : m_aba.m_r_uav_sentinel).get(),
+			.m_scratch = m_aba.m_r_scratch.get(),
+		};
 	}
 
 	// Prepare factors, apply impulses, and read focused output through exactly one GPU submission.
@@ -396,14 +428,17 @@ namespace pr::physics
 	}
 
 	// Bind and dispatch one transactional evaluate or commit pass using caller-owned selection and result streams.
-	void GpuArticulationImpulseAba::DispatchTransactional(GpuJob& job, ComputeStep& step, ID3D12Resource* selection, ID3D12Resource* results)
+	void GpuArticulationImpulseAba::DispatchTransactional(GpuJob& job, ComputeStep& step, ID3D12Resource* selection, ID3D12Resource* results, GpuArticulationVelocityBuffers state)
 	{
 		if (m_mobility.m_ranges.empty())
 			return;
-		if (selection == nullptr || results == nullptr)
-			throw std::invalid_argument("Transactional articulation impulse response requires selection and result resources");
+		if (selection == nullptr || results == nullptr || state.m_velocities == nullptr || state.m_scratch == nullptr)
+			throw std::invalid_argument("Transactional articulation impulse response requires selection, result, and explicit velocity-state resources");
 		if (m_impulse_count != m_mobility.m_mobility_count || m_work_count != m_mobility.m_mobility_count)
 			throw std::runtime_error("GPU articulation impulse buffers do not match the prepared articulation factors");
+
+		// Include the transactional ABA helpers in the same pass-level replay attribution as their callers.
+		auto profile_scope = pix::DetailScope(job.m_cmd_list.get(), pix::DetailEnabled() ? DebugName(step.m_pso) : "");
 
 		// Preserve resource identity across evaluation and commit while making each dependency explicit to D3D12.
 		job.m_barriers.Transition(m_mobility.m_r_ranges.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
@@ -417,9 +452,9 @@ namespace pr::physics
 		job.m_barriers.Transition(m_mobility.m_r_mobilities.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 		job.m_barriers.Transition(m_r_link_impulses.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 		job.m_barriers.Transition(selection, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-		job.m_barriers.Transition((m_aba.m_velocity_count != 0 ? m_aba.m_r_velocities : m_aba.m_r_uav_sentinel).get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		job.m_barriers.Transition(state.m_velocities, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition((m_aba.m_acceleration_count != 0 ? m_aba.m_r_accelerations : m_aba.m_r_uav_sentinel).get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-		job.m_barriers.Transition(m_aba.m_r_scratch.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		job.m_barriers.Transition(state.m_scratch, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition((m_aba.m_dof_count != 0 ? m_aba.m_r_dof_scratch : m_aba.m_r_uav_sentinel).get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition((m_aba.m_joint_matrix_count != 0 ? m_aba.m_r_joint_matrix_scratch : m_aba.m_r_uav_sentinel).get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition(m_r_work.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -447,9 +482,9 @@ namespace pr::physics
 		job.m_cmd_list.AddComputeRootShaderResourceView(m_mobility.m_r_mobilities);
 		job.m_cmd_list.AddComputeRootShaderResourceView(m_r_link_impulses);
 		job.m_cmd_list.AddComputeRootShaderResourceView(selection);
-		job.m_cmd_list.AddComputeRootUnorderedAccessView((m_aba.m_velocity_count != 0 ? m_aba.m_r_velocities : m_aba.m_r_uav_sentinel));
+		job.m_cmd_list.AddComputeRootUnorderedAccessView(state.m_velocities);
 		job.m_cmd_list.AddComputeRootUnorderedAccessView((m_aba.m_acceleration_count != 0 ? m_aba.m_r_accelerations : m_aba.m_r_uav_sentinel));
-		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_aba.m_r_scratch);
+		job.m_cmd_list.AddComputeRootUnorderedAccessView(state.m_scratch);
 		job.m_cmd_list.AddComputeRootUnorderedAccessView((m_aba.m_dof_count != 0 ? m_aba.m_r_dof_scratch : m_aba.m_r_uav_sentinel));
 		job.m_cmd_list.AddComputeRootUnorderedAccessView((m_aba.m_joint_matrix_count != 0 ? m_aba.m_r_joint_matrix_scratch : m_aba.m_r_uav_sentinel));
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_work);
@@ -460,10 +495,10 @@ namespace pr::physics
 
 		// Either pass may feed another coupled kernel immediately, so order every writable transactional resource once.
 		if (m_aba.m_velocity_count != 0)
-			job.m_barriers.UAV(m_aba.m_r_velocities.get());
+			job.m_barriers.UAV(state.m_velocities);
 		if (m_aba.m_acceleration_count != 0)
 			job.m_barriers.UAV(m_aba.m_r_accelerations.get());
-		job.m_barriers.UAV(m_aba.m_r_scratch.get());
+		job.m_barriers.UAV(state.m_scratch);
 		job.m_barriers.UAV(m_r_work.get());
 		if (m_velocity_delta_count != 0)
 			job.m_barriers.UAV(m_r_velocity_deltas.get());

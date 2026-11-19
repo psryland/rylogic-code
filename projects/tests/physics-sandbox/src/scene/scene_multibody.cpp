@@ -255,11 +255,27 @@ namespace physics_sandbox
 				}
 				case scene_loader::ConstraintDesc::EType::D6:
 				{
-					scene.m_constraints.Add(physics::D6ConstraintDesc{
+					scene.m_constraints.Add(physics::ConstraintDesc{
 						.m_frame_a = frame_a,
 						.m_frame_b = frame_b,
-						.m_linear = constraint.m_linear,
-						.m_angular = constraint.m_angular,
+						.m_parameters = physics::D6ConstraintParameters{
+							.m_linear = constraint.m_linear,
+							.m_angular = constraint.m_angular,
+						},
+						.m_break_force = constraint.m_break_force,
+						.m_break_torque = constraint.m_break_torque,
+						.m_collide_connected = constraint.m_collide_connected,
+						.m_enabled = constraint.m_enabled,
+					});
+					break;
+				}
+				case scene_loader::ConstraintDesc::EType::SphericalAngular:
+				{
+					// Scene construction explicitly owns the typed constraint; creating a quaternion joint alone adds no hidden limit or damper.
+					scene.m_constraints.Add(physics::ConstraintDesc{
+						.m_frame_a = frame_a,
+						.m_frame_b = frame_b,
+						.m_parameters = constraint.m_spherical,
 						.m_break_force = constraint.m_break_force,
 						.m_break_torque = constraint.m_break_torque,
 						.m_collide_connected = constraint.m_collide_connected,
@@ -290,6 +306,7 @@ namespace physics_sandbox
 
 		// Reserve all owning and lookup containers before BodyRef identities are captured by persistent constraints.
 		m_articulation.reserve(scene_desc.articulations.size());
+		m_articulation_actuation.reserve(scene_desc.articulations.size());
 		auto articulation_records = std::vector<ArticulationRecord>{};
 		articulation_records.reserve(scene_desc.articulations.size());
 		auto shape_index = 0;
@@ -354,6 +371,7 @@ namespace physics_sandbox
 			// Store coherent initial link state without changing the selected sleep policy.
 			articulation.UpdateKinematics();
 			m_articulation.push_back(std::move(articulation));
+			m_articulation_actuation.push_back(source.m_actuation);
 			articulation_records.push_back(std::move(record));
 		}
 
@@ -384,6 +402,34 @@ namespace physics_sandbox
 			append_visual(source.m_root, 0);
 			for (auto link_index = 0; link_index != isize(source.m_links); ++link_index)
 				append_visual(source.m_links[link_index], link_index + 1);
+		}
+	}
+	// Apply mass-scaled generalized forces in velocity coordinates, not quaternion component coordinates.
+	void Scene::ApplyArticulationActuation(double time_s)
+	{
+		assert(m_articulation_actuation.size() == m_articulation.size());
+		constexpr auto golden_angle = 2.39996323f;
+		for (int articulation_index = 0; articulation_index != isize(m_articulation); ++articulation_index)
+		{
+			auto const& actuation = m_articulation_actuation[articulation_index];
+			if (actuation.m_torque_per_kg == 0.0f)
+				continue;
+
+			auto& articulation = m_articulation[articulation_index];
+			auto const cycle = static_cast<float>(std::fmod(time_s / actuation.m_period_s, 1.0)) * constants<float>::tau;
+			auto dof_index = 0;
+			for (int link_index = 1; link_index != articulation.LinkCount(); ++link_index)
+			{
+				auto const link = articulation.LinkAt(link_index);
+				auto const dof_count = isize(articulation.JointForce(link));
+				auto const amplitude = actuation.m_torque_per_kg * articulation.LinkDescription(link).m_inertia.Mass();
+				auto force = std::array<float, 6>{};
+				assert(dof_count <= isize(force));
+				for (int index = 0; index != dof_count; ++index, ++dof_index)
+					force[index] = amplitude * std::sin(cycle + actuation.m_phase + golden_angle * static_cast<float>(dof_index));
+
+				articulation.JointForce(link, std::span<float const>{force.data(), static_cast<size_t>(dof_count)});
+			}
 		}
 	}
 }
@@ -420,6 +466,52 @@ namespace physics_sandbox::tests
 		}
 	}
 
+	// Authored excitation acts on three spherical velocities and preserves independent forces when disabled.
+	PRUnitTestClass(SceneArticulationActuationTests)
+	{
+		PRUnitTestMethod(UsesJointVelocityDimensionsAndFrameStartPhase, Quick)
+		{
+			auto scene = Scene(nullptr);
+			auto desc = scene_loader::SceneDesc{};
+			auto tree = scene_loader::ArticulationDesc{};
+			tree.m_name = "actuated";
+			tree.m_root.m_body.name = "root";
+			tree.m_root.m_has_shape = false;
+			tree.m_root.m_inertia = physics::Inertia::Sphere(0.5f, 1.0f);
+			tree.m_actuation = {.m_torque_per_kg = 3.0f, .m_period_s = 2.0f, .m_phase = 0.25f};
+			auto child = scene_loader::ArticulationChildDesc{};
+			child.m_body.name = "child";
+			child.m_parent_name = "root";
+			child.m_has_shape = false;
+			child.m_inertia = physics::Inertia::Sphere(0.5f, 2.0f);
+			child.m_joint = physics::ArticulationJointDesc::Spherical();
+			tree.m_links.push_back(child);
+			desc.articulations.push_back(tree);
+			scene.BuildMultibodyObjects(desc, {});
+			auto& articulation = scene.m_articulation[0];
+			auto const link = articulation.LinkAt(1);
+			PR_EXPECT(articulation.JointPosition(link).size() == 4);
+			for (auto time_s : {0.0, 0.5, 2.0})
+			{
+				scene.ApplyArticulationActuation(time_s);
+				auto const force = articulation.JointForce(link);
+				PR_EXPECT(force.size() == 3);
+				for (int index = 0; index != 3; ++index)
+				{
+					auto const phase = static_cast<float>(time_s / 2.0) * constants<float>::tau + 0.25f + 2.39996323f * static_cast<float>(index);
+					PR_EXPECT(FEqlAbsolute(force[index], 6.0f * std::sin(phase), 1.0e-5f));
+				}
+			}
+			auto const preserved = std::array{1.0f, 2.0f, 3.0f};
+			articulation.JointForce(link, preserved);
+			scene.m_articulation_actuation[0].m_torque_per_kg = 0;
+			scene.ApplyArticulationActuation(0.5);
+			PR_EXPECT(std::ranges::equal(articulation.JointForce(link), preserved));
+			scene.ClearSimulationObjects();
+			PR_EXPECT(scene.m_articulation_actuation.empty());
+		}
+	};
+
 	PRUnitTestClass(SceneMultibodyConstructionTests)
 	{
 		PRUnitTestMethod(ConvertsWorldFramesAndRejectsInvalidReferences, Quick)
@@ -455,11 +547,38 @@ namespace physics_sandbox::tests
 			child.m_has_shape = false;
 			child.m_parent_name = "root";
 			child.m_inertia = physics::Inertia::Box(v4{0.5f, 0.25f, 0.25f, 0.0f}, 1.0f);
+			auto parent_frame = m4x4::TransformDeg(0, 0, 30, v4::Origin());
+			auto child_frame = m4x4::TransformDeg(0, 10, 0, v4::Origin());
+			child.m_joint = physics::ArticulationJointDesc::Spherical(parent_frame, child_frame);
+			child.m_joint.m_initial_position = {0.6f, 0, 0, 0.8f};
+			child.m_joint.m_initial_velocity = {0.2f, 0.3f, 0.4f};
 			articulation.m_links.push_back(std::move(child));
+			auto slider = scene_loader::ArticulationChildDesc{};
+			slider.m_body.name = "slider";
+			slider.m_has_shape = false;
+			slider.m_parent_name = "child";
+			slider.m_inertia = physics::Inertia::Sphere(0.25f, 1.0f);
+			slider.m_joint.m_dof_count = 1;
+			slider.m_joint.m_axes[0] = physics::ArticulationAxisDesc{.m_type = physics::EArticulationAxisType::Prismatic, .m_axis = v4::YAxis()};
+			slider.m_joint.m_initial_position[0] = 0.7f;
+			articulation.m_links.push_back(std::move(slider));
 			scene_desc.articulations.push_back(std::move(articulation));
 			scene.BuildMultibodyObjects(scene_desc, {});
 			PR_EXPECT(scene.m_articulation.size() == 1);
-			PR_EXPECT(scene.m_articulation[0].LinkCount() == 2);
+			auto const& tree = scene.m_articulation[0];
+			PR_EXPECT(tree.LinkCount() == 3);
+			PR_EXPECT(tree.JointPosition(tree.LinkAt(1)).size() == 4);
+			PR_EXPECT(tree.JointVelocity(tree.LinkAt(1)).size() == 3);
+			PR_EXPECT(tree.JointPosition(tree.LinkAt(1))[3] == 0.8f);
+			PR_EXPECT(tree.JointVelocity(tree.LinkAt(1))[2] == 0.4f);
+			PR_EXPECT(tree.JointPosition(tree.LinkAt(2))[0] == 0.7f);
+			auto expected_rotation = parent_frame.rot * m4x4::Transform(quat{0.6f, 0, 0, 0.8f}, v4::Origin()).rot * Transpose(child_frame.rot);
+			PR_EXPECT(FEqlAbsolute(tree.LinkToWorld(tree.LinkAt(1)).rot, expected_rotation, 1.0e-6f));
+			PR_EXPECT(FEqlAbsolute(tree.LinkVelocity(tree.LinkAt(1)).ang, child_frame.rot * v4{0.2f, 0.3f, 0.4f, 0}, 1.0e-6f));
+			PR_EXPECT(scene.m_constraints.Count() == 0);
+			auto const actual_speed = tree.LinkVelocity(tree.LinkAt(1)).ang;
+			log_stream() << pr::FmtS("child-joint angular input=(.2,.3,.4), child-link angular output=(%.9g,%.9g,%.9g); rotation error=%.9g; implicit constraints=%zu\n",
+				actual_speed.x, actual_speed.y, actual_speed.z, Length(tree.LinkToWorld(tree.LinkAt(1)).rot.x - expected_rotation.x), scene.m_constraints.Count());
 
 			// Resolve all strongly typed constraint descriptors through one ordinary rigid endpoint.
 			auto constraint_scene = Scene(nullptr);
@@ -474,9 +593,15 @@ namespace physics_sandbox::tests
 				scene_loader::ConstraintDesc{.m_type = scene_loader::ConstraintDesc::EType::Slider, .m_frame_a = world, .m_frame_b = body},
 				scene_loader::ConstraintDesc{.m_type = scene_loader::ConstraintDesc::EType::Weld, .m_frame_a = world, .m_frame_b = body},
 				scene_loader::ConstraintDesc{.m_type = scene_loader::ConstraintDesc::EType::D6, .m_frame_a = world, .m_frame_b = body},
+				scene_loader::ConstraintDesc{.m_type = scene_loader::ConstraintDesc::EType::SphericalAngular, .m_frame_a = world, .m_frame_b = body, .m_spherical = physics::SphericalAngularConstraintParameters{.m_damping = 6}},
 			};
 			constraint_scene.BuildMultibodyObjects(constraint_desc, {});
-			PR_EXPECT(constraint_scene.m_constraints.Count() == 5);
+			PR_EXPECT(constraint_scene.m_constraints.Count() == 6);
+
+			// Invalid physical damping must reach native typed validation rather than being discarded as an unused D6 field.
+			constraint_desc.constraints.erase(constraint_desc.constraints.begin(), constraint_desc.constraints.end() - 1);
+			constraint_desc.constraints[0].m_spherical.m_damping = -1;
+			PR_THROWS(constraint_scene.BuildMultibodyObjects(constraint_desc, {}), std::exception);
 		}
 
 		PRUnitTestMethod(TransformsShapeDerivedInertiaIntoLinkSpace, Quick)

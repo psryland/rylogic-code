@@ -49,9 +49,31 @@ namespace pr::physics
 			}
 		}
 
-		// Evaluate the serial scalar-axis joint transform, body Jacobian columns, velocity, and velocity-product bias.
+		// Evaluate the joint transform, child-frame velocity Jacobian, and velocity-product bias.
 		void EvaluateJoint(detail::ArticulationLinkState& link, std::span<float const> position, std::span<float const> velocity)
 		{
+			// Spherical angular coordinates already use the child joint frame, so their Jacobian is constant and has no internal bias.
+			switch (link.m_joint.m_type)
+			{
+				case EArticulationJointType::Axes: { break; }
+				case EArticulationJointType::Spherical:
+				{
+					auto const orientation = quat{position[0], position[1], position[2], position[3]};
+					link.m_child_to_parent = link.m_joint.m_joint_to_parent * m4x4::Transform(orientation, v4::Origin()) * InvertOrthonormal(link.m_joint.m_joint_to_child);
+					link.m_parent_to_child = InvertOrthonormal(link.m_child_to_parent);
+					link.m_joint_velocity = link.m_joint.m_joint_to_child * v8motion{v4{velocity[0], velocity[1], velocity[2], 0}, v4{}};
+					link.m_joint_bias = {};
+					for (int column = 0; column != 3; ++column)
+					{
+						auto angular_axis = v4{};
+						angular_axis[column] = 1.0f;
+						link.m_motion_subspace[column] = link.m_joint.m_joint_to_child * v8motion{angular_axis, v4{}};
+					}
+					return;
+				}
+				default: { throw std::invalid_argument("Articulation joint type is invalid"); }
+			}
+
 			auto const dof_count = link.m_joint.m_dof_count;
 			auto motion_to_parent_joint = m4x4::Identity();
 			auto joint_velocity = v8motion{};
@@ -127,7 +149,7 @@ namespace pr::physics
 		{
 			auto& link = state.m_links[link_index];
 			auto const& parent = state.m_links[link.m_parent_index];
-			auto position = std::span<float const>{state.m_position}.subspan(link.m_position_offset, link.m_joint.m_dof_count);
+			auto position = std::span<float const>{state.m_position}.subspan(link.m_position_offset, link.m_joint.PositionCount());
 			auto velocity = std::span<float const>{state.m_velocity}.subspan(link.m_velocity_offset, link.m_joint.m_dof_count);
 			EvaluateJoint(link, position, velocity);
 			link.m_link_to_world = parent.m_link_to_world * link.m_child_to_parent;

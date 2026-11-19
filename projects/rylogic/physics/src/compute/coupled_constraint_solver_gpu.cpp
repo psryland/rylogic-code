@@ -41,8 +41,8 @@ namespace pr::physics
 		return true;
 	}
 
-	// Rebuild mobility and physical rows, optionally retaining impulses already applied earlier in the current substep.
-	void GpuCoupledConstraintSolver::PrepareVelocity(GpuJob& job, float timestep, int body_count, ID3D12Resource* bodies, bool retain_current_impulses)
+	// Rebuild current-pose mobility/rows and prepare explicit ownership without publishing a seed.
+	void GpuCoupledConstraintSolver::PrepareVelocity(GpuJob& job, GpuConstraintEpoch epoch, int body_count, ID3D12Resource* bodies)
 	{
 		if (!m_active)
 			return;
@@ -51,21 +51,15 @@ namespace pr::physics
 
 		// Constraint impulses use a final-configuration factorization that remains fixed for the complete velocity and position transaction.
 		m_mobility.Run(job);
-		m_prepare.Run(job, timestep, body_count, bodies, m_link_proxies.LinkToWorld(), m_mobility, retain_current_impulses);
-	}
-
-	// Apply retained coupled impulses through atomic rigid and complete-tree updates.
-	void GpuCoupledConstraintSolver::ApplyWarmStart(GpuJob& job, int body_count, ID3D12Resource* bodies)
-	{
-		if (m_active)
-			m_velocity.ApplyWarmStart(job, body_count, bodies);
+		m_prepare.Run(job, epoch.timestep, body_count, bodies, m_link_proxies.LinkToWorld(), m_mobility);
+		m_velocity.PrepareVelocityTransactions(job, epoch, body_count);
 	}
 
 	// Execute one transactional coupled velocity sweep.
 	void GpuCoupledConstraintSolver::SolveVelocityIteration(GpuJob& job, int body_count, ID3D12Resource* bodies, int substep_index)
 	{
 		if (m_active)
-			m_velocity.Run(job, body_count, bodies, substep_index);
+			m_velocity.CommitVelocityTransactions(job, body_count, bodies, substep_index);
 	}
 
 	// Prepare position solving against owned or shared detached state.
@@ -88,10 +82,10 @@ namespace pr::physics
 	}
 
 	// Apply all shared rigid and articulation pseudo state exactly once.
-	void GpuCoupledConstraintSolver::ApplyPosition(GpuJob& job, ID3D12Resource* bodies)
+	void GpuCoupledConstraintSolver::ApplyPosition(GpuJob& job, ID3D12Resource* bodies, int substep_index)
 	{
 		if (m_active)
-			m_position.Apply(job, bodies);
+			m_position.Apply(job, bodies, substep_index);
 	}
 
 	// True when the latest upload contains at least one enabled articulation-coupled block.
@@ -100,10 +94,16 @@ namespace pr::physics
 		return m_active;
 	}
 
-	// Forward the velocity-owned stable stream because it spans velocity and position rejection phases.
-	GpuCoupledConstraintFailureOutput GpuCoupledConstraintSolver::FailureOutput()
+	// Expose accepted load ownership, not current numerical or position scratch.
+	GpuCoupledConstraintLoadOutput GpuCoupledConstraintSolver::LoadOutput()
 	{
-		return m_velocity.FailureOutput();
+		return m_active ? m_velocity.LoadOutput() : GpuCoupledConstraintLoadOutput{};
+	}
+
+	// Retain allocated resources while preventing uncommitted history from seeding another frame.
+	void GpuCoupledConstraintSolver::InvalidateRuntimeState()
+	{
+		m_velocity.m_transaction_ready = false;
 	}
 
 	// Release all topology-dependent coupled resources and invalidate retained warm-start timing.
@@ -150,6 +150,40 @@ namespace pr::physics
 				velocity.m_allocated_feature_bytes +
 				position.m_allocated_feature_bytes,
 		};
+	}
+
+	// Read cumulative started trials and transaction outcomes from every retained completed-sweep snapshot.
+	CoupledVelocityWorkStats GpuCoupledConstraintSolver::CompletedVelocityWork() const
+	{
+		// No snapshots can mean disabled detail, no participating owners, or zero sweeps; it is not a measured-zero certificate.
+		auto result = CoupledVelocityWorkStats{.m_has_snapshots = !m_velocity.m_sweep_profiles.empty()};
+		for (auto const& profile : m_velocity.m_sweep_profiles)
+		{
+			++result.m_sweeps;
+			result.m_recorded_dispatches += profile.m_recorded_dispatches;
+			result.m_owner_sweeps += profile.m_island_count;
+			auto const* states = profile.m_states.ptr<GpuCoupledConstraintIslandState>();
+			auto const* outcomes = profile.m_results.ptr<uint32_t>();
+			for (int owner = 0; owner != profile.m_island_count; ++owner)
+			{
+				// An accepted transaction is counted from its own outcome, never inferred from the first-rejection bank.
+				result.m_started_trials += states[owner].iteration_count;
+				switch (outcomes[owner])
+				{
+					case GpuConstraintStage_Accepted:
+					{
+						++result.m_accepted_owner_sweeps;
+						result.m_zero_attempt_accepted_owner_sweeps += states[owner].iteration_count == 0 ? 1 : 0;
+						break;
+					}
+					case GpuConstraintStage_AdmissionRejected: { ++result.m_admission_rejected_owner_sweeps; break; }
+					case GpuConstraintStage_SolveRejected: { ++result.m_solve_rejected_owner_sweeps; break; }
+					case GpuConstraintStage_NumericalFailure: { ++result.m_numerical_failure_owner_sweeps; break; }
+					default: { throw std::runtime_error("Invalid completed coupled velocity diagnostic outcome"); }
+				}
+			}
+		}
+		return result;
 	}
 
 	// Custom deleter implementation keeps the incomplete type out of the public Engine header.

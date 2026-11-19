@@ -84,8 +84,8 @@ namespace pr::physics::tests
 			gpu.m_job.m_barriers.Transition(states.get(), D3D12_RESOURCE_STATE_COPY_DEST).Commit();
 			gpu.m_job.m_cmd_list.CopyBufferRegion(states.get(), 0, source);
 			auto breaks = GpuConstraintBreakOutput{.m_states = states.get(), .m_slot_count = 1};
-			output.BeginFrame(gpu.m_job, 0, 1500, 1, GpuArticulationMidpointOutput{}, breaks, GpuCoupledConstraintFailureOutput{}, false);
-			auto readback = output.GatherAndReadback(gpu.m_job, 0, nullptr, GpuArticulationMidpointOutput{}, breaks, GpuCoupledConstraintFailureOutput{});
+			output.BeginFrame(gpu.m_job, 0, 1500, 1, GpuArticulationMidpointOutput{}, breaks, GpuConstraintRejectionOutput{}, false);
+			auto readback = output.GatherAndReadback(gpu.m_job, 0, nullptr, GpuArticulationMidpointOutput{}, breaks, GpuConstraintRejectionOutput{});
 			gpu.m_job.Run();
 
 			PR_EXPECT(GpuFrameOutput::Header(readback).event_count == 0);

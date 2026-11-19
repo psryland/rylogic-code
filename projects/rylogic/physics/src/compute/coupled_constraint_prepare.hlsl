@@ -2,13 +2,13 @@
 // Physics Engine — Coupled Constraint Preparation
 //  Copyright (C) Rylogic Ltd 2026
 //*********************************************
-// One lane per stable slot compiles articulation-coupled D6 rows and their exact-self block preconditioner.
+// One lane per stable slot compiles typed articulation-coupled rows and their exact-self block preconditioner.
 //
 // Resource layout:
 //   b0: cbCoupledConstraintPrepare                         - packed range and numerical controls
 //   u0: RWStructuredBuffer<GpuRigidBody>                   - rigid endpoint state
 //   t0: StructuredBuffer<GpuConstraintEndpoint>            - stable-slot endpoint metadata
-//   t1: StructuredBuffer<GpuD6ConstraintDesc>              - stable-slot D6 parameters
+//   t1: StructuredBuffer<GpuConstraintDesc>              - stable-slot typed parameters
 //   t2: StructuredBuffer<GpuCoupledConstraintEndpoint>     - link and compact-mobility ownership
 //   t3: StructuredBuffer<GpuConstraintFrame>               - persistent forest-wide link frames
 //   t4: StructuredBuffer<GpuArticulationSpatialMobility>   - compact exact self-link mobilities
@@ -19,6 +19,7 @@
 
 #include "pr/hlsl/core.hlsli"
 #include "pr/hlsl/quaternions.hlsli"
+#include "physics/src/compute/constraint_coordinates.hlsli"
 #include "pr/hlsl/spatial_algebra.hlsli"
 #include "physics/src/compute/physics_types.hlsli"
 
@@ -36,14 +37,14 @@ struct cbCoupledConstraintPrepare
 
 	float timestep;
 	float regularization;
-	float warm_start_scale;
-	int retain_current_impulses;
+	float pad0;
+	int pad1;
 };
 
 ConstantBuffer<cbCoupledConstraintPrepare> resource(g_coupled_prepare, b0);
 RWStructuredBuffer<GpuRigidBody> resource(g_coupled_bodies, u0);
 StructuredBuffer<GpuConstraintEndpoint> resource(g_coupled_constraint_endpoints, t0);
-StructuredBuffer<GpuD6ConstraintDesc> resource(g_coupled_descriptors, t1);
+StructuredBuffer<GpuConstraintDesc> resource(g_coupled_descriptors, t1);
 StructuredBuffer<GpuCoupledConstraintEndpoint> resource(g_coupled_link_endpoints, t2);
 StructuredBuffer<GpuConstraintFrame> resource(g_coupled_link_to_world, t3);
 StructuredBuffer<GpuArticulationSpatialMobility> resource(g_coupled_link_mobilities, t4);
@@ -157,11 +158,12 @@ void CoupledEndpointJacobian(
 	linear_component = float4(linear_ws, 0.0f);
 }
 
-// Compile one coupled row and report unrepresentable soft arithmetic while retaining only compatible warm-start impulses.
+// Compile current coupled geometry and report unrepresentable soft arithmetic; accepted ownership supplies later guesses.
 bool CompileCoupledConstraintRow(
 	uint slot_idx,
 	uint axis_idx,
 	GpuConstraintAxisDesc axis,
+	bool is_linear,
 	float3 axis_ws,
 	float3 linear_lever_a,
 	float3 anchor_offset_b,
@@ -170,14 +172,11 @@ bool CompileCoupledConstraintRow(
 	int link_idx_a,
 	int link_idx_b,
 	float position,
-	uint old_state,
-	bool reset_warm_start,
 	out_(uint) state,
 	out_(bool) velocity_active,
 	out_(bool) position_active)
 {
 	uint row_idx = slot_idx * GpuConstraintRowsPerBlock + axis_idx;
-	GpuConstraintRow old_row = g_coupled_rows[row_idx];
 	GpuConstraintRow row = EmptyConstraintRow();
 
 	float position_error;
@@ -192,7 +191,6 @@ bool CompileCoupledConstraintRow(
 		axis.damping == 0.0f;
 
 	// The first endpoint's linear lever includes the rotation of its constraint axis.
-	bool is_linear = axis_idx < 3u;
 	CoupledEndpointJacobian(is_linear, axis_ws, linear_lever_a, -1.0f, body_idx_a, link_idx_a, row.jacobian_a_ang, row.jacobian_a_lin);
 	CoupledEndpointJacobian(is_linear, axis_ws, anchor_offset_b, +1.0f, body_idx_b, link_idx_b, row.jacobian_b_ang, row.jacobian_b_lin);
 
@@ -202,18 +200,8 @@ bool CompileCoupledConstraintRow(
 
 	float max_impulse = max(axis.max_force * g_coupled_prepare.timestep, 0.0f);
 	float2 bounds = ConstraintImpulseBounds(state, max_impulse);
-	float retained = 0.0f;
-	if (!reset_warm_start && state == old_state && velocity_active)
-	{
-		float warm_start_scale = g_coupled_prepare.retain_current_impulses != 0
-			? 1.0f
-			: isfinite(g_coupled_prepare.warm_start_scale) && g_coupled_prepare.warm_start_scale > 0.0f
-				? g_coupled_prepare.warm_start_scale
-				: 0.0f;
-		retained = clamp(old_row.bounds.z * warm_start_scale, bounds.x, bounds.y);
-	}
 	row.solve = float4(position_error, axis.mode == GpuConstraintAxisMode_Driven ? axis.target_velocity : 0.0f, bias, gamma);
-	row.bounds = float4(bounds, retained, 0.0f);
+	row.bounds = float4(bounds, 0.0f, 0.0f);
 	g_coupled_rows[row_idx] = row;
 	return valid;
 }
@@ -393,8 +381,8 @@ void CSPrepareCoupledConstraints(int3 DTID(dtid))
 		return;
 	}
 
-	GpuD6ConstraintDesc desc = g_coupled_descriptors[slot_idx];
-	bool any_non_free = false;
+	GpuConstraintDesc desc = g_coupled_descriptors[slot_idx];
+	bool any_non_free = desc.type != GpuConstraintType_D6;
 	for (uint axis_idx = 0; axis_idx != GpuConstraintRowsPerBlock; ++axis_idx)
 		any_non_free = any_non_free || desc.axes[axis_idx].mode != GpuConstraintAxisMode_Free;
 	if (!any_non_free)
@@ -411,32 +399,73 @@ void CSPrepareCoupledConstraints(int3 DTID(dtid))
 	float4 quat_a = quat_from_float3x3((float3x3)frame_a);
 	float4 quat_b = quat_from_float3x3((float3x3)frame_b);
 	float3 angular_error = quat_rotation_vector(quat_a, quat_b);
+	SphericalAngularRows spherical_rows;
+	switch (desc.type)
+	{
+		case GpuConstraintType_D6: { break; }
+		case GpuConstraintType_SphericalAngular:
+		{
+			// The same native/rigid geometry supplies covectors before conversion into link coordinates.
+			if (!PrepareSphericalAngularRows(quat_a, quat_b, desc.swing_limits, desc.twist_limits, desc.angular_damping, spherical_rows))
+				block.flags |= ConstraintBlockFlags_NumericalFailure;
+
+			block.row_identities = spherical_rows.m_identities;
+			break;
+		}
+		default:
+		{
+			// Unknown packed law kinds must not become an apparently successful empty solve.
+			block.flags |= ConstraintBlockFlags_NumericalFailure;
+			break;
+		}
+	}
 
 	// Differentiating frame A's moving axis makes B's world anchor the effective lever for the linear A wrench.
 	float3 linear_lever_a = frame_b[3].xyz - CoupledEndpointOrigin(packed_endpoint.body_idx_a, endpoint.link_idx_a);
 	float3 anchor_offset_b = frame_b[3].xyz - CoupledEndpointOrigin(packed_endpoint.body_idx_b, endpoint.link_idx_b);
 	bool reset_warm_start =
-		g_coupled_prepare.retain_current_impulses == 0 &&
-		(
-			AllSet(packed_endpoint.flags, GpuConstraintEndpointFlags_ResetWarmStart) ||
-			CoupledBodyResetsWarmStart(packed_endpoint.body_idx_a, endpoint.link_idx_a) ||
-			CoupledBodyResetsWarmStart(packed_endpoint.body_idx_b, endpoint.link_idx_b)
-		);
+		AllSet(packed_endpoint.flags, GpuConstraintEndpointFlags_ResetWarmStart) ||
+		CoupledBodyResetsWarmStart(packed_endpoint.body_idx_a, endpoint.link_idx_a) ||
+		CoupledBodyResetsWarmStart(packed_endpoint.body_idx_b, endpoint.link_idx_b);
 
-	// Frame A defines all six canonical world axes before link endpoint wrenches rotate into local coordinates.
+	// Row slots identify persistent storage, not whether a wrench is linear or angular.
 	for (uint axis_idx = 0; axis_idx != GpuConstraintRowsPerBlock; ++axis_idx)
 	{
 		uint local_axis = axis_idx % 3u;
 		float3 axis_ws = frame_a[local_axis].xyz;
 		float position = dot(axis_idx < 3u ? linear_error : angular_error, axis_ws);
-		uint old_state = (old_block.row_states >> (2u * axis_idx)) & 3u;
+		GpuConstraintAxisDesc axis = desc.axes[axis_idx];
+		bool is_linear = false;
+		switch (desc.type)
+		{
+			case GpuConstraintType_D6:
+			{
+				// D6 retains its measured principal-log components.
+				is_linear = axis_idx < 3u;
+				if (!is_linear)
+					axis_ws = RotationVectorGradient(angular_error, axis_ws);
+
+				break;
+			}
+			case GpuConstraintType_SphericalAngular:
+			{
+				// Limits and physical damping remain separate equations in this same coupled block.
+				axis = spherical_rows.m_parameters[axis_idx];
+				axis_ws = spherical_rows.m_axes[axis_idx];
+				position = spherical_rows.m_positions[axis_idx];
+				break;
+			}
+			default: { axis.mode = GpuConstraintAxisMode_Free; break; }
+		}
+
 		uint state;
 		bool velocity_active;
 		bool position_active;
 		if (!CompileCoupledConstraintRow(
 			slot_idx,
 			axis_idx,
-			desc.axes[axis_idx],
+			axis,
+			is_linear,
 			axis_ws,
 			linear_lever_a,
 			anchor_offset_b,
@@ -445,8 +474,6 @@ void CSPrepareCoupledConstraints(int3 DTID(dtid))
 			endpoint.link_idx_a,
 			endpoint.link_idx_b,
 			position,
-			old_state,
-			reset_warm_start,
 			state,
 			velocity_active,
 			position_active))
@@ -460,8 +487,7 @@ void CSPrepareCoupledConstraints(int3 DTID(dtid))
 	}
 
 	block.colour = MaxColours;
-	block.flags |= (g_coupled_prepare.retain_current_impulses != 0 ? old_block.flags & ConstraintBlockFlags_NumericalFailure : 0u) |
-		ConstraintBlockFlags_Active | (reset_warm_start ? ConstraintBlockFlags_ResetWarmStart : 0u);
+	block.flags |= ConstraintBlockFlags_Active | (reset_warm_start ? ConstraintBlockFlags_ResetWarmStart : 0u);
 	if (AllSet(block.flags, ConstraintBlockFlags_NumericalFailure))
 	{
 		g_coupled_blocks[slot_idx] = block;

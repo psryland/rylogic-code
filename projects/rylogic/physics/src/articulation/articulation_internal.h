@@ -9,6 +9,9 @@ namespace pr::physics::detail
 {
 	using SpatialInertia = Mat6x8<float, Motion, Force>;
 
+	// Validate a caller-supplied joint configuration at the public input or detached-output boundary.
+	void ValidateJointPosition(ArticulationJointDesc const& joint, std::span<float const> position);
+
 	// Return whether a spatial force or impulse contains any non-zero component that must wake a sleeping tree.
 	inline bool HasNonZeroComponent(v8force value)
 	{

@@ -80,17 +80,10 @@ namespace render_tests
 
 	void RayCastLifetimeNativeTests()
 	{
-		// All native resources belong to this executable's renderer, never the independently linked DLL.
-		auto settings = rdr::RdrSettings(GetModuleHandleW(nullptr)).DebugLayer(true, true, false).DefaultAdapter();
+		// Preserve this control's GPU-validation requirement without changing settings while other tests own devices.
+		RequireLifetime(gpu::RunnerProcessDiagnostics == gpu::EProcessDiagnostics::GpuValidation, "RayCast lifetime requires -process-diagnostics:gbv at process startup");
+		auto settings = rdr::RdrSettings(GetModuleHandleW(nullptr)).DeviceDebug(true, false).DefaultAdapter();
 		auto renderer = rdr::Renderer(settings);
-
-		// GPU-based validation is a process-wide setting that applies to each device when it is created. This renderer's device keeps it,
-		// so switch it off again to stop it applying to devices that later tests create.
-		{
-			auto debug = Microsoft::WRL::ComPtr<ID3D12Debug1>{};
-			pr::Check(D3D12GetDebugInterface(IID_PPV_ARGS(debug.GetAddressOf())));
-			debug->SetEnableGPUBasedValidation(false);
-		}
 
 		auto info = Microsoft::WRL::ComPtr<ID3D12InfoQueue>{};
 		pr::Check(renderer.d3d()->QueryInterface(IID_PPV_ARGS(info.GetAddressOf())));

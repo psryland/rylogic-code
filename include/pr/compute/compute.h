@@ -17,6 +17,7 @@
 #include "pr/compute/resource/resource_state_store.h"
 #include "pr/compute/utility/wrappers.h"
 #include "pr/compute/utility/device_removed.h"
+#include "pr/compute/utility/process_diagnostics.h"
 #include "pr/compute/utility/gpu_sync.h"
 #include "pr/compute/utility/cmd_alloc.h"
 #include "pr/compute/utility/cmd_list.h"

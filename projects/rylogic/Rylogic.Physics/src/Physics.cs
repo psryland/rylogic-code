@@ -45,6 +45,24 @@ public sealed class Physics :IDisposable
 	}
 
 	/// <summary>
+	/// Configure D3D12 validation once at process startup, before any module creates a device. No Physics instance is needed.
+	/// None leaves external settings unchanged. Repeated/late calls through this DLL are rejected; the host must order other modules.
+	/// Unavailable diagnostics throw without changing settings.
+	/// </summary>
+	public static void ConfigureProcessDiagnostics(EProcessDiagnostics mode)
+	{
+		// Reject a mismatched native contract before requesting process-wide changes.
+		if (IntPtr.Size != sizeof(ulong))
+			throw new PlatformNotSupportedException("Rylogic.Physics requires a 64-bit process.");
+
+		Native.EnsureLoaded();
+		if (Native.Physics_ApiVersion() != Native.ApiVersion)
+			throw new PhysicsException(EStatus.IncompatibleVersion, "The managed and native Physics API versions do not match.");
+
+		Native.Check(Native.Physics_ConfigureProcessDiagnostics(mode));
+	}
+
+	/// <summary>
 	/// Cache runtime-compiled GPU kernels in 'directory' for engines created afterwards, including their atmospheres; null disables caching.
 	/// The cache is shared by every Physics instance in the process.
 	/// </summary>

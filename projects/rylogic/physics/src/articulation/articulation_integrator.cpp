@@ -12,6 +12,45 @@ namespace pr::physics
 		constexpr int MidpointIterationLimit = 12;
 		constexpr float MidpointRelativeTolerance = 2.0e-6f;
 
+		// Integrate joint configuration from a supplied start state and child-joint generalized velocity.
+		void IntegrateJointPositions(detail::ArticulationState const& state, std::span<float const> initial, std::span<float const> velocity, float dt, std::span<float> output)
+		{
+			// Position and velocity ranges differ for quaternions and must be addressed through each link's own offsets.
+			for (auto const& link : state.m_links | std::views::drop(1))
+			{
+				auto position = output.subspan(link.m_position_offset, link.m_joint.PositionCount());
+				auto const start = initial.subspan(link.m_position_offset, position.size());
+				auto const speed = velocity.subspan(link.m_velocity_offset, link.m_joint.m_dof_count);
+				switch (link.m_joint.m_type)
+				{
+					case EArticulationJointType::Axes:
+					{
+						for (int index = 0; index != isize(position); ++index)
+							position[index] = start[index] + dt * speed[index];
+
+						break;
+					}
+					case EArticulationJointType::Spherical:
+					{
+						// Right multiplication applies a body-frame angular displacement; normalization removes only roundoff.
+						auto const q = quat{start[0], start[1], start[2], start[3]};
+						auto const half_displacement = (0.5f * dt) * v3{speed[0], speed[1], speed[2]};
+						if (!IsFinite(LengthSq(half_displacement)))
+							throw std::runtime_error("Articulation angular displacement became non-finite");
+
+						auto const next = Normalise(q * ExpMap<quat>(half_displacement));
+						for (int index = 0; index != 4; ++index)
+							position[index] = next[index];
+
+						break;
+					}
+					default: { throw std::invalid_argument("Articulation joint type is invalid"); }
+				}
+				if (!std::ranges::all_of(position, [](float value) { return IsFinite(value); }))
+					throw std::runtime_error("Articulation joint integration became non-finite");
+			}
+		}
+
 		// Advance a floating root by a body-frame midpoint twist while preserving a rigid orthonormal transform.
 		m4x4 IntegrateRootTransform(m4x4 const& root_to_world, v8motion midpoint_velocity, float elapsed_seconds)
 		{
@@ -118,16 +157,12 @@ namespace pr::physics
 				return;
 
 			auto& state = *articulation.m_state;
-			articulation.Wake();
 
-			// Reduced-coordinate drift follows the same generalized ordering as physical articulation integration.
-			for (auto const& link : state.m_links | std::views::drop(1))
-			{
-				for (int axis_index = 0; axis_index != link.m_joint.m_dof_count; ++axis_index)
-					state.m_position[link.m_position_offset + axis_index] += timestep * generalized_velocity[link.m_velocity_offset + axis_index];
-			}
+			// Reuse the idle integration workspace to stage all joints; a late failure must leave accepted coordinates and caches untouched.
+			IntegrateJointPositions(state, state.m_position, generalized_velocity, timestep, state.m_position_start);
 
 			// A floating root uses its body-frame pseudo twist while a fixed root contributes no generalized root entries.
+			auto root_to_world = state.m_links.front().m_link_to_world;
 			switch (state.m_root_type)
 			{
 				case EArticulationRootType::Fixed:
@@ -136,8 +171,8 @@ namespace pr::physics
 				}
 				case EArticulationRootType::Floating:
 				{
-					auto& root_to_world = state.m_links.front().m_link_to_world;
 					root_to_world = IntegrateRootTransform(root_to_world, LoadSpatialMotion(generalized_velocity, 0), timestep);
+					ValidateArticulationTransform(root_to_world, "Articulation corrected root transform");
 					break;
 				}
 				default:
@@ -145,7 +180,11 @@ namespace pr::physics
 					throw std::runtime_error("Articulation root type is invalid");
 				}
 			}
+			// Publication cannot fail after staging; wake only when the complete configuration can be committed.
+			std::ranges::copy(state.m_position_start, state.m_position.begin());
+			state.m_links.front().m_link_to_world = root_to_world;
 			state.m_kinematics_dirty = true;
+			articulation.Wake();
 		}
 
 		// Validate a detached GPU integration result without changing its articulation.
@@ -167,6 +206,10 @@ namespace pr::physics
 				!std::ranges::all_of(output.m_velocities, [](float value) { return IsFinite(value); }) ||
 				!std::ranges::all_of(output.m_accelerations, [](float value) { return IsFinite(value); }))
 				throw std::invalid_argument("GPU articulation generalized output must be finite");
+
+			// Detached quaternion coordinates must satisfy the same public configuration contract as caller input.
+			for (auto const& link : state.m_links | std::views::drop(1))
+				ValidateJointPosition(link.m_joint, output.m_positions.subspan(link.m_position_offset, link.m_joint.PositionCount()));
 		}
 
 		// Commit one prevalidated GPU integration result and reconstruct its midpoint link accelerations.
@@ -192,15 +235,7 @@ namespace pr::physics
 				state.m_velocity_midpoint[index] = state.m_velocity_start[index] - half_dt * state.m_acceleration_start[index];
 			std::ranges::copy(state.m_velocity_midpoint, state.m_velocity.begin());
 			std::ranges::copy(state.m_acceleration_start, state.m_acceleration.begin());
-			for (auto const& link : state.m_links | std::views::drop(1))
-			{
-				for (int axis_index = 0; axis_index != link.m_joint.m_dof_count; ++axis_index)
-				{
-					state.m_position[link.m_position_offset + axis_index] =
-						state.m_position_start[link.m_position_offset + axis_index] -
-						half_dt * state.m_velocity_midpoint[link.m_velocity_offset + axis_index];
-				}
-			}
+			IntegrateJointPositions(state, state.m_position_start, state.m_velocity_midpoint, -half_dt, state.m_position);
 			state.m_kinematics_dirty = true;
 			articulation.UpdateKinematics();
 			ReconstructMidpointAccelerations(state);
@@ -270,15 +305,7 @@ namespace pr::physics
 
 			// Evaluate ABA at the candidate midpoint configuration and velocity.
 			std::ranges::copy(state.m_velocity_midpoint, state.m_velocity.begin());
-			for (auto const& link : state.m_links | std::views::drop(1))
-			{
-				for (int axis_index = 0; axis_index != link.m_joint.m_dof_count; ++axis_index)
-				{
-					state.m_position[link.m_position_offset + axis_index] = state.m_position_start[link.m_position_offset + axis_index] + half_dt * state.m_velocity_midpoint[link.m_velocity_offset + axis_index];
-					if (!IsFinite(state.m_position[link.m_position_offset + axis_index]))
-						throw std::runtime_error("Articulation implicit-midpoint position became non-finite");
-				}
-			}
+			IntegrateJointPositions(state, state.m_position_start, state.m_velocity_midpoint, half_dt, state.m_position);
 			if (state.m_root_type == EArticulationRootType::Floating)
 				state.m_links.front().m_link_to_world = IntegrateRootTransform(root_to_world_start, detail::LoadSpatialMotion(state.m_velocity_midpoint, 0), half_dt);
 			state.m_kinematics_dirty = true;
@@ -309,11 +336,7 @@ namespace pr::physics
 		// Commit the midpoint slope in one update so the method remains time-centred and avoids first-order secular energy gain.
 		for (int index = 0; index != isize(state.m_velocity); ++index)
 			state.m_velocity[index] = state.m_velocity_start[index] + elapsed_seconds * state.m_acceleration[index];
-		for (auto const& link : state.m_links | std::views::drop(1))
-		{
-			for (int axis_index = 0; axis_index != link.m_joint.m_dof_count; ++axis_index)
-				state.m_position[link.m_position_offset + axis_index] = state.m_position_start[link.m_position_offset + axis_index] + elapsed_seconds * state.m_velocity_midpoint[link.m_velocity_offset + axis_index];
-		}
+		IntegrateJointPositions(state, state.m_position_start, state.m_velocity_midpoint, elapsed_seconds, state.m_position);
 		if (state.m_root_type == EArticulationRootType::Floating)
 			state.m_links.front().m_link_to_world = IntegrateRootTransform(root_to_world_start, detail::LoadSpatialMotion(state.m_velocity_midpoint, 0), elapsed_seconds);
 		state.m_kinematics_dirty = true;

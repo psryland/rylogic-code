@@ -252,6 +252,7 @@ namespace physics_sandbox
 		, m_box(v4{ 2, 2, 2, 0 })
 		, m_body()
 		, m_articulation()
+		, m_articulation_actuation()
 		, m_constraints()
 		, m_body_ptrs()
 		, m_articulation_ptrs()
@@ -333,6 +334,7 @@ namespace physics_sandbox
 		m_collision_ignore_indices.clear();
 		m_body.clear();
 		m_articulation.clear();
+		m_articulation_actuation.clear();
 
 		// Shapes are released last because both rigid bodies and articulation descriptors refer to them by pointer.
 		m_shape_buffer.clear();
@@ -876,6 +878,8 @@ namespace physics_sandbox
 			}
 		}
 		profile.m_gravity_ms += ElapsedMs(gravity_beg, Clock::now());
+
+		ApplyArticulationActuation(time_s);
 
 		auto const physics_beg = Clock::now();
 		if (m_atmosphere_gfx != nullptr)

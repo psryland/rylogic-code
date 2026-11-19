@@ -15,6 +15,13 @@ namespace pr::physics
 	struct GpuCoupledConstraintVelocity;
 	struct GpuCoupledContactSolver;
 
+	// Generalized speeds and their link caches at the already prepared articulation geometry.
+	struct GpuArticulationVelocityBuffers
+	{
+		ID3D12Resource* m_velocities;
+		ID3D12Resource* m_scratch;
+	};
+
 	// Observable resource and dispatch state for the optional articulation impulse-response lane.
 	struct GpuArticulationImpulseAbaStats
 	{
@@ -53,6 +60,8 @@ namespace pr::physics
 		ComputeStep m_cs_apply_impulses;
 		ComputeStep m_cs_evaluate_impulses;
 		ComputeStep m_cs_commit_impulses;
+		ComputeStep m_cs_evaluate_response;
+		ComputeStep m_cs_refresh_velocities;
 		D3DPtr<ID3D12Resource> m_r_link_impulses;
 		D3DPtr<ID3D12Resource> m_r_work;
 		D3DPtr<ID3D12Resource> m_r_velocity_deltas;
@@ -77,10 +86,19 @@ namespace pr::physics
 
 		// Evaluate selected tree responses into detached work buffers and one caller-owned validity result per range.
 		// Cached link velocities must already match the current generalized state.
-		void Evaluate(GpuJob& job, ID3D12Resource* selection, ID3D12Resource* results);
+		void Evaluate(GpuJob& job, ID3D12Resource* selection, ID3D12Resource* results, GpuArticulationVelocityBuffers state);
 
 		// Commit previously evaluated responses for the caller-selected valid ranges.
-		void Commit(GpuJob& job, ID3D12Resource* selection, ID3D12Resource* results);
+		void Commit(GpuJob& job, ID3D12Resource* selection, ID3D12Resource* results, GpuArticulationVelocityBuffers state);
+
+		// Evaluate the finite linear response without adding it to any physical baseline or changing factor state.
+		void EvaluateResponse(GpuJob& job, ID3D12Resource* selection, ID3D12Resource* results);
+
+		// Reconstruct and validate selected link caches from the supplied generalized speeds without applying impulses.
+		void RefreshVelocities(GpuJob& job, ID3D12Resource* selection, ID3D12Resource* results, GpuArticulationVelocityBuffers state);
+
+		// Return the owning articulation's current physical velocity buffers.
+		GpuArticulationVelocityBuffers VelocityBuffers() const;
 
 		// Prepare factors, apply impulses, and read focused output through exactly one GPU submission.
 		GpuArticulationImpulseAbaResult Apply(
@@ -110,6 +128,6 @@ namespace pr::physics
 		void ResizeBuffers(GpuJob& job, int link_count, int work_count, int velocity_count);
 
 		// Bind and dispatch one transactional evaluate or commit pass using caller-owned selection and result streams.
-		void DispatchTransactional(GpuJob& job, ComputeStep& step, ID3D12Resource* selection, ID3D12Resource* results);
+		void DispatchTransactional(GpuJob& job, ComputeStep& step, ID3D12Resource* selection, ID3D12Resource* results, GpuArticulationVelocityBuffers state);
 	};
 }

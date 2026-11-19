@@ -145,7 +145,9 @@ namespace pr::physics::shader_code
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(begin_coupled_contact_transaction_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(build_coupled_contact_warm_start_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(build_coupled_contact_candidates_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(build_coupled_contact_components_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(build_coupled_contact_position_candidates_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(canonicalise_coupled_contact_endpoints_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(gather_coupled_contact_targets_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(validate_coupled_contact_trees_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(validate_coupled_contact_position_trees_cs.h)
@@ -176,7 +178,9 @@ namespace pr::physics::shader_code
 	ByteCode const begin_coupled_contact_transaction(compiled::begin_coupled_contact_transaction_cs);
 	ByteCode const build_coupled_contact_warm_start(compiled::build_coupled_contact_warm_start_cs);
 	ByteCode const build_coupled_contact_candidates(compiled::build_coupled_contact_candidates_cs);
+	ByteCode const build_coupled_contact_components(compiled::build_coupled_contact_components_cs);
 	ByteCode const build_coupled_contact_position_candidates(compiled::build_coupled_contact_position_candidates_cs);
+	ByteCode const canonicalise_coupled_contact_endpoints(compiled::canonicalise_coupled_contact_endpoints_cs);
 	ByteCode const gather_coupled_contact_targets(compiled::gather_coupled_contact_targets_cs);
 	ByteCode const validate_coupled_contact_trees(compiled::validate_coupled_contact_trees_cs);
 	ByteCode const validate_coupled_contact_position_trees(compiled::validate_coupled_contact_position_trees_cs);
@@ -192,17 +196,22 @@ namespace pr::physics::shader_code
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(reset_constraint_colours_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(assign_constraint_colour_level_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(finish_constraint_colours_cs.h)
-		#include PR_PHYSICS_SHADER_COMPILED_DIR(apply_constraint_warm_start_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(clear_constraint_pseudo_velocity_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(prepare_constraint_position_solve_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(solve_constraint_position_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(apply_constraint_position_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(prepare_constraint_velocity_solve_cs.h)
-		#include PR_PHYSICS_SHADER_COMPILED_DIR(solve_constraint_velocity_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(commit_constraint_velocity_transaction_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(recover_coupled_transaction_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(select_coupled_transaction_trees_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(validate_coupled_transaction_trees_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(admit_coupled_transaction_seed_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(seed_coupled_transaction_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(collect_coupled_transaction_solve_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(stage_coupled_transaction_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(publish_coupled_transaction_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(detect_broken_constraints_cs.h)
-		#include PR_PHYSICS_SHADER_COMPILED_DIR(apply_constraint_warm_start_fused_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(solve_constraint_position_fused_cs.h)
-		#include PR_PHYSICS_SHADER_COMPILED_DIR(solve_constraint_velocity_fused_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(prepare_coupled_constraints_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(prepare_coupled_position_preconditioners_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(clear_coupled_position_state_cs.h)
@@ -224,6 +233,11 @@ namespace pr::physics::shader_code
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(validate_coupled_velocity_trees_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(validate_coupled_velocity_warm_start_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(evaluate_coupled_velocity_merit_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(capture_coupled_reference_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(choose_coupled_reference_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(admit_coupled_initialization_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(restore_coupled_reference_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(begin_coupled_velocity_trial_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(commit_coupled_velocity_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(finalize_coupled_velocity_islands_cs.h)
 	}
@@ -231,17 +245,22 @@ namespace pr::physics::shader_code
 	ByteCode const reset_constraint_colours(compiled::reset_constraint_colours_cs);
 	ByteCode const assign_constraint_colour_level(compiled::assign_constraint_colour_level_cs);
 	ByteCode const finish_constraint_colours(compiled::finish_constraint_colours_cs);
-	ByteCode const apply_constraint_warm_start(compiled::apply_constraint_warm_start_cs);
 	ByteCode const clear_constraint_pseudo_velocity(compiled::clear_constraint_pseudo_velocity_cs);
 	ByteCode const prepare_constraint_position_solve(compiled::prepare_constraint_position_solve_cs);
 	ByteCode const solve_constraint_position(compiled::solve_constraint_position_cs);
 	ByteCode const apply_constraint_position(compiled::apply_constraint_position_cs);
 	ByteCode const prepare_constraint_velocity_solve(compiled::prepare_constraint_velocity_solve_cs);
-	ByteCode const solve_constraint_velocity(compiled::solve_constraint_velocity_cs);
+	ByteCode const commit_constraint_velocity_transaction(compiled::commit_constraint_velocity_transaction_cs);
+	ByteCode const recover_coupled_transaction(compiled::recover_coupled_transaction_cs);
+	ByteCode const select_coupled_transaction_trees(compiled::select_coupled_transaction_trees_cs);
+	ByteCode const validate_coupled_transaction_trees(compiled::validate_coupled_transaction_trees_cs);
+	ByteCode const admit_coupled_transaction_seed(compiled::admit_coupled_transaction_seed_cs);
+	ByteCode const seed_coupled_transaction(compiled::seed_coupled_transaction_cs);
+	ByteCode const collect_coupled_transaction_solve(compiled::collect_coupled_transaction_solve_cs);
+	ByteCode const stage_coupled_transaction(compiled::stage_coupled_transaction_cs);
+	ByteCode const publish_coupled_transaction(compiled::publish_coupled_transaction_cs);
 	ByteCode const detect_broken_constraints(compiled::detect_broken_constraints_cs);
-	ByteCode const apply_constraint_warm_start_fused(compiled::apply_constraint_warm_start_fused_cs);
 	ByteCode const solve_constraint_position_fused(compiled::solve_constraint_position_fused_cs);
-	ByteCode const solve_constraint_velocity_fused(compiled::solve_constraint_velocity_fused_cs);
 	ByteCode const prepare_coupled_constraints(compiled::prepare_coupled_constraints_cs);
 	ByteCode const prepare_coupled_position_preconditioners(compiled::prepare_coupled_position_preconditioners_cs);
 	ByteCode const clear_coupled_position_state(compiled::clear_coupled_position_state_cs);
@@ -263,6 +282,11 @@ namespace pr::physics::shader_code
 	ByteCode const validate_coupled_velocity_trees(compiled::validate_coupled_velocity_trees_cs);
 	ByteCode const validate_coupled_velocity_warm_start(compiled::validate_coupled_velocity_warm_start_cs);
 	ByteCode const evaluate_coupled_velocity_merit(compiled::evaluate_coupled_velocity_merit_cs);
+	ByteCode const capture_coupled_reference(compiled::capture_coupled_reference_cs);
+	ByteCode const choose_coupled_reference(compiled::choose_coupled_reference_cs);
+	ByteCode const admit_coupled_initialization(compiled::admit_coupled_initialization_cs);
+	ByteCode const restore_coupled_reference(compiled::restore_coupled_reference_cs);
+	ByteCode const begin_coupled_velocity_trial(compiled::begin_coupled_velocity_trial_cs);
 	ByteCode const commit_coupled_velocity(compiled::commit_coupled_velocity_cs);
 	ByteCode const finalize_coupled_velocity_islands(compiled::finalize_coupled_velocity_islands_cs);
 
@@ -278,6 +302,8 @@ namespace pr::physics::shader_code
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(articulation_apply_impulses_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(articulation_evaluate_impulses_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(articulation_commit_impulses_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(evaluate_articulation_impulse_response_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(refresh_articulation_impulse_velocities_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(articulation_refresh_proxies_cs.h)
 	}
 	ByteCode const articulation_prepare(compiled::articulation_prepare_cs);
@@ -289,6 +315,8 @@ namespace pr::physics::shader_code
 	ByteCode const articulation_apply_impulses(compiled::articulation_apply_impulses_cs);
 	ByteCode const articulation_evaluate_impulses(compiled::articulation_evaluate_impulses_cs);
 	ByteCode const articulation_commit_impulses(compiled::articulation_commit_impulses_cs);
+	ByteCode const evaluate_articulation_impulse_response(compiled::evaluate_articulation_impulse_response_cs);
+	ByteCode const refresh_articulation_impulse_velocities(compiled::refresh_articulation_impulse_velocities_cs);
 	ByteCode const articulation_refresh_proxies(compiled::articulation_refresh_proxies_cs);
 
 	// Selective refresh

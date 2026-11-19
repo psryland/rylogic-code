@@ -178,6 +178,21 @@ namespace pr::physics::atmosphere
 			return gpu.CreateResource(desc, job, name);
 		}
 
+		// Retire constructor work before its resources can unwind. Failure leaves the caller with a destruction-only job.
+		void RetireConstructionWork(GpuJob& job)
+		{
+			try
+			{
+				job.RetireRecordedWork();
+			}
+			catch (...)
+			{
+				// Failed constructors have no destructor; submitted work must finish before their pipeline members are released.
+				job.QuiesceForDestruction();
+				throw;
+			}
+		}
+
 		// Return one valid placeholder element because D3D12 root SRVs need a non-null resource address.
 		template <typename Type> D3DPtr<ID3D12Resource> CreateSrvSentinel(Gpu& gpu, GpuJob& job, char const* name)
 		{
@@ -767,7 +782,7 @@ namespace pr::physics::atmosphere
 			m_project = make_step(L"CSProject", "Project");
 			Allocate(gpu.m_job);
 			InitialiseReference(gpu.m_job);
-			gpu.m_job.RetireRecordedWork();
+			RetireConstructionWork(gpu.m_job);
 		}
 
 		// Return the dispatch count for all cell and face grids.
@@ -1246,23 +1261,26 @@ namespace pr::physics::atmosphere
 	}
 
 	// Change column floors and remap only changed columns into the new terrain-following layers.
-	void AtmosphereSolver::RemapFloors(GpuJob& job, std::span<float const> floor_heights)
+	AtmosphereInputCheck AtmosphereSolver::RemapFloors(GpuJob& job, std::span<float const> floor_heights)
 	{
+		// Reject before readback can execute work or observers. Inactive floors may contain caller-owned sentinel values.
+		auto const& grid = m_impl->m_config.m_grid;
+		if (isize(floor_heights) != grid.ColumnCount())
+			return {"Atmosphere floor buffer must contain one height per column"};
+
+		for (int i = 0; i != grid.ColumnCount(); ++i)
+		{
+			if (!grid.m_active_columns.empty() && grid.m_active_columns[i] == 0)
+				continue;
+
+			if (!std::isfinite(floor_heights[i]))
+				return {"Atmosphere floor heights must be finite in active columns"};
+		}
+
 		// Read back the old field because floor changes are rare and conservative CPU remapping is simpler and auditable.
 		auto old_grid = m_impl->m_config.m_grid;
 		auto state = ReadBack(job);
-		if (isize(floor_heights) != old_grid.ColumnCount())
-			throw std::invalid_argument("Atmosphere floor buffer must contain one height per column");
-
-		// Inactive column floors are ignored by the fixed mask and may contain caller-owned sentinel values.
 		auto new_floors = std::vector<float>(floor_heights.begin(), floor_heights.end());
-		for (int i = 0; i != old_grid.ColumnCount(); ++i)
-		{
-			if (!old_grid.m_active_columns.empty() && old_grid.m_active_columns[i] == 0)
-				continue;
-			if (!std::isfinite(new_floors[i]))
-				throw std::invalid_argument("Atmosphere floor heights must be finite in active columns");
-		}
 		auto changed = std::vector<uint8_t>(old_grid.ColumnCount(), 0);
 		auto any_changed = false;
 		for (int i = 0; i != old_grid.ColumnCount(); ++i)
@@ -1274,7 +1292,7 @@ namespace pr::physics::atmosphere
 			any_changed = any_changed || changed[i] != 0;
 		}
 		if (!any_changed)
-			return;
+			return {};
 
 		// Update the grid before using its new metric, then remap only columns whose floor changed.
 		auto new_grid = old_grid;
@@ -1331,49 +1349,61 @@ namespace pr::physics::atmosphere
 		// Upload the remapped physical state and the new floor metric for subsequent GPU steps.
 		m_impl->UploadFloors(job, m_impl->m_config.m_grid.m_floor_heights);
 		UploadState(job, state);
+		return {};
 	}
 
 	// Set the floor temperature under each column. See the declaration for the contract.
-	void AtmosphereSolver::SetFloorTemperatures(std::span<float const> floor_temperatures)
+	AtmosphereInputCheck AtmosphereSolver::SetFloorTemperatures(std::span<float const> floor_temperatures)
 	{
-		// Validate once here, so steps upload the stored values without checking them again.
+		// Validate the whole input before changing stored values; steps then upload them without repeated checks.
 		auto& impl = *m_impl;
 		if (isize(floor_temperatures) != impl.m_config.m_grid.ColumnCount())
-			throw std::invalid_argument("Atmosphere floor temperatures must contain one value per column");
+			return {"Atmosphere floor temperatures must contain one value per column"};
+
 		if (!std::ranges::all_of(floor_temperatures, [](float t) { return std::isfinite(t) && t > 0.0f; }))
-			throw std::invalid_argument("Atmosphere floor temperatures must be finite and positive");
+			return {"Atmosphere floor temperatures must be finite and positive"};
 
 		impl.m_pending_floor_temperatures.assign(floor_temperatures.begin(), floor_temperatures.end());
+		return {};
 	}
 
 	// Set the air outside the open faces. See the declaration for the contract.
-	void AtmosphereSolver::SetOutsideAir(std::span<AtmosphereOutsideAir const> outside_air)
+	AtmosphereInputCheck AtmosphereSolver::SetOutsideAir(std::span<AtmosphereOutsideAir const> outside_air)
 	{
-		// Validate and convert to the shader layout once here, so steps upload the stored values directly.
+		// Reject the entire input before replacing any pending values.
 		auto& impl = *m_impl;
 		if (isize(outside_air) != impl.m_config.m_grid.ColumnCount())
-			throw std::invalid_argument("Atmosphere outside air must contain one value per column");
+			return {"Atmosphere outside air must contain one value per column"};
 
+		if (!std::ranges::all_of(outside_air, [](AtmosphereOutsideAir const& air) { return IsFinite(air.m_wind) && std::isfinite(air.m_temperature_offset); }))
+			return {"Atmosphere outside air contains invalid values"};
+
+		// Convert the validated input once, so steps upload the stored values directly.
 		impl.m_pending_outside_air.resize(outside_air.size());
 		for (int i = 0; i != isize(outside_air); ++i)
 		{
-			// Each column's entry is checked as it is converted.
+			// Every entry was validated before the first write.
 			auto const& air = outside_air[i];
-			if (!IsFinite(air.m_wind) || !std::isfinite(air.m_temperature_offset))
-				throw std::invalid_argument("Atmosphere outside air contains invalid values");
-
 			impl.m_pending_outside_air[i] = GpuOutsideAir{ .m_wind = air.m_wind, .m_temperature_offset = air.m_temperature_offset, .m_pad = 0.0f };
 		}
+		return {};
 	}
 
 	// Record one solver step into 'job'. The caller owns command submission and completion.
-	void AtmosphereSolver::Step(GpuJob& job, float dt, std::span<AtmosphereHeatSource const> heat_sources)
+	AtmosphereInputCheck AtmosphereSolver::Step(GpuJob& job, float dt, std::span<AtmosphereHeatSource const> heat_sources)
 	{
-		// Reject invalid per-step values where they enter the solver.
+		// Reject the complete input before allocating uploads or recording commands.
 		if (!std::isfinite(dt) || dt < 0.0f)
-			throw std::invalid_argument("Atmosphere step dt must be finite and non-negative");
+			return {"Atmosphere step dt must be finite and non-negative"};
+
 		if (isize(heat_sources) > MaxHeatSources)
-			throw std::invalid_argument("Atmosphere heat-source count exceeds the per-step limit");
+			return {"Atmosphere heat-source count exceeds the per-step limit"};
+
+		for (auto const& src : heat_sources)
+		{
+			if (!IsFinite(src.m_centre) || !std::isfinite(src.m_radius) || src.m_radius < 0.0f || !std::isfinite(src.m_heating_rate) || !std::isfinite(src.m_target_temperature) || !std::isfinite(src.m_relaxation_rate) || src.m_relaxation_rate < 0.0f)
+				return {"Atmosphere heat source contains invalid values"};
+		}
 
 		// Convert heat sources to the shader layout in upload memory.
 		auto source_buffer = GpuAddress(m_impl->m_source_sentinel);
@@ -1382,10 +1412,8 @@ namespace pr::physics::atmosphere
 			auto upload = job.m_upload.Alloc<GpuHeatSource>(isize(heat_sources));
 			for (int i = 0; i != isize(heat_sources); ++i)
 			{
+				// Sources were validated before the first allocation.
 				auto const& src = heat_sources[i];
-				if (!IsFinite(src.m_centre) || !std::isfinite(src.m_radius) || src.m_radius < 0.0f || !std::isfinite(src.m_heating_rate) || !std::isfinite(src.m_target_temperature) || !std::isfinite(src.m_relaxation_rate) || src.m_relaxation_rate < 0.0f)
-					throw std::invalid_argument("Atmosphere heat source contains invalid values");
-
 				upload.ptr<GpuHeatSource>()[i] = GpuHeatSource{ .m_centre = src.m_centre, .m_radius = src.m_radius, .m_heating_rate = src.m_heating_rate, .m_target_temperature = src.m_target_temperature, .m_relaxation_rate = src.m_relaxation_rate };
 			}
 			source_buffer = upload;
@@ -1441,6 +1469,7 @@ namespace pr::physics::atmosphere
 		// Later readers bind the projected fields as SRVs or copy sources, and that transition orders these writes.
 		impl.Dispatch(job, impl.m_project, cb);
 		impl.m_current = dst;
+		return {};
 	}
 
 	// Read the full staggered field after all previously recorded work in 'job' has completed.
@@ -1646,7 +1675,7 @@ namespace pr::physics::atmosphere
 				m_particles[slot] = CreateBuffer<GpuTracerParticle>(m_gpu, m_gpu.m_job, m_config.m_particle_count, name.c_str());
 			}
 			Initialise(m_gpu.m_job);
-			m_gpu.m_job.RetireRecordedWork();
+			RetireConstructionWork(m_gpu.m_job);
 		}
 
 		// Build tracer-specific constants while preserving the solver's domain constants.
@@ -1699,25 +1728,33 @@ namespace pr::physics::atmosphere
 			job.m_cmd_list.Dispatch(dispatch_x, 1, 1);
 		}
 
-		// Choose the slot that the next tracer dispatch writes, and make 'job's queue wait for consumers that have released it.
-		int NextSlot(GpuJob& job)
+		// Find a writable slot without changing holds or issuing queue waits.
+		int FreeSlot() const
 		{
 			// Any slot that is neither current nor held may be written. The current slot is the next dispatch's input.
 			for (int i = 1; i != SlotCount; ++i)
 			{
 				auto const slot = (m_current + i) % SlotCount;
-				auto& state = m_slots[slot];
-				if (state.m_holds != 0)
-					continue;
-
-				// A queue wait applies to every later submission on the queue, including the one that will contain this dispatch.
-				for (auto& read : state.m_reads)
-					Check(job.m_queue->Wait(read.m_fence.get(), read.m_value));
-
-				state.m_reads.clear();
-				return slot;
+				if (m_slots[slot].m_holds == 0)
+					return slot;
 			}
-			throw std::logic_error("Every atmosphere tracer slot is in use; release a held slot before stepping");
+			return -1;
+		}
+
+		// Choose the slot that the next tracer dispatch writes, and make 'job's queue wait for consumers that have released it.
+		int NextSlot(GpuJob& job)
+		{
+			auto const slot = FreeSlot();
+			if (slot == -1)
+				throw std::logic_error("Every atmosphere tracer slot is in use; release a held slot before stepping");
+
+			// A queue wait applies to every later submission on the queue, including the one that will contain this dispatch.
+			auto& state = m_slots[slot];
+			for (auto& read : state.m_reads)
+				Check(job.m_queue->Wait(read.m_fence.get(), read.m_value));
+
+			state.m_reads.clear();
+			return slot;
 		}
 
 		// Insert a UAV barrier for the tracer slot just written.
@@ -1816,16 +1853,28 @@ namespace pr::physics::atmosphere
 	}
 
 	// Release one hold on 'slot', recording when the consumer's GPU reads finish.
-	void AtmosphereTracers::Release(int slot, ID3D12Fence* fence, uint64_t value)
+	AtmosphereInputCheck AtmosphereTracers::Release(int slot, ID3D12Fence* fence, uint64_t value)
 	{
 		// A release must match a hold, or a slot still being read could be written.
-		auto& state = m_impl->m_slots[Impl::RequireSlot(slot)];
-		if (state.m_holds == 0)
-			throw std::logic_error("Atmosphere tracer slot is not held");
+		if (slot < 0 || slot >= SlotCount)
+			return {"Atmosphere tracer slot index is out of range"};
 
-		--state.m_holds;
+		auto& state = m_impl->m_slots[slot];
+		if (state.m_holds == 0)
+			return {"Atmosphere tracer slot is not held"};
+
+		// Failure to retain a consumer fence must leave the slot held rather than writable.
 		if (fence != nullptr)
 			state.m_reads.push_back(Impl::PendingRead{ .m_fence = D3DPtr<ID3D12Fence>(fence, true), .m_value = value });
+
+		--state.m_holds;
+		return {};
+	}
+
+	// Use the dispatcher's own slot rule before recording a step that needs tracer output.
+	bool AtmosphereTracers::HasFreeSlot() const
+	{
+		return m_impl->FreeSlot() != -1;
 	}
 
 	// Read all particles after all previously recorded tracer work in 'job' has completed.
@@ -1897,7 +1946,7 @@ namespace pr::physics::atmosphere
 				.Create(gpu, "Physics.Atmosphere.Probes.RootSig");
 			m_sample.m_pso = ComputePSO(m_sample.m_sig.get(), code).Cache(cache).Create(gpu, "Physics.Atmosphere.Probes.PSO");
 			m_samples = CreateBuffer<GpuProbeSample>(gpu, gpu.m_job, MaxPoints, "Atmosphere:ProbeSamples");
-			gpu.m_job.RetireRecordedWork();
+			RetireConstructionWork(gpu.m_job);
 		}
 	};
 
@@ -2013,7 +2062,7 @@ namespace pr::physics::atmosphere
 				.Create(gpu, "Physics.Atmosphere.SurfaceWind.RootSig");
 			m_sample.m_pso = ComputePSO(m_sample.m_sig.get(), code).Cache(cache).Create(gpu, "Physics.Atmosphere.SurfaceWind.PSO");
 			m_wind = CreateBuffer<v2>(gpu, gpu.m_job, solver.Config().m_grid.ColumnCount(), "Atmosphere:SurfaceWind");
-			gpu.m_job.RetireRecordedWork();
+			RetireConstructionWork(gpu.m_job);
 		}
 	};
 

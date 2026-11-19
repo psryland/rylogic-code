@@ -85,7 +85,7 @@ namespace pr::physics::tests
 
 			// Each slot couples the shared hub to its own leaf.
 			auto endpoints = std::vector<GpuConstraintEndpoint>(leaf_count);
-			auto descriptors = std::vector<GpuD6ConstraintDesc>(leaf_count);
+			auto descriptors = std::vector<GpuConstraintDesc>(leaf_count);
 			for (int slot_idx = 0; slot_idx != leaf_count; ++slot_idx)
 			{
 				endpoints[slot_idx].body_idx_a = 0;
@@ -112,6 +112,206 @@ namespace pr::physics::tests
 		}
 	}
 
+	// Check the production phase order against physical rows at the final corrected pose.
+	PRUnitTestClass(EngineMigrationRigidPhaseTests)
+	{
+		// Measure an anisotropic hard-axis/damper system at the position-only pose using independently differentiated angular coordinates.
+		PRUnitTestMethod(AnisotropicAngularLawUsesPostPositionPose, Extended)
+		{
+			auto const dt = 1.0f / 30.0f;
+			auto const damping = 4.0f;
+			auto shape = collision::ShapeBox{v4{0.7f, 0.5f, 0.3f, 0}};
+			auto const frame = m4x4::Transform(v4::YAxis(), 0.35f, v4::Origin());
+			auto const initial_pose = frame * m4x4::Transform(Normalise(v4{1, 2, -1, 0}), 0.9f, v4::Origin());
+			auto Run = [&](int iterations)
+			{
+				auto body = RigidBody{&shape, initial_pose, Inertia::Box(shape.m_radius, 2.0f)};
+				body.VelocityWS(v8motion{v4{0.8f, -0.3f, 0.9f, 0}, v4::Zero()});
+				auto const free_momentum = body.MomentumWS();
+				auto desc = ConstraintDesc{};
+				desc.m_frame_a.m_constraint_to_body = frame;
+				desc.m_frame_b.m_body = BodyRef::Rigid(body);
+				desc.D6().m_angular[0] = MakeConstraintGpuLockedAxis();
+				desc.D6().m_angular[1].m_mode = EConstraintAxisMode::Driven;
+				desc.D6().m_angular[1].m_damping = damping;
+				auto constraints = ConstraintSet{};
+				constraints.Add(desc);
+				auto bodies = std::array{&body};
+				auto& engine = SharedEngine();
+				ResetEngineForNextTest(engine);
+				auto config = engine.Config();
+				config.sleeping_enabled = false;
+				config.selective_refresh_passes = 0;
+				config.solver_iterations = iterations;
+				config.push_out_iterations = 1;
+				config.constraint_position_beta = 0.7f;
+				config.constraint_position_relaxation = 1.0f;
+				config.constraint_max_position_speed = 50.0f;
+				config.constraint_warm_start_factor = 0.0f;
+				engine.Config(config);
+				engine.Step(dt, bodies, constraints);
+				return std::pair{body, free_momentum};
+			};
+			auto const [position_only, free_momentum] = Run(0);
+			auto const [physical, same_free_momentum] = Run(1);
+			PR_EXPECT(FEqlAbsolute(position_only.MomentumWS().ang, free_momentum.ang, 1.0e-6f));
+			PR_EXPECT(FEqlAbsolute(free_momentum.ang, same_free_momentum.ang, 1.0e-6f));
+			for (int column = 0; column != 4; ++column)
+				PR_EXPECT(FEqlAbsolute(position_only.O2W()[column], physical.O2W()[column], 1.0e-6f));
+
+			// Differentiate the principal-log coordinate under world-space rotations, without the production RotationVectorGradient helper.
+			auto Gradient = [&](m3x3 const& pose, int coordinate)
+			{
+				auto gradient = v4::Zero();
+				auto const epsilon = 0.001f;
+				for (int axis = 0; axis != 3; ++axis)
+				{
+					auto direction = v4::Zero();
+					direction[axis] = 1.0f;
+					auto const plus = m4x4::Transform(direction, epsilon, v4::Origin()).rot * pose * Transpose(frame.rot);
+					auto const minus = m4x4::Transform(direction, -epsilon, v4::Origin()).rot * pose * Transpose(frame.rot);
+					auto const [plus_axis, plus_angle] = AxisAngle(plus);
+					auto const [minus_axis, minus_angle] = AxisAngle(minus);
+					auto const difference = plus_angle * plus_axis - minus_angle * minus_axis;
+					gradient[axis] = (difference.x * frame[coordinate].x + difference.y * frame[coordinate].y + difference.z * frame[coordinate].z) / (2.0f * epsilon);
+				}
+				return gradient;
+			};
+			auto const j0 = Gradient(position_only.O2W().rot, 0);
+			auto const j1 = Gradient(position_only.O2W().rot, 1);
+			auto const change = Length(j1 - Gradient(initial_pose.rot, 1));
+			auto Response = [&](v4 torque)
+			{
+				return (position_only.InertiaInvWS() * v8force{torque, v4::Zero()}).ang;
+			};
+			auto const a = Dot3(j0, Response(j0));
+			auto const b = Dot3(j0, Response(j1));
+			auto const gamma = 1.0f / (dt * damping);
+			auto const d = Dot3(j1, Response(j1)) + gamma;
+			auto const r0 = Dot3(j0, Response(free_momentum.ang));
+			auto const r1 = Dot3(j1, Response(free_momentum.ang));
+			auto const determinant = a * d - b * b;
+			PR_EXPECT(determinant > 0.0f);
+			auto const lambda0 = (-d * r0 + b * r1) / determinant;
+			auto const lambda1 = (b * r0 - a * r1) / determinant;
+			auto const expected_momentum = free_momentum.ang + lambda0 * j0 + lambda1 * j1;
+			auto const hard_residual = Dot3(j0, physical.VelocityWS().ang);
+			auto const damping_residual = Dot3(j1, physical.VelocityWS().ang) + gamma * lambda1;
+			printf("anisotropic post-position: covector-change=%.9g hard=%.9g damper=%.9g momentum-error=%.9g\n", change, hard_residual, damping_residual, Length(physical.MomentumWS().ang - expected_momentum));
+			PR_EXPECT(change > 0.01f);
+			PR_EXPECT(std::abs(hard_residual) < 0.0003f);
+			PR_EXPECT(std::abs(damping_residual) < 0.0003f);
+			PR_EXPECT(FEqlAbsolute(physical.MomentumWS().ang, expected_momentum, 0.0003f));
+		}
+
+		// A rotating position correction must refresh both the physical row and its inverse before committing momentum.
+		PRUnitTestMethod(PositionRotationRecompilesPhysicalRows, Extended)
+		{
+			auto shape = collision::ShapeSphere{1.0f};
+			auto body = RigidBody{&shape, m4x4::Translation(0.8f, 0, 0), Inertia::Sphere(1.0f, 1.0f)};
+			body.VelocityWS(v8motion{v4{0.5f, -0.3f, 0.2f, 0}, v4{0.4f, 0.7f, -0.2f, 0}});
+			auto desc = ConstraintDesc{};
+			desc.m_frame_a.m_body = BodyRef::Rigid(body);
+			desc.m_frame_a.m_constraint_to_body = m4x4::Translation(0, 1, 0);
+			desc.m_frame_b.m_constraint_to_body = m4x4::Translation(0, 1, 0);
+			desc.D6().m_linear[0] = MakeConstraintGpuLockedAxis();
+			auto constraints = ConstraintSet{};
+			constraints.Add(desc);
+			auto bodies = std::array{&body};
+			auto const before = CompileConstraints(constraints, BodyRemap{bodies});
+			auto const free_momentum = body.MomentumWS();
+			auto& engine = SharedEngine();
+			ResetEngineForNextTest(engine);
+			auto config = engine.Config();
+			config.sleeping_enabled = false;
+			config.selective_refresh_passes = 0;
+			config.solver_iterations = 1;
+			config.push_out_iterations = 1;
+			config.constraint_position_beta = 0.7f;
+			config.constraint_position_relaxation = 1.0f;
+			config.constraint_max_position_speed = 50.0f;
+			config.constraint_warm_start_factor = 0.0f;
+			engine.Config(config);
+			engine.Step(1.0f / 30.0f, bodies, constraints);
+
+			// The CPU compiler observes the published pose, independently of the shader's prepared geometry.
+			auto const after = CompileConstraints(constraints, BodyRemap{bodies});
+			PR_EXPECT(after.m_rows.size() == 1);
+			auto const& jacobian = after.m_rows.at(0).m_jacobian_a;
+			auto const geometry_change = Length(jacobian.lin - before.m_rows.at(0).m_jacobian_a.lin);
+			auto const free_speed = Dot(jacobian.lin, free_momentum.lin) + Dot(jacobian.ang, free_momentum.ang) / 0.4f;
+			auto const response = Dot(jacobian.lin, jacobian.lin) + Dot(jacobian.ang, jacobian.ang) / 0.4f;
+			auto const impulse = -free_speed / response;
+			auto const expected = free_momentum + impulse * jacobian;
+			auto const velocity = body.VelocityWS();
+			auto const residual = Dot(jacobian.lin, velocity.lin) + Dot(jacobian.ang, velocity.ang);
+			printf("current-pose rigid: covector-change=%.9g response=%.9g impulse=%.9g residual=%.9g\n", geometry_change, response, impulse, residual);
+			PR_EXPECT(geometry_change > 0.05f);
+			PR_EXPECT(std::abs(residual) < 2.0e-5f);
+			PR_EXPECT(FEqlAbsolute(body.MomentumWS().ang, expected.ang, 2.0e-5f));
+			PR_EXPECT(FEqlAbsolute(body.MomentumWS().lin, expected.lin, 2.0e-5f));
+			PR_EXPECT(!engine.LastFeatureStats().m_failure.HasTerminalFailure());
+		}
+	};
+
+	// Correct nonzero-angle row geometry and its physical torque reporting through the rigid hardware path.
+	PRUnitTestClass(AngularCoordinateGpuTests)
+	{
+		// Match CPU geometry, shader replay and D3D12 while measuring torque from the actual angular wrench.
+		PRUnitTestMethod(RigidRowsAndBreakTorque, Extended)
+		{
+			// Excite transverse angular components where rotation-log gradients differ from the orthonormal frame axes.
+			auto a = MakeConstraintGpuBody(2.0f, m4x4::Transform(v4::YAxis(), 0.4f, v4::Origin()));
+			auto b = MakeConstraintGpuBody(3.0f, a.O2W() * m4x4::Transform(Normalise(v4{1, 2, -1, 0}), 1.2f, v4::Origin()));
+			b.VelocityWS(v8motion{v4{0.8f, -0.3f, 0.9f, 0}, v4::Zero()});
+			auto desc = ConstraintDesc{};
+			desc.m_frame_a.m_body = BodyRef::Rigid(a);
+			desc.m_frame_b.m_body = BodyRef::Rigid(b);
+			desc.m_break_torque = 1.0e6f;
+			for (auto& axis : desc.D6().m_angular)
+				axis = MakeConstraintGpuLockedAxis();
+
+			// Disable position drift so every row is evaluated at the same independently differentiated configuration.
+			auto constraints = ConstraintSet{};
+			constraints.Add(desc);
+			auto body_ptrs = std::array{&a, &b};
+			auto remap = BodyRemap{body_ptrs};
+			auto const compiled = CompileConstraints(constraints, remap);
+			auto const upload = PackGpuConstraints(constraints, remap);
+			auto expected = std::vector{PackDynamics(a, 0), PackDynamics(b, 1)};
+			auto actual = expected;
+			auto config = EngineConfig{};
+			config.solver_iterations = 1;
+			config.push_out_iterations = 0;
+			auto replay = ConstraintInteropRunner{config};
+			replay.Run(ConstraintRunnerBuffers{1.0f / 60.0f, expected, upload.m_endpoints, upload.m_descriptors});
+			auto solver = GpuConstraintSolver{ConstraintTestGpu(), config};
+			auto rows = std::array<GpuConstraintRow, 6>{};
+			auto blocks = std::array<GpuConstraintBlock, 1>{};
+			auto breaks = std::array<GpuConstraintBreakState, 1>{};
+			auto const result = solver.Solve(ConstraintTestGpu().m_job, physics::tests::FreshConstraintTestEpoch(1.0f / 60.0f, config.constraint_warm_start_factor), upload, actual, blocks, rows, breaks);
+			PR_EXPECT(result.m_results[0] == GpuConstraintStage_Accepted);
+
+			// Angular covectors need not be unit vectors or orthogonal; scalar-impulse norms do not measure physical torque.
+			auto torque = v4::Zero();
+			auto scalar_norm_sq = 0.0f;
+			for (int axis = 0; axis != 3; ++axis)
+			{
+				ExpectConstraintGpuJacobian(replay.Rows()[3 + axis], compiled.m_rows[axis]);
+				ExpectConstraintGpuJacobian(rows[3 + axis], compiled.m_rows[axis]);
+				torque += rows[3 + axis].jacobian_a_ang * result.m_records[0].rows.impulses[3 + axis] * 60.0f;
+				scalar_norm_sq += Sqr(result.m_records[0].rows.impulses[3 + axis] * 60.0f);
+			}
+			PR_EXPECT(std::abs(Length(torque) - std::sqrt(scalar_norm_sq)) > 0.1f);
+			PR_EXPECT(FEqlAbsolute(breaks[0].peak_torque, Length(torque), 5.0e-4f));
+			PR_EXPECT(FEqlAbsolute(replay.BreakStates()[0].peak_torque, breaks[0].peak_torque, 5.0e-4f));
+			for (int index = 0; index != 2; ++index)
+				PR_EXPECT(FEqlAbsolute(actual[index].momentum_ang, expected[index].momentum_ang, 2.0e-5f));
+
+			printf("angular torque: physical=%.9g scalar-coordinate-norm=%.9g reported=%.9g\n", Length(torque), std::sqrt(scalar_norm_sq), breaks[0].peak_torque);
+		}
+	};
+
 	PRUnitTestClass(ConstraintGpuAlgebraRegressionTests)
 	{
 		// Compilation reports the highest failing slot even when colouring later selects the serial fallback.
@@ -122,10 +322,10 @@ namespace pr::physics::tests
 			auto const slot_count = MaxColours + 4;
 			for (int index = 0; index != slot_count; ++index)
 			{
-				auto desc = D6ConstraintDesc{};
+				auto desc = ConstraintDesc{};
 				desc.m_frame_b.m_body = BodyRef::Rigid(body);
-				desc.m_linear[0] = MakeConstraintGpuLockedAxis();
-				desc.m_linear[0].m_stiffness = index == 0 || index == slot_count / 2 || index == slot_count - 1 ? 1.0e-20f : 0.0f;
+				desc.D6().m_linear[0] = MakeConstraintGpuLockedAxis();
+				desc.D6().m_linear[0].m_stiffness = index == 0 || index == slot_count / 2 || index == slot_count - 1 ? 1.0e-20f : 0.0f;
 				constraints.Add(desc);
 			}
 			auto body_ptrs = std::array<RigidBody*, 1>{&body};
@@ -244,7 +444,7 @@ namespace pr::physics::tests
 				auto const slot_count = 1 + pick(200) + (hub ? MaxColours + 8 : 0);
 				auto const hub_begin = pick(slot_count - (hub ? MaxColours + 8 : 0));
 				auto endpoints = std::vector<GpuConstraintEndpoint>(slot_count);
-				auto descriptors = std::vector<GpuD6ConstraintDesc>(slot_count);
+				auto descriptors = std::vector<GpuConstraintDesc>(slot_count);
 				for (int slot_idx = 0; slot_idx != slot_count; ++slot_idx)
 				{
 					auto& endpoint = endpoints[slot_idx];
@@ -295,9 +495,9 @@ namespace pr::physics::tests
 		PRUnitTestMethod(FrameLatchSurvivesSuccessfulRecompile, Quick)
 		{
 			auto body = MakeConstraintGpuBody();
-			auto desc = D6ConstraintDesc{};
+			auto desc = ConstraintDesc{};
 			desc.m_frame_b.m_body = BodyRef::Rigid(body);
-			desc.m_linear[0] = MakeConstraintGpuLockedAxis();
+			desc.D6().m_linear[0] = MakeConstraintGpuLockedAxis();
 			auto constraints = ConstraintSet{};
 			for (int index = 0; index != 3; ++index)
 				constraints.Add(desc);
@@ -336,10 +536,10 @@ namespace pr::physics::tests
 		{
 			auto body = MakeConstraintGpuBody(1.0f, m4x4::Translation(1.0f, 0.0f, 0.0f));
 			body.VelocityWS(v8motion{v4::Zero(), v4::XAxis()});
-			auto desc = D6ConstraintDesc{};
+			auto desc = ConstraintDesc{};
 			desc.m_frame_b.m_body = BodyRef::Rigid(body);
-			desc.m_linear[0] = MakeConstraintGpuLockedAxis();
-			desc.m_linear[0].m_stiffness = 1.0e-20f;
+			desc.D6().m_linear[0] = MakeConstraintGpuLockedAxis();
+			desc.D6().m_linear[0].m_stiffness = 1.0e-20f;
 			auto constraints = ConstraintSet{};
 			constraints.Add(desc);
 			auto body_ptrs = std::array<RigidBody*, 1>{&body};
@@ -373,11 +573,11 @@ namespace pr::physics::tests
 		{
 			auto body = MakeConstraintGpuBody(1.0e6f);
 			body.VelocityWS(v8motion{v4::Zero(), v4::XAxis()});
-			auto desc = D6ConstraintDesc{};
+			auto desc = ConstraintDesc{};
 			desc.m_frame_b.m_body = BodyRef::Rigid(body);
-			desc.m_linear[0] = MakeConstraintGpuLockedAxis(std::numeric_limits<float>::infinity());
-			desc.m_linear[1] = MakeConstraintGpuLockedAxis(std::numeric_limits<float>::infinity());
-			desc.m_linear[1].m_stiffness = 0.01f;
+			desc.D6().m_linear[0] = MakeConstraintGpuLockedAxis(std::numeric_limits<float>::infinity());
+			desc.D6().m_linear[1] = MakeConstraintGpuLockedAxis(std::numeric_limits<float>::infinity());
+			desc.D6().m_linear[1].m_stiffness = 0.01f;
 			auto constraints = ConstraintSet{};
 			constraints.Add(desc);
 			auto body_ptrs = std::array<RigidBody*, 1>{&body};
@@ -400,43 +600,6 @@ namespace pr::physics::tests
 			PR_EXPECT(metrics.m_singular_blocks == 0);
 		}
 
-		// Shader replay must solve the response-metric bounded block rather than converge to a clamped dense fixed point.
-		PRUnitTestMethod(BoundedBlockSatisfiesAnalyticalKkt, Quick)
-		{
-			for (auto const iterations : {1, 2, 12})
-			for (auto const initial_speed : {0.0f, -1.0f})
-			{
-				auto body = MakeConstraintGpuBody();
-				body.SetMassProperties(Inertia{1.0f, 1.0f});
-				body.VelocityWS(v8motion{v4::Zero(), v4{initial_speed, initial_speed, 0, 0}});
-				auto desc = D6ConstraintDesc{};
-				desc.m_frame_a = BodyFrame{BodyRef::World(), m4x4::Translation(1.0f, -1.0f, 0.0f)};
-				desc.m_frame_b = BodyFrame{BodyRef::Rigid(body), desc.m_frame_a.m_constraint_to_body};
-				desc.m_linear[0] = MakeConstraintGpuLockedAxis(std::numeric_limits<float>::infinity());
-				desc.m_linear[1].m_mode = EConstraintAxisMode::Driven;
-				desc.m_linear[1].m_target_velocity = initial_speed == 0.0f ? 3.0f : 0.0f;
-				desc.m_linear[1].m_max_force = 1.0f;
-				auto constraints = ConstraintSet{};
-				constraints.Add(desc);
-				auto body_ptrs = std::array<RigidBody*, 1>{&body};
-				auto const upload = PackGpuConstraints(constraints, BodyRemap(body_ptrs));
-				auto bodies = std::vector<GpuRigidBody>{PackDynamics(body, 0)};
-				auto config = CpuConstraintSolverConfig{};
-				config.m_velocity_iterations = iterations;
-				config.m_position_iterations = 0;
-				config.m_warm_start_factor = 0.0f;
-				auto runner = ConstraintInteropRunner{config};
-				runner.Run(ConstraintRunnerBuffers{0.1f, bodies, upload.m_endpoints, upload.m_descriptors});
-
-				// With K = [[2,1],[1,2]], the saturated Y impulse fixes lambda_x = (-v_x - 0.1) / 2.
-				auto const expected_x = (-initial_speed - 0.1f) / 2.0f;
-				auto const point_velocity = bodies[0].momentum_lin + Cross(bodies[0].momentum_ang, v4{1, -1, 0, 0});
-				PR_EXPECT(FEqlAbsolute(runner.Rows()[0].bounds.z, expected_x, 2.0e-6f));
-				PR_EXPECT(FEqlAbsolute(runner.Rows()[1].bounds.z, 0.1f, 2.0e-6f));
-				PR_EXPECT(Abs(point_velocity.x) < 2.0e-6f);
-				PR_EXPECT(FEqlAbsolute(point_velocity.y, initial_speed + expected_x + 0.2f, 2.0e-6f));
-			}
-		}
 
 		// A common slider rotation is an exact admissible velocity, not a source of dissipative joint impulses.
 		PRUnitTestMethod(CommonSliderRotationPreservesAngularMomentum, Quick)
@@ -447,12 +610,12 @@ namespace pr::physics::tests
 			body_b.SetMassProperties(Inertia{1.0f, 1.0f});
 			body_a.VelocityWS(v8motion{v4::ZAxis(), v4::Zero()});
 			body_b.VelocityWS(v8motion{v4::ZAxis(), 2.0f * v4::YAxis()});
-			auto desc = D6ConstraintDesc{};
+			auto desc = ConstraintDesc{};
 			desc.m_frame_a.m_body = BodyRef::Rigid(body_a);
 			desc.m_frame_b.m_body = BodyRef::Rigid(body_b);
-			desc.m_linear[1] = MakeConstraintGpuLockedAxis();
-			desc.m_linear[2] = MakeConstraintGpuLockedAxis();
-			for (auto& axis : desc.m_angular)
+			desc.D6().m_linear[1] = MakeConstraintGpuLockedAxis();
+			desc.D6().m_linear[2] = MakeConstraintGpuLockedAxis();
+			for (auto& axis : desc.D6().m_angular)
 				axis = MakeConstraintGpuLockedAxis();
 
 			// Run the production shader through its deterministic C++ interop surface without requiring a GPU device.
@@ -483,10 +646,10 @@ namespace pr::physics::tests
 		{
 			auto body = MakeConstraintGpuBody(1.0f, m4x4::Translation(1.0f, 0.0f, 0.0f));
 			body.VelocityWS(v8motion{v4::Zero(), v4::XAxis()});
-			auto desc = D6ConstraintDesc{};
+			auto desc = ConstraintDesc{};
 			desc.m_frame_b.m_body = BodyRef::Rigid(body);
-			desc.m_linear[0] = MakeConstraintGpuLockedAxis(std::numeric_limits<float>::infinity());
-			desc.m_linear[0].m_stiffness = 0.01f;
+			desc.D6().m_linear[0] = MakeConstraintGpuLockedAxis(std::numeric_limits<float>::infinity());
+			desc.D6().m_linear[0].m_stiffness = 0.01f;
 			auto constraints = ConstraintSet{};
 			constraints.Add(desc);
 			auto body_ptrs = std::array<RigidBody*, 1>{&body};
@@ -515,9 +678,9 @@ namespace pr::physics::tests
 		{
 			auto body = MakeConstraintGpuBody(1.0e6f);
 			body.VelocityWS(v8motion{v4::Zero(), v4::XAxis()});
-			auto desc = D6ConstraintDesc{};
+			auto desc = ConstraintDesc{};
 			desc.m_frame_b.m_body = BodyRef::Rigid(body);
-			desc.m_linear[0] = MakeConstraintGpuLockedAxis(std::numeric_limits<float>::infinity());
+			desc.D6().m_linear[0] = MakeConstraintGpuLockedAxis(std::numeric_limits<float>::infinity());
 			auto constraints = ConstraintSet{};
 			constraints.Add(desc);
 			auto body_ptrs = std::array<RigidBody*, 1>{&body};
@@ -545,12 +708,12 @@ namespace pr::physics::tests
 		{
 			auto body = MakeConstraintGpuBody();
 			body.SetMassProperties(Inertia{1.0f, 1.0f});
-			auto desc = D6ConstraintDesc{};
+			auto desc = ConstraintDesc{};
 			desc.m_frame_a = BodyFrame{BodyRef::World(), m4x4::Translation(1.0f, -1.0f, 0.0f)};
 			desc.m_frame_b = BodyFrame{BodyRef::Rigid(body), desc.m_frame_a.m_constraint_to_body};
-			desc.m_linear[0] = MakeConstraintGpuLockedAxis();
-			desc.m_linear[1] = MakeConstraintGpuLockedAxis();
-			desc.m_linear[1].m_target_position = 0.01f;
+			desc.D6().m_linear[0] = MakeConstraintGpuLockedAxis();
+			desc.D6().m_linear[1] = MakeConstraintGpuLockedAxis();
+			desc.D6().m_linear[1].m_target_position = 0.01f;
 			auto constraints = ConstraintSet{};
 			constraints.Add(desc);
 			auto body_ptrs = std::array<RigidBody*, 1>{&body};
@@ -582,18 +745,18 @@ namespace pr::physics::tests
 				2.0f,
 				m4x4::Transform(v4::YAxis(), 0.35f, v4{1.0f, -2.0f, 0.5f, 1}),
 				v4{0.2f, -0.1f, 0.3f, 0});
-			auto desc = D6ConstraintDesc{};
+			auto desc = ConstraintDesc{};
 			desc.m_frame_a = BodyFrame{BodyRef::Rigid(body), m4x4::Transform(v4::ZAxis(), -0.2f, v4{0.4f, 0.1f, -0.3f, 1})};
 			desc.m_frame_b = BodyFrame{BodyRef::World(), m4x4::Transform(v4::XAxis(), 0.15f, v4{1.3f, -1.7f, 0.8f, 1})};
-			desc.m_linear[0] = MakeConstraintGpuLockedAxis();
-			desc.m_linear[1].m_mode = EConstraintAxisMode::Limited;
-			desc.m_linear[1].m_limits = Range<float>{-0.05f, +0.05f};
-			desc.m_linear[1].m_stiffness = 12.0f;
-			desc.m_linear[1].m_damping = 3.0f;
-			desc.m_angular[2].m_mode = EConstraintAxisMode::Driven;
-			desc.m_angular[2].m_target_position = 0.1f;
-			desc.m_angular[2].m_target_velocity = -0.4f;
-			desc.m_angular[2].m_max_force = 50.0f;
+			desc.D6().m_linear[0] = MakeConstraintGpuLockedAxis();
+			desc.D6().m_linear[1].m_mode = EConstraintAxisMode::Limited;
+			desc.D6().m_linear[1].m_limits = Range<float>{-0.05f, +0.05f};
+			desc.D6().m_linear[1].m_stiffness = 12.0f;
+			desc.D6().m_linear[1].m_damping = 3.0f;
+			desc.D6().m_angular[2].m_mode = EConstraintAxisMode::Driven;
+			desc.D6().m_angular[2].m_target_position = 0.1f;
+			desc.D6().m_angular[2].m_target_velocity = -0.4f;
+			desc.D6().m_angular[2].m_max_force = 50.0f;
 
 			auto constraints = ConstraintSet{};
 			constraints.Add(desc);
@@ -632,11 +795,11 @@ namespace pr::physics::tests
 			body_a.VelocityWS(v8motion{v4{0.3f, -0.2f, 0.1f, 0}, v4{1.0f, -0.5f, 0.7f, 0}});
 			body_b.VelocityWS(v8motion{v4{-0.1f, 0.4f, -0.2f, 0}, v4{-0.6f, 0.8f, -0.3f, 0}});
 
-			auto desc = D6ConstraintDesc{};
+			auto desc = ConstraintDesc{};
 			desc.m_frame_a = BodyFrame{BodyRef::Rigid(body_a), m4x4::Translation(0.4f, 0.2f, -0.1f)};
 			desc.m_frame_b = BodyFrame{BodyRef::Rigid(body_b), m4x4::Translation(0.2f, 0.3f, -0.2f)};
 			for (int axis = 0; axis != 3; ++axis)
-				desc.m_linear[axis] = MakeConstraintGpuLockedAxis();
+				desc.D6().m_linear[axis] = MakeConstraintGpuLockedAxis();
 			auto constraints = ConstraintSet{};
 			constraints.Add(desc);
 			auto body_ptrs = std::array<RigidBody*, 2>{&body_a, &body_b};
@@ -681,13 +844,13 @@ namespace pr::physics::tests
 				body_a.VelocityWS(v8motion{v4{0.13f * seed, -0.07f * seed, 0.04f * seed, 0}, v4{0.2f * seed, -0.11f * seed, 0.09f * seed, 0}});
 				body_b.VelocityWS(v8motion{v4{-0.08f * seed, 0.05f * seed, -0.03f * seed, 0}, v4{-0.15f * seed, 0.12f * seed, -0.06f * seed, 0}});
 
-				auto desc = D6ConstraintDesc{};
+				auto desc = ConstraintDesc{};
 				desc.m_frame_a = BodyFrame{BodyRef::Rigid(body_a), m4x4::Transform(v4::ZAxis(), 0.03f * seed, v4{0.2f, -0.1f, 0.15f, 1})};
 				desc.m_frame_b = BodyFrame{BodyRef::Rigid(body_b), m4x4::Transform(v4::YAxis(), -0.02f * seed, v4{-0.1f, 0.25f, -0.05f, 1})};
 				for (int axis = 0; axis != 3; ++axis)
 				{
-					desc.m_linear[axis] = MakeConstraintGpuLockedAxis(5000.0f);
-					desc.m_angular[axis] = MakeConstraintGpuLockedAxis(5000.0f);
+					desc.D6().m_linear[axis] = MakeConstraintGpuLockedAxis(5000.0f);
+					desc.D6().m_angular[axis] = MakeConstraintGpuLockedAxis(5000.0f);
 				}
 				auto constraints = ConstraintSet{};
 				constraints.Add(desc);
@@ -723,10 +886,10 @@ namespace pr::physics::tests
 				body_b.VelocityWS(v8motion{});
 
 				// A single bilateral scalar row has a closed-form shared velocity that remains well-conditioned at 10^6:1.
-				auto desc = D6ConstraintDesc{};
+				auto desc = ConstraintDesc{};
 				desc.m_frame_a.m_body = BodyRef::Rigid(body_a);
 				desc.m_frame_b.m_body = BodyRef::Rigid(body_b);
-				desc.m_linear[0] = MakeConstraintGpuLockedAxis();
+				desc.D6().m_linear[0] = MakeConstraintGpuLockedAxis();
 				auto constraints = ConstraintSet{};
 				constraints.Add(desc);
 				auto body_ptrs = std::array<RigidBody*, 2>{&body_a, &body_b};
@@ -774,13 +937,13 @@ namespace pr::physics::tests
 				body_a.VelocityWS(v8motion{transformed_from_base.rot * base_velocity_a.ang, transformed_from_base.rot * base_velocity_a.lin});
 				body_b.VelocityWS(v8motion{transformed_from_base.rot * base_velocity_b.ang, transformed_from_base.rot * base_velocity_b.lin});
 
-				auto desc = D6ConstraintDesc{};
+				auto desc = ConstraintDesc{};
 				desc.m_frame_a = BodyFrame{BodyRef::Rigid(body_a), m4x4::Transform(v4::ZAxis(), +0.17f, v4{+0.3f, -0.2f, +0.1f, 1})};
 				desc.m_frame_b = BodyFrame{BodyRef::Rigid(body_b), m4x4::Transform(v4::YAxis(), -0.11f, v4{-0.2f, +0.25f, -0.15f, 1})};
 				for (int axis = 0; axis != 3; ++axis)
 				{
-					desc.m_linear[axis] = MakeConstraintGpuLockedAxis(5000.0f);
-					desc.m_angular[axis] = MakeConstraintGpuLockedAxis(5000.0f);
+					desc.D6().m_linear[axis] = MakeConstraintGpuLockedAxis(5000.0f);
+					desc.D6().m_angular[axis] = MakeConstraintGpuLockedAxis(5000.0f);
 				}
 				auto constraints = ConstraintSet{};
 				constraints.Add(desc);
@@ -842,11 +1005,11 @@ namespace pr::physics::tests
 				m4x4::Transform(v4::YAxis(), 0.12f, v4{0.3f, -0.2f, 0.1f, 1}),
 				v4{0.2f, -0.1f, 0.15f, 0});
 			body.MomentumWS(v8force{v4{0.2f, -0.1f, 0.3f, 0}, v4{0.4f, 0.5f, -0.2f, 0}});
-			auto desc = D6ConstraintDesc{};
+			auto desc = ConstraintDesc{};
 			desc.m_frame_a = BodyFrame{BodyRef::Rigid(body), m4x4::Translation(0.25f, -0.15f, 0.1f)};
 			desc.m_frame_b = BodyFrame{BodyRef::World(), m4x4::Translation(0.7f, -0.05f, 0.2f)};
 			for (int axis = 0; axis != 3; ++axis)
-				desc.m_linear[axis] = MakeConstraintGpuLockedAxis();
+				desc.D6().m_linear[axis] = MakeConstraintGpuLockedAxis();
 			auto constraints = ConstraintSet{};
 			constraints.Add(desc);
 			auto body_ptrs = std::array<RigidBody*, 1>{&body};
@@ -877,7 +1040,7 @@ namespace pr::physics::tests
 			auto before = PackDynamics(body, 0);
 			auto bodies = std::vector<GpuRigidBody>{before};
 			auto endpoints = std::vector<GpuConstraintEndpoint>(2);
-			auto descriptors = std::vector<GpuD6ConstraintDesc>(2);
+			auto descriptors = std::vector<GpuConstraintDesc>(2);
 			endpoints[0].body_idx_a = 0;
 			endpoints[0].body_idx_b = -1;
 			endpoints[0].flags = GpuConstraintEndpointFlags_Enabled;
@@ -897,45 +1060,16 @@ namespace pr::physics::tests
 			PR_EXPECT(FEql(bodies[0].o2w, before.o2w));
 		}
 
-		// ResetWarmStart invalidates retained impulses even when the row's active limit state is unchanged.
-		PRUnitTestMethod(ResetWarmStartClearsRetainedRows, Quick)
-		{
-			auto body = MakeConstraintGpuBody();
-			body.VelocityWS(v8motion{v4::Zero(), v4{2, 0, 0, 0}});
-			auto constraints = ConstraintSet{};
-			auto desc = D6ConstraintDesc{};
-			desc.m_frame_a.m_body = BodyRef::Rigid(body);
-			desc.m_frame_b.m_body = BodyRef::World();
-			desc.m_linear[0] = MakeConstraintGpuLockedAxis();
-			constraints.Add(desc);
-			auto body_ptrs = std::array<RigidBody*, 1>{&body};
-			auto const upload = PackGpuConstraints(constraints, BodyRemap(body_ptrs));
-			auto bodies = std::vector<GpuRigidBody>{PackDynamics(body, 0)};
-			auto config = CpuConstraintSolverConfig{};
-			config.m_velocity_iterations = 1;
-			config.m_position_iterations = 0;
-			auto runner = ConstraintInteropRunner{config};
-			auto buffers = ConstraintRunnerBuffers{1.0f / 60.0f, bodies, upload.m_endpoints, upload.m_descriptors};
-			runner.Run(buffers);
-			PR_EXPECT(std::abs(runner.Rows()[0].bounds.z) > 1.0e-5f);
-
-			auto reset_endpoints = upload.m_endpoints;
-			reset_endpoints[0].flags |= GpuConstraintEndpointFlags_ResetWarmStart;
-			buffers.m_endpoints = reset_endpoints;
-			runner.Load(buffers);
-			runner.CompileConstraints();
-			PR_EXPECT(runner.Rows()[0].bounds.z == 0.0f);
-		}
 
 		// Leave coupled runtime storage exclusively owned by its compiler even when a descriptor change requests warm-start reset.
 		PRUnitTestMethod(RigidCompilerNeverMutatesCoupledSlots, Quick)
 		{
 			auto body = MakeConstraintGpuBody();
 			auto constraints = ConstraintSet{};
-			auto desc = D6ConstraintDesc{};
+			auto desc = ConstraintDesc{};
 			desc.m_frame_a.m_body = BodyRef::Rigid(body);
 			desc.m_frame_b.m_body = BodyRef::World();
-			desc.m_linear[0] = MakeConstraintGpuLockedAxis();
+			desc.D6().m_linear[0] = MakeConstraintGpuLockedAxis();
 			constraints.Add(desc);
 			auto body_ptrs = std::array<RigidBody*, 1>{&body};
 			auto const upload = PackGpuConstraints(constraints, BodyRemap(body_ptrs));
@@ -958,44 +1092,16 @@ namespace pr::physics::tests
 			PR_EXPECT(std::memcmp(runner.Rows().data(), rows_before.data(), sizeof(rows_before)) == 0);
 		}
 
-		// Convert force caps to timestep-scaled impulse bounds and reject invalid timesteps before mutation.
-		PRUnitTestMethod(TimestepAndForceBoundsRemainFinite, Quick)
-		{
-			auto body = MakeConstraintGpuBody();
-			body.VelocityWS(v8motion{v4::Zero(), v4{100, 0, 0, 0}});
-			auto constraints = ConstraintSet{};
-			auto desc = D6ConstraintDesc{};
-			desc.m_frame_a.m_body = BodyRef::Rigid(body);
-			desc.m_frame_b.m_body = BodyRef::World();
-			desc.m_linear[0] = MakeConstraintGpuLockedAxis(2.0f);
-			constraints.Add(desc);
-			auto body_ptrs = std::array<RigidBody*, 1>{&body};
-			auto const upload = PackGpuConstraints(constraints, BodyRemap(body_ptrs));
-			auto bodies = std::vector<GpuRigidBody>{PackDynamics(body, 0)};
-			auto config = CpuConstraintSolverConfig{};
-			config.m_velocity_iterations = 2;
-			config.m_position_iterations = 0;
-			config.m_warm_start_factor = 0.0f;
-			auto runner = ConstraintInteropRunner{config};
-			auto buffers = ConstraintRunnerBuffers{0.25f, bodies, upload.m_endpoints, upload.m_descriptors};
-			runner.Run(buffers);
-
-			PR_EXPECT(FEqlAbsolute(runner.Rows()[0].bounds.x, -0.5f, 1.0e-6f));
-			PR_EXPECT(FEqlAbsolute(runner.Rows()[0].bounds.y, +0.5f, 1.0e-6f));
-			PR_EXPECT(std::abs(runner.Rows()[0].bounds.z) <= 0.5f);
-			buffers.m_dt = 0.0f;
-			PR_THROWS(runner.Run(buffers), std::invalid_argument);
-		}
 
 		// Convert canonical linear impulses to force, latch the first overload, and disable later work in the same submitted frame.
 		PRUnitTestMethod(BreakThresholdLatchesCanonicalLoad, Quick)
 		{
 			auto body = MakeConstraintGpuBody();
 			body.VelocityWS(v8motion{v4::Zero(), v4{5.0f, 0.0f, 0.0f, 0.0f}});
-			auto desc = D6ConstraintDesc{};
+			auto desc = ConstraintDesc{};
 			desc.m_frame_a.m_body = BodyRef::Rigid(body);
 			desc.m_frame_b.m_body = BodyRef::World();
-			desc.m_linear[0] = MakeConstraintGpuLockedAxis(1000.0f);
+			desc.D6().m_linear[0] = MakeConstraintGpuLockedAxis(1000.0f);
 			desc.m_break_force = 10.0f;
 			auto constraints = ConstraintSet{};
 			constraints.Add(desc);
@@ -1030,10 +1136,10 @@ namespace pr::physics::tests
 		{
 			auto body = MakeConstraintGpuBody();
 			body.VelocityWS(v8motion{v4{5.0f, 0.0f, 0.0f, 0.0f}, v4::Zero()});
-			auto desc = D6ConstraintDesc{};
+			auto desc = ConstraintDesc{};
 			desc.m_frame_a.m_body = BodyRef::Rigid(body);
 			desc.m_frame_b.m_body = BodyRef::World();
-			desc.m_angular[0] = MakeConstraintGpuLockedAxis(1000.0f);
+			desc.D6().m_angular[0] = MakeConstraintGpuLockedAxis(1000.0f);
 			desc.m_break_torque = 10.0f;
 			auto constraints = ConstraintSet{};
 			constraints.Add(desc);
@@ -1063,10 +1169,10 @@ namespace pr::physics::tests
 		{
 			auto body = MakeConstraintGpuBody();
 			body.VelocityWS(v8motion{v4::Zero(), v4{100.0f, 0.0f, 0.0f, 0.0f}});
-			auto desc = D6ConstraintDesc{};
+			auto desc = ConstraintDesc{};
 			desc.m_frame_a.m_body = BodyRef::Rigid(body);
 			desc.m_frame_b.m_body = BodyRef::World();
-			desc.m_linear[0] = MakeConstraintGpuLockedAxis(2.0f);
+			desc.D6().m_linear[0] = MakeConstraintGpuLockedAxis(2.0f);
 			desc.m_break_force = 2.1f;
 			auto constraints = ConstraintSet{};
 			constraints.Add(desc);
@@ -1087,7 +1193,7 @@ namespace pr::physics::tests
 
 			auto const& state = runner.BreakStates()[0];
 			PR_EXPECT(!AllSet(state.flags, GpuConstraintBreakFlags_Broken));
-			PR_EXPECT(Abs(state.peak_force - desc.m_linear[0].m_max_force) < 1.0e-5f);
+			PR_EXPECT(Abs(state.peak_force - desc.D6().m_linear[0].m_max_force) < 1.0e-5f);
 		}
 
 		// Reordering independent stable slots does not change their disjoint body results.
@@ -1104,12 +1210,12 @@ namespace pr::physics::tests
 			}
 			auto endpoint_a = GpuConstraintEndpoint{.body_idx_a = 0, .body_idx_b = 1, .flags = GpuConstraintEndpointFlags_Enabled};
 			auto endpoint_b = GpuConstraintEndpoint{.body_idx_a = 2, .body_idx_b = 3, .flags = GpuConstraintEndpointFlags_Enabled};
-			auto descriptor = GpuD6ConstraintDesc{};
+			auto descriptor = GpuConstraintDesc{};
 			descriptor.frame_a.rotation = float4{0, 0, 0, 1};
 			descriptor.frame_b.rotation = float4{0, 0, 0, 1};
 			descriptor.axes[0].mode = GpuConstraintAxisMode_Locked;
 			descriptor.axes[0].max_force = 1000.0f;
-			auto descriptors = std::vector<GpuD6ConstraintDesc>{descriptor, descriptor};
+			auto descriptors = std::vector<GpuConstraintDesc>{descriptor, descriptor};
 			auto endpoints_ab = std::vector<GpuConstraintEndpoint>{endpoint_a, endpoint_b};
 			auto endpoints_ba = std::vector<GpuConstraintEndpoint>{endpoint_b, endpoint_a};
 			auto bodies_ab = initial_bodies;
@@ -1187,7 +1293,7 @@ namespace pr::physics::tests
 				endpoints[0].body_idx_a = 0;
 				endpoints[0].body_idx_b = -1;
 				endpoints[0].flags = GpuConstraintEndpointFlags_Enabled;
-				auto descriptors = std::vector<GpuD6ConstraintDesc>(1);
+				auto descriptors = std::vector<GpuConstraintDesc>(1);
 				descriptors[0].frame_a.rotation = float4{0, 0, 0, 1};
 				descriptors[0].frame_b.rotation = float4{0, 0, 0, 1};
 				descriptors[0].axes[0].mode = GpuConstraintAxisMode_Locked;
@@ -1211,383 +1317,11 @@ namespace pr::physics::tests
 			PR_EXPECT(sleeping.sleep.timer_s == 0.0f);
 		}
 
-		// Match the HLSL-as-C++ reference through the production D3D12 compiler, pseudo-position, and velocity passes.
-		PRUnitTestMethod(HardwarePipelineMatchesInterop, Extended)
-		{
-			auto body_a = MakeConstraintGpuBody(
-				2.0f,
-				m4x4::Transform(v4::YAxis(), 0.17f, v4{0.35f, -0.15f, 0.2f, 1}),
-				v4{0.2f, -0.1f, 0.15f, 0});
-			auto body_b = MakeConstraintGpuBody(
-				3.0f,
-				m4x4::Transform(v4::XAxis(), -0.11f, v4{-0.1f, 0.25f, -0.05f, 1}),
-				v4{-0.1f, 0.05f, -0.08f, 0});
-			body_a.VelocityWS(v8motion{v4{0.2f, -0.3f, 0.1f, 0}, v4{0.8f, -0.4f, 0.5f, 0}});
-			body_b.VelocityWS(v8motion{v4{-0.1f, 0.15f, -0.2f, 0}, v4{-0.3f, 0.6f, -0.2f, 0}});
 
-			auto desc = D6ConstraintDesc{};
-			desc.m_frame_a = BodyFrame{BodyRef::Rigid(body_a), m4x4::Translation(0.3f, -0.2f, 0.1f)};
-			desc.m_frame_b = BodyFrame{BodyRef::Rigid(body_b), m4x4::Translation(-0.15f, 0.25f, -0.05f)};
-			for (int axis = 0; axis != 3; ++axis)
-			{
-				desc.m_linear[axis] = MakeConstraintGpuLockedAxis(5000.0f);
-				desc.m_angular[axis] = MakeConstraintGpuLockedAxis(5000.0f);
-			}
 
-			auto constraints = ConstraintSet{};
-			constraints.Add(desc);
-			auto body_ptrs = std::array<RigidBody*, 2>{&body_a, &body_b};
-			auto const upload = PackGpuConstraints(constraints, BodyRemap(body_ptrs));
-			auto expected = std::vector<GpuRigidBody>{PackDynamics(body_a, 0), PackDynamics(body_b, 1)};
-			auto actual = expected;
-			auto config = EngineConfig{};
-			config.solver_iterations = 2;
-			config.push_out_iterations = 2;
-			config.constraint_relaxation = 0.73f;
-			config.constraint_position_relaxation = 0.61f;
-			config.constraint_position_beta = 0.17f;
-			config.constraint_max_position_speed = 1.3f;
-			config.constraint_regularization = 3.0e-6f;
-			config.constraint_warm_start_factor = 0.42f;
 
-			auto reference = ConstraintInteropRunner{config};
-			reference.Run(ConstraintRunnerBuffers{1.0f / 120.0f, expected, upload.m_endpoints, upload.m_descriptors});
-			auto solver = GpuConstraintSolver{ConstraintTestGpu(), config};
-			auto const empty_stats = solver.Stats();
-			PR_EXPECT(solver.FrameState() == nullptr);
-			PR_EXPECT(empty_stats.m_slot_capacity == 0);
-			PR_EXPECT(empty_stats.m_body_capacity == 0);
-			PR_EXPECT(empty_stats.m_break_capacity == 0);
-			PR_EXPECT(empty_stats.m_dispatch_count == 0);
-			PR_EXPECT(empty_stats.m_logical_bytes == 0);
-			PR_EXPECT(empty_stats.m_allocated_feature_bytes == 0);
-			solver.Solve(ConstraintTestGpu().m_job, 1.0f / 120.0f, upload, actual);
-			PR_EXPECT(solver.FrameState() != nullptr);
-			auto const first_stats = solver.Stats();
-			PR_EXPECT(first_stats.m_slot_count == 1);
-			PR_EXPECT(first_stats.m_active_count == 1);
-			PR_EXPECT(first_stats.m_breakable_count == 0);
-			PR_EXPECT(first_stats.m_slot_capacity >= 1);
-			PR_EXPECT(first_stats.m_body_capacity >= 2);
-			PR_EXPECT(first_stats.m_break_capacity == 0);
-			PR_EXPECT(first_stats.m_dispatch_count > 0);
-			PR_EXPECT(first_stats.m_logical_bytes > 0);
-			PR_EXPECT(first_stats.m_allocated_feature_bytes >= first_stats.m_logical_bytes);
 
-			// Report exact logical and retained-capacity costs from the published per-slot and per-body resource formula.
-			auto const slot_bytes =
-				sizeof(GpuConstraintEndpoint) +
-				sizeof(GpuD6ConstraintDesc) +
-				sizeof(GpuConstraintBlock) +
-				GpuConstraintRowsPerBlock * sizeof(GpuConstraintRow) +
-				sizeof(GpuConstraintSolveCache) +
-				sizeof(GpuConstraintColourTask) +
-				2 * sizeof(uint32_t);
-			auto const expected_logical_bytes =
-				static_cast<size_t>(first_stats.m_slot_count) * slot_bytes +
-				sizeof(GpuConstraintSolverState) +
-				actual.size() * sizeof(GpuConstraintPseudoVelocity);
-			auto const expected_allocated_bytes =
-				static_cast<size_t>(first_stats.m_slot_capacity) * slot_bytes +
-				sizeof(GpuConstraintSolverState) +
-				static_cast<size_t>(first_stats.m_body_capacity) * sizeof(GpuConstraintPseudoVelocity) +
-				static_cast<size_t>(first_stats.m_break_capacity) * sizeof(GpuConstraintBreakState);
-			PR_EXPECT(first_stats.m_logical_bytes == expected_logical_bytes);
-			PR_EXPECT(first_stats.m_allocated_feature_bytes == expected_allocated_bytes);
 
-			for (int body_idx = 0; body_idx != isize(actual); ++body_idx)
-			{
-				PR_EXPECT(FEqlAbsolute(actual[body_idx].o2w, expected[body_idx].o2w, 2.0e-3f));
-				PR_EXPECT(FEqlAbsolute(actual[body_idx].momentum_ang, expected[body_idx].momentum_ang, 2.0e-3f));
-				PR_EXPECT(FEqlAbsolute(actual[body_idx].momentum_lin, expected[body_idx].momentum_lin, 2.0e-3f));
-			}
-
-			// A second frame makes the configured warm-start factor observable in both persistent runtimes.
-			for (int body_idx = 0; body_idx != isize(actual); ++body_idx)
-			{
-				expected[body_idx].momentum_ang = float4{};
-				expected[body_idx].momentum_lin = float4{};
-				actual[body_idx].momentum_ang = float4{};
-				actual[body_idx].momentum_lin = float4{};
-			}
-			reference.Run(ConstraintRunnerBuffers{1.0f / 120.0f, expected, upload.m_endpoints, upload.m_descriptors});
-			solver.Solve(ConstraintTestGpu().m_job, 1.0f / 120.0f, upload, actual);
-			for (int body_idx = 0; body_idx != isize(actual); ++body_idx)
-			{
-				PR_EXPECT(FEqlAbsolute(actual[body_idx].o2w, expected[body_idx].o2w, 2.0e-3f));
-				PR_EXPECT(FEqlAbsolute(actual[body_idx].momentum_ang, expected[body_idx].momentum_ang, 2.0e-3f));
-				PR_EXPECT(FEqlAbsolute(actual[body_idx].momentum_lin, expected[body_idx].momentum_lin, 2.0e-3f));
-			}
-		}
-
-		// The single-group fused colour sweep must give the same bodies as one dispatch per colour.
-		PRUnitTestMethod(HardwareFusedColourSweepMatchesPerColour, Extended)
-		{
-			// A chain needs two colours and a star hub needs one colour per spoke, and the slot count exceeds one group's threads.
-			constexpr auto ChainSlots = 150;
-			constexpr auto StarSpokes = 6;
-			constexpr auto BodyCount = ChainSlots + 1 + 1 + StarSpokes;
-			auto upload = GpuConstraintUpload{};
-			auto add_slot = [&](int body_a, int body_b)
-			{
-				// Lock every axis so each slot exchanges impulses between its two dynamic bodies.
-				auto& endpoint = upload.m_endpoints.emplace_back();
-				endpoint.body_idx_a = body_a;
-				endpoint.body_idx_b = body_b;
-				endpoint.flags = GpuConstraintEndpointFlags_Enabled;
-				endpoint.generation = 1;
-				upload.m_endpoint_identities.emplace_back();
-				auto& descriptor = upload.m_descriptors.emplace_back();
-				descriptor.frame_a.rotation = float4{0, 0, 0, 1};
-				descriptor.frame_b.rotation = float4{0, 0, 0, 1};
-				for (int axis_idx = 0; axis_idx != GpuConstraintRowsPerBlock; ++axis_idx)
-				{
-					descriptor.axes[axis_idx].mode = GpuConstraintAxisMode_Locked;
-					descriptor.axes[axis_idx].max_force = 1000.0f;
-				}
-			};
-			for (int slot_idx = 0; slot_idx != ChainSlots; ++slot_idx)
-				add_slot(slot_idx, slot_idx + 1);
-			for (int spoke = 0; spoke != StarSpokes; ++spoke)
-				add_slot(ChainSlots + 1, ChainSlots + 2 + spoke);
-
-			upload.m_rigid_active_count = isize(upload.m_endpoints);
-
-			// Give every body a distinct velocity so each colour has real work.
-			auto initial = std::vector<GpuRigidBody>{};
-			for (int body_idx = 0; body_idx != BodyCount; ++body_idx)
-			{
-				auto rigid_body = MakeConstraintGpuBody(1.0f + 0.01f * body_idx);
-				auto const phase = 0.37f * body_idx;
-				rigid_body.VelocityWS(v8motion{v4{std::sin(phase), std::cos(phase), 0.5f * std::sin(2 * phase), 0}, v4{0.3f * std::cos(phase), 0.2f, -0.4f * std::sin(phase), 0}});
-				initial.push_back(PackDynamics(rigid_body, body_idx));
-			}
-
-			// Solve two frames per form so retained warm starts are compared as well.
-			auto run = [&](int fused_limit, int& dispatch_count)
-			{
-				auto config = EngineConfig{};
-				config.solver_iterations = 3;
-				config.push_out_iterations = 2;
-				config.constraint_warm_start_factor = 0.8f;
-				config.fused_colour_sweep_limit = fused_limit;
-				auto solver = GpuConstraintSolver{ConstraintTestGpu(), config};
-				auto bodies = initial;
-				solver.Solve(ConstraintTestGpu().m_job, 1.0f / 60.0f, upload, bodies);
-				solver.Solve(ConstraintTestGpu().m_job, 1.0f / 60.0f, upload, bodies);
-				dispatch_count = solver.Stats().m_dispatch_count;
-				return bodies;
-			};
-			auto per_colour_dispatches = 0;
-			auto fused_dispatches = 0;
-			auto const per_colour = run(0, per_colour_dispatches);
-			auto const fused = run(256, fused_dispatches);
-			PR_EXPECT(fused_dispatches < per_colour_dispatches);
-			for (int body_idx = 0; body_idx != BodyCount; ++body_idx)
-			{
-				PR_EXPECT(FEqlAbsolute(fused[body_idx].o2w, per_colour[body_idx].o2w, 1.0e-5f));
-				PR_EXPECT(FEqlAbsolute(fused[body_idx].momentum_lin, per_colour[body_idx].momentum_lin, 1.0e-5f));
-				PR_EXPECT(FEqlAbsolute(fused[body_idx].momentum_ang, per_colour[body_idx].momentum_ang, 1.0e-5f));
-			}
-		}
-
-		// Slots that each anchor one body to the world need only one colour, so the per-colour form records one pass per sweep, like the fused form.
-		PRUnitTestMethod(HardwareWorldAnchoredSlotsRecordOneColour, Extended)
-		{
-			// More slots than one group's threads, so the per-colour form is not limited by the slot count
-			constexpr auto BodyCount = 150;
-			auto upload = GpuConstraintUpload{};
-			for (int body_idx = 0; body_idx != BodyCount; ++body_idx)
-			{
-				// Lock every axis of the body to the world
-				auto& endpoint = upload.m_endpoints.emplace_back();
-				endpoint.body_idx_a = body_idx;
-				endpoint.body_idx_b = -1;
-				endpoint.flags = GpuConstraintEndpointFlags_Enabled;
-				endpoint.generation = 1;
-				upload.m_endpoint_identities.emplace_back();
-				auto& descriptor = upload.m_descriptors.emplace_back();
-				descriptor.frame_a.rotation = float4{0, 0, 0, 1};
-				descriptor.frame_b.rotation = float4{0, 0, 0, 1};
-				for (int axis_idx = 0; axis_idx != GpuConstraintRowsPerBlock; ++axis_idx)
-				{
-					descriptor.axes[axis_idx].mode = GpuConstraintAxisMode_Locked;
-					descriptor.axes[axis_idx].max_force = 1000.0f;
-				}
-			}
-			upload.m_rigid_active_count = isize(upload.m_endpoints);
-
-			// Give every body a distinct velocity so the locks have work to do
-			auto initial = std::vector<GpuRigidBody>{};
-			for (int body_idx = 0; body_idx != BodyCount; ++body_idx)
-			{
-				auto rigid_body = MakeConstraintGpuBody(1.0f + 0.01f * body_idx);
-				auto const phase = 0.37f * body_idx;
-				rigid_body.VelocityWS(v8motion{v4{std::sin(phase), std::cos(phase), 0, 0}, v4{0.3f * std::cos(phase), 0.2f, -0.4f * std::sin(phase), 0}});
-				initial.push_back(PackDynamics(rigid_body, body_idx));
-			}
-
-			// Solve one frame in each form and compare both the work recorded and the results
-			auto run = [&](int fused_limit, int& dispatch_count)
-			{
-				auto config = EngineConfig{};
-				config.solver_iterations = 3;
-				config.push_out_iterations = 2;
-				config.constraint_warm_start_factor = 0.8f;
-				config.fused_colour_sweep_limit = fused_limit;
-				auto solver = GpuConstraintSolver{ConstraintTestGpu(), config};
-				auto bodies = initial;
-				solver.Solve(ConstraintTestGpu().m_job, 1.0f / 60.0f, upload, bodies);
-				dispatch_count = solver.Stats().m_dispatch_count;
-				return bodies;
-			};
-			auto per_colour_dispatches = 0;
-			auto fused_dispatches = 0;
-			auto const per_colour = run(0, per_colour_dispatches);
-			auto const fused = run(256, fused_dispatches);
-			PR_EXPECT(per_colour_dispatches == fused_dispatches);
-			for (int body_idx = 0; body_idx != BodyCount; ++body_idx)
-			{
-				PR_EXPECT(FEqlAbsolute(fused[body_idx].o2w, per_colour[body_idx].o2w, 1.0e-5f));
-				PR_EXPECT(FEqlAbsolute(fused[body_idx].momentum_lin, per_colour[body_idx].momentum_lin, 1.0e-5f));
-				PR_EXPECT(FEqlAbsolute(fused[body_idx].momentum_ang, per_colour[body_idx].momentum_ang, 1.0e-5f));
-			}
-		}
-
-		// Read a production compute-shader overload latch back through the solver's single diagnostic transaction.
-		PRUnitTestMethod(HardwareReportsBreakState, Extended)
-		{
-			auto body = MakeConstraintGpuBody();
-			body.VelocityWS(v8motion{v4::Zero(), v4{5.0f, 0.0f, 0.0f, 0.0f}});
-			auto desc = D6ConstraintDesc{};
-			desc.m_frame_a.m_body = BodyRef::Rigid(body);
-			desc.m_frame_b.m_body = BodyRef::World();
-			desc.m_linear[0] = MakeConstraintGpuLockedAxis(1000.0f);
-			desc.m_break_force = 10.0f;
-			auto constraints = ConstraintSet{};
-			constraints.Add(desc);
-			auto body_ptrs = std::array<RigidBody*, 1>{&body};
-			auto const upload = PackGpuConstraints(constraints, BodyRemap(body_ptrs));
-			auto bodies = std::vector<GpuRigidBody>{PackDynamics(body, 0)};
-			auto break_states = std::vector<GpuConstraintBreakState>(upload.m_endpoints.size());
-			auto config = EngineConfig{};
-			config.push_out_iterations = 0;
-			config.constraint_warm_start_factor = 0.0f;
-			auto solver = GpuConstraintSolver{ConstraintTestGpu(), config};
-
-			solver.Solve(ConstraintTestGpu().m_job, 1.0f / 60.0f, upload, bodies, {}, {}, break_states);
-
-			PR_EXPECT(AllSet(break_states[0].flags, GpuConstraintBreakFlags_Broken));
-			PR_EXPECT(break_states[0].generation == upload.m_endpoints[0].generation);
-			PR_EXPECT(break_states[0].substep_index == 0);
-			PR_EXPECT(break_states[0].peak_force > desc.m_break_force);
-
-			// Breakable slots add one stable-slot latch to both logical and retained resource accounting.
-			auto const stats = solver.Stats();
-			auto const slot_bytes =
-				sizeof(GpuConstraintEndpoint) +
-				sizeof(GpuD6ConstraintDesc) +
-				sizeof(GpuConstraintBlock) +
-				GpuConstraintRowsPerBlock * sizeof(GpuConstraintRow) +
-				sizeof(GpuConstraintSolveCache) +
-				sizeof(GpuConstraintColourTask) +
-				2 * sizeof(uint32_t);
-			auto const expected_logical_bytes =
-				slot_bytes +
-				sizeof(GpuConstraintSolverState) +
-				sizeof(GpuConstraintPseudoVelocity) +
-				sizeof(GpuConstraintBreakState);
-			auto const expected_allocated_bytes =
-				static_cast<size_t>(stats.m_slot_capacity) * slot_bytes +
-				sizeof(GpuConstraintSolverState) +
-				static_cast<size_t>(stats.m_body_capacity) * sizeof(GpuConstraintPseudoVelocity) +
-				static_cast<size_t>(stats.m_break_capacity) * sizeof(GpuConstraintBreakState);
-			PR_EXPECT(stats.m_breakable_count == 1);
-			PR_EXPECT(stats.m_logical_bytes == expected_logical_bytes);
-			PR_EXPECT(stats.m_allocated_feature_bytes == expected_allocated_bytes);
-		}
-
-		// Preserve coherent stable-slot execution when a real GPU hub requires one hundred edge colours.
-		PRUnitTestMethod(HardwareDegreeHundredUsesSerialFallback, Extended)
-		{
-			constexpr int LeafCount = 100;
-			auto rigid_bodies = std::vector<RigidBody>{};
-			rigid_bodies.reserve(LeafCount + 1);
-			for (int body_idx = 0; body_idx != LeafCount + 1; ++body_idx)
-				rigid_bodies.push_back(MakeConstraintGpuBody(1.0f, m4x4::Translation(0.01f * body_idx, 0, 0)));
-			rigid_bodies[0].VelocityWS(v8motion{v4::Zero(), v4{1, 0, 0, 0}});
-
-			auto body_ptrs = std::vector<RigidBody*>{};
-			body_ptrs.reserve(rigid_bodies.size());
-			for (auto& body : rigid_bodies)
-				body_ptrs.push_back(&body);
-
-			auto constraints = ConstraintSet{};
-			for (int leaf_idx = 0; leaf_idx != LeafCount; ++leaf_idx)
-			{
-				auto desc = D6ConstraintDesc{};
-				desc.m_frame_a.m_body = BodyRef::Rigid(rigid_bodies[0]);
-				desc.m_frame_b.m_body = BodyRef::Rigid(rigid_bodies[leaf_idx + 1]);
-				desc.m_linear[0] = MakeConstraintGpuLockedAxis();
-				constraints.Add(desc);
-			}
-
-			auto const upload = PackGpuConstraints(constraints, BodyRemap(body_ptrs));
-			auto bodies = std::vector<GpuRigidBody>{};
-			bodies.reserve(rigid_bodies.size());
-			for (int body_idx = 0; body_idx != isize(rigid_bodies); ++body_idx)
-				bodies.push_back(PackDynamics(rigid_bodies[body_idx], body_idx));
-			auto blocks = std::vector<GpuConstraintBlock>(LeafCount);
-			auto config = EngineConfig{};
-			config.push_out_iterations = 0;
-			config.solver_iterations = 1;
-			config.constraint_warm_start_factor = 0.0f;
-
-			auto solver = GpuConstraintSolver{ConstraintTestGpu(), config};
-			solver.Solve(ConstraintTestGpu().m_job, 1.0f / 60.0f, upload, bodies, blocks);
-
-			for (auto const& block : blocks)
-				PR_EXPECT(block.colour == MaxColours);
-			for (auto const& body : bodies)
-				PR_EXPECT(ConstraintGpuBodyFinite(body));
-		}
-
-		// Retain ordinary warm starts while rejecting identical stable slots owned by a different constraint set.
-		PRUnitTestMethod(HardwareWarmStartTracksConstraintSource, Extended)
-		{
-			auto body = MakeConstraintGpuBody();
-			body.VelocityWS(v8motion{v4::Zero(), v4{1, 0, 0, 0}});
-			auto desc = D6ConstraintDesc{};
-			desc.m_frame_a.m_body = BodyRef::Rigid(body);
-			desc.m_frame_b.m_body = BodyRef::World();
-			desc.m_linear[0] = MakeConstraintGpuLockedAxis();
-			auto constraints_a = ConstraintSet{};
-			constraints_a.Add(desc);
-			auto body_ptrs = std::array<RigidBody*, 1>{&body};
-			auto config = EngineConfig{};
-			config.push_out_iterations = 0;
-			config.solver_iterations = 1;
-			config.constraint_warm_start_factor = 0.85f;
-			auto solver = GpuConstraintSolver{ConstraintTestGpu(), config};
-			auto rows = std::vector<GpuConstraintRow>(GpuConstraintRowsPerBlock);
-
-			auto first = std::vector<GpuRigidBody>{PackDynamics(body, 0)};
-			solver.Solve(ConstraintTestGpu().m_job, 1.0f / 60.0f, PackGpuConstraints(constraints_a, BodyRemap(body_ptrs)), first, {}, rows);
-			PR_EXPECT(std::abs(rows[0].bounds.z) > 1.0e-4f);
-
-			// With iterations disabled, any second-frame momentum is solely the retained warm start.
-			config.solver_iterations = 0;
-			body.VelocityWS(v8motion{});
-			auto retained = std::vector<GpuRigidBody>{PackDynamics(body, 0)};
-			solver.Solve(ConstraintTestGpu().m_job, 1.0f / 60.0f, PackGpuConstraints(constraints_a, BodyRemap(body_ptrs)), retained);
-			PR_EXPECT(std::abs(retained[0].momentum_lin.x) > 1.0e-4f);
-
-			auto constraints_b = ConstraintSet{};
-			constraints_b.Add(desc);
-			auto replaced = std::vector<GpuRigidBody>{PackDynamics(body, 0)};
-			solver.Solve(ConstraintTestGpu().m_job, 1.0f / 60.0f, PackGpuConstraints(constraints_b, BodyRemap(body_ptrs)), replaced);
-			PR_EXPECT(std::abs(replaced[0].momentum_lin.x) < 1.0e-6f);
-		}
 
 		// An empty constraint overlay must leave ordinary rigid-body output and the established frame transaction bit-identical.
 		PRUnitTestMethod(EmptyConstraintSetPreservesOrdinaryStep, Extended)
@@ -1663,10 +1397,10 @@ namespace pr::physics::tests
 		{
 			auto shape = collision::ShapeSphere{0.25f};
 			auto body = RigidBody{&shape, m4x4::Translation(0.5f, 0, 0), Inertia::Sphere(shape.m_radius, 1.0f)};
-			auto desc = D6ConstraintDesc{};
+			auto desc = ConstraintDesc{};
 			desc.m_frame_a.m_body = BodyRef::Rigid(body);
 			desc.m_frame_b.m_body = BodyRef::World();
-			desc.m_linear[0] = MakeConstraintGpuLockedAxis();
+			desc.D6().m_linear[0] = MakeConstraintGpuLockedAxis();
 			auto constraints = ConstraintSet{};
 			auto const handle = constraints.Add(desc);
 			auto bodies = std::array<RigidBody*, 1>{&body};
@@ -1694,7 +1428,7 @@ namespace pr::physics::tests
 			PR_EXPECT(stats.m_coupled.m_resources.m_dispatch_count == 0);
 			PR_EXPECT(stats.m_frame_output.m_readback_count == 1);
 			PR_EXPECT(stats.m_frame_output.m_readback_bytes > 0);
-			PR_EXPECT(stats.m_failure.Succeeded());
+			PR_EXPECT(!stats.m_failure.HasTerminalFailure());
 
 			// Removing the live descriptor leaves one reusable stable slot, but declared diagnostics report only caller-visible constraints.
 			constraints.Remove(handle);
@@ -1710,10 +1444,10 @@ namespace pr::physics::tests
 		{
 			auto shape = collision::ShapeSphere{0.25f};
 			auto body = RigidBody{&shape, m4x4::Identity(), Inertia::Sphere(shape.m_radius, 1.0f)};
-			auto desc = D6ConstraintDesc{};
+			auto desc = ConstraintDesc{};
 			desc.m_frame_a.m_body = BodyRef::Rigid(body);
 			desc.m_frame_b.m_body = BodyRef::World();
-			desc.m_linear[0] = MakeConstraintGpuLockedAxis();
+			desc.D6().m_linear[0] = MakeConstraintGpuLockedAxis();
 			auto constraints = ConstraintSet{};
 			auto const handle = constraints.Add(desc);
 			auto& engine = SharedEngine();
@@ -1741,10 +1475,10 @@ namespace pr::physics::tests
 			auto shape = collision::ShapeSphere{0.25f};
 			auto body = RigidBody{&shape, m4x4::Identity(), Inertia::Sphere(shape.m_radius, 1.0f)};
 			body.VelocityWS(v8motion{v4::Zero(), v4{5.0f, 0.0f, 0.0f, 0.0f}});
-			auto desc = D6ConstraintDesc{};
+			auto desc = ConstraintDesc{};
 			desc.m_frame_a.m_body = BodyRef::Rigid(body);
 			desc.m_frame_b.m_body = BodyRef::World();
-			desc.m_linear[0] = MakeConstraintGpuLockedAxis(1000.0f);
+			desc.D6().m_linear[0] = MakeConstraintGpuLockedAxis(1000.0f);
 			desc.m_break_force = 10.0f;
 			auto constraints = ConstraintSet{};
 			auto const handle = constraints.Add(desc);
@@ -1775,7 +1509,7 @@ namespace pr::physics::tests
 
 			// Routine descriptor updates preserve the broken state and cannot emit duplicate events.
 			auto updated = constraints.Get(handle);
-			updated.m_linear[0].m_target_position = 0.1f;
+			updated.D6().m_linear[0].m_target_position = 0.1f;
 			constraints.Update(handle, updated);
 			body.VelocityWS(v8motion{v4::Zero(), v4{5.0f, 0.0f, 0.0f, 0.0f}});
 			engine.Step(1.0f / 60.0f, body_ptrs, constraints);
@@ -1803,10 +1537,10 @@ namespace pr::physics::tests
 		PRUnitTestMethod(CoupledConstraintsUseSharedGpuStorage, Quick)
 		{
 			auto [articulation, child] = MakeConstraintGpuArticulation();
-			auto desc = D6ConstraintDesc{};
+			auto desc = ConstraintDesc{};
 			desc.m_frame_a.m_body = BodyRef::Link(articulation, child);
 			desc.m_frame_b.m_body = BodyRef::World();
-			desc.m_linear[0] = MakeConstraintGpuLockedAxis();
+			desc.D6().m_linear[0] = MakeConstraintGpuLockedAxis();
 			auto constraints = ConstraintSet{};
 			constraints.Add(desc);
 			auto articulation_ptrs = std::array<Articulation*, 1>{&articulation};
@@ -1845,7 +1579,7 @@ namespace pr::physics::tests
 				auto body_a = RigidBody{&shape, m4x4::Identity(), Inertia::Sphere(shape.m_radius, 1.0f)};
 				auto body_b = RigidBody{&shape, m4x4::Translation(0.75f, 0, 0), Inertia::Sphere(shape.m_radius, 1.0f)};
 				auto bodies = std::array<RigidBody*, 2>{&body_a, &body_b};
-				auto desc = D6ConstraintDesc{};
+				auto desc = ConstraintDesc{};
 				desc.m_frame_a.m_body = BodyRef::Rigid(body_a);
 				desc.m_frame_b.m_body = BodyRef::Rigid(body_b);
 				desc.m_collide_connected = collide_connected;
@@ -1920,16 +1654,16 @@ namespace pr::physics::tests
 
 			// Allocate the maximum resources before timing so the comparison measures steady-state work rather than one-time growth.
 			auto warmup_bodies = make_bodies(LargeSlotCount);
-			solver.Solve(ConstraintTestGpu().m_job, 1.0f / 60.0f, large_upload, warmup_bodies);
+			solver.Solve(ConstraintTestGpu().m_job, physics::tests::FreshConstraintTestEpoch(1.0f / 60.0f, config.constraint_warm_start_factor), large_upload, warmup_bodies);
 			auto const warmup_stats = solver.Stats();
 
 			// Load the smaller working set against retained maximum capacity so logical and allocated accounting must diverge correctly.
 			auto small_probe_bodies = make_bodies(SmallSlotCount);
-			solver.Solve(ConstraintTestGpu().m_job, 1.0f / 60.0f, small_upload, small_probe_bodies);
+			solver.Solve(ConstraintTestGpu().m_job, physics::tests::FreshConstraintTestEpoch(1.0f / 60.0f, config.constraint_warm_start_factor), small_upload, small_probe_bodies);
 			auto const small_stats = solver.Stats();
 			auto const slot_bytes =
 				sizeof(GpuConstraintEndpoint) +
-				sizeof(GpuD6ConstraintDesc) +
+				sizeof(GpuConstraintDesc) +
 				sizeof(GpuConstraintBlock) +
 				GpuConstraintRowsPerBlock * sizeof(GpuConstraintRow) +
 				sizeof(GpuConstraintSolveCache) +
@@ -1937,6 +1671,7 @@ namespace pr::physics::tests
 				2 * sizeof(uint32_t);
 			auto const expected_small_logical_bytes =
 				static_cast<size_t>(SmallSlotCount) * slot_bytes +
+				static_cast<size_t>(SmallSlotCount) * (sizeof(GpuConstraintRigidRecord) + sizeof(uint32_t) + sizeof(GpuConstraintRejectionState)) +
 				sizeof(GpuConstraintSolverState) +
 				static_cast<size_t>(SmallSlotCount) * sizeof(GpuConstraintPseudoVelocity);
 			PR_EXPECT(small_stats.m_logical_bytes == expected_small_logical_bytes);
@@ -1945,12 +1680,12 @@ namespace pr::physics::tests
 
 			// Restore the larger workload immediately before timing so both measured sizes start from an active, saturated GPU.
 			warmup_bodies = make_bodies(LargeSlotCount);
-			solver.Solve(ConstraintTestGpu().m_job, 1.0f / 60.0f, large_upload, warmup_bodies);
+			solver.Solve(ConstraintTestGpu().m_job, physics::tests::FreshConstraintTestEpoch(1.0f / 60.0f, config.constraint_warm_start_factor), large_upload, warmup_bodies);
 			auto measure = [&](GpuConstraintUpload const& upload)
 			{
 				auto bodies = make_bodies(isize(upload.m_endpoints));
 				auto const begin = std::chrono::steady_clock::now();
-				solver.Solve(ConstraintTestGpu().m_job, 1.0f / 60.0f, upload, bodies);
+				solver.Solve(ConstraintTestGpu().m_job, physics::tests::FreshConstraintTestEpoch(1.0f / 60.0f, config.constraint_warm_start_factor), upload, bodies);
 				auto const elapsed = std::chrono::steady_clock::now() - begin;
 				for (auto const& body : bodies)
 					PR_EXPECT(ConstraintGpuBodyFinite(body));
@@ -1995,5 +1730,548 @@ namespace pr::physics::tests
 			PR_EXPECT(final_stats.m_allocated_feature_bytes == expected_allocated_bytes);
 		}
 	};
+	// Accepted ownership replaces prepared-row cache authority in these direct diagnostic controls.
+	PRUnitTestClass(EngineMigrationDiagnosticTests)
+	{
+		// Empty diagnostics write no optional output prefix and preserve oversized caller-owned destinations.
+		PRUnitTestMethod(EmptyDiagnosticPreservesOptionalOutputTails, Extended)
+		{
+			auto body = MakeConstraintGpuBody();
+			auto bodies = std::array{PackDynamics(body, 0)};
+			auto blocks = std::array<GpuConstraintBlock, 1>{};
+			auto rows = std::array<GpuConstraintRow, 1>{};
+			auto breaks = std::array<GpuConstraintBreakState, 1>{};
+			blocks[0].row_identities = 17u;
+			rows[0].solve.x = 23.0f;
+			breaks[0].peak_force = 31.0f;
+			auto const before_bodies = bodies;
+			auto const before_blocks = blocks;
+			auto const before_rows = rows;
+			auto const before_breaks = breaks;
+			auto config = EngineConfig{};
+			auto solver = GpuConstraintSolver{ConstraintTestGpu(), config};
+			auto const result = solver.Solve(ConstraintTestGpu().m_job, physics::tests::FreshConstraintTestEpoch(1.0f / 60.0f, 0.0f), {}, bodies, blocks, rows, breaks);
+			PR_EXPECT(result.m_records.empty() && result.m_results.empty());
+			PR_EXPECT(std::memcmp(bodies.data(), before_bodies.data(), sizeof(bodies)) == 0);
+			PR_EXPECT(std::memcmp(blocks.data(), before_blocks.data(), sizeof(blocks)) == 0);
+			PR_EXPECT(std::memcmp(rows.data(), before_rows.data(), sizeof(rows)) == 0);
+			PR_EXPECT(std::memcmp(breaks.data(), before_breaks.data(), sizeof(breaks)) == 0);
+		}
+
+		// Shader replay must solve the response-metric bounded block rather than converge to a clamped dense fixed point.
+		PRUnitTestMethod(BoundedBlockSatisfiesAnalyticalKkt, Quick)
+		{
+			for (auto const iterations : {1, 2, 12})
+			for (auto const initial_speed : {0.0f, -1.0f})
+			{
+				auto body = MakeConstraintGpuBody();
+				body.SetMassProperties(Inertia{1.0f, 1.0f});
+				body.VelocityWS(v8motion{v4::Zero(), v4{initial_speed, initial_speed, 0, 0}});
+				auto desc = ConstraintDesc{};
+				desc.m_frame_a = BodyFrame{BodyRef::World(), m4x4::Translation(1.0f, -1.0f, 0.0f)};
+				desc.m_frame_b = BodyFrame{BodyRef::Rigid(body), desc.m_frame_a.m_constraint_to_body};
+				desc.D6().m_linear[0] = MakeConstraintGpuLockedAxis(std::numeric_limits<float>::infinity());
+				desc.D6().m_linear[1].m_mode = EConstraintAxisMode::Driven;
+				desc.D6().m_linear[1].m_target_velocity = initial_speed == 0.0f ? 3.0f : 0.0f;
+				desc.D6().m_linear[1].m_max_force = 1.0f;
+				auto constraints = ConstraintSet{};
+				constraints.Add(desc);
+				auto body_ptrs = std::array<RigidBody*, 1>{&body};
+				auto const upload = PackGpuConstraints(constraints, BodyRemap(body_ptrs));
+				auto bodies = std::vector<GpuRigidBody>{PackDynamics(body, 0)};
+				auto config = CpuConstraintSolverConfig{};
+				config.m_velocity_iterations = iterations;
+				config.m_position_iterations = 0;
+				config.m_warm_start_factor = 0.0f;
+				auto runner = ConstraintInteropRunner{config};
+				runner.Run(ConstraintRunnerBuffers{0.1f, bodies, upload.m_endpoints, upload.m_descriptors});
+
+				// With K = [[2,1],[1,2]], the saturated Y impulse fixes lambda_x = (-v_x - 0.1) / 2.
+				auto const expected_x = (-initial_speed - 0.1f) / 2.0f;
+				auto const point_velocity = bodies[0].momentum_lin + Cross(bodies[0].momentum_ang, v4{1, -1, 0, 0});
+				PR_EXPECT(FEqlAbsolute(runner.Records()[0].rows.impulses[0], expected_x, 2.0e-6f));
+				PR_EXPECT(FEqlAbsolute(runner.Records()[0].rows.impulses[1], 0.1f, 2.0e-6f));
+				PR_EXPECT(Abs(point_velocity.x) < 2.0e-6f);
+				PR_EXPECT(FEqlAbsolute(point_velocity.y, initial_speed + expected_x + 0.2f, 2.0e-6f));
+			}
+		}
+
+		// ResetWarmStart invalidates guesses without changing accepted history until the next accepted replacement.
+		PRUnitTestMethod(ResetWarmStartDefersAcceptedHistoryUntilCommit, Quick)
+		{
+			auto body = MakeConstraintGpuBody();
+			body.VelocityWS(v8motion{v4::Zero(), v4{2, 0, 0, 0}});
+			auto constraints = ConstraintSet{};
+			auto desc = ConstraintDesc{};
+			desc.m_frame_a.m_body = BodyRef::Rigid(body);
+			desc.m_frame_b.m_body = BodyRef::World();
+			desc.D6().m_linear[0] = MakeConstraintGpuLockedAxis();
+			constraints.Add(desc);
+			auto body_ptrs = std::array<RigidBody*, 1>{&body};
+			auto const upload = PackGpuConstraints(constraints, BodyRemap(body_ptrs));
+			auto bodies = std::vector<GpuRigidBody>{PackDynamics(body, 0)};
+			auto config = CpuConstraintSolverConfig{};
+			config.m_velocity_iterations = 1;
+			config.m_position_iterations = 0;
+			auto runner = ConstraintInteropRunner{config};
+			auto buffers = ConstraintRunnerBuffers{1.0f / 60.0f, bodies, upload.m_endpoints, upload.m_descriptors};
+			runner.Run(buffers);
+			auto const accepted = runner.Records()[0];
+			PR_EXPECT(std::abs(accepted.rows.impulses[0]) > 1.0e-5f);
+
+			auto reset_endpoints = upload.m_endpoints;
+			reset_endpoints[0].flags |= GpuConstraintEndpointFlags_ResetWarmStart;
+			buffers.m_endpoints = reset_endpoints;
+			runner.Load(buffers);
+			runner.CompileConstraints();
+			PR_EXPECT(runner.Rows()[0].bounds.z == 0.0f);
+			PR_EXPECT(std::memcmp(&runner.Records()[0], &accepted, sizeof(accepted)) == 0);
+			runner.PrepareVelocitySolve();
+			runner.SolveVelocity();
+			PR_EXPECT(runner.Records()[0].rows.impulses[0] == 0.0f);
+			PR_EXPECT(Any(runner.Records()[0].accepted.epoch != accepted.accepted.epoch));
+		}
+
+		// Convert force caps to timestep-scaled impulse bounds and reject invalid timesteps before mutation.
+		PRUnitTestMethod(TimestepAndForceBoundsRemainFinite, Quick)
+		{
+			auto body = MakeConstraintGpuBody();
+			body.VelocityWS(v8motion{v4::Zero(), v4{100, 0, 0, 0}});
+			auto constraints = ConstraintSet{};
+			auto desc = ConstraintDesc{};
+			desc.m_frame_a.m_body = BodyRef::Rigid(body);
+			desc.m_frame_b.m_body = BodyRef::World();
+			desc.D6().m_linear[0] = MakeConstraintGpuLockedAxis(2.0f);
+			constraints.Add(desc);
+			auto body_ptrs = std::array<RigidBody*, 1>{&body};
+			auto const upload = PackGpuConstraints(constraints, BodyRemap(body_ptrs));
+			auto bodies = std::vector<GpuRigidBody>{PackDynamics(body, 0)};
+			auto config = CpuConstraintSolverConfig{};
+			config.m_velocity_iterations = 2;
+			config.m_position_iterations = 0;
+			config.m_warm_start_factor = 0.0f;
+			auto runner = ConstraintInteropRunner{config};
+			auto buffers = ConstraintRunnerBuffers{0.25f, bodies, upload.m_endpoints, upload.m_descriptors};
+			runner.Run(buffers);
+
+			PR_EXPECT(FEqlAbsolute(runner.Rows()[0].bounds.x, -0.5f, 1.0e-6f));
+			PR_EXPECT(FEqlAbsolute(runner.Rows()[0].bounds.y, +0.5f, 1.0e-6f));
+			PR_EXPECT(std::abs(runner.Records()[0].rows.impulses[0]) <= 0.5f);
+			buffers.m_dt = 0.0f;
+			PR_THROWS(runner.Run(buffers), std::invalid_argument);
+		}
+
+		// Retain ordinary warm starts while rejecting identical stable slots owned by a different constraint set.
+		PRUnitTestMethod(HardwareWarmStartTracksConstraintSource, Extended)
+		{
+			auto body = MakeConstraintGpuBody();
+			body.VelocityWS(v8motion{v4::Zero(), v4{1, 0, 0, 0}});
+			auto desc = ConstraintDesc{};
+			desc.m_frame_a.m_body = BodyRef::Rigid(body);
+			desc.m_frame_b.m_body = BodyRef::World();
+			desc.D6().m_linear[0] = MakeConstraintGpuLockedAxis();
+			auto constraints_a = ConstraintSet{};
+			constraints_a.Add(desc);
+			auto body_ptrs = std::array<RigidBody*, 1>{&body};
+			auto config = EngineConfig{};
+			config.push_out_iterations = 0;
+			config.solver_iterations = 1;
+			config.constraint_relaxation = 0.5f;
+			config.constraint_warm_start_factor = 1.0f;
+			auto solver = GpuConstraintSolver{ConstraintTestGpu(), config};
+			auto rows = std::vector<GpuConstraintRow>(GpuConstraintRowsPerBlock);
+
+			auto first = std::vector<GpuRigidBody>{PackDynamics(body, 0)};
+			auto const accepted = solver.Solve(ConstraintTestGpu().m_job, physics::tests::FreshConstraintTestEpoch(1.0f / 60.0f, config.constraint_warm_start_factor), PackGpuConstraints(constraints_a, BodyRemap(body_ptrs)), first, {}, rows);
+			PR_EXPECT(accepted.m_results[0] == GpuConstraintStage_Accepted);
+			PR_EXPECT(FEqlAbsolute(first[0].momentum_lin.x, 0.5f, 1.0e-6f));
+			PR_EXPECT(FEqlAbsolute(accepted.m_records[0].rows.impulses[0], 0.5f, 1.0e-6f));
+
+			// Skipped work preserves both physical history and the last accepted cache; it does not apply a provisional warm seed.
+			config.solver_iterations = 0;
+			auto retained = first;
+			auto const skipped = solver.Solve(ConstraintTestGpu().m_job, physics::tests::FreshConstraintTestEpoch(1.0f / 60.0f, config.constraint_warm_start_factor), PackGpuConstraints(constraints_a, BodyRemap(body_ptrs)), retained);
+			PR_EXPECT(skipped.m_results[0] == 0xFFFFFFFFu);
+			PR_EXPECT(std::memcmp(skipped.m_records.data(), accepted.m_records.data(), sizeof(GpuConstraintRigidRecord)) == 0);
+			PR_EXPECT(retained[0].momentum_lin.x == first[0].momentum_lin.x);
+
+			// A resumed same-source solve may use its compatible historical guess; a different source must start cold.
+			config.solver_iterations = 1;
+			auto const resumed = solver.Solve(ConstraintTestGpu().m_job, physics::tests::FreshConstraintTestEpoch(1.0f / 60.0f, config.constraint_warm_start_factor), PackGpuConstraints(constraints_a, BodyRemap(body_ptrs)), retained);
+			PR_EXPECT(resumed.m_results[0] == GpuConstraintStage_Accepted);
+			PR_EXPECT(std::abs(retained[0].momentum_lin.x) < 1.0e-6f);
+			auto constraints_b = ConstraintSet{};
+			constraints_b.Add(desc);
+			auto replaced = first;
+			auto const changed = solver.Solve(ConstraintTestGpu().m_job, physics::tests::FreshConstraintTestEpoch(1.0f / 60.0f, config.constraint_warm_start_factor), PackGpuConstraints(constraints_b, BodyRemap(body_ptrs)), replaced);
+			PR_EXPECT(changed.m_results[0] == GpuConstraintStage_Accepted);
+			PR_EXPECT(FEqlAbsolute(replaced[0].momentum_lin.x, 0.25f, 1.0e-6f));
+		}
+	};
+
+	// Focused controls for the coordinated Engine owner and phase migration.
+	PRUnitTestClass(EngineMigrationColourAccountingTests)
+	{
+		// Match the HLSL-as-C++ reference through the production D3D12 compiler, pseudo-position, and velocity passes.
+		PRUnitTestMethod(HardwarePipelineMatchesInterop, Extended)
+		{
+			auto body_a = MakeConstraintGpuBody(
+				2.0f,
+				m4x4::Transform(v4::YAxis(), 0.17f, v4{0.35f, -0.15f, 0.2f, 1}),
+				v4{0.2f, -0.1f, 0.15f, 0});
+			auto body_b = MakeConstraintGpuBody(
+				3.0f,
+				m4x4::Transform(v4::XAxis(), -0.11f, v4{-0.1f, 0.25f, -0.05f, 1}),
+				v4{-0.1f, 0.05f, -0.08f, 0});
+			body_a.VelocityWS(v8motion{v4{0.2f, -0.3f, 0.1f, 0}, v4{0.8f, -0.4f, 0.5f, 0}});
+			body_b.VelocityWS(v8motion{v4{-0.1f, 0.15f, -0.2f, 0}, v4{-0.3f, 0.6f, -0.2f, 0}});
+
+			auto desc = ConstraintDesc{};
+			desc.m_frame_a = BodyFrame{BodyRef::Rigid(body_a), m4x4::Translation(0.3f, -0.2f, 0.1f)};
+			desc.m_frame_b = BodyFrame{BodyRef::Rigid(body_b), m4x4::Translation(-0.15f, 0.25f, -0.05f)};
+			for (int axis = 0; axis != 3; ++axis)
+			{
+				desc.D6().m_linear[axis] = MakeConstraintGpuLockedAxis(5000.0f);
+				desc.D6().m_angular[axis] = MakeConstraintGpuLockedAxis(5000.0f);
+			}
+
+			auto constraints = ConstraintSet{};
+			constraints.Add(desc);
+			auto body_ptrs = std::array<RigidBody*, 2>{&body_a, &body_b};
+			auto const upload = PackGpuConstraints(constraints, BodyRemap(body_ptrs));
+			auto expected = std::vector<GpuRigidBody>{PackDynamics(body_a, 0), PackDynamics(body_b, 1)};
+			auto actual = expected;
+			auto config = EngineConfig{};
+			config.solver_iterations = 2;
+			config.push_out_iterations = 2;
+			config.constraint_relaxation = 0.73f;
+			config.constraint_position_relaxation = 0.61f;
+			config.constraint_position_beta = 0.17f;
+			config.constraint_max_position_speed = 1.3f;
+			config.constraint_regularization = 3.0e-6f;
+			config.constraint_warm_start_factor = 0.42f;
+
+			auto reference = ConstraintInteropRunner{config};
+			reference.Run(ConstraintRunnerBuffers{1.0f / 120.0f, expected, upload.m_endpoints, upload.m_descriptors});
+			auto solver = GpuConstraintSolver{ConstraintTestGpu(), config};
+			auto const empty_stats = solver.Stats();
+			PR_EXPECT(solver.FrameState() == nullptr);
+			PR_EXPECT(empty_stats.m_slot_capacity == 0);
+			PR_EXPECT(empty_stats.m_body_capacity == 0);
+			PR_EXPECT(empty_stats.m_break_capacity == 0);
+			PR_EXPECT(empty_stats.m_dispatch_count == 0);
+			PR_EXPECT(empty_stats.m_logical_bytes == 0);
+			PR_EXPECT(empty_stats.m_allocated_feature_bytes == 0);
+			solver.Solve(ConstraintTestGpu().m_job, physics::tests::FreshConstraintTestEpoch(1.0f / 120.0f, config.constraint_warm_start_factor), upload, actual);
+			PR_EXPECT(solver.FrameState() != nullptr);
+			auto const first_stats = solver.Stats();
+			PR_EXPECT(first_stats.m_slot_count == 1);
+			PR_EXPECT(first_stats.m_active_count == 1);
+			PR_EXPECT(first_stats.m_breakable_count == 0);
+			PR_EXPECT(first_stats.m_slot_capacity >= 1);
+			PR_EXPECT(first_stats.m_body_capacity >= 2);
+			PR_EXPECT(first_stats.m_break_capacity == 0);
+			PR_EXPECT(first_stats.m_dispatch_count > 0);
+			PR_EXPECT(first_stats.m_logical_bytes > 0);
+			PR_EXPECT(first_stats.m_allocated_feature_bytes >= first_stats.m_logical_bytes);
+
+			// Report exact logical and retained-capacity costs from the published per-slot and per-body resource formula.
+			auto const slot_bytes =
+				sizeof(GpuConstraintEndpoint) +
+				sizeof(GpuConstraintDesc) +
+				sizeof(GpuConstraintBlock) +
+				GpuConstraintRowsPerBlock * sizeof(GpuConstraintRow) +
+				sizeof(GpuConstraintSolveCache) +
+				sizeof(GpuConstraintColourTask) +
+				2 * sizeof(uint32_t);
+			auto const expected_logical_bytes =
+				static_cast<size_t>(first_stats.m_slot_count) * slot_bytes +
+				static_cast<size_t>(first_stats.m_slot_count) * (sizeof(GpuConstraintRigidRecord) + sizeof(uint32_t) + sizeof(GpuConstraintRejectionState)) +
+				sizeof(GpuConstraintSolverState) +
+				actual.size() * sizeof(GpuConstraintPseudoVelocity);
+			auto const expected_allocated_bytes =
+				static_cast<size_t>(first_stats.m_slot_capacity) * slot_bytes +
+				static_cast<size_t>(first_stats.m_slot_capacity) * (sizeof(GpuConstraintRigidRecord) + sizeof(uint32_t) + sizeof(GpuConstraintRejectionState)) +
+				sizeof(GpuConstraintSolverState) +
+				static_cast<size_t>(first_stats.m_body_capacity) * sizeof(GpuConstraintPseudoVelocity) +
+				static_cast<size_t>(first_stats.m_break_capacity) * sizeof(GpuConstraintBreakState);
+			PR_EXPECT(first_stats.m_logical_bytes == expected_logical_bytes);
+			PR_EXPECT(first_stats.m_allocated_feature_bytes == expected_allocated_bytes);
+
+			for (int body_idx = 0; body_idx != isize(actual); ++body_idx)
+			{
+				PR_EXPECT(FEqlAbsolute(actual[body_idx].o2w, expected[body_idx].o2w, 2.0e-3f));
+				PR_EXPECT(FEqlAbsolute(actual[body_idx].momentum_ang, expected[body_idx].momentum_ang, 2.0e-3f));
+				PR_EXPECT(FEqlAbsolute(actual[body_idx].momentum_lin, expected[body_idx].momentum_lin, 2.0e-3f));
+			}
+
+			// A second frame makes the configured warm-start factor observable in both persistent runtimes.
+			for (int body_idx = 0; body_idx != isize(actual); ++body_idx)
+			{
+				expected[body_idx].momentum_ang = float4{};
+				expected[body_idx].momentum_lin = float4{};
+				actual[body_idx].momentum_ang = float4{};
+				actual[body_idx].momentum_lin = float4{};
+			}
+			reference.Run(ConstraintRunnerBuffers{1.0f / 120.0f, expected, upload.m_endpoints, upload.m_descriptors});
+			solver.Solve(ConstraintTestGpu().m_job, physics::tests::FreshConstraintTestEpoch(1.0f / 120.0f, config.constraint_warm_start_factor), upload, actual);
+			for (int body_idx = 0; body_idx != isize(actual); ++body_idx)
+			{
+				PR_EXPECT(FEqlAbsolute(actual[body_idx].o2w, expected[body_idx].o2w, 2.0e-3f));
+				PR_EXPECT(FEqlAbsolute(actual[body_idx].momentum_ang, expected[body_idx].momentum_ang, 2.0e-3f));
+				PR_EXPECT(FEqlAbsolute(actual[body_idx].momentum_lin, expected[body_idx].momentum_lin, 2.0e-3f));
+			}
+		}
+
+		// The single-group fused colour sweep must give the same bodies as one dispatch per colour.
+		PRUnitTestMethod(HardwareFusedColourSweepMatchesPerColour, Extended)
+		{
+			// A chain needs two colours and a star hub needs one colour per spoke, and the slot count exceeds one group's threads.
+			constexpr auto ChainSlots = 150;
+			constexpr auto StarSpokes = 6;
+			constexpr auto BodyCount = ChainSlots + 1 + 1 + StarSpokes;
+			auto upload = GpuConstraintUpload{};
+			auto add_slot = [&](int body_a, int body_b)
+			{
+				// Lock every axis so each slot exchanges impulses between its two dynamic bodies.
+				auto& endpoint = upload.m_endpoints.emplace_back();
+				endpoint.body_idx_a = body_a;
+				endpoint.body_idx_b = body_b;
+				endpoint.flags = GpuConstraintEndpointFlags_Enabled;
+				endpoint.generation = 1;
+				upload.m_endpoint_identities.emplace_back();
+				auto& descriptor = upload.m_descriptors.emplace_back();
+				descriptor.frame_a.rotation = float4{0, 0, 0, 1};
+				descriptor.frame_b.rotation = float4{0, 0, 0, 1};
+				for (int axis_idx = 0; axis_idx != GpuConstraintRowsPerBlock; ++axis_idx)
+				{
+					descriptor.axes[axis_idx].mode = GpuConstraintAxisMode_Locked;
+					descriptor.axes[axis_idx].max_force = 1000.0f;
+				}
+			};
+			for (int slot_idx = 0; slot_idx != ChainSlots; ++slot_idx)
+				add_slot(slot_idx, slot_idx + 1);
+			for (int spoke = 0; spoke != StarSpokes; ++spoke)
+				add_slot(ChainSlots + 1, ChainSlots + 2 + spoke);
+
+			upload.m_rigid_active_count = isize(upload.m_endpoints);
+
+			// Distinct poses give the position colours real work; physical velocity uses the separate dependency schedule.
+			auto initial = std::vector<GpuRigidBody>{};
+			for (int body_idx = 0; body_idx != BodyCount; ++body_idx)
+			{
+				auto rigid_body = MakeConstraintGpuBody(1.0f + 0.01f * body_idx);
+				rigid_body.O2W(m4x4::Translation(0.01f * body_idx, 0, 0));
+				auto const phase = 0.37f * body_idx;
+				rigid_body.VelocityWS(v8motion{v4{std::sin(phase), std::cos(phase), 0.5f * std::sin(2 * phase), 0}, v4{0.3f * std::cos(phase), 0.2f, -0.4f * std::sin(phase), 0}});
+				initial.push_back(PackDynamics(rigid_body, body_idx));
+			}
+
+			// Solve two frames per form so retained warm starts are compared as well.
+			auto run = [&](int fused_limit, int& dispatch_count)
+			{
+				auto config = EngineConfig{};
+				config.solver_iterations = 3;
+				config.push_out_iterations = 2;
+				config.constraint_warm_start_factor = 0.8f;
+				config.fused_colour_sweep_limit = fused_limit;
+				auto solver = GpuConstraintSolver{ConstraintTestGpu(), config};
+				auto bodies = initial;
+				solver.Solve(ConstraintTestGpu().m_job, physics::tests::FreshConstraintTestEpoch(1.0f / 60.0f, config.constraint_warm_start_factor), upload, bodies);
+				solver.Solve(ConstraintTestGpu().m_job, physics::tests::FreshConstraintTestEpoch(1.0f / 60.0f, config.constraint_warm_start_factor), upload, bodies);
+				dispatch_count = solver.Stats().m_dispatch_count;
+				return bodies;
+			};
+			auto per_colour_dispatches = 0;
+			auto fused_dispatches = 0;
+			auto const per_colour = run(0, per_colour_dispatches);
+			auto const fused = run(256, fused_dispatches);
+			PR_EXPECT(fused_dispatches < per_colour_dispatches);
+			PR_EXPECT(!FEqlAbsolute(fused[0].o2w, initial[0].o2w, 1.0e-6f));
+			for (int body_idx = 0; body_idx != BodyCount; ++body_idx)
+			{
+				PR_EXPECT(FEqlAbsolute(fused[body_idx].o2w, per_colour[body_idx].o2w, 1.0e-5f));
+				PR_EXPECT(FEqlAbsolute(fused[body_idx].momentum_lin, per_colour[body_idx].momentum_lin, 1.0e-5f));
+				PR_EXPECT(FEqlAbsolute(fused[body_idx].momentum_ang, per_colour[body_idx].momentum_ang, 1.0e-5f));
+			}
+		}
+
+		// Slots that each anchor one body to the world need only one colour, so the per-colour form records one pass per sweep, like the fused form.
+		PRUnitTestMethod(HardwareWorldAnchoredSlotsRecordOneColour, Extended)
+		{
+			// More slots than one group's threads, so the per-colour form is not limited by the slot count
+			constexpr auto BodyCount = 150;
+			auto upload = GpuConstraintUpload{};
+			for (int body_idx = 0; body_idx != BodyCount; ++body_idx)
+			{
+				// Lock every axis of the body to the world
+				auto& endpoint = upload.m_endpoints.emplace_back();
+				endpoint.body_idx_a = body_idx;
+				endpoint.body_idx_b = -1;
+				endpoint.flags = GpuConstraintEndpointFlags_Enabled;
+				endpoint.generation = 1;
+				upload.m_endpoint_identities.emplace_back();
+				auto& descriptor = upload.m_descriptors.emplace_back();
+				descriptor.frame_a.rotation = float4{0, 0, 0, 1};
+				descriptor.frame_b.rotation = float4{0, 0, 0, 1};
+				for (int axis_idx = 0; axis_idx != GpuConstraintRowsPerBlock; ++axis_idx)
+				{
+					descriptor.axes[axis_idx].mode = GpuConstraintAxisMode_Locked;
+					descriptor.axes[axis_idx].max_force = 1000.0f;
+				}
+			}
+			upload.m_rigid_active_count = isize(upload.m_endpoints);
+
+			// Displaced anchors exercise the position-colouring phase independently of physical velocities.
+			auto initial = std::vector<GpuRigidBody>{};
+			for (int body_idx = 0; body_idx != BodyCount; ++body_idx)
+			{
+				auto rigid_body = MakeConstraintGpuBody(1.0f + 0.01f * body_idx);
+				rigid_body.O2W(m4x4::Translation(0.01f * body_idx, 0, 0));
+				auto const phase = 0.37f * body_idx;
+				rigid_body.VelocityWS(v8motion{v4{std::sin(phase), std::cos(phase), 0, 0}, v4{0.3f * std::cos(phase), 0.2f, -0.4f * std::sin(phase), 0}});
+				initial.push_back(PackDynamics(rigid_body, body_idx));
+			}
+
+			// Solve one frame in each form and compare both the work recorded and the results
+			auto run = [&](int fused_limit, int& dispatch_count)
+			{
+				auto config = EngineConfig{};
+				config.solver_iterations = 3;
+				config.push_out_iterations = 2;
+				config.constraint_warm_start_factor = 0.8f;
+				config.fused_colour_sweep_limit = fused_limit;
+				auto solver = GpuConstraintSolver{ConstraintTestGpu(), config};
+				auto bodies = initial;
+				solver.Solve(ConstraintTestGpu().m_job, physics::tests::FreshConstraintTestEpoch(1.0f / 60.0f, config.constraint_warm_start_factor), upload, bodies);
+				dispatch_count = solver.Stats().m_dispatch_count;
+				return bodies;
+			};
+			auto per_colour_dispatches = 0;
+			auto fused_dispatches = 0;
+			auto const per_colour = run(0, per_colour_dispatches);
+			auto const fused = run(256, fused_dispatches);
+			PR_EXPECT(per_colour_dispatches == fused_dispatches);
+			PR_EXPECT(!FEqlAbsolute(fused.back().o2w, initial.back().o2w, 1.0e-6f));
+			for (int body_idx = 0; body_idx != BodyCount; ++body_idx)
+			{
+				PR_EXPECT(FEqlAbsolute(fused[body_idx].o2w, per_colour[body_idx].o2w, 1.0e-5f));
+				PR_EXPECT(FEqlAbsolute(fused[body_idx].momentum_lin, per_colour[body_idx].momentum_lin, 1.0e-5f));
+				PR_EXPECT(FEqlAbsolute(fused[body_idx].momentum_ang, per_colour[body_idx].momentum_ang, 1.0e-5f));
+			}
+		}
+
+		// Read a production compute-shader overload latch back through the solver's single diagnostic transaction.
+		PRUnitTestMethod(HardwareReportsBreakState, Extended)
+		{
+			auto body = MakeConstraintGpuBody();
+			body.VelocityWS(v8motion{v4::Zero(), v4{5.0f, 0.0f, 0.0f, 0.0f}});
+			auto desc = ConstraintDesc{};
+			desc.m_frame_a.m_body = BodyRef::Rigid(body);
+			desc.m_frame_b.m_body = BodyRef::World();
+			desc.D6().m_linear[0] = MakeConstraintGpuLockedAxis(1000.0f);
+			desc.m_break_force = 10.0f;
+			auto constraints = ConstraintSet{};
+			constraints.Add(desc);
+			auto body_ptrs = std::array<RigidBody*, 1>{&body};
+			auto const upload = PackGpuConstraints(constraints, BodyRemap(body_ptrs));
+			auto bodies = std::vector<GpuRigidBody>{PackDynamics(body, 0)};
+			auto break_states = std::vector<GpuConstraintBreakState>(upload.m_endpoints.size());
+			auto config = EngineConfig{};
+			config.push_out_iterations = 0;
+			config.constraint_warm_start_factor = 0.0f;
+			auto solver = GpuConstraintSolver{ConstraintTestGpu(), config};
+
+			solver.Solve(ConstraintTestGpu().m_job, physics::tests::FreshConstraintTestEpoch(1.0f / 60.0f, config.constraint_warm_start_factor), upload, bodies, {}, {}, break_states);
+
+			PR_EXPECT(AllSet(break_states[0].flags, GpuConstraintBreakFlags_Broken));
+			PR_EXPECT(break_states[0].generation == upload.m_endpoints[0].generation);
+			PR_EXPECT(break_states[0].substep_index == 0);
+			PR_EXPECT(break_states[0].peak_force > desc.m_break_force);
+
+			// Breakable slots add one stable-slot latch to both logical and retained resource accounting.
+			auto const stats = solver.Stats();
+			auto const slot_bytes =
+				sizeof(GpuConstraintEndpoint) +
+				sizeof(GpuConstraintDesc) +
+				sizeof(GpuConstraintBlock) +
+				GpuConstraintRowsPerBlock * sizeof(GpuConstraintRow) +
+				sizeof(GpuConstraintSolveCache) +
+				sizeof(GpuConstraintColourTask) +
+				2 * sizeof(uint32_t);
+			auto const expected_logical_bytes =
+				slot_bytes +
+				sizeof(GpuConstraintRigidRecord) + sizeof(uint32_t) + sizeof(GpuConstraintRejectionState) +
+				sizeof(GpuConstraintSolverState) +
+				sizeof(GpuConstraintPseudoVelocity) +
+				sizeof(GpuConstraintBreakState);
+			auto const expected_allocated_bytes =
+				static_cast<size_t>(stats.m_slot_capacity) * slot_bytes +
+				static_cast<size_t>(stats.m_slot_capacity) * (sizeof(GpuConstraintRigidRecord) + sizeof(uint32_t) + sizeof(GpuConstraintRejectionState)) +
+				sizeof(GpuConstraintSolverState) +
+				static_cast<size_t>(stats.m_body_capacity) * sizeof(GpuConstraintPseudoVelocity) +
+				static_cast<size_t>(stats.m_break_capacity) * sizeof(GpuConstraintBreakState);
+			PR_EXPECT(stats.m_breakable_count == 1);
+			PR_EXPECT(stats.m_logical_bytes == expected_logical_bytes);
+			PR_EXPECT(stats.m_allocated_feature_bytes == expected_allocated_bytes);
+		}
+
+		// Preserve coherent stable-slot execution when a real GPU hub requires one hundred edge colours.
+		PRUnitTestMethod(HardwareDegreeHundredUsesSerialFallback, Extended)
+		{
+			constexpr int LeafCount = 100;
+			auto rigid_bodies = std::vector<RigidBody>{};
+			rigid_bodies.reserve(LeafCount + 1);
+			for (int body_idx = 0; body_idx != LeafCount + 1; ++body_idx)
+				rigid_bodies.push_back(MakeConstraintGpuBody(1.0f, m4x4::Translation(0.01f * body_idx, 0, 0)));
+			rigid_bodies[0].VelocityWS(v8motion{v4::Zero(), v4{1, 0, 0, 0}});
+
+			auto body_ptrs = std::vector<RigidBody*>{};
+			body_ptrs.reserve(rigid_bodies.size());
+			for (auto& body : rigid_bodies)
+				body_ptrs.push_back(&body);
+
+			auto constraints = ConstraintSet{};
+			for (int leaf_idx = 0; leaf_idx != LeafCount; ++leaf_idx)
+			{
+				auto desc = ConstraintDesc{};
+				desc.m_frame_a.m_body = BodyRef::Rigid(rigid_bodies[0]);
+				desc.m_frame_b.m_body = BodyRef::Rigid(rigid_bodies[leaf_idx + 1]);
+				desc.D6().m_linear[0] = MakeConstraintGpuLockedAxis();
+				constraints.Add(desc);
+			}
+
+			auto const upload = PackGpuConstraints(constraints, BodyRemap(body_ptrs));
+			auto bodies = std::vector<GpuRigidBody>{};
+			bodies.reserve(rigid_bodies.size());
+			for (int body_idx = 0; body_idx != isize(rigid_bodies); ++body_idx)
+				bodies.push_back(PackDynamics(rigid_bodies[body_idx], body_idx));
+			auto blocks = std::vector<GpuConstraintBlock>(LeafCount);
+			auto config = EngineConfig{};
+			config.push_out_iterations = 1;
+			config.solver_iterations = 0;
+			config.constraint_warm_start_factor = 0.0f;
+
+			// Exercise the position fallback itself, not the uncoloured physical path whose initial colour markers are also MaxColours.
+			auto const initial_hub_pose = bodies[0].o2w;
+			auto expected = bodies;
+			auto reference = ConstraintInteropRunner{config};
+			reference.Run(ConstraintRunnerBuffers{1.0f / 60.0f, expected, upload.m_endpoints, upload.m_descriptors});
+			PR_EXPECT(reference.ColourOverflow());
+			auto solver = GpuConstraintSolver{ConstraintTestGpu(), config};
+			solver.Solve(ConstraintTestGpu().m_job, physics::tests::FreshConstraintTestEpoch(1.0f / 60.0f, config.constraint_warm_start_factor), upload, bodies, blocks);
+
+			for (auto const& block : blocks)
+				PR_EXPECT(block.colour == MaxColours);
+
+			PR_EXPECT(!FEqlAbsolute(initial_hub_pose, bodies[0].o2w, 1.0e-6f));
+			for (int index = 0; index != isize(bodies); ++index)
+			{
+				PR_EXPECT(ConstraintGpuBodyFinite(bodies[index]));
+				PR_EXPECT(FEqlAbsolute(bodies[index].o2w, expected[index].o2w, 2.0e-4f));
+			}
+		}
+	};
+
 }
 #endif

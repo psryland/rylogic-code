@@ -22,15 +22,8 @@ namespace pr::physics
 		}
 
 		// Mirror the shader constant-buffer layout for the current replay pass.
-		cbConstraintSolver MakeConstraintConstants(CpuConstraintSolverConfig const& config, float dt, float previous_dt, int body_count, int slot_count, int colour = 0, int breakable_count = 0, int break_substep_index = -1)
+		cbConstraintSolver MakeConstraintConstants(CpuConstraintSolverConfig const& config, float dt, uint64_t epoch, int body_count, int slot_count, int colour = 0, int breakable_count = 0, int break_substep_index = -1)
 		{
-			auto warm_start_scale = 0.0f;
-			if (previous_dt > 0.0f)
-			{
-				auto const timestep_ratio = dt / previous_dt;
-				if (std::isfinite(timestep_ratio) && timestep_ratio >= 0.25f && timestep_ratio <= 4.0f)
-					warm_start_scale = config.m_warm_start_factor * timestep_ratio;
-			}
 			return cbConstraintSolver{
 				.slot_count = slot_count,
 				.body_count = body_count,
@@ -43,9 +36,10 @@ namespace pr::physics
 				.max_position_speed = config.m_max_position_speed,
 				.regularization = config.m_regularization,
 				.warm_start_factor = config.m_warm_start_factor,
-				.warm_start_scale = warm_start_scale,
 				.breakable_count = breakable_count,
 				.break_substep_index = break_substep_index,
+				.epoch_low = static_cast<uint32_t>(epoch),
+				.epoch_high = static_cast<uint32_t>(epoch >> 32),
 			};
 		}
 	}
@@ -54,7 +48,7 @@ namespace pr::physics
 	ConstraintInteropRunner::ConstraintInteropRunner(CpuConstraintSolverConfig const& config)
 		: m_config(config)
 		, m_dt()
-		, m_previous_dt()
+		, m_epoch()
 		, m_body_count()
 		, m_slot_count()
 		, m_bodies()
@@ -94,7 +88,6 @@ namespace pr::physics
 		Load(buffers);
 		CompileConstraints();
 		AssignColours();
-		ApplyWarmStart();
 		ClearPseudoVelocity();
 
 		if (m_config.m_position_iterations > 0)
@@ -102,13 +95,18 @@ namespace pr::physics
 		for (int iteration = 0; iteration != m_config.m_position_iterations; ++iteration)
 			SolvePosition();
 		ApplyPosition();
+		if (m_config.m_position_iterations > 0 && m_config.m_velocity_iterations > 0)
+		{
+			// Physical covectors and the inverse must both describe the corrected pose.
+			CompileConstraints();
+			AssignColours();
+		}
 		PrepareVelocitySolve();
 		for (int iteration = 0; iteration != m_config.m_velocity_iterations; ++iteration)
 			SolveVelocity();
 		DetectBreakage();
 
 		Store(buffers);
-		m_previous_dt = m_dt;
 	}
 
 	// Validate and copy frame inputs while preserving same-sized blocks and rows for warm starts.
@@ -121,12 +119,43 @@ namespace pr::physics
 		if (m_config.m_velocity_iterations < 0 || m_config.m_position_iterations < 0)
 			throw std::invalid_argument("Constraint iteration counts cannot be negative");
 
+		// Load begins a new complete replay frame; explicit phase calls continue within that epoch.
+		if (m_epoch == std::numeric_limits<uint64_t>::max())
+			throw std::overflow_error("Constraint replay epoch exhausted");
+
+		++m_epoch;
+		m_input_revisions.resize(std::max(m_input_revisions.size(), buffers.m_endpoints.size()));
+		for (auto index = size_t{}; index != buffers.m_endpoints.size(); ++index)
+		{
+			// This lowered harness uses packed endpoint indices as identity; production Upload additionally tracks public identities.
+			auto const& endpoint = buffers.m_endpoints[index];
+			auto const changed = index >= m_endpoints.size() ||
+				endpoint.body_idx_a != m_endpoints[index].body_idx_a ||
+				endpoint.body_idx_b != m_endpoints[index].body_idx_b ||
+				endpoint.generation != m_endpoints[index].generation ||
+				endpoint.flags != m_endpoints[index].flags ||
+				std::memcmp(&buffers.m_descriptors[index], &m_descriptors[index], sizeof(GpuConstraintDesc)) != 0;
+			if (changed || AllSet(endpoint.flags, GpuConstraintEndpointFlags_ResetWarmStart))
+			{
+				// Receipt revisions cannot wrap while any accepted record remains alive.
+				if (m_input_revisions[index] == 0x3fffffffu)
+					throw std::overflow_error("Constraint replay input revision exhausted");
+
+				++m_input_revisions[index];
+			}
+		}
 		m_dt = buffers.m_dt;
 		m_body_count = static_cast<int>(buffers.m_bodies.size());
 		m_slot_count = static_cast<int>(buffers.m_endpoints.size());
 		m_bodies.assign(buffers.m_bodies.begin(), buffers.m_bodies.end());
 		m_endpoints.assign(buffers.m_endpoints.begin(), buffers.m_endpoints.end());
 		m_descriptors.assign(buffers.m_descriptors.begin(), buffers.m_descriptors.end());
+		for (int index = 0; index != m_slot_count; ++index)
+			m_endpoints[index].invalidation_revision = m_input_revisions[index];
+
+		m_records.resize(m_slot_count);
+		m_transaction_results.assign(m_slot_count, 0xFFFFFFFFu);
+		m_rejections.assign(m_slot_count, GpuConstraintRejectionState{.substep_index = -1});
 		m_pseudo_velocities.assign(buffers.m_bodies.size(), GpuConstraintPseudoVelocity{});
 		m_solve_cache.assign(buffers.m_endpoints.size(), GpuConstraintSolveCache{});
 		m_break_states.resize(buffers.m_endpoints.size());
@@ -144,7 +173,6 @@ namespace pr::physics
 			m_blocks.assign(buffers.m_endpoints.size(), GpuConstraintBlock{});
 			m_rows.assign(GpuConstraintRowsPerBlock * buffers.m_endpoints.size(), GpuConstraintRow{});
 			m_colours.assign(buffers.m_endpoints.size(), MaxColours);
-			m_previous_dt = 0.0f;
 		}
 		m_state[0] = GpuConstraintSolverState{};
 	}
@@ -152,7 +180,7 @@ namespace pr::physics
 	// Dispatch one body invocation to clear each per-frame pseudo twist.
 	void ConstraintInteropRunner::ClearPseudoVelocity()
 	{
-		g = MakeConstraintConstants(m_config, m_dt, m_previous_dt, m_body_count, m_slot_count);
+		g = MakeConstraintConstants(m_config, m_dt, m_epoch, m_body_count, m_slot_count);
 		g_constraint_bodies.assign(ConstraintSpanOf(m_bodies));
 		g_pseudo_velocities.assign(ConstraintSpanOf(m_pseudo_velocities));
 
@@ -177,7 +205,7 @@ namespace pr::physics
 	// Dispatch one compiler invocation per stable slot.
 	void ConstraintInteropRunner::CompileConstraints()
 	{
-		g = MakeConstraintConstants(m_config, m_dt, m_previous_dt, m_body_count, m_slot_count);
+		g = MakeConstraintConstants(m_config, m_dt, m_epoch, m_body_count, m_slot_count);
 		g_constraint_bodies.assign(ConstraintSpanOf(m_bodies));
 		g_endpoints.assign(ConstraintSpanOf(m_endpoints));
 		g_descriptors.assign(ConstraintSpanOf(m_descriptors));
@@ -200,7 +228,7 @@ namespace pr::physics
 		m_colour_schedule.Build(m_endpoints);
 		m_colour_masks.assign(m_slot_count, uint2{});
 		auto const task_count = isize(m_colour_schedule.m_tasks);
-		g = MakeConstraintConstants(m_config, m_dt, m_previous_dt, m_body_count, m_slot_count);
+		g = MakeConstraintConstants(m_config, m_dt, m_epoch, m_body_count, m_slot_count);
 		g.schedule_count = task_count;
 		g_constraint_bodies.assign(ConstraintSpanOf(m_bodies));
 		g_blocks.assign(ConstraintSpanOf(m_blocks));
@@ -241,32 +269,10 @@ namespace pr::physics
 			m_colours[slot_idx] = m_blocks[slot_idx].colour;
 	}
 
-	// Replay each colour with the colouring pass's indirect arguments, as the D3D12 host does.
-	void ConstraintInteropRunner::ApplyWarmStart()
-	{
-		for (int colour = 0; colour != MaxColours; ++colour)
-		{
-			// Empty colours record a zero-group dispatch on the GPU, so they do no work here either.
-			auto const& args = m_colour_dispatch[colour];
-			if (args.ThreadGroupCountX == 0)
-				continue;
-
-			g = MakeConstraintConstants(m_config, m_dt, m_previous_dt, m_body_count, m_slot_count, colour);
-			g_constraint_bodies.assign(ConstraintSpanOf(m_bodies));
-			g_blocks.assign(ConstraintSpanOf(m_blocks));
-			g_rows.assign(ConstraintSpanOf(m_rows));
-			g_constraint_state.assign(ConstraintSpanOf(m_state));
-
-			hlsl::GpuEmulator emulator(CSApplyConstraintWarmStart, CSApplyConstraintWarmStart_NumThreads);
-			emulator.Dispatch({static_cast<int>(args.ThreadGroupCountX), 1, 1});
-			m_bodies.assign(g_constraint_bodies.begin(), g_constraint_bodies.end());
-		}
-	}
-
 	// Dispatch one invocation per stable slot to build the split-position response cache.
 	void ConstraintInteropRunner::PreparePositionSolve()
 	{
-		g = MakeConstraintConstants(m_config, m_dt, m_previous_dt, m_body_count, m_slot_count);
+		g = MakeConstraintConstants(m_config, m_dt, m_epoch, m_body_count, m_slot_count);
 		g_constraint_bodies.assign(ConstraintSpanOf(m_bodies));
 		g_endpoints.assign(ConstraintSpanOf(m_endpoints));
 		g_blocks.assign(ConstraintSpanOf(m_blocks));
@@ -284,7 +290,7 @@ namespace pr::physics
 	// Dispatch one invocation per stable slot to build the physical response cache from the final transforms.
 	void ConstraintInteropRunner::PrepareVelocitySolve()
 	{
-		g = MakeConstraintConstants(m_config, m_dt, m_previous_dt, m_body_count, m_slot_count);
+		g = MakeConstraintConstants(m_config, m_dt, m_epoch, m_body_count, m_slot_count);
 		g_constraint_bodies.assign(ConstraintSpanOf(m_bodies));
 		g_endpoints.assign(ConstraintSpanOf(m_endpoints));
 		g_blocks.assign(ConstraintSpanOf(m_blocks));
@@ -299,30 +305,35 @@ namespace pr::physics
 		m_solve_cache.assign(g_solve_cache.begin(), g_solve_cache.end());
 	}
 
-	// Execute one fixed-order coloured physical PGS sweep.
+	// Replay complete-block admission and publication in the production dependency order.
 	void ConstraintInteropRunner::SolveVelocity()
 	{
-		for (int colour = 0; colour != MaxColours; ++colour)
+		// Each dispatch admits complete owners; a rejected owner leaves live state and its accepted record unchanged.
+		g = MakeConstraintConstants(m_config, m_dt, m_epoch, m_body_count, m_slot_count, 0, 0, 0);
+		g_constraint_bodies.assign(ConstraintSpanOf(m_bodies));
+		g_endpoints.assign(ConstraintSpanOf(m_endpoints));
+		g_blocks.assign(ConstraintSpanOf(m_blocks));
+		g_rows.assign(ConstraintSpanOf(m_rows));
+		g_constraint_state.assign(ConstraintSpanOf(m_state));
+		g_solve_cache.assign(ConstraintSpanOf(m_solve_cache));
+		g_colour_schedule.assign(ConstraintSpanOf(m_colour_schedule.m_tasks));
+		g_rigid_records.assign(ConstraintSpanOf(m_records));
+		g_transaction_results.assign(ConstraintSpanOf(m_transaction_results));
+		g_rejections.assign(ConstraintSpanOf(m_rejections));
+		for (int level = 0; level != m_colour_schedule.LevelCount(); ++level)
 		{
-			// Empty colours record a zero-group dispatch on the GPU, so they do no work here either.
-			auto const& args = m_colour_dispatch[colour];
-			if (args.ThreadGroupCountX == 0)
-				continue;
-
-			g = MakeConstraintConstants(m_config, m_dt, m_previous_dt, m_body_count, m_slot_count, colour);
-			g_constraint_bodies.assign(ConstraintSpanOf(m_bodies));
-			g_blocks.assign(ConstraintSpanOf(m_blocks));
-			g_rows.assign(ConstraintSpanOf(m_rows));
-			g_constraint_state.assign(ConstraintSpanOf(m_state));
-			g_solve_cache.assign(ConstraintSpanOf(m_solve_cache));
-
-			hlsl::GpuEmulator emulator(CSSolveConstraintVelocity, CSSolveConstraintVelocity_NumThreads);
-			emulator.Dispatch({static_cast<int>(args.ThreadGroupCountX), 1, 1});
-			m_bodies.assign(g_constraint_bodies.begin(), g_constraint_bodies.end());
-			m_blocks.assign(g_blocks.begin(), g_blocks.end());
-			m_rows.assign(g_rows.begin(), g_rows.end());
-			m_state.assign(g_constraint_state.begin(), g_constraint_state.end());
+			// Earlier level writes are visible before a shared body reaches another owner.
+			g.schedule_begin = m_colour_schedule.m_level_offsets[level];
+			g.schedule_count = m_colour_schedule.m_level_offsets[level + 1] - g.schedule_begin;
+			hlsl::GpuEmulator emulator(CSCommitConstraintVelocityTransaction, CSCommitConstraintVelocityTransaction_NumThreads);
+			emulator.Dispatch({ConstraintThreadGroupCount(g.schedule_count), 1, 1});
 		}
+		m_bodies.assign(g_constraint_bodies.begin(), g_constraint_bodies.end());
+		m_blocks.assign(g_blocks.begin(), g_blocks.end());
+		m_state.assign(g_constraint_state.begin(), g_constraint_state.end());
+		m_records.assign(g_rigid_records.begin(), g_rigid_records.end());
+		m_transaction_results.assign(g_transaction_results.begin(), g_transaction_results.end());
+		m_rejections.assign(g_rejections.begin(), g_rejections.end());
 	}
 
 	// Latch force or torque threshold crossings from the committed canonical row impulses.
@@ -337,16 +348,19 @@ namespace pr::physics
 		if (breakable_count == 0)
 			return;
 
-		g = MakeConstraintConstants(m_config, m_dt, m_previous_dt, m_body_count, m_slot_count, 0, breakable_count, 0);
+		g = MakeConstraintConstants(m_config, m_dt, m_epoch, m_body_count, m_slot_count, 0, breakable_count, 0);
 		g_endpoints.assign(ConstraintSpanOf(m_endpoints));
 		g_blocks.assign(ConstraintSpanOf(m_blocks));
 		g_rows.assign(ConstraintSpanOf(m_rows));
 		g_break_states.assign(ConstraintSpanOf(m_break_states));
+		g_rigid_records.assign(ConstraintSpanOf(m_records));
+		g_constraint_state.assign(ConstraintSpanOf(m_state));
 
 		hlsl::GpuEmulator emulator(CSDetectBrokenConstraints, CSDetectBrokenConstraints_NumThreads);
 		emulator.Dispatch({ConstraintThreadGroupCount(m_slot_count), 1, 1});
 		m_blocks.assign(g_blocks.begin(), g_blocks.end());
 		m_break_states.assign(g_break_states.begin(), g_break_states.end());
+		m_state.assign(g_constraint_state.begin(), g_constraint_state.end());
 	}
 
 	// Execute one fixed-order coloured split-position sweep.
@@ -359,7 +373,7 @@ namespace pr::physics
 			if (args.ThreadGroupCountX == 0)
 				continue;
 
-			g = MakeConstraintConstants(m_config, m_dt, m_previous_dt, m_body_count, m_slot_count, colour);
+			g = MakeConstraintConstants(m_config, m_dt, m_epoch, m_body_count, m_slot_count, colour);
 			g_constraint_bodies.assign(ConstraintSpanOf(m_bodies));
 			g_blocks.assign(ConstraintSpanOf(m_blocks));
 			g_rows.assign(ConstraintSpanOf(m_rows));
@@ -379,7 +393,7 @@ namespace pr::physics
 	// Dispatch one body invocation to apply each converged pseudo twist once.
 	void ConstraintInteropRunner::ApplyPosition()
 	{
-		g = MakeConstraintConstants(m_config, m_dt, m_previous_dt, m_body_count, m_slot_count);
+		g = MakeConstraintConstants(m_config, m_dt, m_epoch, m_body_count, m_slot_count);
 		g_constraint_bodies.assign(ConstraintSpanOf(m_bodies));
 		g_pseudo_velocities.assign(ConstraintSpanOf(m_pseudo_velocities));
 
@@ -398,6 +412,12 @@ namespace pr::physics
 	std::span<GpuConstraintRow const> ConstraintInteropRunner::Rows() const
 	{
 		return m_rows;
+	}
+
+	// Return the persistent owner records, including their actual acceptance provenance.
+	std::span<GpuConstraintRigidRecord const> ConstraintInteropRunner::Records() const
+	{
+		return m_records;
 	}
 
 	// Return frame-local stable-slot overload latches.

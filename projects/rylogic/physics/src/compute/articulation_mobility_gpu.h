@@ -47,6 +47,7 @@ namespace pr::physics
 		friend GpuCoupledContactSolver;
 		friend GpuCoupledConstraintPosition;
 		friend GpuCoupledConstraintPrepare;
+		friend GpuCoupledConstraintVelocity;
 		friend GpuCoupledConstraintSolver;
 
 		GpuArticulationForceAba& m_aba;

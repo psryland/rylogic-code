@@ -79,7 +79,7 @@ namespace pr::physics
 		void Run(GpuJob& job, ID3D12Resource* bodies, int substep_index = 0);
 
 		// Integrate converged rigid and articulation pseudo state exactly once into coordinates.
-		void Apply(GpuJob& job, ID3D12Resource* bodies);
+		void Apply(GpuJob& job, ID3D12Resource* bodies, int substep_index);
 
 		// Prepare every dependency, solve configured position iterations, and read focused state through one submission.
 		GpuCoupledConstraintPositionResult Solve(
@@ -113,7 +113,7 @@ namespace pr::physics
 		void DispatchArticulations(GpuJob& job, ComputeStep& step, int phase, int attempt_index, int item_count, int substep_index);
 
 		// Bind and dispatch final rigid and articulation coordinate integration.
-		void DispatchApply(GpuJob& job, ID3D12Resource* bodies);
+		void DispatchApply(GpuJob& job, ID3D12Resource* bodies, int substep_index);
 
 		// Transition all resources used by the common transaction root layout.
 		void PrepareCommonResources(GpuJob& job, ID3D12Resource* bodies);

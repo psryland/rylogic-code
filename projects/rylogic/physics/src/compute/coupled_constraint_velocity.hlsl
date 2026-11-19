@@ -9,6 +9,7 @@
 #include "pr/hlsl/spatial_algebra.hlsli"
 #include "physics/src/compute/physics_types.hlsli"
 #include "physics/src/compute/body_twist.hlsli"
+#include "physics/src/compute/constraint_transaction.hlsli"
 
 #ifdef __cplusplus
 namespace pr::physics {
@@ -61,7 +62,8 @@ RWStructuredBuffer<uint> resource(g_coupled_velocity_tree_selection, u8);
 RWStructuredBuffer<uint> resource(g_coupled_velocity_tree_results, u9);
 RWStructuredBuffer<uint> resource(g_coupled_velocity_island_failures, u10);
 RWStructuredBuffer<GpuArticulationSpatialVector> resource(g_coupled_velocity_articulation_work, u11);
-RWStructuredBuffer<GpuCoupledConstraintFailureState> resource(g_coupled_velocity_frame_failures, u12);
+RWStructuredBuffer<GpuConstraintRejectionState> resource(g_coupled_velocity_rejections, u12);
+RWStructuredBuffer<uint> resource(g_coupled_velocity_results, u13);
 
 #define PR_CONSTRAINT_SOLVER_OPS_CPP_NAMESPACE coupled_constraint_velocity_ops_detail
 #include "physics/src/compute/constraint_solver_ops.hlsli"
@@ -152,39 +154,6 @@ float CoupledEndpointRowVelocity(
 	return dot(jacobian_ang, twist.ang) + dot(jacobian_lin, twist.lin);
 }
 
-// Return one gathered target's exact detached velocity response for island-merit evaluation.
-bool CoupledTargetDeltaVelocity(int target_idx, int island_idx, out_(GpuArticulationSpatialVector) delta)
-{
-	delta = EmptyCoupledSpatialVector();
-	if (target_idx < 0)
-		return true;
-	if (target_idx >= g_coupled_velocity.target_count)
-		return false;
-
-	GpuCoupledConstraintTarget target = g_coupled_velocity_targets[target_idx];
-	if (target.island_idx != island_idx)
-		return false;
-	if (target.target_type == GpuCoupledConstraintTargetType_Rigid)
-	{
-		if (!CoupledVelocityRigidDynamic(target.target_idx))
-			return false;
-
-		GpuArticulationSpatialVector impulse = g_coupled_velocity_target_impulses[target_idx];
-		delta.ang.xyz = mul(CoupledVelocityInverseInertia(target.target_idx), impulse.ang.xyz);
-		delta.lin.xyz = g_coupled_velocity_bodies[target.target_idx].os_com_and_invmass.w * impulse.lin.xyz;
-		return CoupledSpatialFinite(delta);
-	}
-	if (target.target_type == GpuCoupledConstraintTargetType_Link)
-	{
-		if (target.target_idx < 0 || target.target_idx >= g_coupled_velocity.mobility_count)
-			return false;
-
-		delta = g_coupled_velocity_articulation_work[target.target_idx];
-		return CoupledSpatialFinite(delta);
-	}
-	return false;
-}
-
 // Return the current residual of one coupled scalar velocity row.
 float CoupledRowResidual(GpuConstraintBlock block, GpuCoupledConstraintEndpoint endpoint, GpuConstraintRow row)
 {
@@ -245,6 +214,7 @@ void CSBeginCoupledVelocity(int3 DTID(dtid))
 		state.failure_flags = GpuCoupledConstraintFailure_None;
 		state.relaxation = g_coupled_velocity.relaxation;
 		state.merit_change = 0.0f;
+		state.iteration_count = 0u;
 		g_coupled_velocity_island_states[index] = state;
 		g_coupled_velocity_island_failures[index] = GpuCoupledConstraintFailure_None;
 	}
@@ -438,7 +408,6 @@ void CSBuildCoupledVelocityCandidates(int3 DTID(dtid))
 		int axis_idx = active_axes[row_idx];
 		GpuConstraintRow row = g_coupled_velocity_rows[slot_idx * GpuConstraintRowsPerBlock + axis_idx];
 		CoupledSetSixVectorComponent(scratch.impulse_delta_low, scratch.impulse_delta_high, axis_idx, delta[row_idx]);
-		CoupledSetSixVectorComponent(scratch.residual_before_low, scratch.residual_before_high, axis_idx, residual[row_idx]);
 		impulse_a = CoupledAddScaledWrench(impulse_a, row.jacobian_a_ang.xyz, row.jacobian_a_lin.xyz, delta[row_idx]);
 		impulse_b = CoupledAddScaledWrench(impulse_b, row.jacobian_b_ang.xyz, row.jacobian_b_lin.xyz, delta[row_idx]);
 	}
@@ -536,7 +505,7 @@ void CSGatherCoupledVelocityTargets(int3 DTID(dtid))
 	}
 }
 
-// Select articulation ranges whose owning island is pending evaluation or accepted commit.
+// Select only valid pending islands for detached evaluation and private correction application.
 numthreads(CSSelectCoupledVelocityTrees, ConstraintThreadCount, 1, 1)
 void CSSelectCoupledVelocityTrees(int3 DTID(dtid))
 {
@@ -550,11 +519,9 @@ void CSSelectCoupledVelocityTrees(int3 DTID(dtid))
 		return;
 	}
 
-	uint required_status = g_coupled_velocity.phase == GpuCoupledConstraintPhase_Evaluate
-		? GpuCoupledConstraintIslandStatus_Pending
-		: GpuCoupledConstraintIslandStatus_Accepted;
 	g_coupled_velocity_tree_selection[dtid.x] =
-		g_coupled_velocity_island_states[island_idx].status == required_status ? 1u : 0u;
+		g_coupled_velocity_island_states[island_idx].status == GpuCoupledConstraintIslandStatus_Pending &&
+		g_coupled_velocity_island_failures[island_idx] == GpuCoupledConstraintFailure_None ? 1u : 0u;
 }
 
 // Fold detached articulation evaluation failures into their owning island's integer status.
@@ -570,7 +537,7 @@ void CSValidateCoupledVelocityTrees(int3 DTID(dtid))
 	CoupledFailIsland(island_idx, GpuCoupledConstraintFailure_Articulation);
 }
 
-// Accept only complete finite warm-start island responses so retained impulses commit atomically.
+// Reject invalid provisional responses; actual complete-work admission follows private application and staging.
 numthreads(CSValidateCoupledVelocityWarmStart, ConstraintThreadCount, 1, 1)
 void CSValidateCoupledVelocityWarmStart(int3 DTID(dtid))
 {
@@ -584,134 +551,29 @@ void CSValidateCoupledVelocityWarmStart(int3 DTID(dtid))
 
 	state.failure_flags = g_coupled_velocity_island_failures[island_idx];
 	state.status = state.failure_flags == GpuCoupledConstraintFailure_None
-		? GpuCoupledConstraintIslandStatus_Accepted
+		? GpuCoupledConstraintIslandStatus_Pending
 		: GpuCoupledConstraintIslandStatus_Rejected;
 	g_coupled_velocity_island_states[island_idx] = state;
 }
 
-// Evaluate exact detached quadratic-merit change and either accept, halve relaxation, or reject each island.
-numthreads(CSEvaluateCoupledVelocityMerit, ConstraintThreadCount, 1, 1)
-void CSEvaluateCoupledVelocityMerit(int3 DTID(dtid))
-{
-	if (dtid.x >= g_coupled_velocity.island_count)
-		return;
-
-	int island_idx = dtid.x;
-	GpuCoupledConstraintIslandState state = g_coupled_velocity_island_states[island_idx];
-	if (state.status != GpuCoupledConstraintIslandStatus_Pending)
-		return;
-
-	state.failure_flags = g_coupled_velocity_island_failures[island_idx];
-	if (state.failure_flags != GpuCoupledConstraintFailure_None)
-	{
-		state.status = GpuCoupledConstraintIslandStatus_Rejected;
-		g_coupled_velocity_island_states[island_idx] = state;
-		return;
-	}
-
-	GpuCoupledConstraintIsland island = g_coupled_velocity_islands[island_idx];
-	if (
-		island.block_offset < 0 ||
-		island.block_count < 1 ||
-		island.block_offset + island.block_count > g_coupled_velocity.island_block_count)
-	{
-		state.failure_flags |= GpuCoupledConstraintFailure_Topology;
-		state.status = GpuCoupledConstraintIslandStatus_Rejected;
-		g_coupled_velocity_island_states[island_idx] = state;
-		return;
-	}
-
-	// Stable island-block and canonical row order makes the floating-point reduction deterministic.
-	float merit_change = 0.0f;
-	for (int local_block_idx = 0; local_block_idx != island.block_count; ++local_block_idx)
-	{
-		uint slot_idx = g_coupled_velocity_island_blocks[island.block_offset + local_block_idx];
-		if (slot_idx >= (uint)g_coupled_velocity.slot_count)
-		{
-			state.failure_flags |= GpuCoupledConstraintFailure_Topology;
-			state.status = GpuCoupledConstraintIslandStatus_Rejected;
-			g_coupled_velocity_island_states[island_idx] = state;
-			return;
-		}
-
-		GpuCoupledConstraintBlockTopology topology = g_coupled_velocity_block_topology[slot_idx];
-		if (topology.island_idx != island_idx)
-		{
-			state.failure_flags |= GpuCoupledConstraintFailure_Topology;
-			state.status = GpuCoupledConstraintIslandStatus_Rejected;
-			g_coupled_velocity_island_states[island_idx] = state;
-			return;
-		}
-
-		GpuArticulationSpatialVector delta_a;
-		GpuArticulationSpatialVector delta_b;
-		if (
-			!CoupledTargetDeltaVelocity(topology.target_idx_a, island_idx, delta_a) ||
-			!CoupledTargetDeltaVelocity(topology.target_idx_b, island_idx, delta_b))
-		{
-			state.failure_flags |= GpuCoupledConstraintFailure_Topology;
-			state.status = GpuCoupledConstraintIslandStatus_Rejected;
-			g_coupled_velocity_island_states[island_idx] = state;
-			return;
-		}
-
-		GpuConstraintBlock block = g_coupled_velocity_blocks[slot_idx];
-		GpuCoupledConstraintSolveScratch scratch = g_coupled_velocity_scratch[slot_idx];
-		for (int axis_idx = 0; axis_idx != GpuConstraintRowsPerBlock; ++axis_idx)
-		{
-			if ((block.velocity_mask & (1u << axis_idx)) == 0u)
-				continue;
-
-			GpuConstraintRow row = g_coupled_velocity_rows[slot_idx * GpuConstraintRowsPerBlock + axis_idx];
-			float impulse_delta = CoupledSixVectorComponent(scratch.impulse_delta_low, scratch.impulse_delta_high, axis_idx);
-			float residual_before = CoupledSixVectorComponent(scratch.residual_before_low, scratch.residual_before_high, axis_idx);
-			float response =
-				dot(row.jacobian_a_ang.xyz, delta_a.ang.xyz) +
-				dot(row.jacobian_a_lin.xyz, delta_a.lin.xyz) +
-				dot(row.jacobian_b_ang.xyz, delta_b.ang.xyz) +
-				dot(row.jacobian_b_lin.xyz, delta_b.lin.xyz);
-			float residual_after = residual_before + response + row.solve.w * impulse_delta;
-			float row_merit_change =
-				0.5f * impulse_delta * residual_before +
-				0.5f * impulse_delta * residual_after;
-			if (!isfinite(residual_after) || !isfinite(row_merit_change))
-			{
-				state.failure_flags |= GpuCoupledConstraintFailure_NonFinite;
-				state.status = GpuCoupledConstraintIslandStatus_Rejected;
-				g_coupled_velocity_island_states[island_idx] = state;
-				return;
-			}
-			merit_change += row_merit_change;
-		}
-	}
-
-	state.merit_change = merit_change;
-	float tolerance = 64.0f * 1.192092896e-7f * (1.0f + abs(merit_change));
-	if (isfinite(merit_change) && merit_change <= tolerance)
-	{
-		state.status = GpuCoupledConstraintIslandStatus_Accepted;
-	}
-	else if (g_coupled_velocity.attempt_index < g_coupled_velocity.backtrack_limit)
-	{
-		state.relaxation *= 0.5f;
-	}
-	else
-	{
-		state.failure_flags |= isfinite(merit_change)
-			? GpuCoupledConstraintFailure_Merit
-			: GpuCoupledConstraintFailure_NonFinite;
-		state.status = GpuCoupledConstraintIslandStatus_Rejected;
-	}
-	g_coupled_velocity_island_states[island_idx] = state;
-}
-
-// Commit accepted rigid impulses and accumulated row impulses while articulation state commits through the impulse-ABA pass.
+// Apply one pending correction privately before complete trial staging, reconstruction, and work admission.
 numthreads(CSCommitCoupledVelocity, ConstraintThreadCount, 1, 1)
 void CSCommitCoupledVelocity(int3 DTID(dtid))
 {
 	int index = dtid.x;
 	if (index >= g_coupled_velocity.work_count)
 		return;
+
+	// Existing numerical failures must not be relabelled by a later physical staging check.
+	if (index < g_coupled_velocity.island_count &&
+		g_coupled_velocity_island_states[index].status == GpuCoupledConstraintIslandStatus_Pending &&
+		g_coupled_velocity_island_failures[index] != GpuCoupledConstraintFailure_None)
+	{
+		g_coupled_velocity_island_states[index].status = GpuCoupledConstraintIslandStatus_Rejected;
+		g_coupled_velocity_island_states[index].failure_flags = g_coupled_velocity_island_failures[index];
+		if (g_coupled_velocity_results[index] == GpuConstraintStage_Accepted)
+			g_coupled_velocity_results[index] = GpuConstraintStage_SolveRejected;
+	}
 
 	if (index < g_coupled_velocity.target_count)
 	{
@@ -720,7 +582,8 @@ void CSCommitCoupledVelocity(int3 DTID(dtid))
 			target.target_type == GpuCoupledConstraintTargetType_Rigid &&
 			target.target_idx >= 0 && target.target_idx < g_coupled_velocity.body_count &&
 			target.island_idx >= 0 && target.island_idx < g_coupled_velocity.island_count &&
-			g_coupled_velocity_island_states[target.island_idx].status == GpuCoupledConstraintIslandStatus_Accepted)
+			g_coupled_velocity_island_states[target.island_idx].status == GpuCoupledConstraintIslandStatus_Pending &&
+			g_coupled_velocity_island_failures[target.island_idx] == GpuCoupledConstraintFailure_None)
 		{
 			GpuArticulationSpatialVector impulse = g_coupled_velocity_target_impulses[index];
 			if (
@@ -731,14 +594,6 @@ void CSCommitCoupledVelocity(int3 DTID(dtid))
 				GpuRigidBody body = g_coupled_velocity_bodies[target.target_idx];
 				body.momentum_ang += impulse.ang;
 				body.momentum_lin += impulse.lin;
-				if (AllSet(body.state_flags, ERigidBodyStateFlags_Sleeping) || body.sleep.island_id >= 0)
-				{
-					body.sleep.generation++;
-					body.state_flags = SetFlag(body.state_flags, ERigidBodyStateFlags_Sleeping, false);
-					body.sleep.timer_s = 0.0f;
-					body.sleep.island_id = -1;
-					body.sleep.flags = 0u;
-				}
 				g_coupled_velocity_bodies[target.target_idx] = body;
 			}
 		}
@@ -750,21 +605,8 @@ void CSCommitCoupledVelocity(int3 DTID(dtid))
 		if (topology.island_idx >= 0 && topology.island_idx < g_coupled_velocity.island_count)
 		{
 			uint status = g_coupled_velocity_island_states[topology.island_idx].status;
-			if (g_coupled_velocity.phase == GpuCoupledConstraintPhase_CommitWarmStart)
-			{
-				// A rejected warm start discards every cached row in its island while leaving physical state untouched.
-				if (status == GpuCoupledConstraintIslandStatus_Rejected)
-				{
-					for (int axis_idx = 0; axis_idx != GpuConstraintRowsPerBlock; ++axis_idx)
-					{
-						int row_idx = index * GpuConstraintRowsPerBlock + axis_idx;
-						GpuConstraintRow row = g_coupled_velocity_rows[row_idx];
-						row.bounds.z = 0.0f;
-						g_coupled_velocity_rows[row_idx] = row;
-					}
-				}
-			}
-			else if (status == GpuCoupledConstraintIslandStatus_Accepted)
+			if (status == GpuCoupledConstraintIslandStatus_Pending &&
+				g_coupled_velocity_island_failures[topology.island_idx] == GpuCoupledConstraintFailure_None)
 			{
 				GpuConstraintBlock block = g_coupled_velocity_blocks[index];
 				GpuCoupledConstraintSolveScratch scratch = g_coupled_velocity_scratch[index];
@@ -783,33 +625,34 @@ void CSCommitCoupledVelocity(int3 DTID(dtid))
 	}
 }
 
-// Seal accepted islands after all rigid, row, and articulation commits so later fixed retry passes cannot reapply them.
+// Capture the first staged rejection before numerical/position scratch reuse; early seed rejection has no attempted numerical sweep.
 numthreads(CSFinalizeCoupledVelocityIslands, ConstraintThreadCount, 1, 1)
 void CSFinalizeCoupledVelocityIslands(int3 DTID(dtid))
 {
 	if (dtid.x >= g_coupled_velocity.island_count)
 		return;
 
+	uint outcome = g_coupled_velocity_results[dtid.x];
+	int report_idx = g_coupled_velocity.slot_count + dtid.x;
+	if ((outcome != GpuConstraintStage_AdmissionRejected && outcome != GpuConstraintStage_SolveRejected) ||
+		g_coupled_velocity_rejections[report_idx].substep_index >= 0)
+		return;
+
+	// Final publication uses the same report, while an earlier accepted attempt does not count as a rejection.
 	GpuCoupledConstraintIslandState state = g_coupled_velocity_island_states[dtid.x];
-	if (
-		state.status == GpuCoupledConstraintIslandStatus_Rejected &&
-		g_coupled_velocity.phase == GpuCoupledConstraintPhase_CommitVelocity &&
-		g_coupled_velocity_frame_failures[dtid.x].substep_index < 0)
-	{
-		GpuCoupledConstraintFailureState failure;
-		failure.failure_flags = state.failure_flags;
-		failure.substep_index = g_coupled_velocity.substep_index;
-		failure.phase = GpuCoupledConstraintFailurePhase_Velocity;
-		failure.iteration_count = g_coupled_velocity.backtrack_limit + 1;
-		failure.relaxation = state.relaxation;
-		failure.merit_change = state.merit_change;
-		failure.status = state.status;
-		failure.pad0 = 0u;
-		g_coupled_velocity_frame_failures[dtid.x] = failure;
-	}
-	if (state.status == GpuCoupledConstraintIslandStatus_Accepted)
-		state.status = GpuCoupledConstraintIslandStatus_Committed;
-	g_coupled_velocity_island_states[dtid.x] = state;
+	bool numerical = outcome == GpuConstraintStage_SolveRejected && g_coupled_velocity.phase == GpuCoupledConstraintPhase_CommitVelocity;
+	GpuConstraintRejectionState rejection;
+	rejection.failure_flags = outcome == GpuConstraintStage_SolveRejected ? state.failure_flags : 0u;
+	rejection.substep_index = g_coupled_velocity.substep_index;
+	rejection.phase = GpuCoupledConstraintFailurePhase_Velocity;
+	rejection.iteration_count = numerical ? (int)state.iteration_count : 0;
+	rejection.relaxation = numerical ? state.relaxation : 0.0f;
+	rejection.merit_change = numerical ? state.merit_change : 0.0f;
+	rejection.outcome = outcome;
+	rejection.owner = 1u;
+	rejection.index = (uint)dtid.x;
+	rejection.generation = 0u;
+	g_coupled_velocity_rejections[report_idx] = rejection;
 }
 
 #ifdef __cplusplus

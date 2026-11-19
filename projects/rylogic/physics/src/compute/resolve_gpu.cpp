@@ -15,52 +15,9 @@ namespace pr::physics
 {
 	using namespace ::pr::compute;
 
-	// Constant buffer layout matching the HLSL cbResolve declaration.
-	struct alignas(16) cbResolve
-	{
-		int max_contacts; // The max capacity of the contacts buffer
-		int body_count;   // The number of bodies in the scene
-		int colour;       // Current colour batch being processed (for CSResolve)
-		int colour_capacity; // Retained colour-buffer capacity; the trailing slot holds the overflow flag.
-
-		int shock_iterations;
-		float max_position_speed;
-		int shock_padding1;
-		float shock_alignment;
-
-		float shock_min_strength;
-		float dt;         // timestep in seconds
-		float support_only;
-		float support_alignment;
-
-		float restitution_scale;
-		float penetration_slop;
-		float velocity_baumgarte;
-		float deep_penetration_threshold;
-
-		float deep_penetration_range;
-		float deep_penetration_baumgarte_min;
-		float deep_penetration_baumgarte_max;
-		float bias_scale;
-
-		float propagation_key_scale;
-		float position_slop;
-		float position_baumgarte;
-		float position_correction_scale;
-
-		float shock_decay;
-		float contact_slop_scale;
-		float support_contact_slop_scale;
-		float warm_start_scale;
-
-		int warm_start_capacity;
-		int rigid_body_count;
-		int warm_start_preloaded;
-		int shared_position_state;
-	};
-	static_assert((sizeof(cbResolve) & 0xf) == 0);
-	static_assert(sizeof(cbResolve::colour) == sizeof(uint32_t));
-	static_assert(offsetof(cbResolve, colour) % sizeof(uint32_t) == 0);
+	static_assert((sizeof(GpuResolveParams) & 0xf) == 0);
+	static_assert(sizeof(GpuResolveParams::colour) == sizeof(uint32_t));
+	static_assert(offsetof(GpuResolveParams, colour) % sizeof(uint32_t) == 0);
 	static_assert(sizeof(DispatchArguments) == sizeof(D3D12_DISPATCH_ARGUMENTS));
 
 	// Register assignments for the resolve root signature
@@ -125,7 +82,7 @@ namespace pr::physics
 		// m_cs_compute_times: parallel, one thread per contact — writes collision_time
 		{
 			auto sig = RootSig(ERootSigFlags::ComputeOnly)
-				.U32<cbResolve>(EReg::Params)
+				.U32<GpuResolveParams>(EReg::Params)
 				.SRV(EReg::Counters)
 				.UAV(EReg::Bodies)
 				.UAV(EReg::Contacts)
@@ -144,7 +101,7 @@ namespace pr::physics
 				std::string sig_name = FmtS("Physics:%sSig", name);
 				std::string pso_name = FmtS("Physics:%sPSO", name);
 				step.m_sig = RootSig(ERootSigFlags::ComputeOnly)
-					.U32<cbResolve>(EReg::Params)
+					.U32<GpuResolveParams>(EReg::Params)
 					.SRV(EReg::Counters)
 					.UAV(EReg::Bodies)
 					.UAV(EReg::Colours)
@@ -168,7 +125,7 @@ namespace pr::physics
 		// m_cs_assign_colours: one thread group; clears body colour masks, then walks sorted contacts + assigns colours
 		{
 			auto sig = RootSig(ERootSigFlags::ComputeOnly)
-				.U32<cbResolve>(EReg::Params)
+				.U32<GpuResolveParams>(EReg::Params)
 				.SRV(EReg::Counters)
 				.UAV(EReg::Bodies)
 				.UAV(EReg::Colours)
@@ -187,7 +144,7 @@ namespace pr::physics
 				std::string sig_name = FmtS("Physics:%sSig", name);
 				std::string pso_name = FmtS("Physics:%sPSO", name);
 				step.m_sig = RootSig(ERootSigFlags::ComputeOnly)
-					.U32<cbResolve>(EReg::Params)
+					.U32<GpuResolveParams>(EReg::Params)
 					.SRV(EReg::Counters)
 					.UAV(EReg::Bodies)
 					.UAV(EReg::Colours)
@@ -208,7 +165,7 @@ namespace pr::physics
 		// m_cs_position_solve
 		{
 			auto sig = RootSig(ERootSigFlags::ComputeOnly)
-				.U32<cbResolve>(EReg::Params)
+				.U32<GpuResolveParams>(EReg::Params)
 				.SRV(EReg::Counters)
 				.UAV(EReg::Bodies)
 				.UAV(EReg::Colours)
@@ -223,7 +180,7 @@ namespace pr::physics
 		// m_cs_resolve
 		{
 			auto sig = RootSig(ERootSigFlags::ComputeOnly)
-				.U32<cbResolve>(EReg::Params)
+				.U32<GpuResolveParams>(EReg::Params)
 				.SRV(EReg::Counters)
 				.SRV(EReg::Materials)
 				.UAV(EReg::Bodies)
@@ -263,9 +220,12 @@ namespace pr::physics
 		body_count = std::max(1, body_count);
 		max_contacts = std::max(1, max_contacts);
 		max_materials = std::max(1, max_materials);
-		auto warm_start_capacity = 1;
-		while (warm_start_capacity < max_contacts * 2)
-			warm_start_capacity <<= 1;
+		// The complete probe chain must fit the shader's signed index domain, without overflowing during capacity rounding.
+		auto const required_capacity = std::bit_ceil(static_cast<uint64_t>(max_contacts) * 2);
+		if (required_capacity > static_cast<uint64_t>(std::numeric_limits<int>::max()))
+			throw std::length_error("Warm-start cache capacity exceeds the shader index range");
+
+		auto const warm_start_capacity = static_cast<int>(required_capacity);
 
 		// Dispatch arguments have fixed size, independent of retained contact capacity.
 		if (m_r_colour_dispatch == nullptr)
@@ -307,7 +267,7 @@ namespace pr::physics
 		D3DPtr<ID3D12Resource> dispatch, D3DPtr<ID3D12Resource> counters, D3DPtr<ID3D12Resource> contacts, D3DPtr<ID3D12Resource> bodies,
 		std::span<GpuMaterial const> materials, float bias_scale, int solver_iterations_, int push_out_iterations, float restitution_scale, bool support_only,
 		GpuConstraintSolver* constraint_solver, GpuCoupledConstraintSolver* coupled_constraint_solver, GpuCoupledContactSolver* coupled_contact_solver,
-		bool retain_constraint_impulses, int substep_index)
+		GpuConstraintEpoch epoch, int substep_index)
 	{
 		if (rigid_body_count < 0 || rigid_body_count > body_count)
 			throw std::invalid_argument("GPU resolver rigid-body prefix is outside the submitted body range");
@@ -326,7 +286,7 @@ namespace pr::physics
 			m_config.contact_sort_propagation_scale > 0.0f &&
 			m_config.contact_sort_shock_iterations > 0;
 
-		cbResolve cb_resolve = {
+		GpuResolveParams cb_resolve = {
 			.max_contacts = max_contacts,
 			.body_count = body_count,
 			.colour = 0,
@@ -377,7 +337,7 @@ namespace pr::physics
 			int m_solver_iterations;
 			float m_restitution_scale;
 			bool m_priority_sort_enabled;
-			bool m_retain_constraint_impulses;
+			GpuConstraintEpoch m_epoch;
 			int m_substep_index;
 			D3DPtr<ID3D12Resource>& m_dispatch;
 			D3DPtr<ID3D12Resource>& m_counters;
@@ -387,7 +347,7 @@ namespace pr::physics
 			GpuConstraintSolver* m_constraint_solver;
 			GpuCoupledConstraintSolver* m_coupled_constraint_solver;
 			GpuCoupledContactSolver* m_coupled_contact_solver;
-			cbResolve& m_cb;
+			GpuResolveParams& m_cb;
 
 			// Record every resolver phase in dependency order.
 			void Run()
@@ -400,7 +360,8 @@ namespace pr::physics
 				SortContacts();
 				ColourContacts();
 				PrepareSolverWork();
-				ApplyWarmStart();
+				if (m_solver_iterations > 0)
+					ApplyWarmStart();
 
 				// Contact-only frames keep their established order; coupled lanes need physical impulses before fixed-configuration correction.
 				if (m_coupled_constraint_solver != nullptr || m_coupled_contact_solver != nullptr)
@@ -411,10 +372,18 @@ namespace pr::physics
 				else
 				{
 					SolvePosition();
+					// Rigid position correction changes the covectors as well as the inverse response.
+					if (m_push_out_steps > 0 && m_solver_iterations > 0 && m_constraint_solver != nullptr)
+						m_constraint_solver->CompileRows(m_job, m_dt, m_rigid_body_count, m_bodies);
+
 					SolveVelocity();
 				}
 
-				StoreWarmStart();
+				// A skipped velocity solve cannot publish hints or carry them forward as a newly accepted cache.
+				if (m_solver_iterations > 0)
+					StoreWarmStart();
+				else
+					std::swap(m_resolver.m_r_warm_start_prev, m_resolver.m_r_warm_start_curr);
 			}
 
 			// Upload materials only after the CPU material map changes or the GPU buffer grows.
@@ -641,12 +610,15 @@ namespace pr::physics
 				pix::DetailScope detail(m_job.m_cmd_list.get(), "Resolve::PrepareSolver");
 				// Constraint blocks are compiled after integration has produced the current body transforms.
 				if (m_constraint_solver != nullptr)
-					m_constraint_solver->Prepare(m_job, m_dt, m_rigid_body_count, m_bodies, m_retain_constraint_impulses);
+				{
+					m_constraint_solver->PrepareVelocityTransactions(m_job, m_epoch);
+					m_constraint_solver->CompileRows(m_job, m_dt, m_rigid_body_count, m_bodies);
+				}
 				if (m_coupled_constraint_solver != nullptr)
-					m_coupled_constraint_solver->PrepareVelocity(m_job, m_dt, m_rigid_body_count, m_bodies.get(), m_retain_constraint_impulses);
+					m_coupled_constraint_solver->PrepareVelocity(m_job, m_epoch, m_rigid_body_count, m_bodies.get());
 
 				// Articulation contacts need every cache result before their topology pass; rigid-only frames use the fused load-and-apply path.
-				if (m_resolver.m_config.warm_start_scale > 0.0f && m_coupled_contact_solver != nullptr)
+				if (m_solver_iterations > 0 && m_resolver.m_config.warm_start_scale > 0.0f && m_coupled_contact_solver != nullptr)
 				{
 					BindWarmStartStep(m_resolver.m_cs_load_warm_start, m_resolver.m_r_warm_start_curr.get());
 					m_job.m_cmd_list.ExecuteIndirect(m_resolver.m_cmd_sig.get(), 1, m_dispatch.get());
@@ -676,13 +648,6 @@ namespace pr::physics
 					RecordColourSweep(barriers, "Resolve::WarmStartColour", "Resolve::WarmStartBarrier");
 					if (m_coupled_contact_solver != nullptr)
 						m_coupled_contact_solver->ApplyWarmStart(m_job);
-				}
-				if (!m_retain_constraint_impulses)
-				{
-					if (m_constraint_solver != nullptr)
-						m_constraint_solver->ApplyWarmStart(m_job, m_dt, m_rigid_body_count, m_bodies);
-					if (m_coupled_constraint_solver != nullptr)
-						m_coupled_constraint_solver->ApplyWarmStart(m_job, m_rigid_body_count, m_bodies.get());
 				}
 			}
 
@@ -753,7 +718,7 @@ namespace pr::physics
 					}
 
 					// Only the colour root value changes. Empty colours have zero groups; occupied colours retain the original grid and contact traversal.
-					cmd_list->SetComputeRoot32BitConstants(0, 1, &colour, offsetof(cbResolve, colour) / sizeof(uint32_t));
+					cmd_list->SetComputeRoot32BitConstants(0, 1, &colour, offsetof(GpuResolveParams, colour) / sizeof(uint32_t));
 					cmd_list->ExecuteIndirect(signature, 1, dispatch_args, colour * sizeof(DispatchArguments), nullptr, 0);
 					if (detail_enabled)
 						pix::BeginEvent(cmd_list, 0xFF90AA3F, "%s", barrier_name);
@@ -814,6 +779,10 @@ namespace pr::physics
 				if (coupled_contact_position_active)
 					rigid_pseudo = shared_pseudo.m_rigid_velocities;
 
+				// A coupled owner clears the shared stream; an ordinary-only phase must initialize it explicitly.
+				if (!coupled_contact_position_active && !coupled_position_active && m_constraint_solver != nullptr && m_push_out_steps > 0)
+					m_constraint_solver->ClearPositionState(m_job, m_dt, m_rigid_body_count, m_bodies);
+
 				m_cb.shared_position_state = rigid_pseudo != nullptr;
 				if (m_push_out_steps != 0)
 				{
@@ -852,7 +821,7 @@ namespace pr::physics
 				if (coupled_contact_position_active)
 					m_coupled_contact_solver->ApplyPosition(m_job);
 				else if (coupled_position_active)
-					m_coupled_constraint_solver->ApplyPosition(m_job, m_bodies.get());
+					m_coupled_constraint_solver->ApplyPosition(m_job, m_bodies.get(), m_substep_index);
 				else if (m_constraint_solver != nullptr)
 					m_constraint_solver->ApplyPosition(m_job, m_dt, m_rigid_body_count, m_push_out_steps, m_bodies);
 			}
@@ -898,7 +867,7 @@ namespace pr::physics
 					// Each graph colour owns exclusive body writes; barriers expose momentum changes to later colours and solvers.
 					RecordColourSweep(barriers, "Resolve::VelocityColour", "Resolve::VelocityBarrier");
 					if (m_constraint_solver != nullptr)
-						m_constraint_solver->SolveVelocityIteration(m_job, m_dt, m_rigid_body_count, m_bodies);
+						m_constraint_solver->CommitVelocityTransactions(m_job, m_rigid_body_count, m_bodies, m_substep_index);
 					if (m_coupled_constraint_solver != nullptr)
 						m_coupled_constraint_solver->SolveVelocityIteration(m_job, m_rigid_body_count, m_bodies.get(), m_substep_index);
 					if (m_coupled_contact_solver != nullptr)
@@ -933,7 +902,7 @@ namespace pr::physics
 			.m_solver_iterations = solver_iterations,
 			.m_restitution_scale = restitution_scale,
 			.m_priority_sort_enabled = priority_sort_enabled,
-			.m_retain_constraint_impulses = retain_constraint_impulses,
+			.m_epoch = epoch,
 			.m_substep_index = substep_index,
 			.m_dispatch = dispatch,
 			.m_counters = counters,

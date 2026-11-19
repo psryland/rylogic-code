@@ -7,6 +7,7 @@
 #include "src/constraint/constraint_solver.h"
 #include "src/constraint/constraint_gpu.h"
 #include "src/compute/physics_types.h"
+#include "src/compute/constraint_transaction.hlsli"
 
 namespace pr::physics
 {
@@ -16,7 +17,7 @@ namespace pr::physics
 		float m_dt;
 		std::span<GpuRigidBody> m_bodies;
 		std::span<GpuConstraintEndpoint const> m_endpoints;
-		std::span<GpuD6ConstraintDesc const> m_descriptors;
+		std::span<GpuConstraintDesc const> m_descriptors;
 	};
 
 	// Common replay interface shared by the HLSL emulator and future hardware runner.
@@ -28,7 +29,7 @@ namespace pr::physics
 		virtual void Run(ConstraintRunnerBuffers buffers) = 0;
 	};
 
-	// Deterministic HLSL-as-C++ replay of the persistent D6 shader pipeline.
+	// Deterministic HLSL-as-C++ replay of the typed persistent shader pipeline.
 	struct ConstraintInteropRunner final : IConstraintRunner
 	{
 		// Construct a replay runner with the CPU reference solver's controls.
@@ -37,7 +38,7 @@ namespace pr::physics
 		// Construct a replay runner using the engine's iteration counts and reference defaults.
 		explicit ConstraintInteropRunner(EngineConfig const& config);
 
-		// Compile and solve one complete constraint frame while retaining runtime rows for warm starts.
+		// Compile and solve one fresh frame while preserving accepted historical guesses.
 		void Run(ConstraintRunnerBuffers buffers) override;
 
 		// Load frame inputs without discarding same-sized persistent runtime storage.
@@ -51,9 +52,6 @@ namespace pr::physics
 
 		// Execute deterministic greedy graph colouring.
 		void AssignColours();
-
-		// Apply retained physical impulses for every colour.
-		void ApplyWarmStart();
 
 		// Reset per-body pseudo twists before split-position iterations.
 		void ClearPseudoVelocity();
@@ -82,6 +80,9 @@ namespace pr::physics
 		// Return six canonical runtime rows per stable slot.
 		std::span<GpuConstraintRow const> Rows() const;
 
+		// Return accepted cache and represented physical response independently of prepared geometry.
+		std::span<GpuConstraintRigidRecord const> Records() const;
+
 		// Return frame-local stable-slot overload latches.
 		std::span<GpuConstraintBreakState const> BreakStates() const;
 
@@ -104,12 +105,12 @@ namespace pr::physics
 
 		CpuConstraintSolverConfig m_config;
 		float m_dt;
-		float m_previous_dt;
+		uint64_t m_epoch;
 		int m_body_count;
 		int m_slot_count;
 		std::vector<GpuRigidBody> m_bodies;
 		std::vector<GpuConstraintEndpoint> m_endpoints;
-		std::vector<GpuD6ConstraintDesc> m_descriptors;
+		std::vector<GpuConstraintDesc> m_descriptors;
 		std::vector<GpuConstraintBlock> m_blocks;
 		std::vector<GpuConstraintRow> m_rows;
 		std::vector<GpuConstraintBreakState> m_break_states;
@@ -120,5 +121,9 @@ namespace pr::physics
 		std::vector<GpuConstraintSolveCache> m_solve_cache;
 		ConstraintColourSchedule m_colour_schedule;
 		std::vector<uint2> m_colour_masks;
+		std::vector<uint32_t> m_input_revisions;
+		std::vector<GpuConstraintRigidRecord> m_records;
+		std::vector<uint32_t> m_transaction_results;
+		std::vector<GpuConstraintRejectionState> m_rejections;
 	};
 }

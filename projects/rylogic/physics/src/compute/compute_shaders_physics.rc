@@ -3,7 +3,7 @@
 //
 // Touch this comment any time an .hlsl/.hlsli file referenced below is edited so MSBuild
 // invalidates compute_shaders_physics.res — RC dependency tracking does not follow .hlsl edits.
-// Touched: 2026-11-03 (terrain world contacts use the single-precision local evaluator)
+// Touched: 2026-11-15 (complete-primary coupled trial work and compact reference admission)
 src/surface/gpu_world_contacts.hlsl TEXT DISCARDABLE "src/surface/gpu_world_contacts.hlsl"
 pr/physics/terrain/landscape/baseline_surface.hlsli TEXT DISCARDABLE "..\\..\\..\\include\\pr\\physics\\terrain\\landscape\\baseline_surface.hlsli"
 pr/physics/terrain/landscape/baseline_surface_local.hlsli TEXT DISCARDABLE "..\\..\\..\\include\\pr\\physics\\terrain\\landscape\\baseline_surface_local.hlsli"
@@ -15,13 +15,19 @@ src/compute/articulation_mobility.hlsl TEXT DISCARDABLE "src/compute/articulatio
 src/compute/articulation_impulse_aba.hlsl TEXT DISCARDABLE "src/compute/articulation_impulse_aba.hlsl"
 src/compute/articulation_link_proxies.hlsl TEXT DISCARDABLE "src/compute/articulation_link_proxies.hlsl"
 src/compute/articulation_midpoint.hlsl TEXT DISCARDABLE "src/compute/articulation_midpoint.hlsl"
+src/compute/articulation_joint.hlsli TEXT DISCARDABLE "src/compute/articulation_joint.hlsli"
 src/compute/articulation_mobility_ops.hlsli TEXT DISCARDABLE "src/compute/articulation_mobility_ops.hlsli"
 src/compute/constraint_solver.hlsl TEXT DISCARDABLE "src/compute/constraint_solver.hlsl"
 src/compute/constraint_solver_ops.hlsli TEXT DISCARDABLE "src/compute/constraint_solver_ops.hlsli"
+src/compute/constraint_coordinates.hlsli TEXT DISCARDABLE "src/compute/constraint_coordinates.hlsli"
 src/compute/coupled_constraint_prepare.hlsl TEXT DISCARDABLE "src/compute/coupled_constraint_prepare.hlsl"
 src/compute/coupled_constraint_position.hlsl TEXT DISCARDABLE "src/compute/coupled_constraint_position.hlsl"
 src/compute/coupled_constraint_velocity.hlsl TEXT DISCARDABLE "src/compute/coupled_constraint_velocity.hlsl"
+src/compute/coupled_constraint_trial.hlsl TEXT DISCARDABLE "src/compute/coupled_constraint_trial.hlsl"
+src/compute/coupled_constraint_work.hlsli TEXT DISCARDABLE "src/compute/coupled_constraint_work.hlsli"
+src/compute/coupled_constraint_transaction.hlsl TEXT DISCARDABLE "src/compute/coupled_constraint_transaction.hlsl"
 src/compute/coupled_contact.hlsl TEXT DISCARDABLE "src/compute/coupled_contact.hlsl"
+src/compute/contact_coulomb.hlsli TEXT DISCARDABLE "src/compute/contact_coulomb.hlsli"
 src/compute/collide.hlsl        TEXT DISCARDABLE "src/compute/collide.hlsl"
 src/compute/collision.hlsli     TEXT DISCARDABLE "src/compute/collision.hlsli"
 src/compute/gjk.hlsli           TEXT DISCARDABLE "src/compute/gjk.hlsli"

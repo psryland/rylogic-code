@@ -37,26 +37,6 @@ namespace pr::physics
 			return (static_cast<uint64_t>(handle.m_generation) << 32) | handle.m_index;
 		}
 
-		// Map a canonical D6 row to its persistent linear-then-angular cache slot.
-		int CacheSlot(CompiledConstraintRow const& row)
-		{
-			switch (row.m_kind)
-			{
-				case EConstraintRowKind::Linear:
-				{
-					return row.m_axis;
-				}
-				case EConstraintRowKind::Angular:
-				{
-					return 3 + row.m_axis;
-				}
-				default:
-				{
-					throw std::invalid_argument("Unknown compiled constraint row kind");
-				}
-			}
-		}
-
 		// Return the current relative velocity represented by one compiled Jacobian row.
 		float RigidRowVelocity(CompiledConstraintRow const& row, CompiledConstraintBlock const& block, std::span<SolverBody const> bodies)
 		{
@@ -621,7 +601,8 @@ namespace pr::physics
 			for (int row = 0; row != runtime.m_row_count; ++row)
 			{
 				auto const& compiled_row = constraints.m_rows[runtime.m_rows[row].m_compiled_index];
-				candidate[row] = config.m_warm_start_factor * timestep_scale * found->second.m_impulses[CacheSlot(compiled_row)];
+				auto same_feature = ((found->second.m_row_identities ^ block.m_row_identities) & (15u << (4u * compiled_row.m_slot))) == 0u;
+				candidate[row] = same_feature ? config.m_warm_start_factor * timestep_scale * found->second.m_impulses[compiled_row.m_slot] : 0.0f;
 			}
 			Project(candidate, runtime, block);
 			for (int row = 0; row != runtime.m_row_count; ++row)
@@ -661,10 +642,11 @@ namespace pr::physics
 				auto& entry = m_warm_start[key];
 				entry.m_impulses = {};
 				entry.m_timestep = timestep;
+				entry.m_row_identities = block.m_row_identities;
 				for (int row = 0; row != runtime.m_row_count; ++row)
 				{
 					auto const& compiled_row = constraints.m_rows[runtime.m_rows[row].m_compiled_index];
-					entry.m_impulses[CacheSlot(compiled_row)] = runtime.m_rows[row].m_impulse;
+					entry.m_impulses[compiled_row.m_slot] = runtime.m_rows[row].m_impulse;
 				}
 			}
 			for (auto iter = m_warm_start.begin(); iter != m_warm_start.end();)

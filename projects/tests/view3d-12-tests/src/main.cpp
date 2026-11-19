@@ -6,6 +6,8 @@
 // With '--interactive', shows the interactive demos. '--demo <name>' selects the initial demo. Otherwise, runs the unit tests using the same
 // '-verbose'/'-exclude:'/'-flags:'/positional-filter command line contract as 'projects\tests\unittests\src\main.cpp'.
 #include "pr/common/unittests.h"
+#include "pr/compute/utility/process_diagnostics.h"
+#include "pr/view3d-12/view3d-dll.h"
 #include "interactive/interactive.h"
 #include <windows.h>
 #include <d3d12.h>
@@ -31,22 +33,54 @@ int main(int argc, char* argv[])
 		return RunInteractive(demo_name);
 
 
-	// Parse the unit test selection options, rejecting invalid arguments before running anything.
-	auto options = pr::unittests::UnitTestOptions{};
-	if (!pr::unittests::TryParseUnitTestCommandLine(std::span{argv + 1, static_cast<std::size_t>(argc - 1)}, options, std::cerr))
+	// Parse startup and test choices before any device exists. GBV is explicit because it affects the entire process.
+	auto args = std::vector<char*>{argv + 1, argv + argc};
+	auto diagnostics = std::optional{pr::compute::TestProcessDiagnostics};
+	if (!pr::compute::TakeProcessDiagnosticsOption(args, diagnostics, std::cerr))
 		return 2;
 
-	// The renderer tests check for D3D12 validation messages, which needs the debug layer enabled before any device exists.
-	// A caller-provided value takes precedence.
-	SetLastError(ERROR_SUCCESS);
-	if (GetEnvironmentVariableW(L"VIEW3D_DEVICE_DEBUG", nullptr, 0) == 0 && GetLastError() == ERROR_ENVVAR_NOT_FOUND)
-		SetEnvironmentVariableW(L"VIEW3D_DEVICE_DEBUG", L"1");
+	auto options = pr::unittests::UnitTestOptions{};
+	if (!pr::unittests::TryParseUnitTestCommandLine(args, options, std::cerr))
+		return 2;
 
-	// Enable the D3D12 debug layer for the whole process before any test creates a device. Enabling it later removes every device
-	// that already exists, and tests run in parallel, so a test that enables it would break the devices of other running tests.
-	// Once it is on, the later 'EnableDebugLayer' calls made by renderers do nothing.
-	if (Microsoft::WRL::ComPtr<ID3D12Debug> debug; SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debug))))
-		debug->EnableDebugLayer();
+	// Fail explicitly if requested diagnostics are unavailable rather than silently running a weaker test.
+	try
+	{
+		if (diagnostics.has_value())
+			pr::compute::ConfigureProcessDiagnostics(*diagnostics);
 
+		pr::compute::RunnerProcessDiagnostics = diagnostics;
+
+		// Retain the renderer tests' device diagnostics without a second process configuration call.
+		auto device_debug = false;
+		switch (diagnostics.value_or(pr::compute::EProcessDiagnostics::None))
+		{
+			case pr::compute::EProcessDiagnostics::None:
+			{
+				break;
+			}
+			case pr::compute::EProcessDiagnostics::DebugLayer:
+			case pr::compute::EProcessDiagnostics::GpuValidation:
+			{
+				device_debug = true;
+				break;
+			}
+			default:
+			{
+				throw std::invalid_argument("Unknown process diagnostics mode");
+			}
+		}
+		auto error_cb = pr::view3d::ReportErrorCB{nullptr, [](void*, char const* message, char const*, int, std::int64_t)
+		{
+			std::cerr << message << '\n';
+		}};
+		if (!View3D_ConfigureDeviceDiagnostics(device_debug, device_debug, error_cb))
+			return 2;
+	}
+	catch (std::exception const& ex)
+	{
+		std::cerr << "Process diagnostics startup failed: " << ex.what() << '\n';
+		return 2;
+	}
 	return pr::unittests::RunAllTests(options);
 }

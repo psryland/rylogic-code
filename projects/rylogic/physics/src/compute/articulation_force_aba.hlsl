@@ -475,6 +475,40 @@ void AbaStoreLinkAcceleration(inout_(GpuArticulationAbaScratch) scratch, GpuArti
 // Evaluate joint geometry and optionally velocity/bias without touching accepted acceleration.
 void AbaEvaluateJoint(GpuArticulationLink link, inout_(GpuArticulationAbaScratch) scratch, bool dynamics, out_(GpuArticulationSpatialVector) joint_velocity)
 {
+	// Body-frame spherical angular speeds have a constant motion subspace and no internal coordinate bias.
+	switch (link.joint_type)
+	{
+		case GpuArticulationJointType_Axes: { break; }
+		case GpuArticulationJointType_Spherical:
+		{
+			GpuConstraintFrame rotation = AbaIdentityTransform();
+			rotation.rotation = float4(g_aba_positions[link.position_offset], g_aba_positions[link.position_offset + 1], g_aba_positions[link.position_offset + 2], g_aba_positions[link.position_offset + 3]);
+			scratch.child_to_parent = AbaMultiplyTransform(AbaMultiplyTransform(link.joint_to_parent, rotation), AbaInvertTransform(link.joint_to_child));
+			joint_velocity = AbaZeroSpatialVector();
+			if (dynamics)
+			{
+				float3 angular_velocity = float3(g_aba_velocities[link.velocity_offset], g_aba_velocities[link.velocity_offset + 1], g_aba_velocities[link.velocity_offset + 2]);
+				joint_velocity = AbaTransformMotion(link.joint_to_child, AbaSpatialVector(angular_velocity, float3(0, 0, 0)));
+				scratch.joint_bias = AbaZeroSpatialVector();
+			}
+			for (int column = 0; column != 3; ++column)
+			{
+				float3 axis = float3(0, 0, 0);
+				axis[column] = 1.0f;
+				GpuArticulationAbaDofScratch dof_scratch = g_aba_dof_scratch[link.dof_offset + column];
+				dof_scratch.motion_subspace = AbaTransformMotion(link.joint_to_child, AbaSpatialVector(axis, float3(0, 0, 0)));
+				g_aba_dof_scratch[link.dof_offset + column] = dof_scratch;
+			}
+			return;
+		}
+		default:
+		{
+			scratch.solve_valid = 0;
+			joint_velocity = AbaZeroSpatialVector();
+			return;
+		}
+	}
+
 	GpuConstraintFrame motion_to_parent_joint = AbaIdentityTransform();
 	joint_velocity = AbaZeroSpatialVector();
 	GpuArticulationSpatialVector joint_bias = AbaZeroSpatialVector();

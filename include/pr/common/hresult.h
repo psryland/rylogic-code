@@ -113,10 +113,11 @@ namespace pr
 		return HrMsg(static_cast<HRESULT>(result));
 	}
 
-	// A string to put the last error message into
+	// The calling thread's last error message.
 	inline std::string& Reason()
 	{
-		static std::string s_reason;
+		// Concurrent failures must not overwrite another thread's message.
+		thread_local std::string s_reason;
 		return s_reason;
 	}
 
@@ -213,6 +214,50 @@ namespace pr
 		}
 	}
 }
+
+#if PR_UNITTESTS
+#include <semaphore>
+#include <thread>
+#include "pr/common/unittests.h"
+namespace pr::common
+{
+	// Ordered failures must leave each thread reading its own error message.
+	PRUnitTest(HResultReasonIsPerThread, Quick)
+	{
+		// Order the writes so shared storage fails deterministically, without introducing a data race in the test.
+		auto first_written = std::binary_semaphore{0};
+		auto second_written = std::binary_semaphore{0};
+		auto first_reason = std::string{};
+		auto second_reason = std::string{};
+		auto first_failed = false;
+		auto second_failed = false;
+		auto first = std::thread([&]
+		{
+			// Read only after the other thread has written a distinct failure.
+			first_failed = !Succeeded(E_OUTOFMEMORY);
+			first_written.release();
+			second_written.acquire();
+			first_reason = Reason();
+		});
+		auto second = std::thread([&]
+		{
+			// Replace shared storage only after the first failure is complete.
+			first_written.acquire();
+			second_failed = !Succeeded(E_INVALIDARG);
+			second_reason = Reason();
+			second_written.release();
+		});
+		first.join();
+		second.join();
+
+		// Both failures retain their own messages after the threads have finished.
+		PR_EXPECT(first_failed && second_failed);
+		PR_EXPECT(first_reason == HrMsg(E_OUTOFMEMORY));
+		PR_EXPECT(second_reason == HrMsg(E_INVALIDARG));
+		PR_EXPECT(first_reason != second_reason);
+	}
+}
+#endif
 
 #undef PR_SUPPORT_D3D9_ERRORS
 #undef PR_SUPPORT_D3D11_ERRORS

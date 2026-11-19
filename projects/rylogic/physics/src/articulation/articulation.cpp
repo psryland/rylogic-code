@@ -67,7 +67,7 @@ namespace pr::physics
 				throw std::invalid_argument("Fixed articulation root inertia is invalid");
 		}
 
-		// Validate the bounded ordered-axis joint representation.
+		// Validate the selected joint representation and initial generalized state.
 		void ValidateJoint(ArticulationJointDesc const& joint)
 		{
 			if (joint.m_dof_count < 0 || joint.m_dof_count > isize(joint.m_axes))
@@ -75,6 +75,26 @@ namespace pr::physics
 
 			detail::ValidateArticulationTransform(joint.m_joint_to_parent, "Articulation parent joint frame");
 			detail::ValidateArticulationTransform(joint.m_joint_to_child, "Articulation child joint frame");
+
+			// The configuration manifold and velocity dimension are validated independently.
+			detail::ValidateJointPosition(joint, std::span<float const>{joint.m_initial_position}.first(joint.PositionCount()));
+			for (int index = 0; index != joint.m_dof_count; ++index)
+				if (!IsFinite(joint.m_initial_velocity[index]))
+					throw std::invalid_argument("Articulation initial joint velocity must be finite");
+
+			switch (joint.m_type)
+			{
+				case EArticulationJointType::Axes: { break; }
+				case EArticulationJointType::Spherical:
+				{
+					// Spherical speeds are an ordinary child-joint angular vector, not quaternion derivatives.
+					if (joint.m_dof_count != 3)
+						throw std::invalid_argument("Spherical articulation joints require three velocity entries");
+
+					return;
+				}
+				default: { throw std::invalid_argument("Articulation joint type is invalid"); }
+			}
 
 			// Every active scalar screw must use a finite unit direction and finite initial state.
 			for (int axis_index = 0; axis_index != joint.m_dof_count; ++axis_index)
@@ -144,6 +164,28 @@ namespace pr::physics
 
 	namespace detail
 	{
+		// Reject invalid configuration coordinates before they enter articulation state.
+		void ValidateJointPosition(ArticulationJointDesc const& joint, std::span<float const> position)
+		{
+			// A spherical orientation must be a unit quaternion; input normalization is caller-owned.
+			if (isize(position) != joint.PositionCount() || !std::ranges::all_of(position, [](float value) { return IsFinite(value); }))
+				throw std::invalid_argument("Articulation joint configuration has invalid dimensions or non-finite coordinates");
+
+			switch (joint.m_type)
+			{
+				case EArticulationJointType::Axes: { break; }
+				case EArticulationJointType::Spherical:
+				{
+					auto const orientation = v4{position[0], position[1], position[2], position[3]};
+					if (Abs(LengthSq(orientation) - 1.0f) > 1.0e-5f)
+						throw std::invalid_argument("Spherical articulation orientation must be a unit quaternion");
+
+					break;
+				}
+				default: { throw std::invalid_argument("Articulation joint type is invalid"); }
+			}
+		}
+
 		// Return a validated link state or throw without indexing caller-controlled handle data.
 		ArticulationLinkState& CheckedLink(ArticulationState& state, LinkHandle link)
 		{
@@ -365,7 +407,7 @@ namespace pr::physics
 	{
 		auto const& state = CheckedState(m_state);
 		auto const& link_state = detail::CheckedLink(state, link);
-		return std::span<float const>{state.m_position}.subspan(link_state.m_position_offset, link_state.m_joint.m_dof_count);
+		return std::span<float const>{state.m_position}.subspan(link_state.m_position_offset, link_state.m_joint.PositionCount());
 	}
 
 	// Replace all reduced positions for one non-root joint.
@@ -373,10 +415,7 @@ namespace pr::physics
 	{
 		auto& state = CheckedState(m_state);
 		auto const& link_state = detail::CheckedLink(state, link);
-		if (isize(position) != link_state.m_joint.m_dof_count)
-			throw std::invalid_argument("Joint position dimension does not match its articulation joint");
-		if (!std::ranges::all_of(position, [](float value) { return IsFinite(value); }))
-			throw std::invalid_argument("Joint positions must be finite");
+		detail::ValidateJointPosition(link_state.m_joint, position);
 
 		Wake();
 		std::ranges::copy(position, state.m_position.begin() + link_state.m_position_offset);
@@ -725,9 +764,9 @@ namespace pr::physics
 		// Append generalized state contiguously so every joint is a directly addressable dirty range.
 		auto position_offset = isize(state.m_position);
 		auto velocity_offset = isize(state.m_velocity);
+		state.m_position.insert(state.m_position.end(), joint.m_initial_position.begin(), joint.m_initial_position.begin() + joint.PositionCount());
 		for (int axis_index = 0; axis_index != joint.m_dof_count; ++axis_index)
 		{
-			state.m_position.push_back(joint.m_initial_position[axis_index]);
 			state.m_velocity.push_back(joint.m_initial_velocity[axis_index]);
 			state.m_force.push_back(0.0f);
 			state.m_acceleration.push_back(0.0f);

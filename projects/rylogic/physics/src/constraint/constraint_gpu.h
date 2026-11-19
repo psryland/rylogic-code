@@ -31,13 +31,13 @@ namespace pr::physics
 		friend bool operator==(ConstraintEndpointIdentity const&, ConstraintEndpointIdentity const&) = default;
 	};
 
-	// Sparse stable-slot streams used to upload persistent D6 descriptors and frame-local endpoint remaps.
+	// Sparse stable-slot streams used to upload typed persistent descriptors and frame-local endpoint remaps.
 	struct GpuConstraintUpload
 	{
 		ConstraintSet const* m_source = nullptr;
 		std::vector<GpuConstraintEndpoint> m_endpoints;
 		std::vector<ConstraintEndpointIdentity> m_endpoint_identities;
-		std::vector<GpuD6ConstraintDesc> m_descriptors;
+		std::vector<GpuConstraintDesc> m_descriptors;
 		std::vector<GpuCoupledConstraintEndpoint> m_coupled_endpoints;
 		std::vector<int> m_coupled_articulation_indices;
 		std::vector<int> m_coupled_articulation_islands;

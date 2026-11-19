@@ -26,6 +26,8 @@ namespace pr::unittests::your::namespace
 #endif
 
 #include "pr/common/unittests.h"
+#include "pr/compute/utility/process_diagnostics.h"
+#include "src/dll_test.h"
 #include "src/unittests.h" // all tests
 //#include "pr/common/flags_enum.h" // This is often needed for single files
 //#include "pr/common/allocator.h"
@@ -119,10 +121,32 @@ extern "C"
 }
 int main(int argc, char* argv[])
 {
-	// Parse the test selection options, rejecting invalid arguments before running anything.
-	auto options = pr::unittests::UnitTestOptions{};
-	if (!pr::unittests::TryParseUnitTestCommandLine(std::span{argv + 1, static_cast<std::size_t>(argc - 1)}, options, std::cerr))
+	// Separate process policy from test selection before anything can create a device.
+	auto args = std::vector<char*>{argv + 1, argv + argc};
+	if (!pr::unittests::TakeDllTestChildOption(args, std::cerr))
 		return 2;
 
+	auto diagnostics = std::optional{pr::compute::TestProcessDiagnostics};
+	if (!pr::compute::TakeProcessDiagnosticsOption(args, diagnostics, std::cerr))
+		return 2;
+
+	// Reject invalid test arguments before applying process settings.
+	auto options = pr::unittests::UnitTestOptions{};
+	if (!pr::unittests::TryParseUnitTestCommandLine(args, options, std::cerr))
+		return 2;
+
+	// One startup call supplies the same Debug validation that fixtures require, without repeated device-constructor changes.
+	try
+	{
+		if (diagnostics.has_value())
+			pr::compute::ConfigureProcessDiagnostics(*diagnostics);
+
+		pr::compute::RunnerProcessDiagnostics = diagnostics;
+	}
+	catch (std::exception const& ex)
+	{
+		std::cerr << "Process diagnostics startup failed: " << ex.what() << '\n';
+		return 2;
+	}
 	return pr::unittests::RunAllTests(options);
 }

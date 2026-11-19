@@ -12,9 +12,10 @@ namespace pr::rdr12
 	enum class ERdrOptions
 	{
 		None              = 0,
+		// Device validation filters, DXGI/D3D11 debug objects and live-object reporting. Requires process validation at startup.
+		// D3D12 shares adapter devices, so message settings also affect other users of that device.
 		DeviceDebug       = 1 << 0,
-		DeviceGPUDebug    = 1 << 1 | DeviceDebug,
-		BreakOnErrors     = 1 << 2 | DeviceDebug,
+		BreakOnErrors     = 1 << 2,
 		BGRASupport       = 1 << 3,
 		D2D1_DebugInfo    = 1 << 4,
 		RayTracingSupport = 1 << 5,
@@ -51,12 +52,11 @@ namespace pr::rdr12
 			,m_adapter()
 		{}
 
-		// Enable the debug layer
-		RdrSettings& DebugLayer(bool enable = true, bool gpu_debug = false, bool break_on_errors = true)
+		// Select device-local diagnostics before adapter discovery. The host configures process diagnostics separately at startup.
+		RdrSettings& DeviceDebug(bool enable = true, bool break_on_errors = true)
 		{
-			if (m_adapter.ptr != nullptr) Check(false, "DebugLayer must be enabled before setting the adapter (technically before creating the DXGI factory)");
+			if (m_adapter.ptr != nullptr) Check(false, "DeviceDebug must be selected before the adapter and DXGI factory");
 			m_options = SetBits(m_options, ERdrOptions::DeviceDebug, enable);
-			m_options = SetBits(m_options, ERdrOptions::DeviceGPUDebug, enable && gpu_debug);
 			m_options = SetBits(m_options, ERdrOptions::BreakOnErrors, enable && break_on_errors);
 			return *this;
 		}
@@ -78,7 +78,7 @@ namespace pr::rdr12
 			return *this;
 		}
 
-		// Select the default adaptor (Call after setting the debug layer)
+		// Select the default adapter after process and device diagnostics have been chosen.
 		RdrSettings& DefaultAdapter()
 		{
 			SystemConfig cfg(AllSet(m_options, ERdrOptions::DeviceDebug));

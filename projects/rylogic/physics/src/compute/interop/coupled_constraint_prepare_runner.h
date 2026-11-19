@@ -20,19 +20,17 @@ namespace pr::physics
 
 	public:
 
-		// Compile one stable constraint stream using caller-provided final-configuration link factors.
+		// Compile coupled slots at the supplied pose, preserving ordinary slots in the shared prepared streams.
 		void Run(
 			float timestep,
 			float regularization,
-			float warm_start_scale,
 			GpuConstraintUpload const& upload,
 			std::span<GpuRigidBody const> bodies,
 			std::span<GpuConstraintFrame const> link_to_world,
 			std::span<GpuArticulationSpatialMobility const> mobilities,
 			std::span<GpuArticulationAbaScratch const> aba_scratch,
-			std::span<GpuConstraintBlock const> retained_blocks = {},
-			std::span<GpuConstraintRow const> retained_rows = {},
-			bool retain_current_impulses = false);
+			std::span<GpuConstraintBlock const> prepared_blocks = {},
+			std::span<GpuConstraintRow const> prepared_rows = {});
 
 		// Replace physical preconditioners with exact hard-passive inverses for detached position correction.
 		void PreparePositionPreconditioners();

@@ -619,7 +619,8 @@ namespace pr::physics
 				for (int row = 0; row != runtime.m_row_count; ++row)
 				{
 					auto const& compiled_row = constraints.m_rows[runtime.m_rows[row].m_compiled_index];
-					candidate[row] = config.m_warm_start_factor * timestep_scale * found->second.m_impulses[CacheSlot(compiled_row)];
+					auto same_feature = ((found->second.m_row_identities ^ block.m_row_identities) & (15u << (4u * compiled_row.m_slot))) == 0u;
+					candidate[row] = same_feature ? config.m_warm_start_factor * timestep_scale * found->second.m_impulses[compiled_row.m_slot] : 0.0f;
 				}
 				Project(candidate, runtime, block);
 				for (int row = 0; row != runtime.m_row_count; ++row)
@@ -674,10 +675,11 @@ namespace pr::physics
 					auto& entry = m_warm_start[key];
 					entry.m_impulses = {};
 					entry.m_timestep = timestep;
+					entry.m_row_identities = block.m_row_identities;
 					for (int row = 0; row != runtime.m_row_count; ++row)
 					{
 						auto const& compiled_row = constraints.m_rows[runtime.m_rows[row].m_compiled_index];
-						entry.m_impulses[CacheSlot(compiled_row)] = runtime.m_rows[row].m_impulse;
+						entry.m_impulses[compiled_row.m_slot] = runtime.m_rows[row].m_impulse;
 					}
 				}
 			};

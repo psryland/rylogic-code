@@ -224,6 +224,43 @@ namespace pr::physics
 		m_scratch.assign(g_aba_scratch.begin(), g_aba_scratch.end());
 	}
 
+	// Restore only the selected actual primary state, without recomputing configuration or adding an impulse.
+	void ArticulationImpulseAbaInteropRunner::RestoreVelocities(std::span<float const> velocities, std::span<uint32_t const> selection)
+	{
+		if (velocities.size() != m_velocities.size() || selection.size() != m_ranges.size())
+			throw std::invalid_argument("Articulation replay restore requires complete primary and selection ranges");
+
+		for (size_t index = 0; index != m_ranges.size(); ++index)
+		{
+			if (selection[index] == 0)
+				continue;
+
+			auto const& articulation = m_upload.m_articulations[m_ranges[index].articulation_index];
+			std::copy_n(velocities.begin() + articulation.velocity_offset, articulation.velocity_count, m_velocities.begin() + articulation.velocity_offset);
+		}
+		g_impulse = cbArticulationImpulseAba{
+			.participating_articulation_count = isize(m_ranges), .articulation_count = isize(m_upload.m_articulations),
+			.link_count = isize(m_upload.m_links), .mobility_count = isize(m_work)};
+		g_mobility_ranges.assign(ImpulseSpanOf(m_ranges));
+		g_aba_articulations.assign(ImpulseSpanOf(m_upload.m_articulations));
+		g_aba_links.assign(ImpulseSpanOf(m_upload.m_links));
+		g_aba_velocities.assign(ImpulseSpanOf(m_velocities));
+		g_aba_scratch.assign(ImpulseSpanOf(m_scratch));
+		g_aba_dof_scratch.assign(ImpulseSpanOf(m_dof_scratch));
+		g_impulse_selection.assign(selection);
+		g_impulse_results.assign(ImpulseSpanOf(m_results));
+		hlsl::GpuEmulator refresh(CSRefreshArticulationImpulseVelocities, CSRefreshArticulationImpulseVelocities_NumThreads);
+		refresh.Dispatch({ImpulseThreadGroupCount(isize(m_ranges)), 1, 1});
+		m_scratch.assign(g_aba_scratch.begin(), g_aba_scratch.end());
+		m_results.assign(g_impulse_results.begin(), g_impulse_results.end());
+	}
+
+	// Expose the frozen configuration map, not derived velocity or momentum pairs.
+	std::span<GpuArticulationAbaDofScratch const> ArticulationImpulseAbaInteropRunner::DofScratch() const
+	{
+		return m_dof_scratch;
+	}
+
 #undef g_impulse
 #undef g_mobility_ranges
 #undef g_aba_articulations

@@ -8,6 +8,7 @@
 #include "pr/compute/utility/update_resource.h"
 #include "pr/compute/utility/utility.h"
 #include "pr/compute/utility/pix.h"
+#include "pr/compute/utility/process_diagnostics.h"
 
 namespace pr::compute
 {
@@ -16,29 +17,15 @@ namespace pr::compute
 		: m_device()
 		, m_cmd_queue()
 	{
-		// Enable the debug layer. Must be done before creating the device, because enabling it later removes existing devices.
-		if (AllSet(options, EGpuOptions::DeviceDebug))
-		{
-			EnableDeviceRemovedDiagnostics();
-
-			D3DPtr<ID3D12Debug> dbg;
-			Check(D3D12GetDebugInterface(__uuidof(ID3D12Debug), (void**)dbg.address_of()));
-			dbg->EnableDebugLayer();
-
-			if (AllSet(options, EGpuOptions::DeviceGPUDebug))
-			{
-				D3DPtr<ID3D12Debug1> dbg1;
-				Check(dbg->QueryInterface<ID3D12Debug1>(dbg1.address_of()));
-				dbg1->SetEnableGPUBasedValidation(true);
-			}
-		}
-
-		// Create the d3d device
+		// The host has already chosen process diagnostics before any device can exist.
 		Check(D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_11_0, __uuidof(ID3D12Device4), (void**)m_device.address_of()));
 
-		// The info queue exists only when the debug layer is enabled
+		// The info queue exists only when the process debug layer is enabled.
 		if (AllSet(options, EGpuOptions::BreakOnErrors))
 		{
+			if (!HasDebugLayer(m_device.get()))
+				throw std::runtime_error("BreakOnErrors requires ConfigureProcessDiagnostics at process startup");
+
 			D3DPtr<ID3D12InfoQueue> info;
 			Check(m_device->QueryInterface<ID3D12InfoQueue>(info.address_of()));
 			Check(info->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, TRUE));

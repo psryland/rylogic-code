@@ -41,6 +41,12 @@ namespace pr::physics
 		void PositionSolve(int colour);
 		void ResolveVelocity(int colour);
 
+		// Replay cache insertion directly, retaining one slot per contact; capacity must be at least twice the input count.
+		std::vector<GpuWarmStartEntry> StoreWarmStart(std::span<GpuResolveContact const> contacts, int capacity);
+
+		// Replay lookup against a supplied cache without a body-motion reset filter.
+		v4 LoadWarmStart(std::span<GpuWarmStartEntry const> cache, GpuResolveContact const& contact);
+
 		std::span<uint32_t const> Colours() const;
 
 		// Indirect grids for each colour, including empty groups and the serial overflow sweep.

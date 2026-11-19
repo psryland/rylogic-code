@@ -55,7 +55,7 @@ public enum EPhysicsEvent
 	Wake = 1,
 	Sleep = 2,
 	ConstraintBreak = 3,
-	CoupledConstraintFailure = 4,
+	ConstraintRejection = 4,
 	WorldContact = 5,
 }
 
@@ -66,21 +66,20 @@ public enum EStepFailure
 	CollisionPairCapacity = 1,
 	CollisionContactCapacity = 2,
 	ArticulationIntegration = 3,
-	CoupledConstraintNonConvergence = 4,
 	ConstraintNumerics = 5,
+	ContactNumerics = 6,
 }
 
-/// <summary>Identifies the coupled transaction phase that exhausted its bounded recovery attempts.</summary>
-public enum ECoupledConstraintFailurePhase
+/// <summary>Identifies the velocity or position phase of a non-terminal owner rejection, including admission rejection.</summary>
+public enum EConstraintRejectionPhase
 {
-	Unknown = -1,
 	Velocity = 0,
 	Position = 1,
 }
 
 /// <summary>Classifies independent reasons why a coupled island transaction could not be committed.</summary>
 [Flags]
-public enum ECoupledConstraintFailure :uint
+public enum EConstraintRejectionReason :uint
 {
 	None = 0,
 	Preconditioner = 1U << 0,
@@ -89,6 +88,20 @@ public enum ECoupledConstraintFailure :uint
 	Articulation = 1U << 3,
 	Merit = 1U << 4,
 	Projection = 1U << 5,
+}
+
+/// <summary>Distinguishes a native stable constraint slot from a frame-local coupled island.</summary>
+public enum EConstraintRejectionOwner
+{
+	OrdinaryBlock = 0,
+	CoupledIsland = 1,
+}
+
+/// <summary>Non-terminal outcomes retained independently of any later accepted attempt.</summary>
+public enum EConstraintRejectionOutcome
+{
+	AdmissionRejected = 1,
+	SolveRejected = 3,
 }
 
 /// <summary>Flags represented in body state, commands, and snapshots.</summary>
@@ -336,11 +349,6 @@ public sealed class EngineOptions
 	public uint WorldCollisionLayer { get; set; } = 1U;
 	public uint WorldCollisionMask { get; set; } = 0xFFFFFFFFU;
 
-	/// <summary>
-	/// Enable the D3D12 debug layer on a device the engine creates. It has no effect when the engine borrows a device, whose diagnostics belong to its owner.
-	/// The debug layer is process-wide and adds a large CPU cost to every GPU call.
-	/// </summary>
-	public bool DeviceDebug { get; set; } = false;
 }
 
 /// <summary>Material properties consumed by native contact resolution.</summary>
@@ -584,12 +592,18 @@ public struct PhysicsEvent
 	public float m_break_torque;
 	public int m_substep_index;
 	private uint m_reserved;
-	public ECoupledConstraintFailure m_failure_flags;
-	public ECoupledConstraintFailurePhase m_failure_phase;
-	public int m_failure_island_index;
-	public int m_failure_iteration_count;
-	public float m_failure_relaxation;
-	public float m_failure_merit_change;
+	// One first rejection per owner per frame. Ordinary indices/generations are native stable slots; coupled indices are frame-local.
+	// Admission has no numerical reason. Numerical details are zero when an early rejection prevented a numerical solve.
+	public EConstraintRejectionOwner m_rejection_owner;
+	public uint m_rejection_index;
+	public uint m_rejection_generation;
+	public EConstraintRejectionOutcome m_rejection_outcome;
+	public EConstraintRejectionPhase m_rejection_phase;
+	public EConstraintRejectionReason m_rejection_flags;
+	// Actual numerical attempts for this owner, not its configured retry budget.
+	public int m_rejection_iteration_count;
+	public float m_rejection_relaxation;
+	public float m_rejection_merit_change;
 
 	// Contact impulses and velocity, in world space. Zero for events that are not contacts.
 	//  m_normal_impulse: the total impulse along 'm_normal' that the solver applied to B during the substep (A receives the negation). Never negative.
@@ -689,7 +703,7 @@ public struct FrameOutputFeatureDiagnostics
 	public int m_event_capacity;
 	public int m_articulation_count;
 	public int m_constraint_break_count;
-	public int m_coupled_failure_count;
+	public int m_constraint_rejection_slot_count;
 	public int m_dispatch_count;
 	public int m_readback_count;
 	private uint m_reserved;
@@ -803,4 +817,12 @@ public enum EStatus
 	IncompatibleVersion = 9,
 	DeviceRemoved = 10,
 	InternalError = 11,
+}
+
+/// <summary>Host-owned D3D12 startup policy; None leaves externally enabled diagnostics unchanged.</summary>
+public enum EProcessDiagnostics
+{
+	None = 0,
+	DebugLayer = 1,
+	GpuValidation = 2,
 }

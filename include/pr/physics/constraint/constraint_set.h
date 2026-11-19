@@ -31,7 +31,7 @@ namespace pr::physics
 		// Storage for one reusable generational handle slot.
 		struct Slot
 		{
-			D6ConstraintDesc m_desc = {};
+			ConstraintDesc m_desc = {};
 			uint32_t m_generation = 1;
 			bool m_occupied = false;
 			bool m_dirty = false;
@@ -51,7 +51,7 @@ namespace pr::physics
 		Slot const& Require(ConstraintHandle handle) const;
 
 		// Validate a descriptor before it can enter persistent storage.
-		static void Validate(D6ConstraintDesc const& desc);
+		static void Validate(ConstraintDesc const& desc);
 
 		friend CompiledConstraintSet CompileConstraints(ConstraintSet const& constraints, BodyRemap const& remap);
 		friend GpuConstraintUpload PackGpuConstraints(ConstraintSet const& constraints, BodyRemap const& remap, std::span<GpuCollisionExclusion const> additional_collision_exclusions);
@@ -64,8 +64,8 @@ namespace pr::physics
 		// Construct an empty constraint collection without allocating descriptor storage.
 		ConstraintSet();
 
-		// Add a general D6 constraint and return its generational handle.
-		ConstraintHandle Add(D6ConstraintDesc const& desc);
+		// Add a typed constraint and return its generational handle.
+		ConstraintHandle Add(ConstraintDesc const& desc);
 
 		// Add a ball-and-socket constraint.
 		ConstraintHandle Add(BallSocketConstraintDesc const& desc);
@@ -80,11 +80,11 @@ namespace pr::physics
 		ConstraintHandle Add(WeldConstraintDesc const& desc);
 
 		// Replace a persistent descriptor while preserving its handle.
-		void Update(ConstraintHandle handle, D6ConstraintDesc const& desc);
+		void Update(ConstraintHandle handle, ConstraintDesc const& desc);
 
 		// Replace 'descs[i]' for 'handles[i]' while preserving every handle. Every handle and descriptor is checked before any is replaced, so a failure
 		// changes nothing. A handle that appears more than once takes its last descriptor.
-		void Update(std::span<ConstraintHandle const> handles, std::span<D6ConstraintDesc const> descs);
+		void Update(std::span<ConstraintHandle const> handles, std::span<ConstraintDesc const> descs);
 
 		// Enable or disable a persistent descriptor without changing topology.
 		void SetEnabled(ConstraintHandle handle, bool enabled);
@@ -96,7 +96,7 @@ namespace pr::physics
 		void Remove(ConstraintHandle handle);
 
 		// Return a persistent descriptor or reject an invalid or stale handle.
-		D6ConstraintDesc const& Get(ConstraintHandle handle) const;
+		ConstraintDesc const& Get(ConstraintHandle handle) const;
 
 		// True when a handle names a currently occupied slot with the same generation.
 		bool Contains(ConstraintHandle handle) const;

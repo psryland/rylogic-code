@@ -48,7 +48,7 @@ namespace pr::physics
 			int m_selective_refresh_pass_count = 0; // Recorded across all internal substeps.
 			double m_sleepupdate_ms = 0;
 			double m_readback_ms = 0;
-			double m_gpu_run_ms = 0;
+			double m_gpu_run_ms = 0; // Host job phases, accumulated over all prefix flushes and the final submission/completion.
 			double m_gpu_prepare_ms = 0;
 			double m_gpu_execute_ms = 0;
 			double m_gpu_wait_ms = 0; // Host time blocked on the step's GPU work. Measured in every build; the other timings need PR_PHYSICS_PROFILE.
@@ -62,7 +62,7 @@ namespace pr::physics
 			double m_body_unpack_ms = 0;
 			double m_articulation_unpack_ms = 0;
 			int m_substep_count = 0;
-			int m_submission_count = 0;
+			int m_submission_count = 0; // Includes between-substep Flush submissions, not only the final Submit.
 			int m_wait_count = 0;
 			int m_readback_copy_count = 0;
 		};
@@ -125,7 +125,11 @@ namespace pr::physics
 			RigidBody const* m_body_b;
 		};
 
-		// Complete input for one submitted frame. Intermediate substeps remain GPU-resident and do not permit CPU state inspection.
+		// Complete input for one physical frame. Elapsed time and its represented per-substep float duration must be finite and positive.
+		// Invalid timing is rejected before input mutation. Intermediate substeps remain GPU-resident and do not permit CPU state inspection.
+		// All submission overloads require non-null owners with unique BodyId values among bodies and unique ArticulationId values among trees,
+		// including contact-only frames. A RigidBody copy retains its identity: it may replace that body, but is not a second independent body.
+		// Submission order may change between frames; callers need not preserve packed indices.
 		// 'm_collision_ignore_pairs' may name bodies that are not in 'm_bodies'; those pairs have no effect for this frame.
 		struct StepInput
 		{
@@ -265,6 +269,7 @@ namespace pr::physics
 		// State for a BeginStep/CompleteStep pair.
 		PendingStep m_pending_step;
 		bool m_constraints_active;
+		uint64_t m_constraint_epoch_serial = 0; // Issued substep identities never rewind after rejection or abandonment.
 		bool m_coupled_constraints_active;
 		bool m_coupled_contacts_active;
 		int m_selective_refresh_hold_steps = 0;
@@ -277,16 +282,31 @@ namespace pr::physics
 		StepProfile m_last_step_profile;
 		CollisionStats m_last_collision_stats;
 		EngineFeatureStats m_last_feature_stats;
+
+		// Keep the failed retirement exception without allocating error text while another exception is active.
+		std::exception_ptr m_recovery_failure;
 		
 		friend struct DbgPhysics;
 
 		// Submit one frame containing optional rigid bodies, pure-tree articulations, and persistent constraints.
 		void BeginStepInternal(StepInput const& input);
 
+		// Reject recording or GPU resource release until pending/interrupted work is known to have completed.
+		void RequireNoOutstandingGpuWork(char const* operation) const;
+
+		// Attempt retirement while preserving the caller's primary exception; retain any secondary failure.
+		bool RetireAfterFailure() noexcept;
+
 	public:
+
+		// Validate physical elapsed time and its represented float substep duration; throws before any simulation mutation.
+		static float ValidateStepTiming(float elapsed_seconds, int substep_count);
 
 		// Create an engine with independent GPU ownership, or borrow a matching device and compute queue from a longer-lived host.
 		explicit Engine(EngineConfig const& config = {}, IShaderCache* shader_cache = nullptr, ID3D12Device4* existing_device = nullptr, ID3D12CommandQueue* existing_queue = nullptr);
+
+		// Wait for all queued engine work before releasing the resources its commands use.
+		~Engine();
 
 		// Engine configuration in use by this instance.
 		EngineConfig const& Config() const;
@@ -388,7 +408,18 @@ namespace pr::physics
 		bool StepPending() const;
 
 		// Wait for a pending step during terminal cleanup without updating bodies or reusing command state.
+		// A submitted step leaves recording closed until RetireInterruptedWork succeeds.
 		void AbandonStep();
+
+		// True between frames when interrupted GPU work must be retired before recording or releasing its resources.
+		bool RecoveryRequired() const;
+
+		// The latest failed retirement exception, or null. A new failed attempt has a distinct exception identity.
+		std::exception_ptr RecoveryFailure() const noexcept;
+
+		// Make one retirement attempt on the stepping thread between frames; never replay interrupted commands.
+		// Success resets derived caches. Failure leaves recovery required and rethrows the retained exception.
+		void RetireInterruptedWork();
 
 		// Build missing sleep-island ids for bodies created directly in the sleeping state.
 		// Call this after loading/creating sleeping bodies; Step() assumes sleep islands have already been established when needed.
@@ -412,8 +443,8 @@ namespace pr::physics
 		// Raised once for each frame that newly breaks one or more persistent constraints.
 		EventHandler<Engine&, std::span<ConstraintBreakEvent const>> ConstraintsBroken;
 
-		// Raised after publication for coupled islands that exhausted bounded backtracking during the frame.
-		EventHandler<Engine&, std::span<CoupledConstraintFailureEvent const>> CoupledConstraintFailures;
+		// Raised after publication with the first non-terminal rejection per ordinary slot or coupled island in the completed frame.
+		EventHandler<Engine&, std::span<ConstraintRejectionEvent const>> ConstraintRejections;
 
 		// Resolve a stable articulation link to its hidden body index during ExternalForces, or return -1 when its tree is absent.
 		int ArticulationLinkStepIndex(ArticulationId articulation_id, LinkHandle link) const;

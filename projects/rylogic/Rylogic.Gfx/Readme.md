@@ -4,18 +4,18 @@ This assembly is an interop wrapper for the native View3d dll
 
 ## Graphics device diagnostics
 
-Set `VIEW3D_DEVICE_DEBUG=1` before the first `View3d.Create()` (native `View3D_Initialise`) to opt into graphics
-device diagnostics for a test or investigation. Unset or `0` leaves these diagnostics off, including in Debug builds.
-Other values fail initialization before adapter/DXGI factory creation. The process-wide View3D context reads this
-setting once at construction; changing the environment does not change an existing device. Use a fresh process when
-changing policy, and do not enable/disable D3D12 debugging after another component has created a device.
+The host chooses process diagnostics once, after loading the DLL and before **any** component creates a D3D12 device:
+`View3d.ConfigureProcessDiagnostics(View3d.EProcessDiagnostics.DebugLayer)`. `GpuValidation` additionally enables GPU instrumentation;
+`None` leaves external settings unchanged. An equivalent call through `Rylogic.Physics` is sufficient; do not call both.
+Unavailable diagnostics fail before any setting changes. DLL-local guards reject repeated/late calls they observe, but the host owns cross-module ordering.
 
-The switch selects the existing renderer debug-layer settings: DXGI/D3D11/D3D12 diagnostics, device-removal
-breadcrumbs/page-fault reporting, and warning/error breaks. It does not change ordinary Debug assertions, contracts,
-or error reporting. GPU-based validation is separate and is not enabled by this switch. Native renderer callers
-continue to use `RdrSettings::DebugLayer` explicitly, including its separate GPU-validation argument.
-Other components that create their own compute devices have their own policy and are outside this renderer switch;
-Physics using a View3D device lease shares that device's diagnostic state.
+Separately call `View3d.ConfigureDeviceDiagnostics(enable: true, break_on_errors: true)` before `View3d.Create()` to select renderer
+message filtering, DXGI/D3D11 debug objects and live-object reports. This requires process validation, never enables it, and may follow another
+component's device creation. Without this call renderer-local diagnostics are off, independently of Debug assertions.
+Adapter devices are shared by D3D12, so message settings affect all users of the selected device. Borrowed physics devices retain those settings.
+
+Native hosts use `compute::ConfigureProcessDiagnostics` at startup and `RdrSettings::DeviceDebug` before adapter discovery.
+Test runners accept `-process-diagnostics:<unconfigured|none|debug|gbv>`; Debug defaults to debug. Controls requiring GBV must select it at startup.
 
 ## Procedural surface materials
 

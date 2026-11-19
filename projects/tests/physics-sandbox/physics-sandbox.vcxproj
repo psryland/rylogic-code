@@ -27,6 +27,7 @@
         ;$(RylogicRoot)include
         ;$(RylogicRoot)sdk
         ;$(RylogicRoot)projects\rylogic
+        ;$(RylogicRoot)projects\rylogic\physics
         ;%(AdditionalIncludeDirectories)
       </AdditionalIncludeDirectories>
     </ClCompile>
@@ -210,6 +211,8 @@
     <None Include="scenes\articulation_mixed_coupling.json" />
     <None Include="scenes\articulation_push_stack.json" />
     <None Include="scenes\articulation_ragdolls.json" />
+    <None Include="scenes\articulation_ragdoll_dispersed.json" />
+    <None Include="scenes\articulation_ragdoll_pile.json" />
     <None Include="scenes\articulation_robot_gripper.json" />
     <None Include="scenes\articulation_robot_motors.json" />
     <None Include="scenes\articulation_two_robot_load.json" />

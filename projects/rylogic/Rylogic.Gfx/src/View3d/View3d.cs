@@ -502,6 +502,13 @@ namespace Rylogic.Gfx
 
 			// PR_CODE_SYNC_END()
 		}
+		/// <summary>Host-owned D3D12 process diagnostics; None leaves external settings unchanged.</summary>
+		public enum EProcessDiagnostics : int
+		{
+			None = 0,
+			DebugLayer = 1,
+			GpuValidation = 2,
+		}
 		public enum ERayTracingTier : int
 		{
 			NotSupported,
@@ -1979,6 +1986,47 @@ namespace Rylogic.Gfx
 		}
 
 		// Dll Context ****************************
+
+		/// <summary>
+		/// Configure D3D12 diagnostics once at process startup after loading the DLL and before any module creates a device.
+		/// None leaves external settings unchanged; unavailable diagnostics fail without changes. Repeated/late calls through this DLL fail.
+		/// The host owns ordering across modules. This does not choose renderer-local diagnostics.
+		/// </summary>
+		public static void ConfigureProcessDiagnostics(EProcessDiagnostics mode)
+		{
+			// The native module owns its startup guard and reports failures through the existing callback contract.
+			if (!ModuleLoaded)
+				throw new Exception("View3d.dll has not been loaded");
+
+			var error = (string?)null;
+			var error_cb = new ReportErrorCB { m_cb = (ctx, msg, filepath, line, pos) => error = msg };
+			var ok = View3D_ConfigureProcessDiagnostics(mode, error_cb);
+			GC.KeepAlive(error_cb.m_cb);
+			if (!ok)
+				throw new Exception(error ?? "Failed to configure process diagnostics");
+		}
+
+		/// <summary>
+		/// Choose renderer validation filters and DXGI/D3D11 debug objects once before Create. Enabling requires process validation at startup.
+		/// Breaking on errors requires enable. This call never changes process policy and may follow another module's device creation.
+		/// Without a call the renderer requests no device diagnostics; adapter devices and their message settings are shared across the process.
+		/// </summary>
+		public static void ConfigureDeviceDiagnostics(bool enable, bool break_on_errors)
+		{
+			// Keep callback storage alive until the native startup choice has completed.
+			if (!ModuleLoaded)
+				throw new Exception("View3d.dll has not been loaded");
+
+			var error = (string?)null;
+			var error_cb = new ReportErrorCB { m_cb = (ctx, msg, filepath, line, pos) => error = msg };
+			var ok = View3D_ConfigureDeviceDiagnostics(enable, break_on_errors, error_cb);
+			GC.KeepAlive(error_cb.m_cb);
+			if (!ok)
+				throw new Exception(error ?? "Failed to configure device diagnostics");
+		}
+
+		[DllImport(Dll)] private static extern bool View3D_ConfigureProcessDiagnostics(EProcessDiagnostics mode, ReportErrorCB error_cb);
+		[DllImport(Dll)] private static extern bool View3D_ConfigureDeviceDiagnostics(bool enable, bool break_on_errors, ReportErrorCB error_cb);
 
 		// Initialise calls are reference counted and must be matched with Shutdown calls
 		// 'initialise_error_cb' is used to report dll initialisation errors only (i.e. it isn't stored)

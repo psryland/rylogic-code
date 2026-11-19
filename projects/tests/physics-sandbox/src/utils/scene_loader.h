@@ -207,6 +207,15 @@ namespace physics_sandbox::scene_loader
 		bool m_collide_self = true;
 	};
 
+	// Frame-sampled sinusoidal generalized forces, scaled by child mass, with a golden-angle phase offset per joint velocity.
+	// Angular forces use N*m/kg; linear forces use N/kg. A zero amplitude leaves joint forces caller-controlled.
+	struct ArticulationActuationDesc
+	{
+		float m_torque_per_kg = 0.0f;
+		float m_period_s = 1.0f;
+		float m_phase = 0.0f;
+	};
+
 	// Describes a fixed- or floating-root reduced-coordinate articulation.
 	struct ArticulationDesc
 	{
@@ -218,6 +227,7 @@ namespace physics_sandbox::scene_loader
 		std::vector<ArticulationChildDesc> m_links;
 		bool m_sleeping = false;
 		bool m_never_sleep = false;
+		ArticulationActuationDesc m_actuation;
 	};
 
 	// Describes one persistent rigid, articulation-link, or mixed constraint.
@@ -230,6 +240,7 @@ namespace physics_sandbox::scene_loader
 			Slider,
 			Weld,
 			D6,
+			SphericalAngular,
 		};
 
 		std::string m_name;
@@ -239,6 +250,7 @@ namespace physics_sandbox::scene_loader
 		physics::ConstraintAxisDesc m_axis;
 		std::array<physics::ConstraintAxisDesc, 3> m_linear = {};
 		std::array<physics::ConstraintAxisDesc, 3> m_angular = {};
+		physics::SphericalAngularConstraintParameters m_spherical;
 		float m_break_force = std::numeric_limits<float>::infinity();
 		float m_break_torque = std::numeric_limits<float>::infinity();
 		bool m_collide_connected = false;

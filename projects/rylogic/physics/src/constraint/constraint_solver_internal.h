@@ -50,9 +50,6 @@ namespace pr::physics::detail::constraint_solver
 	// Return a stable map key for one generational constraint handle.
 	uint64_t HandleKey(ConstraintHandle handle);
 
-	// Map a canonical D6 row to its persistent linear-then-angular cache slot.
-	int CacheSlot(CompiledConstraintRow const& row);
-
 	// Return the current rigid-endpoint velocity represented by one compiled Jacobian row.
 	float RigidRowVelocity(CompiledConstraintRow const& row, CompiledConstraintBlock const& block, std::span<SolverBody const> bodies);
 

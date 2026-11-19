@@ -204,6 +204,9 @@ namespace pr::physics
 			.UAV(EReg::GeneralizedPseudo)
 			.UAV(EReg::Articulations)
 			.UAV(EReg::Positions)
+			.SRV(EReg::ArticulationIslands)
+			.UAV(EReg::FrameFailures)
+			.UAV(EReg::IslandStates)
 			.Create(m_gpu, "Physics:CoupledConstraintPositionApplySig");
 		m_cs_apply.m_sig = apply_sig;
 		m_cs_apply.m_pso = ComputePSO(apply_sig.get(), shader_code::apply_coupled_position).Create(m_gpu, "Physics:ApplyCoupledPositionPSO");
@@ -316,7 +319,7 @@ namespace pr::physics
 			DispatchCommon(job, m_cs_candidates, GpuCoupledConstraintPhase_Evaluate, attempt_index, m_velocity.m_slot_count, bodies, substep_index);
 			DispatchCommon(job, m_cs_gather, GpuCoupledConstraintPhase_Evaluate, attempt_index, m_velocity.m_target_count, bodies, substep_index);
 			DispatchArticulations(job, m_cs_select_trees, GpuCoupledConstraintPhase_Evaluate, attempt_index, m_velocity.m_articulation_range_count, substep_index);
-			m_impulse_aba.Evaluate(job, m_velocity.m_r_tree_selection.get(), m_velocity.m_r_tree_results.get());
+			m_impulse_aba.Evaluate(job, m_velocity.m_r_tree_selection.get(), m_velocity.m_r_tree_results.get(), m_impulse_aba.VelocityBuffers());
 			DispatchArticulations(job, m_cs_validate_trees, GpuCoupledConstraintPhase_Evaluate, attempt_index, m_velocity.m_articulation_range_count, substep_index);
 			DispatchCommon(job, m_cs_evaluate_merit, GpuCoupledConstraintPhase_Evaluate, attempt_index, m_velocity.m_island_count, bodies, substep_index);
 		}
@@ -328,7 +331,7 @@ namespace pr::physics
 	}
 
 	// Integrate converged rigid and articulation pseudo state exactly once into coordinates.
-	void GpuCoupledConstraintPosition::Apply(GpuJob& job, ID3D12Resource* bodies)
+	void GpuCoupledConstraintPosition::Apply(GpuJob& job, ID3D12Resource* bodies, int substep_index)
 	{
 		if (m_source == nullptr)
 			return;
@@ -337,7 +340,7 @@ namespace pr::physics
 		if (m_shared_pseudo)
 			throw std::logic_error("Shared position state must be integrated by its complete-forest owner");
 
-		DispatchApply(job, bodies);
+		DispatchApply(job, bodies, substep_index);
 	}
 
 	// Prepare every dependency, solve configured position iterations, and read focused state through one submission.
@@ -403,7 +406,7 @@ namespace pr::physics
 		}
 		for (int iteration = 0; iteration != m_config.push_out_iterations; ++iteration)
 			Run(job, r_bodies.get());
-		Apply(job, r_bodies.get());
+		Apply(job, r_bodies.get(), 0);
 
 		// Capture coordinates, untouched physical state, and transaction diagnostics before the caller's single submission.
 		auto result = GpuCoupledConstraintPositionResult{};
@@ -575,7 +578,7 @@ namespace pr::physics
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(constraints.m_r_pseudo_velocities);
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_pseudo_buffers.m_link_velocities);
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_pseudo_buffers.m_generalized_velocities);
-		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_velocity.m_r_frame_failures);
+		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_velocity.m_prepare.m_constraints.m_r_frame_rejections);
 		job.m_cmd_list.Dispatch(CoupledPositionThreadGroupCount(item_count), 1, 1);
 		++m_stats.m_dispatch_count;
 		CommitUavBarriers(job, bodies);
@@ -643,7 +646,7 @@ namespace pr::physics
 	}
 
 	// Bind and dispatch final rigid and articulation coordinate integration.
-	void GpuCoupledConstraintPosition::DispatchApply(GpuJob& job, ID3D12Resource* bodies)
+	void GpuCoupledConstraintPosition::DispatchApply(GpuJob& job, ID3D12Resource* bodies, int substep_index)
 	{
 		auto& constraints = m_prepare.m_constraints;
 		auto& aba = m_impulse_aba.m_aba;
@@ -656,6 +659,9 @@ namespace pr::physics
 		job.m_barriers.Transition(m_r_generalized_pseudo.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition(aba.m_r_articulations.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition(positions, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		job.m_barriers.Transition(m_velocity.m_r_articulation_islands.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+		job.m_barriers.Transition(m_velocity.m_prepare.m_constraints.m_r_frame_rejections.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		job.m_barriers.Transition(m_velocity.m_r_island_states.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Commit();
 
 		auto const constants = cbCoupledConstraintPosition{
@@ -670,7 +676,7 @@ namespace pr::physics
 			.m_phase = GpuCoupledConstraintPhase_CommitPosition,
 			.m_attempt_index = m_config.constraint_coupled_backtrack_limit,
 			.m_backtrack_limit = m_config.constraint_coupled_backtrack_limit,
-			.m_substep_index = -1,
+			.m_substep_index = substep_index,
 			.m_timestep = m_timestep,
 			.m_relaxation = std::min(m_config.constraint_position_relaxation, m_config.constraint_coupled_relaxation),
 			.m_position_beta = m_config.constraint_position_beta,
@@ -686,11 +692,15 @@ namespace pr::physics
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_generalized_pseudo);
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(aba.m_r_articulations);
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(positions);
+		job.m_cmd_list.AddComputeRootShaderResourceView(m_velocity.m_r_articulation_islands);
+		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_velocity.m_prepare.m_constraints.m_r_frame_rejections);
+		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_velocity.m_r_island_states);
 		job.m_cmd_list.Dispatch(CoupledPositionThreadGroupCount(std::max(m_body_count, m_velocity.m_articulation_range_count)), 1, 1);
 		++m_stats.m_dispatch_count;
 		job.m_barriers.UAV(bodies);
 		job.m_barriers.UAV(aba.m_r_articulations.get());
 		job.m_barriers.UAV(positions);
+		job.m_barriers.UAV(m_velocity.m_prepare.m_constraints.m_r_frame_rejections.get());
 		job.m_barriers.Commit();
 	}
 
@@ -726,7 +736,7 @@ namespace pr::physics
 		job.m_barriers.Transition(constraints.m_r_pseudo_velocities.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition(m_pseudo_buffers.m_link_velocities.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition(m_pseudo_buffers.m_generalized_velocities.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-		job.m_barriers.Transition(m_velocity.m_r_frame_failures.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		job.m_barriers.Transition(m_velocity.m_prepare.m_constraints.m_r_frame_rejections.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Commit();
 	}
 
@@ -776,7 +786,7 @@ namespace pr::physics
 		job.m_barriers.UAV(constraints.m_r_pseudo_velocities.get());
 		job.m_barriers.UAV(m_pseudo_buffers.m_link_velocities.get());
 		job.m_barriers.UAV(m_pseudo_buffers.m_generalized_velocities.get());
-		job.m_barriers.UAV(m_velocity.m_r_frame_failures.get());
+		job.m_barriers.UAV(m_velocity.m_prepare.m_constraints.m_r_frame_rejections.get());
 		job.m_barriers.Commit();
 	}
 }

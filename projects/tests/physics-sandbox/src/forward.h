@@ -21,6 +21,7 @@
 #include <cctype>
 #include <crtdbg.h>
 #include <unordered_map>
+#include <map>
 
 #include "pr/common/assert.h"
 #include "pr/common/assert_reporting.h"
@@ -45,11 +46,16 @@
 #include "pr/collision/shape_box.h"
 #include "pr/collision/shape_sphere.h"
 #include "pr/collision/shape_polytope.h"
+#include "pr/collision/collision.h"
 
 #include "pr/physics/physics.h"
 #include "pr/physics/buoyancy/buoyancy_sampler.h"
 #include "physics/src/utility/gpu.h"
+#include "physics/src/constraint/constraint_gpu.h"
+#include "physics/src/compute/constraint_coordinates.hlsli"
 #include "pr/compute/gpu_job.h"
+#include "pr/compute/utility/pix.h"
+#include "pr/compute/utility/process_diagnostics.h"
 
 using namespace pr;
 using namespace pr::math;
@@ -58,6 +64,9 @@ using namespace pr::math::spatial;
 
 namespace physics_sandbox
 {
+	// Scene geometry uses native centre/radius bounds, not the GPU upload helper with the same name.
+	using pr::BBox;
+
 	struct SandboxUI;
 	namespace scene_loader { struct SceneDesc; }
 

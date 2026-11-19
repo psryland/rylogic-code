@@ -95,12 +95,12 @@ namespace pr::physics
 		int ArticulationCount() const;
 	};
 
-	// One deterministic scalar row compiled from an active D6 axis.
+	// One deterministic scalar row with a canonical storage slot independent of its physical wrench kind.
 	struct CompiledConstraintRow
 	{
 		uint32_t m_block_index = 0;
 		EConstraintRowKind m_kind = EConstraintRowKind::Linear;
-		uint8_t m_axis = 0;
+		uint8_t m_slot = 0;
 		EConstraintAxisMode m_mode = EConstraintAxisMode::Free;
 		v8force m_jacobian_a = {};
 		v8force m_jacobian_b = {};
@@ -121,6 +121,7 @@ namespace pr::physics
 		CompiledConstraintEndpoint m_endpoint_b = {};
 		uint32_t m_row_begin = 0;
 		uint32_t m_row_count = 0;
+		uint32_t m_row_identities = 0;
 		float m_break_force = 0.0f;
 		float m_break_torque = 0.0f;
 		float m_friction = 0.0f;
@@ -138,6 +139,6 @@ namespace pr::physics
 		std::vector<CompiledConstraintRow> m_rows;
 	};
 
-	// Resolve endpoints and compile enabled D6 descriptors in stable slot and axis order.
+	// Resolve endpoints and compile enabled, unbroken typed descriptors in stable slot order.
 	CompiledConstraintSet CompileConstraints(ConstraintSet const& constraints, BodyRemap const& remap);
 }

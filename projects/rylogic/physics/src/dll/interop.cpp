@@ -11,6 +11,7 @@
 #include "physics/src/compute/physics_types.h"
 #include "physics/src/dll/context.h"
 #include "physics/src/dll/interop.h"
+#include "physics/src/dll/atmosphere_record.h"
 #include "physics/src/utility/gpu.h"
 #include "physics/src/utility/shader_recipes.h"
 
@@ -178,17 +179,17 @@ namespace
 namespace pr::physics
 {
 	thread_local std::string g_last_error;
+	// Only a retirement failure caused by the current API call is appended to its primary error.
+	thread_local std::exception_ptr g_recovery_failure;
 
-		// Converts expected ABI failures into status codes without allowing exceptions across the C boundary.
-		struct ApiException : std::runtime_error
-		{
-			PhysicsStatus m_status;
-
-			ApiException(PhysicsStatus status, std::string message)
-				: std::runtime_error(std::move(message))
-				, m_status(status)
-			{}
-		};
+	// Only calls through this DLL are observable; the host owns ordering relative to other device-creating modules.
+	struct ProcessDiagnosticsGuard
+	{
+		std::mutex m_mutex;
+		bool m_configured = false;
+		bool m_engine_created = false;
+	};
+	ProcessDiagnosticsGuard g_process_diagnostics_guard;
 
 		// A generation slot retains its generation after object destruction so stale handles remain detectable.
 		template <typename T>
@@ -267,88 +268,6 @@ namespace pr::physics
 			{}
 		};
 
-		// Owns one atmosphere solver, its optional tracers, and the compute queue that steps them independently of the engine step.
-		struct AtmosphereRecord
-		{
-			// The solver and tracers reference 'm_gpu', so it is declared first and destroyed last.
-			Gpu m_gpu;
-			atmosphere::AtmosphereSolver m_solver;
-			std::unique_ptr<atmosphere::AtmosphereTracers> m_tracers;
-			atmosphere::AtmosphereProbes m_probes;
-			atmosphere::AtmosphereSurfaceWind m_surface_wind;
-
-			// The tracer slot holding the particles from the last finished step, or from creation. A step in flight writes a different slot.
-			int m_published_slot;
-
-			// The step in flight on the GPU, if any.
-			GpuJob::RunHandle m_pending;
-
-			// The probe samples of the last finished step.
-			std::vector<atmosphere::AtmosphereProbeSample> m_probe_samples;
-
-			// The surface wind of the last finished step, one per column, or empty when that step did not sample it.
-			std::vector<v2> m_surface_wind_field;
-
-			AtmosphereRecord(ID3D12Device4* device, atmosphere::AtmosphereConfig config, atmosphere::AtmosphereTracerConfig const& tracers, IShaderCache* shader_cache)
-				: m_gpu(device)
-				, m_solver(m_gpu, std::move(config), shader_cache)
-				, m_tracers()
-				, m_probes(m_solver, m_gpu, shader_cache)
-				, m_surface_wind(m_solver, m_gpu, shader_cache)
-				, m_published_slot(-1)
-				, m_pending()
-				, m_probe_samples()
-				, m_surface_wind_field()
-			{
-				// Tracers are optional so field-only atmospheres pay no particle cost.
-				if (tracers.m_particle_count > 0)
-				{
-					m_tracers = std::make_unique<atmosphere::AtmosphereTracers>(m_solver, m_gpu, tracers, shader_cache);
-					m_published_slot = m_tracers->CurrentSlot();
-				}
-			}
-			AtmosphereRecord(AtmosphereRecord&&) = delete;
-			AtmosphereRecord(AtmosphereRecord const&) = delete;
-			AtmosphereRecord& operator=(AtmosphereRecord&&) = delete;
-			AtmosphereRecord& operator=(AtmosphereRecord const&) = delete;
-			~AtmosphereRecord()
-			{
-				// GPU buffers must outlive the work that references them. This may run on any thread, including finalizer cleanup,
-				// so it only waits and never fails.
-				try
-				{
-					if (m_pending)
-						m_gpu.m_job.Abandon(m_pending);
-				}
-				catch (...)
-				{}
-			}
-
-			// True while a submitted step has not been finished.
-			bool Pending() const
-			{
-				return static_cast<bool>(m_pending);
-			}
-
-			// True when the GPU has executed the submitted step, so finishing it will not wait.
-			bool Ready() const
-			{
-				return m_gpu.m_job.m_gsync.CompletedSyncPoint() >= m_pending.m_sync_point;
-			}
-
-			// Wait for the submitted step, then publish the tracer slot, probe samples, and surface wind it wrote.
-			void FinishStep()
-			{
-				m_gpu.m_job.Complete(m_pending);
-				if (m_tracers)
-					m_published_slot = m_tracers->CurrentSlot();
-
-				// Every step replaces its probes and surface wind, possibly with none, so stale samples never describe a later field.
-				m_probe_samples = m_probes.Resolve();
-				m_surface_wind_field = m_surface_wind.Resolve();
-			}
-		};
-
 		// Translate an engine-side contact child index into the ABI's child identity.
 		// The engine indexes convex leaves from zero for every body, so a body with a primitive root would
 		// otherwise be indistinguishable from the first child of a compound.
@@ -404,7 +323,7 @@ namespace pr::physics
 			{
 				std::vector<ConstraintRecord*> m_records;
 				std::vector<ConstraintHandle> m_handles;
-				std::vector<D6ConstraintDesc> m_descs;
+				std::vector<ConstraintDesc> m_descs;
 				std::vector<std::array<PhysicsBodyHandle, 2>> m_body_refs;
 				std::vector<std::array<PhysicsArticulationHandle, 2>> m_articulation_refs;
 			} m_constraint_update;
@@ -534,14 +453,45 @@ namespace pr::physics
 					}
 				};
 
-				// Bounded coupled-solver rejections are post-publication events and require no caller-owned object handles.
-				engine.CoupledConstraintFailures += [this](Engine&, std::span<CoupledConstraintFailureEvent const> events)
+				// Tagged owner rejections share the completed-frame event stream; ordinary slots retain their ABI-owned identity.
+				engine.ConstraintRejections += [this](Engine&, std::span<ConstraintRejectionEvent const> events)
 				{
 					for (auto const& event : events)
 					{
+						auto constraint = PhysicsConstraintHandle{};
+						auto owner = std::int32_t{};
+						auto outcome = std::int32_t{};
+						auto phase = std::int32_t{};
+						switch (event.m_owner)
+						{
+							case EConstraintRejectionOwner::OrdinaryBlock:
+							{
+								auto const iter = m_constraint_handles.find(NativeConstraintKey(ConstraintHandle{event.m_index, event.m_generation}));
+								if (iter == m_constraint_handles.end())
+									throw std::logic_error("Ordinary rejection has no matching ABI constraint handle");
+
+								constraint = iter->second;
+								owner = 0;
+								break;
+							}
+							case EConstraintRejectionOwner::CoupledIsland: { owner = 1; break; }
+							default: { throw std::logic_error("Unknown rejection owner"); }
+						}
+						switch (event.m_outcome)
+						{
+							case EConstraintRejectionOutcome::AdmissionRejected: { outcome = 1; break; }
+							case EConstraintRejectionOutcome::SolveRejected: { outcome = 3; break; }
+							default: { throw std::logic_error("Unknown rejection outcome"); }
+						}
+						switch (event.m_phase)
+						{
+							case EConstraintRejectionPhase::Velocity: { phase = 0; break; }
+							case EConstraintRejectionPhase::Position: { phase = 1; break; }
+							default: { throw std::logic_error("Unknown rejection phase"); }
+						}
 						m_events.push_back(PhysicsEvent{
 							.header = {sizeof(PhysicsEvent), PHYSICS_STRUCT_VERSION},
-							.type = PhysicsEventType::CoupledConstraintFailure,
+							.type = PhysicsEventType::ConstraintRejection,
 							.point_count = 0,
 							.body_a = {},
 							.body_b = {},
@@ -552,17 +502,20 @@ namespace pr::physics
 							.material_b = 0,
 							.child_a = PHYSICS_NO_CHILD,
 							.child_b = PHYSICS_NO_CHILD,
-							.constraint = {},
+							.constraint = constraint,
 							.break_force = 0.0f,
 							.break_torque = 0.0f,
 							.substep_index = event.m_substep_index,
 							.reserved = 0,
-							.failure_flags = event.m_failure_flags,
-							.failure_phase = event.m_phase,
-							.failure_island_index = event.m_island_index,
-							.failure_iteration_count = event.m_iteration_count,
-							.failure_relaxation = event.m_relaxation,
-							.failure_merit_change = event.m_merit_change,
+							.rejection_owner = owner,
+							.rejection_index = event.m_index,
+							.rejection_generation = event.m_generation,
+							.rejection_outcome = outcome,
+							.rejection_phase = phase,
+							.rejection_flags = event.m_failure_flags,
+							.rejection_iteration_count = event.m_iteration_count,
+							.rejection_relaxation = event.m_relaxation,
+							.rejection_merit_change = event.m_merit_change,
 						});
 					}
 				};
@@ -630,6 +583,35 @@ namespace pr::physics
 				generation = 1;
 		}
 
+		// Preserve the primary error before formatting an optional secondary recovery reason.
+		void RecordApiError(char const* message) noexcept
+		{
+			try
+			{
+				g_last_error = message;
+				if (g_recovery_failure == nullptr)
+					return;
+
+				g_last_error.append("; recovery failed: ");
+				try
+				{
+					std::rethrow_exception(g_recovery_failure);
+				}
+				catch (std::exception const& ex)
+				{
+					g_last_error.append(ex.what());
+				}
+				catch (...)
+				{
+					g_last_error.append("unknown failure while retiring GPU work");
+				}
+			}
+			catch (...)
+			{
+				// Allocation failure may truncate diagnostic text, but must not escape the noexcept ABI error boundary.
+			}
+		}
+
 		// Invoke an ABI implementation with complete C++ exception containment.
 		template <typename Func>
 		PhysicsStatus ApiCall(Func&& func) noexcept
@@ -637,28 +619,47 @@ namespace pr::physics
 			try
 			{
 				g_last_error.clear();
+				g_recovery_failure = nullptr;
 				func();
 				return PhysicsStatus::Success;
 			}
 			catch (ApiException const& ex)
 			{
-				g_last_error = ex.what();
+				RecordApiError(ex.what());
 				return ex.m_status;
 			}
 			catch (compute::DeviceRemovedException const& ex)
 			{
-				g_last_error = ex.what();
+				RecordApiError(ex.what());
 				return PhysicsStatus::DeviceRemoved;
 			}
 			catch (std::exception const& ex)
 			{
-				g_last_error = ex.what();
+				RecordApiError(ex.what());
 				return PhysicsStatus::InternalError;
 			}
 			catch (...)
 			{
-				g_last_error = "Unknown native physics failure";
+				RecordApiError("Unknown native physics failure");
 				return PhysicsStatus::InternalError;
+			}
+		}
+
+		// Attribute only a new retirement failure to the operation whose primary error is being reported.
+		template <typename Func>
+		void ReportRecoveryFailure(Engine const& engine, Func&& func)
+		{
+			auto const previous = engine.RecoveryFailure();
+			try
+			{
+				func();
+			}
+			catch (...)
+			{
+				if (auto failure = engine.RecoveryFailure(); failure != nullptr && failure != previous)
+					g_recovery_failure = failure;
+
+				throw;
 			}
 		}
 
@@ -1002,7 +1003,6 @@ namespace pr::physics
 			config.selective_refresh_aabb_margin = value.selective_refresh_aabb_margin;
 			config.world_collision_layer = value.world_collision_layer;
 			config.world_collision_mask = value.world_collision_mask;
-			config.device_debug = value.device_debug != 0;
 			return config;
 		}
 
@@ -1063,7 +1063,6 @@ namespace pr::physics
 			value.selective_refresh_aabb_margin = config.selective_refresh_aabb_margin;
 			value.world_collision_layer = config.world_collision_layer;
 			value.world_collision_mask = config.world_collision_mask;
-			value.device_debug = config.device_debug;
 		}
 
 		// Translate shared optional-lane work and storage costs to fixed-width ABI fields.
@@ -1135,7 +1134,7 @@ namespace pr::physics
 				.event_capacity = value.m_event_capacity,
 				.articulation_count = value.m_articulation_count,
 				.constraint_break_count = value.m_constraint_break_count,
-				.coupled_failure_count = value.m_coupled_failure_count,
+				.constraint_rejection_slot_count = value.m_constraint_rejection_slot_count,
 				.dispatch_count = value.m_dispatch_count,
 				.readback_count = value.m_readback_count,
 				.reserved1 = 0,
@@ -1148,8 +1147,19 @@ namespace pr::physics
 		// Translate terminal bounded failure details without exposing native enum layout.
 		PhysicsStepFailureDiagnostics ToAbi(StepFailureStats const& value)
 		{
+			auto reason = std::int32_t{};
+			switch (value.m_reason)
+			{
+				case EStepFailure::None: { reason = 0; break; }
+				case EStepFailure::CollisionPairCapacity: { reason = 1; break; }
+				case EStepFailure::CollisionContactCapacity: { reason = 2; break; }
+				case EStepFailure::ArticulationIntegration: { reason = 3; break; }
+				case EStepFailure::ConstraintNumerics: { reason = 5; break; }
+				case EStepFailure::ContactNumerics: { reason = 6; break; }
+				default: { throw std::logic_error("Unknown terminal step failure"); }
+			}
 			return PhysicsStepFailureDiagnostics{
-				.reason = static_cast<std::int32_t>(value.m_reason),
+				.reason = reason,
 				.substep_index = value.m_substep_index,
 				.item_index = value.m_item_index,
 				.status = value.m_status,
@@ -1664,14 +1674,13 @@ namespace pr::physics
 		}
 
 		// Resolve and validate one complete D6 descriptor before mutating persistent storage or references.
-		D6ConstraintDesc ToNative(EngineRecord& engine, PhysicsD6Constraint const& value, std::array<PhysicsBodyHandle, 2>& body_refs, std::array<PhysicsArticulationHandle, 2>& articulation_refs)
+		ConstraintDesc ToNative(EngineRecord& engine, PhysicsD6Constraint const& value, std::array<PhysicsBodyHandle, 2>& body_refs, std::array<PhysicsArticulationHandle, 2>& articulation_refs)
 		{
 			RequireKnownFlags(value.flags, static_cast<std::uint32_t>(PhysicsConstraintFlags::Enabled) | static_cast<std::uint32_t>(PhysicsConstraintFlags::CollideConnected), "Constraint flags");
-			auto result = D6ConstraintDesc{
+			auto result = ConstraintDesc{
 				.m_frame_a = ToNative(engine, value.frame_a, body_refs[0], articulation_refs[0]),
 				.m_frame_b = ToNative(engine, value.frame_b, body_refs[1], articulation_refs[1]),
-				.m_linear = {},
-				.m_angular = {},
+				.m_parameters = D6ConstraintParameters{},
 				.m_break_force = value.break_force,
 				.m_break_torque = value.break_torque,
 				.m_collide_connected = HasFlag(value.flags, PhysicsConstraintFlags::CollideConnected),
@@ -1679,8 +1688,8 @@ namespace pr::physics
 			};
 			for (auto axis_index = 0; axis_index != 3; ++axis_index)
 			{
-				result.m_linear[axis_index] = ToNative(value.linear[axis_index]);
-				result.m_angular[axis_index] = ToNative(value.angular[axis_index]);
+				result.D6().m_linear[axis_index] = ToNative(value.linear[axis_index]);
+				result.D6().m_angular[axis_index] = ToNative(value.angular[axis_index]);
 			}
 			return result;
 		}
@@ -2035,10 +2044,23 @@ namespace pr::physics
 		{
 			RequireOwner(engine);
 			RequireIdle(engine);
+			if (engine.m_engine->RecoveryRequired())
+				throw ApiException(PhysicsStatus::InternalError, "Call Physics_EngineRetireInterruptedWork before submitting another frame");
+
 			if (!(elapsed_seconds > 0.0f) || !std::isfinite(elapsed_seconds))
 				throw ApiException(PhysicsStatus::InvalidArgument, "Step duration must be finite and positive");
 			if (substep_count == 0 || substep_count > static_cast<std::uint32_t>(engine.m_engine->Config().max_internal_substeps))
 				throw ApiException(PhysicsStatus::InvalidArgument, "Internal substep count is outside the configured bound");
+
+			// Reject represented-dt underflow before commands, one-shot targets, events, or counters are consumed.
+			try
+			{
+				Engine::ValidateStepTiming(elapsed_seconds, static_cast<int>(substep_count));
+			}
+			catch (std::invalid_argument const& error)
+			{
+				throw ApiException(PhysicsStatus::InvalidArgument, error.what());
+			}
 
 			ApplyCommands(engine, commands, command_count);
 
@@ -2075,14 +2097,17 @@ namespace pr::physics
 				});
 			}
 
-			engine.m_engine->BeginStep(Engine::StepInput{
-				.m_bodies = engine.m_step_bodies,
-				.m_articulations = engine.m_step_articulations,
-				.m_constraints = engine.m_constraint_set.Count() != 0 ? &engine.m_constraint_set : nullptr,
-				.m_collision_ignore_pairs = engine.m_step_collision_ignore_pairs,
-				.m_elapsed_seconds = elapsed_seconds,
-				.m_substep_count = static_cast<int>(substep_count),
-				.m_time_s = absolute_time_seconds,
+			ReportRecoveryFailure(*engine.m_engine, [&]
+			{
+				engine.m_engine->BeginStep(Engine::StepInput{
+					.m_bodies = engine.m_step_bodies,
+					.m_articulations = engine.m_step_articulations,
+					.m_constraints = engine.m_constraint_set.Count() != 0 ? &engine.m_constraint_set : nullptr,
+					.m_collision_ignore_pairs = engine.m_step_collision_ignore_pairs,
+					.m_elapsed_seconds = elapsed_seconds,
+					.m_substep_count = static_cast<int>(substep_count),
+					.m_time_s = absolute_time_seconds,
+				});
 			});
 			++engine.m_submitted_step;
 		}
@@ -2095,7 +2120,10 @@ namespace pr::physics
 
 			try
 			{
-				engine.m_engine->CompleteStep();
+				ReportRecoveryFailure(*engine.m_engine, [&]
+				{
+					engine.m_engine->CompleteStep();
+				});
 			}
 			catch (...)
 			{
@@ -2444,6 +2472,40 @@ extern "C"
 		return PHYSICS_API_VERSION;
 	}
 
+	// Apply startup diagnostics without requiring a context or creating a device.
+	PhysicsStatus __stdcall Physics_ConfigureProcessDiagnostics(pr::physics::EProcessDiagnostics mode)
+	{
+		return pr::physics::ApiCall([&]
+		{
+			// Validate the wire value before consuming the one startup request.
+			static_assert(static_cast<int>(pr::physics::EProcessDiagnostics::None) == static_cast<int>(pr::compute::EProcessDiagnostics::None));
+			static_assert(static_cast<int>(pr::physics::EProcessDiagnostics::DebugLayer) == static_cast<int>(pr::compute::EProcessDiagnostics::DebugLayer));
+			static_assert(static_cast<int>(pr::physics::EProcessDiagnostics::GpuValidation) == static_cast<int>(pr::compute::EProcessDiagnostics::GpuValidation));
+			switch (mode)
+			{
+				case pr::physics::EProcessDiagnostics::None:
+				case pr::physics::EProcessDiagnostics::DebugLayer:
+				case pr::physics::EProcessDiagnostics::GpuValidation:
+				{
+					break;
+				}
+				default:
+				{
+					throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Unknown process diagnostics mode");
+				}
+			}
+
+			// Serialize the local startup call with the first Engine creation attempt.
+			auto& guard = pr::physics::g_process_diagnostics_guard;
+			auto lock = std::lock_guard{guard.m_mutex};
+			if (guard.m_configured || guard.m_engine_created)
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Configure process diagnostics once, before any Engine creation");
+
+			pr::compute::ConfigureProcessDiagnostics(static_cast<pr::compute::EProcessDiagnostics>(mode));
+			guard.m_configured = true;
+		});
+	}
+
 	PhysicsStatus __stdcall Physics_StructSize(PhysicsStructId struct_id, std::uint32_t* size)
 	{
 		return pr::physics::ApiCall([&]
@@ -2565,6 +2627,13 @@ extern "C"
 			if (engine == nullptr)
 				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Engine output pointer is null");
 
+			// Construction can leave a device alive even if a later allocation fails.
+			{
+				auto& guard = pr::physics::g_process_diagnostics_guard;
+				auto guard_lock = std::lock_guard{guard.m_mutex};
+				guard.m_engine_created = true;
+			}
+
 			auto native_config = config != nullptr
 				? pr::physics::ToNative(pr::physics::RequireStruct(config))
 				: pr::physics::EngineConfig{};
@@ -2684,6 +2753,19 @@ extern "C"
 		}
 		catch (...)
 		{}
+	}
+
+	// Explicit owner-thread recovery never replays a failed frame or conceals another operation's primary error.
+	PhysicsStatus __stdcall Physics_EngineRetireInterruptedWork(PhysicsEngineHandle engine)
+	{
+		return pr::physics::ApiCall([&]
+		{
+			auto scope = pr::physics::EngineScope(engine);
+			auto& record = *scope;
+			pr::physics::RequireOwner(record);
+			pr::physics::RequireIdle(record);
+			record.m_engine->RetireInterruptedWork();
+		});
 	}
 
 	PhysicsStatus __stdcall Physics_EngineDeviceLeaseAcquire(PhysicsEngineHandle engine, void** d3d12_device)
@@ -4761,65 +4843,7 @@ extern "C"
 			auto& record = *scope;
 			pr::physics::RequireOwner(record);
 			auto& object = pr::physics::RequireAtmosphere(record, atmosphere);
-			if (object.Pending())
-				throw pr::physics::ApiException(PhysicsStatus::StepPending, "An atmosphere step is already in flight");
-
-			// The heat-source pointer must agree with its count. The solver checks the count limit.
-			auto const& s = pr::physics::RequireStruct(step);
-			if (s.heat_source_count < 0 || (s.heat_source_count != 0) != (s.heat_sources != nullptr))
-				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Atmosphere heat source pointer and count disagree");
-
-			// Copy the sources into the solver's layout.
-			auto heat_sources = std::vector<pr::physics::atmosphere::AtmosphereHeatSource>{};
-			heat_sources.reserve(static_cast<size_t>(s.heat_source_count));
-			for (auto const& h : std::span{ s.heat_sources, static_cast<size_t>(s.heat_source_count) })
-			{
-				if (h.centre.w != 1.0f)
-					throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Atmosphere heat source centre is not a point");
-
-				heat_sources.push_back(pr::physics::atmosphere::AtmosphereHeatSource{
-					.m_centre = pr::v4{ h.centre.x, h.centre.y, h.centre.z, h.centre.w },
-					.m_radius = h.radius,
-					.m_heating_rate = h.heating_rate,
-					.m_target_temperature = h.target_temperature,
-					.m_relaxation_rate = h.relaxation_rate,
-				});
-			}
-
-			// Probe points enter the engine here, so reject anything the sampler cannot accept before any work is recorded.
-			if (s.probe_count < 0 || s.probe_count > pr::physics::atmosphere::AtmosphereProbes::MaxPoints || (s.probe_count != 0) != (s.probes != nullptr))
-				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Atmosphere probe pointer and count disagree, or the count exceeds the limit");
-			if (!std::isfinite(s.surface_wind_height) || s.surface_wind_height < 0.0f)
-				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Atmosphere surface wind height must be finite and not negative");
-
-			auto probes = std::vector<pr::v4>{};
-			probes.reserve(static_cast<size_t>(s.probe_count));
-			for (auto const& p : std::span{ s.probes, static_cast<size_t>(s.probe_count) })
-			{
-				if (p.w != 1.0f || !std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z))
-					throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Invalid atmosphere probe point");
-
-				probes.push_back(pr::v4{ p.x, p.y, p.z, p.w });
-			}
-
-			// Record the step, tracer advection, probe samples, and surface wind. The finishing call collects the copies. The solver validates before recording.
-			auto& job = object.m_gpu.m_job;
-			try
-			{
-				object.m_solver.Step(job, s.dt, heat_sources);
-			}
-			catch (std::invalid_argument const& ex)
-			{
-				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, ex.what());
-			}
-			if (object.m_tracers)
-				object.m_tracers->Advect(job, s.dt);
-
-			object.m_probes.Record(job, probes);
-			if (s.surface_wind_height > 0.0f)
-				object.m_surface_wind.Record(job, s.surface_wind_height);
-
-			object.m_pending = job.Submit();
+			object.BeginStep(pr::physics::RequireStruct(step));
 		});
 	}
 
@@ -4834,11 +4858,7 @@ extern "C"
 			if (idle == nullptr)
 				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Atmosphere idle output pointer is null");
 
-			// Finishing a step that the GPU has already executed does not wait.
-			if (object.Pending() && object.Ready())
-				object.FinishStep();
-
-			*idle = object.Pending() ? 0 : 1;
+			*idle = object.PollStep() ? 1 : 0;
 		});
 	}
 
@@ -4854,22 +4874,7 @@ extern "C"
 			if (required == nullptr)
 				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Probe required-count pointer is null");
 
-			// Report the size first so a sizing call succeeds with no buffer.
-			auto const count = static_cast<std::uint32_t>(object.m_probe_samples.size());
-			*required = count;
-			if (capacity < count || (count != 0 && samples == nullptr))
-				throw pr::physics::ApiException(PhysicsStatus::BufferTooSmall, "Probe sample buffer is too small");
-
-			// Convert to the ABI layout.
-			for (auto i = std::uint32_t{}; i != count; ++i)
-			{
-				auto const& p = object.m_probe_samples[i];
-				samples[i] = pr::physics::AtmosphereProbeSample{
-					.velocity = { p.m_velocity.x, p.m_velocity.y, p.m_velocity.z, 0.0f },
-					.temperature = p.m_temperature,
-					.inside = p.m_inside ? 1 : 0,
-				};
-			}
+			object.CopyProbes(samples, capacity, *required);
 		});
 	}
 
@@ -4885,15 +4890,7 @@ extern "C"
 			if (required == nullptr)
 				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Surface wind required-count pointer is null");
 
-			// Report the size first so a sizing call succeeds with no buffer.
-			auto const count = static_cast<std::uint32_t>(object.m_surface_wind_field.size());
-			*required = count;
-			if (capacity < count || (count != 0 && wind == nullptr))
-				throw pr::physics::ApiException(PhysicsStatus::BufferTooSmall, "Surface wind buffer is too small");
-
-			// Convert to the ABI layout.
-			for (auto i = std::uint32_t{}; i != count; ++i)
-				wind[i] = pr::physics::Vector2{ object.m_surface_wind_field[i].x, object.m_surface_wind_field[i].y };
+			object.CopySurfaceWind(wind, capacity, *required);
 		});
 	}
 
@@ -4905,10 +4902,7 @@ extern "C"
 			auto& record = *scope;
 			pr::physics::RequireOwner(record);
 			auto& object = pr::physics::RequireAtmosphere(record, atmosphere);
-			if (!object.Pending())
-				throw pr::physics::ApiException(PhysicsStatus::NoStepPending, "No atmosphere step is in flight");
-
-			object.FinishStep();
+			object.CompleteStep();
 		});
 	}
 
@@ -4920,22 +4914,7 @@ extern "C"
 			auto& record = *scope;
 			pr::physics::RequireOwner(record);
 			auto& object = pr::physics::RequireAtmosphere(record, atmosphere);
-			if (object.Pending())
-				throw pr::physics::ApiException(PhysicsStatus::StepPending, "Atmosphere floors cannot change while a step is in flight");
-			if (count < 0 || (count != 0) != (floor_heights != nullptr))
-				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Atmosphere floor pointer and count disagree");
-
-			// Remapping records GPU work, which is run to completion here so the next step starts from the new layers.
-			auto& job = object.m_gpu.m_job;
-			try
-			{
-				object.m_solver.RemapFloors(job, std::span{ floor_heights, static_cast<size_t>(count) });
-			}
-			catch (std::invalid_argument const& ex)
-			{
-				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, ex.what());
-			}
-			job.Run();
+			object.SetFloors(floor_heights, count);
 		});
 	}
 
@@ -4948,17 +4927,7 @@ extern "C"
 			auto& record = *scope;
 			pr::physics::RequireOwner(record);
 			auto& object = pr::physics::RequireAtmosphere(record, atmosphere);
-			if (count < 0 || (count != 0) != (floor_temperatures != nullptr))
-				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Atmosphere floor temperature pointer and count disagree");
-
-			try
-			{
-				object.m_solver.SetFloorTemperatures(std::span{ floor_temperatures, static_cast<size_t>(count) });
-			}
-			catch (std::invalid_argument const& ex)
-			{
-				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, ex.what());
-			}
+			object.SetFloorTemperatures(floor_temperatures, count);
 		});
 	}
 
@@ -4971,30 +4940,7 @@ extern "C"
 			auto& record = *scope;
 			pr::physics::RequireOwner(record);
 			auto& object = pr::physics::RequireAtmosphere(record, atmosphere);
-			if (count < 0 || (count != 0) != (outside_air != nullptr))
-				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Atmosphere outside air pointer and count disagree");
-
-			// Convert to the solver's layout, rejecting non-zero reserved fields.
-			auto air = std::vector<pr::physics::atmosphere::AtmosphereOutsideAir>(static_cast<size_t>(count));
-			for (auto i = 0; i != count; ++i)
-			{
-				auto const& a = outside_air[i];
-				if (a.reserved != 0)
-					throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Invalid atmosphere outside air reserved field");
-
-				air[i] = pr::physics::atmosphere::AtmosphereOutsideAir{
-					.m_wind = pr::v2{ a.wind.x, a.wind.y },
-					.m_temperature_offset = a.temperature_offset,
-				};
-			}
-			try
-			{
-				object.m_solver.SetOutsideAir(air);
-			}
-			catch (std::invalid_argument const& ex)
-			{
-				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, ex.what());
-			}
+			object.SetOutsideAir(outside_air, count);
 		});
 	}
 
@@ -5007,32 +4953,10 @@ extern "C"
 			auto& record = *scope;
 			pr::physics::RequireOwner(record);
 			auto& object = pr::physics::RequireAtmosphere(record, atmosphere);
-			if (object.Pending())
-				throw pr::physics::ApiException(PhysicsStatus::StepPending, "Atmosphere tracers cannot be read while a step is in flight");
 			if (required == nullptr)
 				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Tracer required-count pointer is null");
 
-			// Report the size before the read back so a sizing call does not touch the GPU.
-			auto const count = object.m_tracers ? static_cast<std::uint32_t>(object.m_tracers->Config().m_particle_count) : 0U;
-			*required = count;
-			if (capacity < count || (count != 0 && particles == nullptr))
-				throw pr::physics::ApiException(PhysicsStatus::BufferTooSmall, "Tracer buffer is too small");
-			if (count == 0)
-				return;
-
-			// No step is in flight, so the current slot is the published one.
-			auto const source = object.m_tracers->ReadBack(object.m_gpu.m_job);
-			for (auto i = std::uint32_t{}; i != count; ++i)
-			{
-				auto const& p = source[i];
-				particles[i] = pr::physics::AtmosphereTracerParticle{
-					.position = { p.m_position.x, p.m_position.y, p.m_position.z, 1.0f },
-					.temperature = p.m_temperature,
-					.age = p.m_age,
-					.speed = p.m_speed,
-					.reserved = 0.0f,
-				};
-			}
+			object.CopyTracers(particles, capacity, *required);
 		});
 	}
 
@@ -5047,21 +4971,7 @@ extern "C"
 			auto& object = pr::physics::RequireAtmosphere(record, atmosphere);
 			if (slot == nullptr)
 				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Tracer slot pointer is null");
-			if (!object.m_tracers)
-				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Atmosphere has no tracers");
-
-			// Hold before handing out the reference, so the hold and the COM reference are both owned by the caller on return.
-			auto const index = object.m_published_slot;
-			auto* resource = object.m_tracers->Slot(index);
-			object.m_tracers->Hold(index);
-			resource->AddRef();
-			*slot = pr::physics::AtmosphereTracerSlot{
-				.resource = resource,
-				.slot = index,
-				.count = static_cast<std::uint32_t>(object.m_tracers->Config().m_particle_count),
-				.stride = static_cast<std::uint32_t>(sizeof(pr::physics::AtmosphereTracerParticle)),
-				.reserved = 0,
-			};
+			object.AcquireTracers(*slot);
 		});
 	}
 
@@ -5074,17 +4984,7 @@ extern "C"
 			auto& record = *scope;
 			pr::physics::RequireOwner(record);
 			auto& object = pr::physics::RequireAtmosphere(record, atmosphere);
-			if (!object.m_tracers)
-				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Atmosphere has no tracers");
-
-			try
-			{
-				object.m_tracers->Release(slot, static_cast<ID3D12Fence*>(fence), value);
-			}
-			catch (std::logic_error const& ex)
-			{
-				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, ex.what());
-			}
+			object.ReleaseTracers(slot, static_cast<ID3D12Fence*>(fence), value);
 		});
 	}
 
@@ -5096,40 +4996,12 @@ extern "C"
 			auto& record = *scope;
 			pr::physics::RequireOwner(record);
 			auto& object = pr::physics::RequireAtmosphere(record, atmosphere);
-			if (object.Pending())
-				throw pr::physics::ApiException(PhysicsStatus::StepPending, "Atmosphere cells cannot be read while a step is in flight");
 			if (required == nullptr)
 				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Cell required-count pointer is null");
 			if (stats != nullptr)
 				(void)pr::physics::RequireOutputStruct(stats);
 
-			// Report the size before the readback so a sizing call does not touch the GPU.
-			auto const count = static_cast<std::uint32_t>(object.m_solver.Config().m_grid.CellCount());
-			*required = count;
-			if (capacity < count || cells == nullptr)
-				throw pr::physics::ApiException(PhysicsStatus::BufferTooSmall, "Cell buffer is too small");
-
-			// Read the staggered field and convert it to cell-centre samples.
-			auto const state = object.m_solver.ReadBack(object.m_gpu.m_job);
-			auto const states = object.m_solver.CellStates(state);
-			for (auto i = std::uint32_t{}; i != count; ++i)
-			{
-				auto const& c = states[i];
-				cells[i] = pr::physics::AtmosphereCellState{
-					.velocity = { c.m_velocity.x, c.m_velocity.y, c.m_velocity.z, 0.0f },
-					.temperature = c.m_temperature,
-				};
-			}
-			if (stats != nullptr)
-			{
-				auto const s = object.m_solver.Stats(state);
-				stats->max_speed = s.m_max_speed;
-				stats->max_divergence = s.m_max_divergence;
-				stats->rms_divergence = s.m_rms_divergence;
-				stats->mean_top_temperature = s.m_mean_top_temperature;
-				stats->peak_vertical_velocity = s.m_peak_vertical_velocity;
-				stats->reserved = 0;
-			}
+			object.CopyCellStates(cells, capacity, *required, stats);
 		});
 	}
 }

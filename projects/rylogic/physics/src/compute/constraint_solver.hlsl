@@ -1,23 +1,19 @@
 //*********************************************
-// Physics Engine — Persistent D6 Constraint Solver
+// Physics Engine — Persistent Typed Constraint Solver
 //  Copyright (C) Rylogic Ltd 2026
 //*********************************************
 // GPU pass order:
 //   1. CSCompileConstraints
 //   2. CSResetConstraintColours, CSAssignConstraintColourLevel once per schedule level, then CSFinishConstraintColours
-//   3. CSApplyConstraintWarmStart, once per colour
-//   4. CSClearConstraintPseudoVelocity
-//   5. CSPrepareConstraintPositionSolve, once before the position iterations
-//   6. CSSolveConstraintPosition, fixed iterations and once per colour
-//   7. CSApplyConstraintPosition
-//   8. CSPrepareConstraintVelocitySolve, once after every transform change and before the velocity iterations
-//   9. CSSolveConstraintVelocity, fixed iterations and once per colour
+//   Position: explicit pseudo clear, position inverse, configured coloured sweeps, apply once.
+//   Velocity: current-pose row compilation and inverse, then staged commits in dependency-level order.
+//   The resolver selects the established phase order; each physical compile/inverse pair describes the same pose.
 //
 // Resource layout:
 //   b0: cbConstraintSolver                         - per-dispatch constants
 //   u0: RWStructuredBuffer<GpuRigidBody>           - integrated body state
 //   t0: StructuredBuffer<GpuConstraintEndpoint>    - stable-slot endpoint metadata
-//   t1: StructuredBuffer<GpuD6ConstraintDesc>      - stable-slot D6 parameters
+//   t1: StructuredBuffer<GpuConstraintDesc>        - stable-slot typed parameters
 //   u1: RWStructuredBuffer<GpuConstraintBlock>     - stable-slot runtime blocks
 //   u2: RWStructuredBuffer<GpuConstraintRow>       - six canonical rows per stable slot
 //   u3: RWStructuredBuffer<GpuConstraintSolverState> - frame-local colour fallback and numerical-failure latch
@@ -33,9 +29,11 @@
 
 #include "pr/hlsl/core.hlsli"
 #include "pr/hlsl/quaternions.hlsli"
+#include "physics/src/compute/constraint_coordinates.hlsli"
 #include "pr/hlsl/spatial_algebra.hlsli"
 #include "physics/src/compute/physics_types.hlsli"
 #include "physics/src/compute/body_twist.hlsli"
+#include "physics/src/compute/constraint_transaction.hlsli"
 
 #ifdef __cplusplus
 namespace pr::physics {
@@ -56,21 +54,21 @@ struct cbConstraintSolver
 	float max_position_speed;
 	float regularization;
 	float warm_start_factor;
-	float warm_start_scale;
-	int retain_current_impulses;
+	int coupled_island_count;
+	int pad0;
 	int breakable_count;
 	int break_substep_index;
 	int schedule_begin;
 	int schedule_count;
-	int pad0;
-	int pad1;
+	uint epoch_low;
+	uint epoch_high;
 	int pad2;
 };
 
 ConstantBuffer<cbConstraintSolver> resource(g, b0);
 RWStructuredBuffer<GpuRigidBody> resource(g_constraint_bodies, u0);
 StructuredBuffer<GpuConstraintEndpoint> resource(g_endpoints, t0);
-StructuredBuffer<GpuD6ConstraintDesc> resource(g_descriptors, t1);
+StructuredBuffer<GpuConstraintDesc> resource(g_descriptors, t1);
 RWStructuredBuffer<GpuConstraintBlock> resource(g_blocks, u1);
 RWStructuredBuffer<GpuConstraintRow> resource(g_rows, u2);
 RWStructuredBuffer<GpuConstraintSolverState> resource(g_constraint_state, u3);
@@ -80,6 +78,12 @@ RWStructuredBuffer<DispatchArguments> resource(g_constraint_colour_dispatch, u6)
 RWStructuredBuffer<GpuConstraintSolveCache> resource(g_solve_cache, u7);
 StructuredBuffer<GpuConstraintColourTask> resource(g_colour_schedule, t2);
 RWStructuredBuffer<uint2> resource(g_colour_masks, u8);
+RWStructuredBuffer<GpuConstraintRigidRecord> resource(g_rigid_records, u9);
+RWStructuredBuffer<uint> resource(g_transaction_results, u10);
+RWStructuredBuffer<GpuConstraintRejectionState> resource(g_rejections, u11);
+RWStructuredBuffer<GpuConstraintAcceptance> resource(g_coupled_acceptance, u12);
+RWStructuredBuffer<GpuConstraintAcceptedRows> resource(g_coupled_accepted_rows, u13);
+StructuredBuffer<GpuCoupledConstraintBlockTopology> resource(g_coupled_topology, t3);
 
 #define PR_CONSTRAINT_SOLVER_OPS_CPP_NAMESPACE constraint_solver_ops_detail
 #include "physics/src/compute/constraint_solver_ops.hlsli"
@@ -131,32 +135,21 @@ float4x4 ConstraintFrameToWorld(GpuConstraintFrame frame, int body_idx)
 	return body_idx >= 0 ? mul(local, g_constraint_bodies[body_idx].o2w) : local;
 }
 
-// Return a finite scale for a retained physical impulse across ordinary timestep changes.
-float ConstraintWarmStartScale()
-{
-	if (g.retain_current_impulses != 0)
-		return 1.0f;
-
-	return isfinite(g.warm_start_scale) && g.warm_start_scale > 0.0f ? g.warm_start_scale : 0.0f;
-}
-
 // Compile one canonical scalar row and its activity, returning false when soft coefficients are not representable.
 bool CompileConstraintRow(
 	uint slot_idx,
 	uint axis_idx,
 	GpuConstraintAxisDesc axis,
+	bool is_linear,
 	float3 axis_ws,
 	float3 anchor_offset_a,
 	float3 anchor_offset_b,
 	float position,
-	uint old_state,
-	bool reset_warm_start,
 	out_(uint) state,
 	out_(bool) velocity_active,
 	out_(bool) position_active)
 {
 	uint row_idx = slot_idx * GpuConstraintRowsPerBlock + axis_idx;
-	GpuConstraintRow old_row = g_rows[row_idx];
 	GpuConstraintRow row = EmptyConstraintRow();
 
 	float position_error;
@@ -168,8 +161,7 @@ bool CompileConstraintRow(
 		axis.stiffness == 0.0f &&
 		axis.damping == 0.0f;
 
-	// Canonical linear rows precede angular rows and use the CPU compiler's endpoint signs.
-	bool is_linear = axis_idx < 3u;
+	// Physical row kind is independent of the persistent slot number.
 	if (is_linear)
 	{
 		row.jacobian_a_ang = float4(-cross(anchor_offset_a, axis_ws), 0.0f);
@@ -203,20 +195,16 @@ bool CompileConstraintRow(
 	float bias = 0.0f;
 	bool valid = !velocity_active || ConstraintSoftParameters(g.timestep, axis.stiffness, axis.damping, position_error, gamma, bias);
 
-	// A compatible cached impulse is only a feasible starting point; the solve applies the response-metric projection.
+	// Accepted ownership supplies provisional guesses later; geometry compilation never reads a previous prepared coefficient.
 	float max_impulse = max(axis.max_force * g.timestep, 0.0f);
 	float2 bounds = ConstraintImpulseBounds(state, max_impulse);
-	float retained = 0.0f;
-	if (!reset_warm_start && state == old_state && velocity_active)
-		retained = clamp(old_row.bounds.z * ConstraintWarmStartScale(), bounds.x, bounds.y);
-
 	row.solve = float4(position_error, axis.mode == GpuConstraintAxisMode_Driven ? axis.target_velocity : 0.0f, bias, gamma);
-	row.bounds = float4(bounds, retained, 0.0f);
+	row.bounds = float4(bounds, 0.0f, 0.0f);
 	g_rows[row_idx] = row;
 	return valid;
 }
 
-// Compile one stable D6 slot into fixed canonical runtime storage.
+// Compile one stable typed constraint slot into fixed canonical runtime storage.
 numthreads(CSCompileConstraints, ConstraintThreadCount, 1, 1)
 void CSCompileConstraints(int3 DTID(dtid))
 {
@@ -225,7 +213,7 @@ void CSCompileConstraints(int3 DTID(dtid))
 
 	uint slot_idx = (uint)dtid.x;
 	GpuConstraintEndpoint endpoint = g_endpoints[slot_idx];
-	GpuD6ConstraintDesc desc = g_descriptors[slot_idx];
+	GpuConstraintDesc desc = g_descriptors[slot_idx];
 	GpuConstraintBlock old_block = g_blocks[slot_idx];
 	GpuConstraintBlock block = EmptyConstraintBlock();
 	block.body_idx_a = endpoint.body_idx_a;
@@ -253,7 +241,7 @@ void CSCompileConstraints(int3 DTID(dtid))
 		return;
 	}
 
-	bool any_non_free = false;
+	bool any_non_free = desc.type != GpuConstraintType_D6;
 	for (uint axis_idx = 0; axis_idx != GpuConstraintRowsPerBlock; ++axis_idx)
 		any_non_free = any_non_free || desc.axes[axis_idx].mode != GpuConstraintAxisMode_Free;
 	if (!any_non_free)
@@ -270,29 +258,69 @@ void CSCompileConstraints(int3 DTID(dtid))
 	float4 quat_a = quat_from_float3x3((float3x3)frame_a);
 	float4 quat_b = quat_from_float3x3((float3x3)frame_b);
 	float3 angular_error = quat_rotation_vector(quat_a, quat_b);
+	SphericalAngularRows spherical_rows;
+	switch (desc.type)
+	{
+		case GpuConstraintType_D6: { break; }
+		case GpuConstraintType_SphericalAngular:
+		{
+			// Shared geometry preserves independent limit faces and physical damping rows.
+			if (!PrepareSphericalAngularRows(quat_a, quat_b, desc.swing_limits, desc.twist_limits, desc.angular_damping, spherical_rows))
+				block.flags |= ConstraintBlockFlags_NumericalFailure;
+
+			block.row_identities = spherical_rows.m_identities;
+			break;
+		}
+		default:
+		{
+			// Unsupported descriptor kinds fail the frame rather than being interpreted as an all-free D6.
+			block.flags |= ConstraintBlockFlags_NumericalFailure;
+			break;
+		}
+	}
 	float3 anchor_offset_a = endpoint.body_idx_a >= 0 ? frame_a[3].xyz - ConstraintCentreOfMass(endpoint.body_idx_a) : float3(0, 0, 0);
 	float3 anchor_offset_b = endpoint.body_idx_b >= 0 ? frame_b[3].xyz - ConstraintCentreOfMass(endpoint.body_idx_b) : float3(0, 0, 0);
 	bool reset_warm_start =
-		g.retain_current_impulses == 0 &&
-		(
-			AllSet(endpoint.flags, GpuConstraintEndpointFlags_ResetWarmStart) ||
-			ConstraintBodyResetsWarmStart(endpoint.body_idx_a) ||
-			ConstraintBodyResetsWarmStart(endpoint.body_idx_b)
-		);
+		AllSet(endpoint.flags, GpuConstraintEndpointFlags_ResetWarmStart) ||
+		ConstraintBodyResetsWarmStart(endpoint.body_idx_a) ||
+		ConstraintBodyResetsWarmStart(endpoint.body_idx_b);
 
-	// Frame A defines all six canonical world axes, matching the CPU compiler.
+	// Each primitive defines stable slots; physical angular rows need not occupy slots three through five.
 	for (uint axis_idx = 0; axis_idx != GpuConstraintRowsPerBlock; ++axis_idx)
 	{
 		uint local_axis = axis_idx % 3u;
 		float3 axis_ws = frame_a[local_axis].xyz;
 		float position = dot(axis_idx < 3u ? linear_error : angular_error, axis_ws);
-		uint old_state = (old_block.row_states >> (2u * axis_idx)) & 3u;
+		GpuConstraintAxisDesc axis = desc.axes[axis_idx];
+		bool is_linear = false;
+		switch (desc.type)
+		{
+			case GpuConstraintType_D6:
+			{
+				// D6 axes retain their principal-log covectors and linear-first layout.
+				is_linear = axis_idx < 3u;
+				if (!is_linear)
+					axis_ws = RotationVectorGradient(angular_error, axis_ws);
+
+				break;
+			}
+			case GpuConstraintType_SphericalAngular:
+			{
+				// Ellipse and twist gradients are not used by the three orthonormal dampers.
+				axis_ws = spherical_rows.m_axes[axis_idx];
+				position = spherical_rows.m_positions[axis_idx];
+				axis = spherical_rows.m_parameters[axis_idx];
+				break;
+			}
+			default: { axis.mode = GpuConstraintAxisMode_Free; break; }
+		}
+
 		uint state;
 		bool velocity_active;
 		bool position_active;
 		// Linear coordinates also differentiate the rotation of frame A's axis through the full anchor separation.
-		float3 lever_a = axis_idx < 3u ? anchor_offset_a + linear_error : anchor_offset_a;
-		if (!CompileConstraintRow(slot_idx, axis_idx, desc.axes[axis_idx], axis_ws, lever_a, anchor_offset_b, position, old_state, reset_warm_start, state, velocity_active, position_active))
+		float3 lever_a = is_linear ? anchor_offset_a + linear_error : anchor_offset_a;
+		if (!CompileConstraintRow(slot_idx, axis_idx, axis, is_linear, axis_ws, lever_a, anchor_offset_b, position, state, velocity_active, position_active))
 			block.flags |= ConstraintBlockFlags_NumericalFailure;
 
 		if (velocity_active)
@@ -302,9 +330,9 @@ void CSCompileConstraints(int3 DTID(dtid))
 		block.row_states |= state << (2u * axis_idx);
 	}
 
-	// Retained same-solve recompilation preserves failure; a fresh solve may recover after corrected inputs or timestep.
+	// The frame latch preserves fatal failure across every geometry refresh; Upload owns its reset.
 	block.colour = MaxColours;
-	block.flags |= (g.retain_current_impulses != 0 ? old_block.flags & ConstraintBlockFlags_NumericalFailure : 0u) | ConstraintBlockFlags_Active | (reset_warm_start ? ConstraintBlockFlags_ResetWarmStart : 0u);
+	block.flags |= ConstraintBlockFlags_Active | (reset_warm_start ? ConstraintBlockFlags_ResetWarmStart : 0u);
 	if (AllSet(block.flags, ConstraintBlockFlags_NumericalFailure))
 	{
 		// Preserve a deterministic frame-wide failure even when a later substep recompiles this slot successfully.
@@ -338,32 +366,43 @@ void CSDetectBrokenConstraints(int3 DTID(dtid))
 	GpuConstraintBlock block = g_blocks[slot_idx];
 	GpuConstraintBreakState state = g_break_states[slot_idx];
 	if (!AllSet(endpoint.flags, GpuConstraintEndpointFlags_Enabled) ||
-		!AllSet(block.flags, ConstraintBlockFlags_Active) ||
 		AllSet(state.flags, GpuConstraintBreakFlags_Broken))
 		return;
 
-	// Frame-A axes are orthonormal, so the Euclidean norm of their canonical scalar impulses is the world-space load magnitude.
-	float linear_impulse_squared = 0.0f;
-	float angular_impulse_squared = 0.0f;
-	for (uint axis_idx = 0; axis_idx != GpuConstraintRowsPerBlock; ++axis_idx)
+	// Only accepted current-substep rows own physical load. A later rejected recompile cannot revoke that acceptance.
+	GpuConstraintAcceptance accepted;
+	GpuConstraintAcceptedRows rows;
+	if (AllSet(endpoint.flags, GpuConstraintEndpointFlags_Coupled))
 	{
-		if ((block.velocity_mask & (1u << axis_idx)) == 0u)
-			continue;
-
-		float impulse = g_rows[slot_idx * GpuConstraintRowsPerBlock + axis_idx].bounds.z;
-		if (!isfinite(impulse))
+		// Coupled acceptance belongs to the island, while its measured row loads remain stable-slot indexed.
+		if (g.coupled_island_count == 0)
 			return;
-		if (axis_idx < 3u)
-			linear_impulse_squared += impulse * impulse;
-		else
-			angular_impulse_squared += impulse * impulse;
-	}
 
-	float inverse_timestep = g.timestep > 0.0f ? 1.0f / g.timestep : 0.0f;
-	float force = sqrt(max(linear_impulse_squared, 0.0f)) * inverse_timestep;
-	float torque = sqrt(max(angular_impulse_squared, 0.0f)) * inverse_timestep;
-	if (!isfinite(force) || !isfinite(torque))
+		int island = g_coupled_topology[slot_idx].island_idx;
+		if (island < 0 || island >= g.coupled_island_count)
+			return;
+
+		accepted = g_coupled_acceptance[island];
+		rows = g_coupled_accepted_rows[slot_idx];
+	}
+	else
+	{
+		// Ordinary blocks retain their own acceptance and measured loads.
+		accepted = g_rigid_records[slot_idx].accepted;
+		rows = g_rigid_records[slot_idx].rows;
+	}
+	if (accepted.valid == 0u || any(accepted.epoch != uint2(g.epoch_low, g.epoch_high)))
 		return;
+
+	// Division preserves representable zero loads even when the reciprocal duration alone would overflow.
+	float force = rows.linear_impulse_norm / accepted.timestep;
+	float torque = rows.angular_impulse_norm / accepted.timestep;
+	if (!isfinite(force) || !isfinite(torque))
+	{
+		// Accepted storage must have a representable load; never silently hide a corrupt break sample.
+		FailConstraintBlock(slot_idx);
+		return;
+	}
 
 	state.peak_force = max(state.peak_force, force);
 	state.peak_torque = max(state.peak_torque, torque);
@@ -510,206 +549,6 @@ void CSFinishConstraintColours(int3 DTID(dtid))
 		InterlockedOr(g_constraint_bodies[block.body_idx_b].colour_used, bit);
 }
 
-// The mutable momentum and sleep state of one dynamic endpoint. A block holds these in registers while it applies its row impulses, then stores
-// each body once instead of reading and writing the whole body for every row.
-struct ConstraintBodyMomentum
-{
-	float4 momentum_ang;
-	float4 momentum_lin;
-	int state_flags;
-	GpuSleepData sleep;
-	bool changed;
-};
-
-// Read the mutable state of a dynamic body, or an unchanged empty state when 'body_idx' is negative.
-ConstraintBodyMomentum LoadConstraintBodyMomentum(int body_idx)
-{
-	// Empty state for endpoints that never receive impulses.
-	ConstraintBodyMomentum body;
-	body.momentum_ang = float4(0, 0, 0, 0);
-	body.momentum_lin = float4(0, 0, 0, 0);
-	body.state_flags = 0;
-	body.sleep.timer_s = 0.0f;
-	body.sleep.island_id = -1;
-	body.sleep.generation = 0u;
-	body.sleep.flags = 0u;
-	body.changed = false;
-	if (body_idx < 0)
-		return body;
-
-	body.momentum_ang = g_constraint_bodies[body_idx].momentum_ang;
-	body.momentum_lin = g_constraint_bodies[body_idx].momentum_lin;
-	body.state_flags = g_constraint_bodies[body_idx].state_flags;
-	body.sleep = g_constraint_bodies[body_idx].sleep;
-	return body;
-}
-
-// Add a world-space spatial impulse to one endpoint's momentum. Zero and non-finite impulses leave the endpoint unchanged.
-void AccumulateConstraintImpulse(inout_(ConstraintBodyMomentum) body, float3 jacobian_ang, float3 jacobian_lin, float impulse)
-{
-	// Skipped impulses must not wake the body.
-	if (impulse == 0.0f || !isfinite(impulse))
-		return;
-
-	body.momentum_ang.xyz += impulse * jacobian_ang;
-	body.momentum_lin.xyz += impulse * jacobian_lin;
-	body.changed = true;
-
-	// Routine support impulses leave an awake body's quiet-time assessment to the sleep pass, while persisted sleeping state must be invalidated immediately.
-	if (AllSet(body.state_flags, ERigidBodyStateFlags_Sleeping) || body.sleep.island_id >= 0)
-	{
-		body.sleep.generation++;
-		body.state_flags = SetFlag(body.state_flags, ERigidBodyStateFlags_Sleeping, false);
-		body.sleep.timer_s = 0.0f;
-		body.sleep.island_id = -1;
-		body.sleep.flags = 0u;
-	}
-}
-
-// Write an endpoint's mutable state back to its body if any impulse changed it.
-void StoreConstraintBodyMomentum(int body_idx, ConstraintBodyMomentum body)
-{
-	// Other body fields are never changed by impulses, so only the mutable fields are written.
-	if (!body.changed)
-		return;
-
-	g_constraint_bodies[body_idx].momentum_ang = body.momentum_ang;
-	g_constraint_bodies[body_idx].momentum_lin = body.momentum_lin;
-	g_constraint_bodies[body_idx].state_flags = body.state_flags;
-	g_constraint_bodies[body_idx].sleep = body.sleep;
-}
-
-// The authoritative momenta of one block's dynamic endpoints. When both endpoints refer to the same body, endpoint B updates endpoint A's state,
-// so every impulse is added to that body in the same order as separate per-endpoint updates. A colour never gives two concurrent blocks the same
-// dynamic body, so the state cannot be changed by another thread while a block holds it.
-struct ConstraintBlockMomenta
-{
-	ConstraintBodyMomentum a;
-	ConstraintBodyMomentum b;
-	bool dynamic_a;
-	bool dynamic_b;
-	bool same_body;
-};
-
-// Read the mutable state of a block's dynamic endpoints.
-ConstraintBlockMomenta LoadConstraintBlockMomenta(GpuConstraintBlock block)
-{
-	// Static, kinematic, and missing endpoints are never mutated, so they are not loaded.
-	ConstraintBlockMomenta momenta;
-	momenta.dynamic_a = ConstraintBodyDynamic(block.body_idx_a);
-	momenta.dynamic_b = ConstraintBodyDynamic(block.body_idx_b);
-	momenta.same_body = block.body_idx_a == block.body_idx_b;
-	momenta.a = LoadConstraintBodyMomentum(momenta.dynamic_a ? block.body_idx_a : -1);
-	momenta.b = LoadConstraintBodyMomentum(momenta.dynamic_b && !momenta.same_body ? block.body_idx_b : -1);
-	return momenta;
-}
-
-// Apply one scalar row impulse to both endpoints, endpoint A first.
-void AccumulateConstraintRowImpulse(inout_(ConstraintBlockMomenta) momenta, GpuConstraintRow row, float impulse)
-{
-	// A shared body receives both endpoint impulses in sequence.
-	if (momenta.dynamic_a)
-		AccumulateConstraintImpulse(momenta.a, row.jacobian_a_ang.xyz, row.jacobian_a_lin.xyz, impulse);
-	if (momenta.dynamic_b && momenta.same_body)
-		AccumulateConstraintImpulse(momenta.a, row.jacobian_b_ang.xyz, row.jacobian_b_lin.xyz, impulse);
-	else if (momenta.dynamic_b)
-		AccumulateConstraintImpulse(momenta.b, row.jacobian_b_ang.xyz, row.jacobian_b_lin.xyz, impulse);
-}
-
-// Write a block's changed endpoint momenta back to their bodies.
-void StoreConstraintBlockMomenta(GpuConstraintBlock block, ConstraintBlockMomenta momenta)
-{
-	// A shared body is held only in endpoint A.
-	if (momenta.dynamic_a)
-		StoreConstraintBodyMomentum(block.body_idx_a, momenta.a);
-	if (momenta.dynamic_b && !momenta.same_body)
-		StoreConstraintBodyMomentum(block.body_idx_b, momenta.b);
-}
-
-// Apply all retained physical impulses for one block.
-void ApplyConstraintBlockWarmStart(uint slot_idx)
-{
-	if (AllSet(g_endpoints[slot_idx].flags, GpuConstraintEndpointFlags_Coupled))
-		return;
-
-	GpuConstraintBlock block = g_blocks[slot_idx];
-	ConstraintBlockMomenta momenta = LoadConstraintBlockMomenta(block);
-	for (uint axis_idx = 0; axis_idx != GpuConstraintRowsPerBlock; ++axis_idx)
-	{
-		if ((block.velocity_mask & (1u << axis_idx)) == 0u)
-			continue;
-
-		GpuConstraintRow row = g_rows[slot_idx * GpuConstraintRowsPerBlock + axis_idx];
-		AccumulateConstraintRowImpulse(momenta, row, row.bounds.z);
-	}
-	StoreConstraintBlockMomenta(block, momenta);
-}
-
-// Apply cached impulses by colour, or serially in stable-slot order after colour exhaustion.
-numthreads(CSApplyConstraintWarmStart, ConstraintThreadCount, 1, 1)
-void CSApplyConstraintWarmStart(int3 DTID(dtid))
-{
-	if (g.colour == 0 && g_constraint_state[0].colour_overflow != 0u)
-	{
-		if (dtid.x != 0)
-			return;
-
-		for (uint slot_idx = 0; slot_idx != (uint)g.slot_count; ++slot_idx)
-			if (AllSet(g_blocks[slot_idx].flags, ConstraintBlockFlags_Active))
-				ApplyConstraintBlockWarmStart(slot_idx);
-		return;
-	}
-	if (dtid.x >= g.slot_count)
-		return;
-
-	uint slot_idx = (uint)dtid.x;
-	if (g_blocks[slot_idx].colour != (uint)g.colour)
-		return;
-
-	ApplyConstraintBlockWarmStart(slot_idx);
-}
-
-// The world-space twists of a block's endpoints. Momentum does not change while a block forms its residuals, so each twist is computed once per block
-// rather than once per row.
-struct ConstraintBlockTwists
-{
-	BodyTwist a;
-	BodyTwist b;
-	bool has_a;
-	bool has_b;
-};
-
-// Read the twists of every endpoint that refers to a body. Kinematic bodies contribute their twist even though they are never mutated.
-ConstraintBlockTwists LoadConstraintBlockTwists(GpuConstraintBlock block)
-{
-	// Missing endpoints keep zero twists and are skipped by ConstraintRowVelocity.
-	ConstraintBlockTwists twists;
-	twists.has_a = block.body_idx_a >= 0 && block.body_idx_a < g.body_count;
-	twists.has_b = block.body_idx_b >= 0 && block.body_idx_b < g.body_count;
-	twists.a.ang = float3(0, 0, 0);
-	twists.a.lin = float3(0, 0, 0);
-	twists.b = twists.a;
-	if (twists.has_a)
-		twists.a = BodyTwistWS(g_constraint_bodies[block.body_idx_a]);
-	if (twists.has_b)
-		twists.b = BodyTwistWS(g_constraint_bodies[block.body_idx_b]);
-
-	return twists;
-}
-
-// Return the current physical row velocity J*v from the block's endpoint twists.
-float ConstraintRowVelocity(ConstraintBlockTwists twists, GpuConstraintRow row)
-{
-	// Sum the contribution of each endpoint that refers to a body
-	float velocity = 0.0f;
-	if (twists.has_a)
-		velocity += dot(row.jacobian_a_ang.xyz, twists.a.ang) + dot(row.jacobian_a_lin.xyz, twists.a.lin);
-	if (twists.has_b)
-		velocity += dot(row.jacobian_b_ang.xyz, twists.b.ang) + dot(row.jacobian_b_lin.xyz, twists.b.lin);
-
-	return velocity;
-}
-
 // Return one entry of J M^-1 J^T for two rows of the same block.
 float ConstraintResponse(GpuConstraintBlock block, GpuConstraintRow lhs, GpuConstraintRow rhs)
 {
@@ -801,10 +640,10 @@ void PrepareConstraintSolveCache(uint slot_idx, bool physical_solve)
 	cache.pad0 = 0u;
 	cache.pad1 = 0u;
 
-	// Only blocks that a sweep visits are prepared, so failures are latched for the same blocks as a per-iteration build.
-	// The serial overflow fallback visits every active block; coloured sweeps visit only coloured blocks.
+	// Physical transactions visit active blocks through dependency levels, independently of position colouring.
+	// Position's serial overflow fallback visits every active block; its coloured sweeps visit only coloured blocks.
 	GpuConstraintBlock block = g_blocks[slot_idx];
-	bool visited = g_constraint_state[0].colour_overflow != 0u
+	bool visited = physical_solve || g_constraint_state[0].colour_overflow != 0u
 		? AllSet(block.flags, ConstraintBlockFlags_Active)
 		: block.colour < MaxColours;
 	if (visited && !AllSet(g_endpoints[slot_idx].flags, GpuConstraintEndpointFlags_Coupled))
@@ -844,84 +683,107 @@ void CSPrepareConstraintVelocitySolve(int3 DTID(dtid))
 	PrepareConstraintSolveCache((uint)dtid.x, true);
 }
 
-// Solve one warm-started physical D6 block and commit finite projected impulses immediately.
-void SolveConstraintVelocityBlock(uint slot_idx)
+// Replace one ordinary block's accepted response, publishing neither endpoint nor cache on a rejected attempt.
+numthreads(CSCommitConstraintVelocityTransaction, ConstraintThreadCount, 1, 1)
+void CSCommitConstraintVelocityTransaction(int3 DTID(dtid))
 {
-	// A failure earlier in this phase clears the masks, after which the block no longer contributes.
-	GpuConstraintBlock block = g_blocks[slot_idx];
-	GpuConstraintSolveCache cache = g_solve_cache[slot_idx];
-	int row_count = cache.row_count;
-	if (row_count == 0 || block.velocity_mask == 0u)
+	// The existing dependency levels include zero-current-row owners and give each dynamic body exactly one writer per dispatch.
+	if (dtid.x >= g.schedule_count)
 		return;
 
-	uint active_axes[6];
-	for (int row_idx = 0; row_idx != row_count; ++row_idx)
-		active_axes[row_idx] = (cache.active_axes >> (4u * (uint)row_idx)) & 0xFu;
-
-	float residual[6];
-	float candidate[6];
-	float lower[6];
-	float upper[6];
-	float projected[6];
-	ConstraintBlockTwists twists = LoadConstraintBlockTwists(block);
-	for (int row_idx = 0; row_idx != row_count; ++row_idx)
+	uint slot_idx = (uint)g_colour_schedule[g.schedule_begin + dtid.x].slot_idx;
+	GpuConstraintBlock block = g_blocks[slot_idx];
+	if (AllSet(block.flags, ConstraintBlockFlags_NumericalFailure))
 	{
-		GpuConstraintRow row = g_rows[slot_idx * GpuConstraintRowsPerBlock + active_axes[row_idx]];
-		residual[row_idx] = ConstraintRowVelocity(twists, row) - row.solve.y + row.solve.z + row.solve.w * row.bounds.z;
+		// Preparation/factorization retains its existing fatal latch; it is not a non-terminal physical rejection.
+		g_transaction_results[slot_idx] = GpuConstraintStage_NumericalFailure;
+		return;
 	}
-	for (int row_idx = 0; row_idx != row_count; ++row_idx)
+	GpuConstraintSolveCache inverse = g_solve_cache[slot_idx];
+	if (block.velocity_mask != 0u && inverse.row_count == 0)
 	{
-		float correction = 0.0f;
-		for (int column = 0; column != row_count; ++column)
-			correction += cache.inverse[row_idx * 6 + column] * residual[column];
-		GpuConstraintRow row = g_rows[slot_idx * GpuConstraintRowsPerBlock + active_axes[row_idx]];
-		candidate[row_idx] = row.bounds.z - g.relaxation * correction;
-		lower[row_idx] = row.bounds.x;
-		upper[row_idx] = row.bounds.y;
+		// Preserve the existing no-response no-op without publishing an unperformed solve or clearing accepted support.
+		g_transaction_results[slot_idx] = 0xFFFFFFFFu;
+		return;
 	}
 
-	// Saturated rows alter the optimal free impulses through the full response; reject the whole block on numerical failure.
-	if (!ProjectConstraintBox(row_count, cache.inverse, candidate, lower, upper, projected))
+	// Missing world endpoints have explicitly zero physical state; kinematic endpoints keep their prescribed twist.
+	#ifdef __cplusplus
+	GpuRigidBody a = {};
+	GpuRigidBody b = {};
+	#else
+	GpuRigidBody a = (GpuRigidBody)0;
+	GpuRigidBody b = (GpuRigidBody)0;
+	#endif
+	if (block.body_idx_a >= 0)
+		a = g_constraint_bodies[block.body_idx_a];
+
+	if (block.body_idx_b >= 0)
+		b = g_constraint_bodies[block.body_idx_b];
+
+	GpuConstraintRow rows[GpuConstraintRowsPerBlock];
+	for (uint axis = 0; axis != GpuConstraintRowsPerBlock; ++axis)
 	{
+		// Prepared coefficients are never read as an accepted cache by this pipeline.
+		rows[axis] = g_rows[slot_idx * GpuConstraintRowsPerBlock + axis];
+	}
+	GpuConstraintEpoch epoch;
+	epoch.identity = uint2(g.epoch_low, g.epoch_high);
+	epoch.timestep = g.timestep;
+	epoch.warm_start_factor = g.warm_start_factor;
+	GpuConstraintRigidRecord previous = g_rigid_records[slot_idx];
+
+	// A compiler flag is a repeated observation, not a new invalidation event. Only acceptance acknowledges the input revision.
+	// Body reset levels are observed per endpoint: a rising level invalidates once within an epoch, and a historical cache resets again.
+	uint revision = g_endpoints[slot_idx].invalidation_revision;
+	uint body_resets = (ConstraintBodyResetsWarmStart(block.body_idx_a) ? 1u : 0u) | (ConstraintBodyResetsWarmStart(block.body_idx_b) ? 2u : 0u);
+	uint previous_resets = previous.rows.invalidation_receipt & 3u;
+	if (revision != (previous.rows.invalidation_receipt >> 2u) ||
+		(body_resets & ~previous_resets) != 0u ||
+		(body_resets != 0u && !ConstraintAcceptedInEpoch(previous.accepted, epoch)))
+		previous.rows.velocity_mask = 0u;
+
+	// Keep every prospective physical/cache/sleep member private until the complete-block admission result is known.
+	GpuRigidBody staged_a;
+	GpuRigidBody staged_b;
+	GpuConstraintRigidRecord record;
+	uint status = ConstraintStageRigidBlock(block, inverse, rows, a, b, previous, epoch, g.relaxation, staged_a, staged_b, record);
+	g_transaction_results[slot_idx] = status;
+	if (status == GpuConstraintStage_AdmissionRejected && g_rejections[slot_idx].substep_index < 0)
+	{
+		// Admission has no numerical reason or invented solve metadata.
+		GpuConstraintRejectionState rejection;
+		rejection.failure_flags = 0u;
+		rejection.substep_index = g.break_substep_index;
+		rejection.phase = GpuCoupledConstraintFailurePhase_Velocity;
+		rejection.iteration_count = 0;
+		rejection.relaxation = 0.0f;
+		rejection.merit_change = 0.0f;
+		rejection.outcome = status;
+		rejection.owner = 0u;
+		rejection.index = slot_idx;
+		rejection.generation = g_endpoints[slot_idx].generation;
+		g_rejections[slot_idx] = rejection;
+	}
+	if (status == GpuConstraintStage_NumericalFailure)
+	{
+		// The same fatal transport remains responsible for input and projection arithmetic failures.
 		FailConstraintBlock(slot_idx);
 		return;
 	}
-	// Commit the impulse changes in row order, then store each changed body once.
-	ConstraintBlockMomenta momenta = LoadConstraintBlockMomenta(block);
-	for (int row_idx = 0; row_idx != row_count; ++row_idx)
-	{
-		uint row_storage_idx = slot_idx * GpuConstraintRowsPerBlock + active_axes[row_idx];
-		GpuConstraintRow row = g_rows[row_storage_idx];
-		float delta = projected[row_idx] - row.bounds.z;
-		AccumulateConstraintRowImpulse(momenta, row, delta);
-		row.bounds.z = projected[row_idx];
-		g_rows[row_storage_idx] = row;
-	}
-	StoreConstraintBlockMomenta(block, momenta);
-}
-
-// Run one coloured physical PGS sweep, with a stable serial fallback on overflow.
-numthreads(CSSolveConstraintVelocity, ConstraintThreadCount, 1, 1)
-void CSSolveConstraintVelocity(int3 DTID(dtid))
-{
-	if (g.colour == 0 && g_constraint_state[0].colour_overflow != 0u)
-	{
-		if (dtid.x != 0)
-			return;
-
-		for (uint slot_idx = 0; slot_idx != (uint)g.slot_count; ++slot_idx)
-			if (AllSet(g_blocks[slot_idx].flags, ConstraintBlockFlags_Active))
-				SolveConstraintVelocityBlock(slot_idx);
-		return;
-	}
-	if (dtid.x >= g.slot_count)
+	if (status != GpuConstraintStage_Accepted)
 		return;
 
-	uint slot_idx = (uint)dtid.x;
-	if (g_blocks[slot_idx].colour != (uint)g.colour)
-		return;
+	// All writes belong to this block, with no interleaved contact or other owner dispatch inside this invocation.
+	if (ConstraintBodyDynamic(block.body_idx_a))
+		g_constraint_bodies[block.body_idx_a] = staged_a;
 
-	SolveConstraintVelocityBlock(slot_idx);
+	if (ConstraintBodyDynamic(block.body_idx_b))
+		g_constraint_bodies[block.body_idx_b] = staged_b;
+
+	// Rejection never acknowledges invalidation, and a later upload cannot erase an unaccepted revision.
+	record.rows.invalidation_receipt = (revision << 2u) | body_resets;
+	g_rigid_records[slot_idx] = record;
 }
 
 // The split-correction state of one dynamic endpoint, held in registers while a block forms its residuals and applies its row impulses. The
@@ -965,14 +827,13 @@ void AccumulateConstraintPseudoImpulse(inout_(ConstraintBodyPseudo) body, float3
 	body.changed = true;
 }
 
-// The split-correction state of one block's dynamic endpoints. A shared body is held only in endpoint A; see ConstraintBlockMomenta.
+// Split-correction state for distinct validated endpoints.
 struct ConstraintBlockPseudo
 {
 	ConstraintBodyPseudo a;
 	ConstraintBodyPseudo b;
 	bool dynamic_a;
 	bool dynamic_b;
-	bool same_body;
 };
 
 // Read the split-correction state of a block's dynamic endpoints.
@@ -982,24 +843,21 @@ ConstraintBlockPseudo LoadConstraintBlockPseudo(GpuConstraintBlock block)
 	ConstraintBlockPseudo pseudo;
 	pseudo.dynamic_a = ConstraintBodyDynamic(block.body_idx_a);
 	pseudo.dynamic_b = ConstraintBodyDynamic(block.body_idx_b);
-	pseudo.same_body = block.body_idx_a == block.body_idx_b;
 	pseudo.a = LoadConstraintBodyPseudo(pseudo.dynamic_a ? block.body_idx_a : -1);
-	pseudo.b = LoadConstraintBodyPseudo(pseudo.dynamic_b && !pseudo.same_body ? block.body_idx_b : -1);
+	pseudo.b = LoadConstraintBodyPseudo(pseudo.dynamic_b ? block.body_idx_b : -1);
 	return pseudo;
 }
 
 // Return the current split-correction row velocity without consulting physical momentum.
 float ConstraintPseudoRowVelocity(ConstraintBlockPseudo pseudo, GpuConstraintRow row)
 {
-	// A shared body contributes its one pseudo twist through both endpoint Jacobians.
+	// Each endpoint contributes through its own Jacobian and pseudo twist.
 	float velocity = 0.0f;
 	if (pseudo.dynamic_a)
 		velocity += dot(row.jacobian_a_ang.xyz, pseudo.a.pseudo.angular_velocity.xyz) + dot(row.jacobian_a_lin.xyz, pseudo.a.pseudo.linear_velocity.xyz);
 	if (pseudo.dynamic_b)
 	{
-		float3 b_ang = pseudo.same_body ? pseudo.a.pseudo.angular_velocity.xyz : pseudo.b.pseudo.angular_velocity.xyz;
-		float3 b_lin = pseudo.same_body ? pseudo.a.pseudo.linear_velocity.xyz : pseudo.b.pseudo.linear_velocity.xyz;
-		velocity += dot(row.jacobian_b_ang.xyz, b_ang) + dot(row.jacobian_b_lin.xyz, b_lin);
+		velocity += dot(row.jacobian_b_ang.xyz, pseudo.b.pseudo.angular_velocity.xyz) + dot(row.jacobian_b_lin.xyz, pseudo.b.pseudo.linear_velocity.xyz);
 	}
 	return velocity;
 }
@@ -1007,12 +865,10 @@ float ConstraintPseudoRowVelocity(ConstraintBlockPseudo pseudo, GpuConstraintRow
 // Apply one scalar split impulse to both endpoints, endpoint A first.
 void AccumulateConstraintRowPseudoImpulse(inout_(ConstraintBlockPseudo) pseudo, GpuConstraintRow row, float impulse)
 {
-	// A shared body receives both endpoint impulses in sequence.
+	// The caller contract excludes identical body endpoints.
 	if (pseudo.dynamic_a)
 		AccumulateConstraintPseudoImpulse(pseudo.a, row.jacobian_a_ang.xyz, row.jacobian_a_lin.xyz, impulse);
-	if (pseudo.dynamic_b && pseudo.same_body)
-		AccumulateConstraintPseudoImpulse(pseudo.a, row.jacobian_b_ang.xyz, row.jacobian_b_lin.xyz, impulse);
-	else if (pseudo.dynamic_b)
+	if (pseudo.dynamic_b)
 		AccumulateConstraintPseudoImpulse(pseudo.b, row.jacobian_b_ang.xyz, row.jacobian_b_lin.xyz, impulse);
 }
 
@@ -1022,7 +878,7 @@ void StoreConstraintBlockPseudo(GpuConstraintBlock block, ConstraintBlockPseudo 
 	// A shared body is held only in endpoint A.
 	if (pseudo.dynamic_a && pseudo.a.changed)
 		g_pseudo_velocities[block.body_idx_a] = pseudo.a.pseudo;
-	if (pseudo.dynamic_b && !pseudo.same_body && pseudo.b.changed)
+	if (pseudo.dynamic_b && pseudo.b.changed)
 		g_pseudo_velocities[block.body_idx_b] = pseudo.b.pseudo;
 }
 
@@ -1154,27 +1010,10 @@ void CSApplyConstraintPosition(int3 DTID(dtid))
 // These entry points exist only in HLSL because the C++ replay emulator cannot synchronise the threads of a group.
 #ifndef __cplusplus
 
-// Solver operations shared by the fused entry points.
-static const uint EFusedConstraintOp_ApplyWarmStart = 0;
-static const uint EFusedConstraintOp_SolvePosition = 1;
-static const uint EFusedConstraintOp_SolveVelocity = 2;
-
 groupshared uint gs_fused_used_colours;
 
-// Apply one solver operation to one constraint block.
-void ApplyFusedConstraintOp(uint op, uint slot_idx)
-{
-	// 'op' is a compile-time constant in each entry point, so this switch is removed after inlining.
-	switch (op)
-	{
-		case EFusedConstraintOp_ApplyWarmStart: { ApplyConstraintBlockWarmStart(slot_idx); break; }
-		case EFusedConstraintOp_SolvePosition: { SolveConstraintPositionBlock(slot_idx); break; }
-		case EFusedConstraintOp_SolveVelocity: { SolveConstraintVelocityBlock(slot_idx); break; }
-	}
-}
-
 // Run one complete colour sweep inside one thread group. Must be called by every thread of a group of ConstraintThreadCount threads.
-void FusedConstraintSweep(uint op, uint thread)
+void FusedConstraintPositionSweep(uint thread)
 {
 	// The overflow flag is the same for every thread, so the serial fallback keeps the whole group on one path. It matches the per-colour colour-zero fallback.
 	if (g_constraint_state[0].colour_overflow != 0u)
@@ -1184,7 +1023,7 @@ void FusedConstraintSweep(uint op, uint thread)
 
 		for (uint slot_idx = 0; slot_idx != (uint)g.slot_count; ++slot_idx)
 			if (AllSet(g_blocks[slot_idx].flags, ConstraintBlockFlags_Active))
-				ApplyFusedConstraintOp(op, slot_idx);
+				SolveConstraintPositionBlock(slot_idx);
 		return;
 	}
 
@@ -1211,31 +1050,17 @@ void FusedConstraintSweep(uint op, uint thread)
 		for (int j = (int)thread; j < g.slot_count; j += ConstraintThreadCount)
 		{
 			if (g_blocks[j].colour == colour)
-				ApplyFusedConstraintOp(op, (uint)j);
+				SolveConstraintPositionBlock((uint)j);
 		}
 		DeviceMemoryBarrierWithGroupSync();
 	}
-}
-
-// Single-group form of CSApplyConstraintWarmStart. Dispatch exactly one group.
-numthreads(CSApplyConstraintWarmStartFused, ConstraintThreadCount, 1, 1)
-void CSApplyConstraintWarmStartFused(int3 GTID(gtid))
-{
-	FusedConstraintSweep(EFusedConstraintOp_ApplyWarmStart, gtid.x);
 }
 
 // Single-group form of CSSolveConstraintPosition. Dispatch exactly one group.
 numthreads(CSSolveConstraintPositionFused, ConstraintThreadCount, 1, 1)
 void CSSolveConstraintPositionFused(int3 GTID(gtid))
 {
-	FusedConstraintSweep(EFusedConstraintOp_SolvePosition, gtid.x);
-}
-
-// Single-group form of CSSolveConstraintVelocity. Dispatch exactly one group.
-numthreads(CSSolveConstraintVelocityFused, ConstraintThreadCount, 1, 1)
-void CSSolveConstraintVelocityFused(int3 GTID(gtid))
-{
-	FusedConstraintSweep(EFusedConstraintOp_SolveVelocity, gtid.x);
+	FusedConstraintPositionSweep(gtid.x);
 }
 
 #endif

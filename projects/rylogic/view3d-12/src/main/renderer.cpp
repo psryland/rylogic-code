@@ -90,22 +90,9 @@ namespace pr::rdr12
 		PR_INFO_IF(PR_DBG_RDR, AllSet(m_settings.m_options, ERdrOptions::DeviceDebug), "DeviceDebug is enabled");
 		PR_INFO_IF(PR_DBG_RDR, AllSet(m_settings.m_options, ERdrOptions::BGRASupport), "BGRASupport is enabled");
 
-		// Enable the debug layer. Must be done before creating the d3d12 device.
-		if (AllSet(m_settings.m_options, ERdrOptions::DeviceDebug))
-		{
-			compute::EnableDeviceRemovedDiagnostics();
-
-			D3DPtr<ID3D12Debug> dbg;
-			Check(D3D12GetDebugInterface(__uuidof(ID3D12Debug), (void**)dbg.address_of()));
-			dbg->EnableDebugLayer();
-
-			if (AllSet(m_settings.m_options, ERdrOptions::DeviceGPUDebug))
-			{
-				D3DPtr<ID3D12Debug1> dbg1;
-				Check(dbg->QueryInterface<ID3D12Debug1>(dbg1.address_of()));
-				dbg1->SetEnableGPUBasedValidation(true);
-			}
-		}
+		// Process validation belongs to host startup, not renderer construction.
+		if (AllSet(m_settings.m_options, ERdrOptions::BreakOnErrors) && !AllSet(m_settings.m_options, ERdrOptions::DeviceDebug))
+			throw std::invalid_argument("BreakOnErrors requires DeviceDebug");
 
 		// Create the d3d device
 		D3DPtr<ID3D12Device> device;
@@ -115,6 +102,9 @@ namespace pr::rdr12
 		// More debugging now the device exists
 		if (AllSet(m_settings.m_options, ERdrOptions::DeviceDebug))
 		{
+			if (!compute::HasDebugLayer(device.get()))
+				throw std::runtime_error("DeviceDebug requires ConfigureProcessDiagnostics at process startup");
+
 			D3DPtr<ID3D12InfoQueue> info;
 			Check(device->QueryInterface<ID3D12InfoQueue>(info.address_of()));
 

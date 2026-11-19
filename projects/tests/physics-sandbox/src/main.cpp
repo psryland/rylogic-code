@@ -55,6 +55,10 @@ namespace physics_sandbox
 
 		printf("Physics Sandbox: Running unit tests...\n");
 
+		// Fixtures inherit the host's one startup choice instead of changing diagnostics as they create devices.
+		pr::compute::ConfigureProcessDiagnostics(pr::compute::TestProcessDiagnostics);
+		pr::compute::RunnerProcessDiagnostics = pr::compute::TestProcessDiagnostics;
+
 		// Optionally tee unit-test output to a file for automation capture. This app reopens CONOUT$
 		// in OpenConsoleOutput(), which bypasses any inherited stdout redirection, so a console-less
 		// caller cannot capture results via a pipe. Setting PR_UNITTEST_LOG to a path provides an
@@ -211,6 +215,17 @@ namespace physics_sandbox
 		if (cmd.count("engine_profile"))
 			options.m_engine_profile = true;
 
+		// Geometry evidence has its own destination and never enables the timed profile path.
+		if (cmd.count("geometry_history"))
+			options.m_geometry_history = cmd("geometry_history").as<std::filesystem::path>();
+
+		// Capture a completed simulation tick without requiring a rendering Present boundary.
+		if (cmd.count("pix_capture"))
+			options.m_pix_capture_path = cmd("pix_capture").as<std::filesystem::path>();
+
+		if (cmd.count("pix_capture_step"))
+			options.m_pix_capture_step = cmd("pix_capture_step").as<int>();
+
 		try
 		{
 			if (cmd.count("quiet"))
@@ -219,8 +234,11 @@ namespace physics_sandbox
 				freopen_s(&out, "NUL", "w", stdout);
 			}
 
-			diag::RunSceneDiagnostic(options);
-			return 0;
+			auto const result = diag::RunSceneDiagnostic(options);
+			if (result.m_geometry_needs_review)
+				fprintf(stderr, "GEOMETRY: sampled candidate or censored episode; review the retained history (not a proven impact-law failure).\n");
+
+			return result.m_geometry_needs_review ? 2 : 0;
 		}
 		catch (std::exception const& ex)
 		{

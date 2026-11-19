@@ -110,8 +110,8 @@ namespace pr::compute
 		// Add a synchronisation point to 'queue'. Returns the sync point number to wait for.
 		uint64_t AddSyncPoint(ID3D12CommandQueue* queue)
 		{
-			auto next_sync = m_sync + 1;
-			auto signal_result = queue->Signal(m_fence.get(), next_sync);
+			// Signal the next point, then report a failure as a removed device when the device is the cause.
+			auto signal_result = AddSyncPointWithoutNotify(queue);
 			if (FAILED(signal_result))
 			{
 				auto reason = DeviceRemovedReason();
@@ -120,9 +120,23 @@ namespace pr::compute
 
 				Check(signal_result);
 			}
-			m_sync = next_sync;
+
+			// The point is recorded before observers run, so an observer failure leaves a signalled fence.
 			SyncPointAdded(*this);
 			return m_sync;
+		}
+
+		// Add the next synchronisation point to 'queue' without raising 'SyncPointAdded'. Returns the queue's result. The sync point
+		// is recorded only on success. Observers therefore do not see this point, so their state is not updated for it.
+		HRESULT AddSyncPointWithoutNotify(ID3D12CommandQueue* queue) noexcept
+		{
+			// Record the point only once the queue has accepted the signal.
+			auto next_sync = m_sync + 1;
+			auto signal_result = queue->Signal(m_fence.get(), next_sync);
+			if (SUCCEEDED(signal_result))
+				m_sync = next_sync;
+
+			return signal_result;
 		}
 
 		// Signal 'event' when the GPU reaches 'sync_point'. The event is signalled at once if the sync point has already been reached.

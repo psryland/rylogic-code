@@ -25,46 +25,79 @@ namespace pr::physics
 			};
 		}
 
-		// Preserve linear XYZ followed by angular XYZ so runtime rows have stable canonical identities.
-		GpuD6ConstraintDesc PackDescriptor(D6ConstraintDesc const& desc)
+		// Keep law-specific data distinct; spherical angular limits are not D6 coordinate boxes.
+		GpuConstraintDesc PackDescriptor(ConstraintDesc const& desc)
 		{
-			auto packed = GpuD6ConstraintDesc{
+			// Endpoints and kind are shared by both persistent primitives.
+			auto packed = GpuConstraintDesc{
 				.frame_a = PackGpuTransform(desc.m_frame_a.m_constraint_to_body),
 				.frame_b = PackGpuTransform(desc.m_frame_b.m_constraint_to_body),
 			};
-			for (int axis = 0; axis != 3; ++axis)
+			switch (desc.Type())
 			{
-				packed.axes[axis] = PackAxis(desc.m_linear[axis]);
-				packed.axes[3 + axis] = PackAxis(desc.m_angular[axis]);
+				case EConstraintType::D6:
+				{
+					// D6 retains linear XYZ then angular XYZ.
+					packed.type = GpuConstraintType_D6;
+					for (int axis = 0; axis != 3; ++axis)
+					{
+						// Canonical slots retain their original D6 meaning.
+						packed.axes[axis] = PackAxis(desc.D6().m_linear[axis]);
+						packed.axes[3 + axis] = PackAxis(desc.D6().m_angular[axis]);
+					}
+					break;
+				}
+				case EConstraintType::SphericalAngular:
+				{
+					// Ranges and physical damping are consumed by the shared spherical row preparation.
+					auto const& parameters = std::get<SphericalAngularConstraintParameters>(desc.m_parameters);
+					packed.type = GpuConstraintType_SphericalAngular;
+					packed.swing_limits = {parameters.m_swing_x.m_beg, parameters.m_swing_x.m_end, parameters.m_swing_z.m_beg, parameters.m_swing_z.m_end};
+					packed.twist_limits = {parameters.m_twist.m_beg, parameters.m_twist.m_end};
+					packed.angular_damping = parameters.m_damping;
+					break;
+				}
+				default:
+				{
+					// Reject an unsupported law before publishing packed state.
+					throw std::invalid_argument("Unknown constraint type");
+				}
 			}
 			return packed;
 		}
 
-		// Return true when an enabled descriptor contains at least one scalar solver row.
-		bool HasSolverRows(D6ConstraintDesc const& desc)
-		{
-			for (auto const& axis : desc.m_linear)
-				if (axis.m_mode != EConstraintAxisMode::Free)
-					return true;
-			for (auto const& axis : desc.m_angular)
-				if (axis.m_mode != EConstraintAxisMode::Free)
-					return true;
-			return false;
-		}
-
 		// True when a descriptor needs a whole-tree response rather than independent rigid-body inverse inertia.
-		bool RequiresCoupledSolver(D6ConstraintDesc const& desc)
+		bool RequiresCoupledSolver(ConstraintDesc const& desc)
 		{
 			return desc.m_frame_a.m_body.IsLink() || desc.m_frame_b.m_body.IsLink();
 		}
 
 		// Return true when the packed descriptor contributes at least one runtime scalar row.
-		bool HasSolverRows(GpuD6ConstraintDesc const& desc)
+		bool HasSolverRows(GpuConstraintDesc const& desc)
 		{
+			// Potential hard rows keep their topology while inactive; dampers are independent of the angular coordinate chart.
+			switch (desc.type)
+			{
+				case GpuConstraintType_D6: { break; }
+				case GpuConstraintType_SphericalAngular:
+				{
+					// Full principal ranges are unrestricted, including their branch-cut endpoints.
+					auto pi = math::constants<float>::tau_by_2;
+					return desc.angular_damping > 0.0f || any(desc.swing_limits != float4(-pi, pi, -pi, pi)) || any(desc.twist_limits != float2(-pi, pi));
+				}
+				default: { throw std::invalid_argument("Unknown packed constraint type"); }
+			}
 			for (auto const& axis : desc.axes)
 				if (axis.mode != GpuConstraintAxisMode_Free)
 					return true;
 			return false;
+		}
+
+		// Return whether a typed descriptor has any potential solver obligation.
+		bool HasSolverRows(ConstraintDesc const& desc)
+		{
+			// Share the packed interpretation with coupled topology construction.
+			return HasSolverRows(PackDescriptor(desc));
 		}
 
 		// Return true when a packed rigid endpoint can receive an impulse and therefore couples constraints dynamically.

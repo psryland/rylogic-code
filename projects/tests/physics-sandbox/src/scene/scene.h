@@ -73,6 +73,7 @@ namespace physics_sandbox
 		// Caller-owned dynamics objects and optional persistent graph edges.
 		std::vector<Body> m_body;
 		std::vector<physics::Articulation> m_articulation;
+		std::vector<scene_loader::ArticulationActuationDesc> m_articulation_actuation;
 		physics::ConstraintSet m_constraints;
 
 		// Stable pointer views rebuilt only after scene construction has finished growing object containers.
@@ -262,6 +263,9 @@ namespace physics_sandbox
 
 		// Build JSON-described articulation trees and persistent constraints after all collision-shape addresses are stable.
 		void BuildMultibodyObjects(scene_loader::SceneDesc const& scene_desc, std::span<collision::Shape const* const> articulation_shapes);
+
+		// Apply scene-authored joint excitation once at the submitted frame's starting time.
+		void ApplyArticulationActuation(double time_s);
 
 		// Calculate world-space bounds for the constructed rigid bodies and shaped articulation links, excluding terrain.
 		BBox CalculateSceneBBox() const;

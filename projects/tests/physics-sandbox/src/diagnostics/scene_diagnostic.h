@@ -48,10 +48,19 @@ namespace physics_sandbox::diag
 		bool m_sleep_metric = false;
 		bool m_sleep_metric_non_spheres = false;
 		bool m_engine_profile = false;
+		std::filesystem::path m_geometry_history;
+		std::filesystem::path m_pix_capture_path;
+		int m_pix_capture_step = 0; // One-based completed tick; zero disables capture.
 	};
 
 	struct SceneDiagnosticResult
 	{
+		// A sampled candidate or any censored episode needs review, even when no episodes remain open.
+		// Lifecycle censoring is not recovery; none of these outcomes proves an impact-law failure.
+		bool m_geometry_needs_review = false;
+		float m_max_abs_hinge_q = 0.0f;
+		int m_hinge_count = 0;
+		int m_hinge_outside_principal_steps = 0;
 		float m_max_depth = 0.0f;
 		int m_max_depth_step = 0;
 		int m_body_a = -1;

@@ -10,19 +10,14 @@ namespace pr::compute
 {
 	template <D3D12_COMMAND_LIST_TYPE QueueType> struct GpuJob;
 
-	// Diagnostics options for a device created by 'Gpu'. They have no effect on a borrowed device.
+	// Device-local diagnostics; borrowed devices keep their owner's settings. Process validation is configured before device creation.
+	// D3D12 shares one device per adapter, so message settings affect all users of that device, not only this wrapper.
 	enum class EGpuOptions
 	{
 		None = 0,
 
-		// Enable the D3D12 debug layer. This is process-wide and is not reverted when the 'Gpu' is destroyed.
-		DeviceDebug = 1 << 0,
-
-		// Also enable GPU-based validation. This is very slow.
-		DeviceGPUDebug = 1 << 1 | DeviceDebug,
-
-		// Break into the debugger on D3D12 corruption, error, and warning messages.
-		BreakOnErrors = 1 << 2 | DeviceDebug,
+		// Break on corruption, errors and warnings. Requires ConfigureProcessDiagnostics at process startup.
+		BreakOnErrors = 1 << 0,
 
 		_flags_enum = 0,
 	};
@@ -41,7 +36,7 @@ namespace pr::compute
 
 	public:
 
-		// Create a device on the default adapter, with the diagnostics in 'options', and a command queue with 'priority'.
+		// Create a device and queue with device-local 'options'. This never changes process diagnostics.
 		explicit Gpu(EGpuOptions options = EGpuOptions::None, D3D12_COMMAND_QUEUE_PRIORITY priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL);
 
 		// Borrow 'existing_device', which must not be null. Borrow 'existing_queue' when provided, otherwise create a queue with 'priority'.
@@ -102,7 +97,7 @@ namespace pr::compute
 #if PR_UNITTESTS
 namespace pr::compute
 {
-	// Diagnostics for devices created by unit tests. Debug builds validate GPU usage and stop at the first D3D12 error.
+	// Test runners configure TestProcessDiagnostics at startup; Debug fixtures stop on device validation errors.
 	inline constexpr EGpuOptions TestGpuOptions = IsDebug ? EGpuOptions::BreakOnErrors : EGpuOptions::None;
 }
 #endif

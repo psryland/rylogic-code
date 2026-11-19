@@ -7,19 +7,6 @@
 
 namespace pr::compute
 {
-	// Configure process-wide D3D12 device-removal diagnostics before creating a device.
-	inline bool EnableDeviceRemovedDiagnostics()
-	{
-		D3DPtr<ID3D12DeviceRemovedExtendedDataSettings1> settings;
-		if (FAILED(D3D12GetDebugInterface(__uuidof(ID3D12DeviceRemovedExtendedDataSettings1), (void**)settings.address_of())))
-			return false;
-
-		settings->SetAutoBreadcrumbsEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
-		settings->SetPageFaultEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
-		settings->SetBreadcrumbContextEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
-		return true;
-	}
-
 	// Return a bounded UTF-8 rendering of a DRED debug name.
 	inline std::string DredName(char const* name_a, wchar_t const* name_w)
 	{

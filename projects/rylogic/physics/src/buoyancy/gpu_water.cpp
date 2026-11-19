@@ -568,6 +568,16 @@ namespace pr::physics
 		m_pending_readback = {};
 	}
 
+	// Discard rejected output without reading queries or allocating while another exception is active.
+	void GpuWater::RejectStep() noexcept
+	{
+		m_pending_keys.clear();
+		m_pending_readback = {};
+		m_query_count = 0;
+		m_diagnostics.clear();
+		m_gpu_ms = 0;
+	}
+
 	// Return the published diagnostics of a hull.
 	WaterDiagnostics const* GpuWater::Diagnostics(HullKey key) const
 	{
