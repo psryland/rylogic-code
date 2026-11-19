@@ -13,12 +13,12 @@ namespace physics_sandbox
 	// so the solver overlaps rendering and physics, and the particles shown are those of the last completed step.
 	struct AtmosphereVisual
 	{
-		physics::Gpu m_gpu;
-		physics::atmosphere::AtmosphereSolver m_solver;
-		std::unique_ptr<physics::atmosphere::AtmosphereTracers> m_tracers;
+		game_systems::atmosphere::Gpu m_gpu;
+		game_systems::atmosphere::AtmosphereSolver m_solver;
+		std::unique_ptr<game_systems::atmosphere::AtmosphereTracers> m_tracers;
 		scene_loader::AtmosphereDesc m_desc;
-		std::vector<physics::atmosphere::AtmosphereTracerParticle> m_particles;
-		physics::GpuJob::RunHandle m_pending;    // The climate step in flight on the GPU, if any
+		std::vector<game_systems::atmosphere::AtmosphereTracerParticle> m_particles;
+		game_systems::atmosphere::GpuJob::RunHandle m_pending;    // The climate step in flight on the GPU, if any
 		float m_unstepped_time;                  // Simulated time not yet covered by a submitted climate step
 		rdr12::Renderer& m_rdr;
 		rdr12::ldraw::LdrObjectPtr m_gfx;        // Static diagnostics (grid, heat sources, and obstacles)

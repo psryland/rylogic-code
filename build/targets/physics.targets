@@ -22,7 +22,7 @@ the project which copies them to the build target directory.
 			<CopyToOutputDirectory Condition="'$(Configuration)'!='Debug'">PreserveNewest</CopyToOutputDirectory>
 		</Content>
 
-		<!-- physics.dll compiles atmosphere kernels at runtime, so the shader compiler must sit beside it where the loader searches. -->
+		<!-- physics.dll compiles GPU kernels at runtime, so the shader compiler must sit beside it where the loader searches. -->
 		<Content Include="$(DxcRuntimeDir)dxcompiler.dll;$(DxcRuntimeDir)dxil.dll" Condition="Exists('$(DxcRuntimeDir)dxcompiler.dll')">
 			<Link>lib\x64\$(Configuration.ToLowerInvariant())\%(Filename)%(Extension)</Link>
 			<Pack>false</Pack>

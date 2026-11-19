@@ -99,8 +99,8 @@ Compile with `/DPR_UNITTESTS=1`. The `projects/tests/unittests/` project include
 Test classes run in parallel, one class per worker thread. Mark a class `PRUnitTestClass(Name, Serial)` if it cannot share the process with other running
 classes, and register per-class shared state (GPU devices, engines) with `TestFramework::AddClassFixture` so it is released after the class. Runner arguments:
 ```powershell
-# Quick group only, 16 worker threads, skipping a class
-& projects\tests\unittests\obj\x64\Debug\unittests.exe -flags:Quick -threads:16 -exclude:AtmosphereTests
+# Quick group only, 16 worker threads
+& projects\tests\unittests\obj\x64\Debug\unittests.exe -flags:Quick -threads:16
 # Only the named classes
 & projects\tests\unittests\obj\x64\Debug\unittests.exe CoupledConstraintEngineTests EngineWaterTests
 ```

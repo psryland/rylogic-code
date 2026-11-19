@@ -76,9 +76,13 @@
     <ClInclude Include="$(RylogicRoot)include\pr\game-systems\sky\procedural_sky.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\game-systems\sky\weather_map.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\game-systems\ocean\ocean_surface.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\game-systems\atmosphere\atmosphere.h" />
+    <ClInclude Include="src\atmosphere\atmosphere_record.h" />
     <ClCompile Include="src\sky\procedural_sky.cpp" />
     <ClCompile Include="src\sky\weather_map.cpp" />
     <ClCompile Include="src\ocean\ocean_surface.cpp" />
+    <ClCompile Include="src\atmosphere\atmosphere.cpp" />
+    <ClCompile Include="src\atmosphere\atmosphere_record.cpp" />
     <None Include="src\shaders\hlsl\sky\procedural_sky_cbuf.hlsli" />
     <None Include="$(RylogicRoot)include\pr\game-systems\ocean\ocean_surface.hlsli" />
     <None Include="$(RylogicRoot)include\pr\game-systems\ocean\ocean_buffer.hlsli" />
@@ -87,6 +91,15 @@
     <ShaderBuild Include="src\shaders\hlsl\ocean\ocean_forward_vs.hlsl" VertexEntryPoints="ocean_forward_vs=Main" />
     <ShaderBuild Include="src\shaders\hlsl\ocean\ocean_forward_ps.hlsl" PixelEntryPoints="ocean_forward_ps0=PSWaterOpaque;ocean_forward_ps1=PSWaterOpaqueReflectionAttrs;ocean_forward_ps2=PSWaterAlphaCollect" />
     <ShaderBuild Include="src\shaders\hlsl\ocean\ocean_foam_cs.hlsl" ComputeEntryPoints="ocean_foam_cs=Main" />
+    <ShaderBuild Include="src\atmosphere\atmosphere.hlsl" ComputeEntryPoints="CSInitialise;CSAdvect;CSVorticity;CSForcesHeat;CSDivergence;CSMgSmooth;CSMgSmallLevels;CSMgResidual;CSMgRestrict;CSMgProlongate;CSNormalisePressure;CSProject;CSInitialiseTracers;CSAdvectTracers">
+      <StampDir>$(ProjectDir)src\atmosphere\compiled\$(Configuration)\</StampDir>
+    </ShaderBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="src\atmosphere\compute_shaders_game_systems.rc" />
+  </ItemGroup>
+  <ItemGroup>
+    <BuildArtifacts Include="$(OutDir)compute_shaders_game_systems.res" />
   </ItemGroup>
   <!--
   Dependencies

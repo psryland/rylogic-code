@@ -42,8 +42,10 @@
         ;view3d-12-static.lib
         ;compute-static.lib
         ;physics-static.lib
+        ;game-systems-static.lib
         ;compute_shaders.res
         ;compute_shaders_physics.res
+        ;compute_shaders_game_systems.res
         ;%(AdditionalDependencies)
       </AdditionalDependencies>
     </Link>
@@ -194,6 +196,7 @@
   <ItemGroup>
     <ProjectReference Include="$(RylogicRoot)projects\rylogic\compute\compute.vcxproj" />
     <ProjectReference Include="$(RylogicRoot)projects\rylogic\physics\physics.vcxproj" />
+    <ProjectReference Include="$(RylogicRoot)projects\rylogic\game-systems\game-systems.vcxproj" />
     <ProjectReference Include="$(RylogicRoot)projects\rylogic\view3d-12\view3d-12.vcxproj" />
   </ItemGroup>
   <!--

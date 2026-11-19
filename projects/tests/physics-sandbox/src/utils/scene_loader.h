@@ -377,12 +377,12 @@ namespace physics_sandbox::scene_loader
 	// Parsed GPU atmosphere solver and visualisation block.
 	struct AtmosphereDesc
 	{
-		physics::atmosphere::AtmosphereConfig m_config;                        // grid, boundaries, and reference temperature profile
-		std::vector<physics::atmosphere::AtmosphereHeatSource> m_heat_sources; // static heat sources
-		std::vector<physics::atmosphere::AtmosphereOutsideAir> m_outside_air;  // static outside air for every column, in AtmosphereGrid::BuildOutsideAir order
+		game_systems::atmosphere::AtmosphereConfig m_config;                        // grid, boundaries, and reference temperature profile
+		std::vector<game_systems::atmosphere::AtmosphereHeatSource> m_heat_sources; // static heat sources
+		std::vector<game_systems::atmosphere::AtmosphereOutsideAir> m_outside_air;  // static outside air for every column, in AtmosphereGrid::BuildOutsideAir order
 		std::vector<AtmosphereCylinderDesc> m_cylinders;                       // solid obstacles, already applied to the grid floor heights
 		bool m_terrain_floor = false;                                          // true when the grid floor follows the scene terrain (and water surface)
-		physics::atmosphere::AtmosphereTracerConfig m_tracers;                 // flow-visualisation particles
+		game_systems::atmosphere::AtmosphereTracerConfig m_tracers;                 // flow-visualisation particles
 		float m_step_rate = 15.0f;                                             // climate steps per simulated second, Hz
 		AtmosphereVisualDesc m_visual;                                     // display options
 	};

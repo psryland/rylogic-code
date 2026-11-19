@@ -49,6 +49,7 @@
 
 #include "pr/physics/physics.h"
 #include "pr/physics/buoyancy/buoyancy_sampler.h"
+#include "pr/game-systems/atmosphere/atmosphere.h"
 #include "physics/src/utility/gpu.h"
 #include "pr/compute/gpu_job.h"
 

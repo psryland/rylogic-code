@@ -1,0 +1,7 @@
+// HLSL compute shader sources for runtime compilation
+// Note: Don't include this rc file, add 'compute_shaders_game_systems.res' as a link dependency, together with 'pr_hlsl.rc' for the shared includes.
+//
+// Touch this comment any time an .hlsl/.hlsli file referenced below is edited so MSBuild
+// invalidates compute_shaders_game_systems.res — RC dependency tracking does not follow .hlsl edits.
+// Touched: 2026-11-04 (atmosphere moved from physics)
+src/atmosphere/atmosphere.hlsl TEXT DISCARDABLE "src/atmosphere/atmosphere.hlsl"

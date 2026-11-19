@@ -3,7 +3,7 @@
 //
 // Touch this comment any time an .hlsl/.hlsli file referenced below is edited so MSBuild
 // invalidates compute_shaders_physics.res — RC dependency tracking does not follow .hlsl edits.
-// Touched: 2026-11-03 (terrain world contacts use the single-precision local evaluator)
+// Touched: 2026-11-04 (atmosphere kernels moved to game-systems)
 src/surface/gpu_world_contacts.hlsl TEXT DISCARDABLE "src/surface/gpu_world_contacts.hlsl"
 pr/physics/terrain/landscape/baseline_surface.hlsli TEXT DISCARDABLE "..\\..\\..\\include\\pr\\physics\\terrain\\landscape\\baseline_surface.hlsli"
 pr/physics/terrain/landscape/baseline_surface_local.hlsli TEXT DISCARDABLE "..\\..\\..\\include\\pr\\physics\\terrain\\landscape\\baseline_surface_local.hlsli"
@@ -34,7 +34,6 @@ src/compute/selective.hlsl      TEXT DISCARDABLE "src/compute/selective.hlsl"
 src/compute/sleep.hlsl          TEXT DISCARDABLE "src/compute/sleep.hlsl"
 src/compute/sweep.hlsl          TEXT DISCARDABLE "src/compute/sweep.hlsl"
 src/buoyancy/gpu_water.hlsl TEXT DISCARDABLE "src/buoyancy/gpu_water.hlsl"
-src/atmosphere/atmosphere.hlsl TEXT DISCARDABLE "src/atmosphere/atmosphere.hlsl"
 src/buoyancy/buoyancy_sampler.hlsli TEXT DISCARDABLE "src/buoyancy/buoyancy_sampler.hlsli"
 pr/physics/buoyancy/wave_resistance.hlsli TEXT DISCARDABLE "..\\..\\..\\include\\pr\\physics\\buoyancy\\wave_resistance.hlsli"
 pr/physics/surface/surface_sampling.hlsli TEXT DISCARDABLE "..\\..\\..\\include\\pr\\physics\\surface\\surface_sampling.hlsli"

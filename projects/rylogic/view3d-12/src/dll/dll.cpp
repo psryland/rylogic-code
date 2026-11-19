@@ -28,6 +28,8 @@
 #include "pr/game-systems/sky/procedural_sky.h"
 #include "pr/game-systems/sky/weather_map.h"
 #include "pr/game-systems/ocean/ocean_surface.h"
+#include "pr/game-systems/atmosphere/atmosphere.h"
+#include "game-systems/src/atmosphere/atmosphere_record.h"
 #include "pr/view3d-12/population/population.h"
 #include "pr/view3d-12/sampler/sampler_desc.h"
 #include "pr/view3d-12/sampler/sampler.h"
@@ -3127,6 +3129,439 @@ VIEW3D_API BOOL __stdcall View3D_OceanHeight(view3d::Ocean ocean, double x_m, do
 		return TRUE;
 	}
 	CatchAndReport(View3D_OceanHeight, , FALSE);
+}
+
+// Atmospheres ******************************
+namespace pr::view3d::atmosphere_abi
+{
+	using namespace pr::game_systems::atmosphere;
+
+	// The calling thread's most recent atmosphere failure. 'g_error_storage_failed' is set when the text could not be stored.
+	thread_local std::string g_last_error;
+	thread_local bool g_error_storage_failed = false;
+
+	// Record the calling thread's most recent atmosphere failure.
+	void SetLastError(char const* message) noexcept
+	{
+		// Memory pressure must not replace the original failure with process termination.
+		try
+		{
+			g_last_error = message;
+			g_error_storage_failed = false;
+		}
+		catch (...)
+		{
+			// Report the original text directly and expose an explicit storage-failure message through View3D_AtmosphereLastError.
+			g_error_storage_failed = true;
+			OutputDebugStringA(message);
+			fputs(message, stderr);
+			fputs("\n", stderr);
+		}
+	}
+
+	// Invoke an atmosphere ABI implementation so that no C++ exception crosses the C boundary.
+	template <typename Func>
+	EStatus ApiCall(Func&& func) noexcept
+	{
+		try
+		{
+			SetLastError("");
+			func();
+			return EStatus::Success;
+		}
+		catch (AtmosphereException const& ex)
+		{
+			SetLastError(ex.what());
+			return ex.m_status;
+		}
+		catch (pr::compute::DeviceRemovedException const& ex)
+		{
+			SetLastError(ex.what());
+			return EStatus::DeviceRemoved;
+		}
+		catch (std::exception const& ex)
+		{
+			SetLastError(ex.what());
+			return EStatus::InternalError;
+		}
+		catch (...)
+		{
+			SetLastError("Unknown native atmosphere failure");
+			return EStatus::InternalError;
+		}
+	}
+
+	// Return the atmosphere for 'handle', which must not be null.
+	AtmosphereRecord& RequireAtmosphere(view3d::Atmosphere handle)
+	{
+		if (handle == nullptr)
+			throw AtmosphereException(EStatus::InvalidArgument, "Atmosphere handle is null");
+
+		return *handle;
+	}
+
+	// Throw InvalidArgument when the required pointer 'ptr' is null.
+	template <typename T>
+	T& RequirePtr(T* ptr, char const* message)
+	{
+		if (ptr == nullptr)
+			throw AtmosphereException(EStatus::InvalidArgument, message);
+
+		return *ptr;
+	}
+
+	// Convert the ABI atmosphere description to the solver configuration. The caller has checked the floor array; the solver validates the values.
+	AtmosphereConfig ToAtmosphereConfig(view3d::AtmosphereDesc const& desc)
+	{
+		// Read the per-side values by ABI side index.
+		auto const boundary = [&](view3d::EAtmosphereSide side)
+		{
+			return static_cast<pr::game_systems::atmosphere::EAtmosphereBoundary>(desc.m_boundaries[static_cast<int>(side)]);
+		};
+		auto const drag = [&](view3d::EAtmosphereSide side)
+		{
+			return desc.m_wall_drag[static_cast<int>(side)];
+		};
+
+		// Null arrays select the solver's flat floor and all-active mask.
+		auto const column_count = static_cast<size_t>(desc.m_cell_count[0]) * static_cast<size_t>(desc.m_cell_count[1]);
+		auto floor_heights = std::vector<float>{};
+		if (desc.m_floor_heights != nullptr)
+			floor_heights.assign(desc.m_floor_heights, desc.m_floor_heights + column_count);
+		auto active_columns = std::vector<uint8_t>{};
+		if (desc.m_active_columns != nullptr)
+			active_columns.assign(desc.m_active_columns, desc.m_active_columns + column_count);
+
+		using ESide = view3d::EAtmosphereSide;
+		return AtmosphereConfig{
+			.m_grid = AtmosphereGrid{
+				.m_cell_count = pr::iv3{ desc.m_cell_count[0], desc.m_cell_count[1], desc.m_cell_count[2] },
+				.m_origin = pr::v4{ desc.m_origin.x, desc.m_origin.y, desc.m_origin.z, 1.0f },
+				.m_dx = desc.m_dx,
+				.m_lid_z = desc.m_lid_z,
+				.m_first_layer_thickness = desc.m_first_layer_thickness,
+				.m_floor_heights = std::move(floor_heights),
+				.m_active_columns = std::move(active_columns),
+			},
+			.m_boundaries = AtmosphereBoundaries{
+				.m_x_min = boundary(ESide::XMin),
+				.m_x_max = boundary(ESide::XMax),
+				.m_y_min = boundary(ESide::YMin),
+				.m_y_max = boundary(ESide::YMax),
+				.m_z_min = boundary(ESide::ZMin),
+				.m_z_max = boundary(ESide::ZMax),
+			},
+			.m_wall_drag = AtmosphereWallDrag{
+				.m_x_min = drag(ESide::XMin),
+				.m_x_max = drag(ESide::XMax),
+				.m_y_min = drag(ESide::YMin),
+				.m_y_max = drag(ESide::YMax),
+				.m_z_min = drag(ESide::ZMin),
+				.m_z_max = drag(ESide::ZMax),
+			},
+			.m_reference = AtmosphereReferenceProfile{
+				.m_temperature_at_origin = desc.m_reference_temperature,
+				.m_lapse_rate = desc.m_lapse_rate,
+				.m_adiabatic_lapse_rate = desc.m_adiabatic_lapse_rate,
+				.m_min_temperature = desc.m_min_temperature,
+			},
+			.m_gravity = desc.m_gravity,
+			.m_floor_exchange_rate = desc.m_floor_exchange_rate,
+			.m_lid_temperature = desc.m_lid_temperature,
+			.m_lid_relaxation_rate = desc.m_lid_relaxation_rate,
+			.m_pressure_vcycles = desc.m_pressure_vcycles,
+			.m_pressure_pre_smooth = desc.m_pressure_pre_smooth,
+			.m_pressure_post_smooth = desc.m_pressure_post_smooth,
+			.m_pressure_coarse_smooth = desc.m_pressure_coarse_smooth,
+			.m_open_edge_band = desc.m_open_edge_band,
+			.m_vorticity_confinement = desc.m_vorticity_confinement,
+			.m_vertical_viscosity = desc.m_vertical_viscosity,
+		};
+	}
+
+	// Convert the tracer fields of the ABI atmosphere description; the tracer set validates the values.
+	AtmosphereTracerConfig ToAtmosphereTracerConfig(view3d::AtmosphereDesc const& desc)
+	{
+		return AtmosphereTracerConfig{
+			.m_particle_count = desc.m_tracer_count,
+			.m_seed = desc.m_tracer_seed,
+			.m_max_age = desc.m_tracer_max_age,
+			.m_ground_density = desc.m_tracer_ground_density,
+			.m_break_density = desc.m_tracer_break_density,
+			.m_upper_density = desc.m_tracer_upper_density,
+			.m_break_height = desc.m_tracer_break_height,
+		};
+	}
+
+	// The compiled kernel cache in 'dir', or null when 'dir' is null. Atmospheres use the cache only while they are created.
+	std::unique_ptr<pr::compute::shader_cache::ShaderCacheFS> MakeShaderCache(wchar_t const* dir)
+	{
+		if (dir == nullptr)
+			return nullptr;
+		if (*dir == L'\0')
+			throw AtmosphereException(EStatus::InvalidArgument, "Shader cache directory is empty");
+
+		return std::make_unique<pr::compute::shader_cache::ShaderCacheFS>(std::filesystem::path(dir), "game-systems");
+	}
+}
+VIEW3D_API view3d::EAtmosphereStatus __stdcall View3D_AtmosphereLastError(char* buffer, uint32_t capacity, uint32_t* required)
+{
+	using namespace pr::view3d::atmosphere_abi;
+	using EStatus = pr::view3d::EAtmosphereStatus;
+	try
+	{
+		// Report the stored text, or an explicit note when it could not be stored.
+		if (required == nullptr)
+			return EStatus::InvalidArgument;
+
+		auto const message = g_error_storage_failed
+			? std::string_view("Native error text could not be retained; the original error was written to the debugger and stderr")
+			: std::string_view(g_last_error);
+		auto const size = static_cast<uint32_t>(message.size() + 1);
+		*required = size;
+		if (buffer == nullptr || capacity == 0)
+			return capacity == 0 ? EStatus::BufferTooSmall : EStatus::InvalidArgument;
+
+		// Copy as much as fits, always terminated.
+		auto const count = std::min(capacity, size) - 1;
+		memcpy(buffer, message.data(), count);
+		buffer[count] = '\0';
+		return capacity < size ? EStatus::BufferTooSmall : EStatus::Success;
+	}
+	catch (...)
+	{
+		return EStatus::InternalError;
+	}
+}
+VIEW3D_API view3d::EAtmosphereStatus __stdcall View3D_AtmosphereCreate(void* d3d12_device, view3d::AtmosphereDesc const* desc, wchar_t const* shader_cache_dir, view3d::Atmosphere* atmosphere)
+{
+	using namespace pr::view3d::atmosphere_abi;
+	using EStatus = pr::view3d::EAtmosphereStatus;
+
+	// A failed creation never publishes a handle.
+	if (atmosphere != nullptr)
+		*atmosphere = nullptr;
+
+	return ApiCall([&]
+	{
+		// Check the arguments that the solver cannot. The column counts size the floor array, so they are checked before it is read.
+		RequirePtr(atmosphere, "Atmosphere output pointer is null");
+		auto& device = RequirePtr(static_cast<ID3D12Device*>(d3d12_device), "Atmosphere D3D12 device is null");
+		auto const& d = RequirePtr(desc, "Atmosphere description is null");
+		if ((d.m_floor_heights != nullptr || d.m_active_columns != nullptr) && (d.m_cell_count[0] <= 0 || d.m_cell_count[1] <= 0 || static_cast<int64_t>(d.m_cell_count[0]) * d.m_cell_count[1] > std::numeric_limits<int32_t>::max()))
+			throw AtmosphereException(EStatus::InvalidArgument, "Invalid atmosphere column count");
+		for (auto boundary : d.m_boundaries)
+		{
+			switch (boundary)
+			{
+				case view3d::EAtmosphereBoundary::Solid:
+				case view3d::EAtmosphereBoundary::Open:
+				{
+					break;
+				}
+				default:
+				{
+					throw AtmosphereException(EStatus::InvalidArgument, "Invalid atmosphere boundary");
+				}
+			}
+		}
+
+		// The solver needs the ID3D12Device4 interface of the caller's device.
+		auto device4 = D3DPtr<ID3D12Device4>{};
+		if (FAILED(device.QueryInterface(__uuidof(ID3D12Device4), reinterpret_cast<void**>(device4.address_of()))))
+			throw AtmosphereException(EStatus::InvalidArgument, "Atmosphere device does not support ID3D12Device4");
+
+		// Construction records but never submits, so unwinding a failed construction cannot release in-flight resources.
+		auto cache = MakeShaderCache(shader_cache_dir);
+		auto object = std::unique_ptr<AtmosphereRecord>{};
+		try
+		{
+			object = std::make_unique<AtmosphereRecord>(device4.get(), ToAtmosphereConfig(d), ToAtmosphereTracerConfig(d), cache.get());
+		}
+		catch (std::invalid_argument const& ex)
+		{
+			throw AtmosphereException(EStatus::InvalidArgument, ex.what());
+		}
+
+		// Initialisation submits GPU work, so a failure must wait for that work before the record is released.
+		try
+		{
+			object->Initialise();
+		}
+		catch (...)
+		{
+			if (object->TryClose(INFINITE) != S_OK)
+				(void)object.release();
+
+			throw;
+		}
+		*atmosphere = object.release();
+	});
+}
+VIEW3D_API view3d::EAtmosphereStatus __stdcall View3D_AtmosphereDestroy(view3d::Atmosphere atmosphere, uint32_t timeout_ms)
+{
+	using namespace pr::view3d::atmosphere_abi;
+	using EStatus = pr::view3d::EAtmosphereStatus;
+	return ApiCall([&]
+	{
+		// A failed close leaves the handle valid so the caller can retry.
+		auto& object = RequireAtmosphere(atmosphere);
+		auto const hr = object.TryClose(timeout_ms);
+		if (hr == S_FALSE)
+			throw AtmosphereException(EStatus::Timeout, "GPU cleanup timed out; ownership is retained for retry");
+		if (hr != S_OK)
+			throw AtmosphereException(EStatus::InternalError, "GPU cleanup failed; ownership is retained for retry");
+
+		delete &object;
+	});
+}
+VIEW3D_API view3d::EAtmosphereStatus __stdcall View3D_AtmosphereBeginStep(view3d::Atmosphere atmosphere, view3d::AtmosphereStepDesc const* step)
+{
+	using namespace pr::view3d::atmosphere_abi;
+	using EStatus = pr::view3d::EAtmosphereStatus;
+	return ApiCall([&]
+	{
+		// The record rejects invalid steps before recording anything.
+		RequireAtmosphere(atmosphere).BeginStep(RequirePtr(step, "Atmosphere step description is null"));
+	});
+}
+VIEW3D_API view3d::EAtmosphereStatus __stdcall View3D_AtmospherePollStep(view3d::Atmosphere atmosphere, int32_t* idle)
+{
+	using namespace pr::view3d::atmosphere_abi;
+	using EStatus = pr::view3d::EAtmosphereStatus;
+	return ApiCall([&]
+	{
+		// Finishing a step that the GPU has already executed does not wait.
+		auto& object = RequireAtmosphere(atmosphere);
+		auto& out = RequirePtr(idle, "Atmosphere idle output pointer is null");
+		out = object.PollStep() ? 1 : 0;
+	});
+}
+VIEW3D_API view3d::EAtmosphereStatus __stdcall View3D_AtmosphereProbesCopy(view3d::Atmosphere atmosphere, view3d::AtmosphereProbeSample* samples, uint32_t capacity, uint32_t* required)
+{
+	using namespace pr::view3d::atmosphere_abi;
+	using EStatus = pr::view3d::EAtmosphereStatus;
+	return ApiCall([&]
+	{
+		// The published samples are CPU memory owned by the record, so copying them never touches the GPU or the step in flight.
+		auto& object = RequireAtmosphere(atmosphere);
+		object.CopyProbes(samples, capacity, RequirePtr(required, "Probe required-count pointer is null"));
+	});
+}
+VIEW3D_API view3d::EAtmosphereStatus __stdcall View3D_AtmosphereSurfaceWindCopy(view3d::Atmosphere atmosphere, view3d::Vec2* wind, uint32_t capacity, uint32_t* required)
+{
+	using namespace pr::view3d::atmosphere_abi;
+	using EStatus = pr::view3d::EAtmosphereStatus;
+	return ApiCall([&]
+	{
+		// The published wind is CPU memory owned by the record, so copying it never touches the GPU or the step in flight.
+		auto& object = RequireAtmosphere(atmosphere);
+		object.CopySurfaceWind(wind, capacity, RequirePtr(required, "Surface wind required-count pointer is null"));
+	});
+}
+VIEW3D_API view3d::EAtmosphereStatus __stdcall View3D_AtmosphereCompleteStep(view3d::Atmosphere atmosphere)
+{
+	using namespace pr::view3d::atmosphere_abi;
+	using EStatus = pr::view3d::EAtmosphereStatus;
+	return ApiCall([&]
+	{
+		// Wait for the step in flight and publish its outputs.
+		RequireAtmosphere(atmosphere).CompleteStep();
+	});
+}
+VIEW3D_API view3d::EAtmosphereStatus __stdcall View3D_AtmosphereFloorsSet(view3d::Atmosphere atmosphere, float const* floor_heights, int32_t count)
+{
+	using namespace pr::view3d::atmosphere_abi;
+	using EStatus = pr::view3d::EAtmosphereStatus;
+	return ApiCall([&]
+	{
+		// Remapping runs GPU work on the atmosphere's queue to completion.
+		RequireAtmosphere(atmosphere).SetFloors(floor_heights, count);
+	});
+}
+VIEW3D_API view3d::EAtmosphereStatus __stdcall View3D_AtmosphereFloorTemperaturesSet(view3d::Atmosphere atmosphere, float const* floor_temperatures, int32_t count)
+{
+	using namespace pr::view3d::atmosphere_abi;
+	using EStatus = pr::view3d::EAtmosphereStatus;
+	return ApiCall([&]
+	{
+		// The solver keeps a CPU copy that the next step uploads, so this is allowed while a step is in flight.
+		RequireAtmosphere(atmosphere).SetFloorTemperatures(floor_temperatures, count);
+	});
+}
+VIEW3D_API view3d::EAtmosphereStatus __stdcall View3D_AtmosphereOutsideAirSet(view3d::Atmosphere atmosphere, view3d::AtmosphereOutsideAir const* outside_air, int32_t count)
+{
+	using namespace pr::view3d::atmosphere_abi;
+	using EStatus = pr::view3d::EAtmosphereStatus;
+	return ApiCall([&]
+	{
+		// The solver keeps a CPU copy that the next step uploads, so this is allowed while a step is in flight.
+		RequireAtmosphere(atmosphere).SetOutsideAir(outside_air, count);
+	});
+}
+VIEW3D_API view3d::EAtmosphereStatus __stdcall View3D_AtmosphereTracersCopy(view3d::Atmosphere atmosphere, view3d::AtmosphereTracerParticle* particles, uint32_t capacity, uint32_t* required)
+{
+	using namespace pr::view3d::atmosphere_abi;
+	using EStatus = pr::view3d::EAtmosphereStatus;
+	return ApiCall([&]
+	{
+		// The read back runs on the atmosphere's queue.
+		auto& object = RequireAtmosphere(atmosphere);
+		object.CopyTracers(particles, capacity, RequirePtr(required, "Tracer required-count pointer is null"));
+	});
+}
+VIEW3D_API view3d::EAtmosphereStatus __stdcall View3D_AtmosphereTracersAcquire(view3d::Atmosphere atmosphere, view3d::AtmosphereTracerSlot* slot)
+{
+	using namespace pr::view3d::atmosphere_abi;
+	using EStatus = pr::view3d::EAtmosphereStatus;
+	return ApiCall([&]
+	{
+		// Hold the published slot and hand its buffer to the caller.
+		auto& object = RequireAtmosphere(atmosphere);
+		object.AcquireTracers(RequirePtr(slot, "Tracer slot pointer is null"));
+	});
+}
+VIEW3D_API view3d::EAtmosphereStatus __stdcall View3D_AtmosphereTracersRelease(view3d::Atmosphere atmosphere, int32_t slot, void* fence, uint64_t value)
+{
+	using namespace pr::view3d::atmosphere_abi;
+	using EStatus = pr::view3d::EAtmosphereStatus;
+	return ApiCall([&]
+	{
+		// Release one hold taken by View3D_AtmosphereTracersAcquire.
+		RequireAtmosphere(atmosphere).ReleaseTracers(slot, static_cast<ID3D12Fence*>(fence), value);
+	});
+}
+VIEW3D_API view3d::EAtmosphereStatus __stdcall View3D_AtmosphereCellStatesCopy(view3d::Atmosphere atmosphere, view3d::AtmosphereCellState* cells, uint32_t capacity, uint32_t* required, view3d::AtmosphereStats* stats)
+{
+	using namespace pr::view3d::atmosphere_abi;
+	using EStatus = pr::view3d::EAtmosphereStatus;
+	return ApiCall([&]
+	{
+		// The read back runs on the atmosphere's queue. 'stats' is optional.
+		auto& object = RequireAtmosphere(atmosphere);
+		object.CopyCellStates(cells, capacity, RequirePtr(required, "Cell required-count pointer is null"), stats);
+	});
+}
+VIEW3D_API view3d::EAtmosphereStatus __stdcall View3D_AtmosphereShaderPrecompile(wchar_t const* shader_cache_dir, int thread_count, int(__stdcall* progress)(void* ctx, int completed, int total), void* ctx)
+{
+	using namespace pr::view3d::atmosphere_abi;
+	using EStatus = pr::view3d::EAtmosphereStatus;
+	return ApiCall([&]
+	{
+		// Precompiling needs somewhere to store the results.
+		if (shader_cache_dir == nullptr)
+			throw AtmosphereException(EStatus::InvalidArgument, "Shader precompile requires a shader cache directory");
+		if (thread_count < 1)
+			throw AtmosphereException(EStatus::InvalidArgument, "Shader precompile thread count must be at least one");
+
+		// Forward progress to the caller; a zero return cancels the remaining kernels.
+		auto cache = MakeShaderCache(shader_cache_dir);
+		auto recipes = ShaderRecipes();
+		pr::compute::PrecompileShaders(recipes, *cache, thread_count, [&](int completed, int total)
+		{
+			return progress == nullptr || progress(ctx, completed, total) != 0;
+		});
+	});
 }
 
 // Create a population prototype. The caller owns the returned reference.

@@ -1,16 +1,26 @@
 //*********************************************
-// Physics Engine Atmosphere Record Tests
+// Game Systems Atmosphere Record Tests
 //  Copyright (C) Rylogic Ltd 2026
 //*********************************************
 // Tests of the atmosphere ABI owner: rejected requests leave the atmosphere usable, and any other failure makes it accept only destruction.
 #if PR_UNITTESTS
-#include "src/unittests/forward.h"
-#include "pr/physics/physics.h"
-#include "physics/src/dll/atmosphere_record.h"
-#include "src/unittests/shared_gpu.h"
+#include "shared_gpu.h"
+#include "game-systems/src/atmosphere/atmosphere_record.h"
 
-namespace pr::physics::tests
+namespace pr::game_systems::tests
 {
+	using namespace pr::game_systems::atmosphere;
+	using AtmosphereStepDesc = AtmosphereRecord::AtmosphereStepDesc;
+	using AtmosphereHeatSource = AtmosphereRecord::AtmosphereHeatSource;
+	using AtmosphereProbeSample = AtmosphereRecord::AtmosphereProbeSample;
+	using AtmosphereOutsideAir = AtmosphereRecord::AtmosphereOutsideAir;
+	using AtmosphereTracerParticle = AtmosphereRecord::AtmosphereTracerParticle;
+	using AtmosphereTracerSlot = AtmosphereRecord::AtmosphereTracerSlot;
+	using AtmosphereCellState = AtmosphereRecord::AtmosphereCellState;
+	using AtmosphereStats = AtmosphereRecord::AtmosphereStats;
+	using Vector2 = AtmosphereRecord::Vector2;
+	using Vector4 = AtmosphereRecord::Vector4;
+
 	PRUnitTestClass(AtmosphereRecordTests)
 	{
 		// The number of columns in 'RecordConfig'.
@@ -57,7 +67,7 @@ namespace pr::physics::tests
 			auto tracers = atmosphere::AtmosphereTracers(solver, gpu, atmosphere::AtmosphereTracerConfig{ .m_particle_count = 64 }, &SharedTestShaderCache());
 			auto probes = atmosphere::AtmosphereProbes(solver, gpu, &SharedTestShaderCache());
 			auto wind = atmosphere::AtmosphereSurfaceWind(solver, gpu, &SharedTestShaderCache());
-			Scope<void> close([&]
+			::pr::Scope<void> close([&]
 			{
 				// These fully constructed owners remain alive until their shared initialization job is closed.
 				PR_EXPECT(gpu.m_job.TryClose(INFINITE) == S_OK);
@@ -75,7 +85,7 @@ namespace pr::physics::tests
 			auto record = std::unique_ptr<AtmosphereRecord, CloseRecord>(new AtmosphereRecord(SharedTestGpu().m_gpu.device(), RecordConfig(), {}, &SharedTestShaderCache()));
 			proxy = std::make_unique<compute::tests::ForwardingQueue>(record->m_gpu.m_job.m_queue.get());
 			record->m_gpu.m_job.m_queue = D3DPtr<ID3D12CommandQueue>(proxy.get(), true);
-			Scope<void> disarm([&]
+			::pr::Scope<void> disarm([&]
 			{
 				// The fixture's close policy can retire the real work after the injected signal error is removed.
 				proxy->m_fail_signals = false;
@@ -83,7 +93,7 @@ namespace pr::physics::tests
 			proxy->m_fail_signals = true;
 			PR_THROWS(record->Initialise(), std::runtime_error);
 			PR_EXPECT(record->m_failed);
-			PR_EXPECT(RequiresRecreate([&] { record->BeginStep(AtmosphereStepDesc{ .dt = 0.1f }); }));
+			PR_EXPECT(RequiresRecreate([&] { record->BeginStep(AtmosphereStepDesc{ .m_dt = 0.1f }); }));
 			PR_EXPECT(proxy->m_execute_calls == 1);
 			PR_EXPECT(record->TryClose(0) == E_OUTOFMEMORY);
 			PR_EXPECT(record->m_failed);
@@ -102,23 +112,23 @@ namespace pr::physics::tests
 			return record;
 		}
 
-		// Return the status of the ApiException thrown by 'call', or 'EStatus::Success' when it does not throw.
+		// Return the status of the AtmosphereException thrown by 'call', or 'EStatus::Success' when it does not throw.
 		// Any other exception escapes, so a call expected to be rejected cannot pass by failing in another way.
 		template <typename Call> static EStatus StatusOf(Call&& call)
 		{
-			// Only rejections and failed-atmosphere errors are ApiExceptions.
+			// Only rejections and failed-atmosphere errors are AtmosphereExceptions.
 			try
 			{
 				call();
 				return EStatus::Success;
 			}
-			catch (ApiException const& ex)
+			catch (AtmosphereException const& ex)
 			{
 				return ex.m_status;
 			}
 		}
 
-		// True if 'call' throws ApiException with EStatus::InternalError and a message telling the caller to recreate the atmosphere.
+		// True if 'call' throws AtmosphereException with EStatus::InternalError and a message telling the caller to recreate the atmosphere.
 		template <typename Call> static bool RequiresRecreate(Call&& call)
 		{
 			// A failed atmosphere reports the same error from every method.
@@ -127,7 +137,7 @@ namespace pr::physics::tests
 				call();
 				return false;
 			}
-			catch (ApiException const& ex)
+			catch (AtmosphereException const& ex)
 			{
 				return ex.m_status == EStatus::InternalError && std::string_view(ex.what()).find("destroy it and create a new one") != std::string_view::npos;
 			}
@@ -137,7 +147,7 @@ namespace pr::physics::tests
 		static void Step(AtmosphereRecord& record, int steps)
 		{
 			// Each step is finished before the next, as the ABI requires.
-			auto const desc = AtmosphereStepDesc{ .dt = 0.1f };
+			auto const desc = AtmosphereStepDesc{ .m_dt = 0.1f };
 			for (int i = 0; i != steps; ++i)
 			{
 				record.BeginStep(desc);
@@ -167,7 +177,7 @@ namespace pr::physics::tests
 		static std::vector<AtmosphereOutsideAir> UniformAir(float wind_x, float wind_y, float temperature_offset)
 		{
 			// The ABI layout requires a zero reserved field.
-			return std::vector<AtmosphereOutsideAir>(ColumnCount, AtmosphereOutsideAir{ .wind = { wind_x, wind_y }, .temperature_offset = temperature_offset, .reserved = 0.0f });
+			return std::vector<AtmosphereOutsideAir>(ColumnCount, AtmosphereOutsideAir{ .m_wind = { wind_x, wind_y }, .m_temperature_offset = temperature_offset, .m_reserved = 0.0f });
 		}
 
 		// An observer that throws after the step's fence was signalled leaves the step submitted but with no handle. The atmosphere must
@@ -177,7 +187,7 @@ namespace pr::physics::tests
 			// Finish one ordinary step, so the atmosphere has published probe samples, surface wind, and tracers.
 			auto record = MakeRecord(64);
 			auto const probe = Vector4{ 4.0f, 4.0f, 1.0f, 1.0f };
-			auto const desc = AtmosphereStepDesc{ .dt = 0.1f, .probe_count = 1, .surface_wind_height = 1.0f, .probes = &probe };
+			auto const desc = AtmosphereStepDesc{ .m_dt = 0.1f, .m_probe_count = 1, .m_surface_wind_height = 1.0f, .m_probes = &probe };
 			record->BeginStep(desc);
 			record->CompleteStep();
 			auto required = std::uint32_t{};
@@ -203,7 +213,7 @@ namespace pr::physics::tests
 			{
 				record->BeginStep(desc);
 			}
-			catch (ApiException const&)
+			catch (AtmosphereException const&)
 			{
 				rejected = true;
 			}
@@ -239,7 +249,7 @@ namespace pr::physics::tests
 			// Submit a step that samples a probe, then fail the completion notification.
 			auto record = MakeRecord(64);
 			auto const probe = Vector4{ 4.0f, 4.0f, 1.0f, 1.0f };
-			auto const desc = AtmosphereStepDesc{ .dt = 0.1f, .probe_count = 1, .surface_wind_height = 1.0f, .probes = &probe };
+			auto const desc = AtmosphereStepDesc{ .m_dt = 0.1f, .m_probe_count = 1, .m_surface_wind_height = 1.0f, .m_probes = &probe };
 			record->BeginStep(desc);
 			auto fail_next = true;
 			AutoSub sub = record->m_gpu.m_job.m_gsync.SyncPointCompleted += [&](compute::GpuSync&, EmptyArgs const&)
@@ -256,7 +266,7 @@ namespace pr::physics::tests
 			{
 				record->CompleteStep();
 			}
-			catch (ApiException const&)
+			catch (AtmosphereException const&)
 			{
 				rejected = true;
 			}
@@ -287,7 +297,7 @@ namespace pr::physics::tests
 			// The earlier input, and a rejected input that changes every column but the last, which is not finite.
 			auto const prior = UniformAir(1.5f, 0.5f, 2.0f);
 			auto changed = UniformAir(-3.0f, 2.0f, -1.0f);
-			changed.back().temperature_offset = std::numeric_limits<float>::quiet_NaN();
+			changed.back().m_temperature_offset = std::numeric_limits<float>::quiet_NaN();
 
 			// Apply the earlier input to both records, then the rejected input to 'a' only.
 			auto a = MakeRecord();
@@ -300,7 +310,7 @@ namespace pr::physics::tests
 			// The native setter owns the check, so call it directly too. It must return a rejection without writing its valid prefix.
 			auto native = std::vector<atmosphere::AtmosphereOutsideAir>{};
 			for (auto const& air : changed)
-				native.push_back(atmosphere::AtmosphereOutsideAir{ .m_wind = v2{ air.wind.x, air.wind.y }, .m_temperature_offset = air.temperature_offset });
+				native.push_back(atmosphere::AtmosphereOutsideAir{ .m_wind = v2{ air.m_wind.x, air.m_wind.y }, .m_temperature_offset = air.m_temperature_offset });
 
 			PR_EXPECT(!a->m_solver.SetOutsideAir(native).Accepted());
 
@@ -324,7 +334,7 @@ namespace pr::physics::tests
 		}
 
 		// Accepted floors run the job to read back the field, which runs its sync observers. An observer that makes a rejected ABI call
-		// throws the same ApiException type as a rejection, but this call's work has already run. The atmosphere must report a failure, not the
+		// throws the same AtmosphereException type as a rejection, but this call's work has already run. The atmosphere must report a failure, not the
 		// observer's rejection status, keep the observer's error nested for diagnostics, and become failed.
 		PRUnitTestMethod(ObserverRejectionDuringFloorRemapFailsTheAtmosphere, Quick)
 		{
@@ -335,7 +345,7 @@ namespace pr::physics::tests
 
 			// On the first sync point, after the real queue signal, make a rejected outside-air call on the same atmosphere.
 			auto invalid = UniformAir(1.0f, 0.0f, 0.0f);
-			invalid.back().temperature_offset = std::numeric_limits<float>::quiet_NaN();
+			invalid.back().m_temperature_offset = std::numeric_limits<float>::quiet_NaN();
 			auto observer_status = EStatus::Success;
 			auto observer_message = std::string{};
 			auto fail_next = true;
@@ -350,7 +360,7 @@ namespace pr::physics::tests
 				{
 					record->SetOutsideAir(invalid.data(), ColumnCount);
 				}
-				catch (ApiException const& ex)
+				catch (AtmosphereException const& ex)
 				{
 					observer_status = ex.m_status;
 					observer_message = ex.what();
@@ -369,7 +379,7 @@ namespace pr::physics::tests
 			{
 				record->SetFloors(floors.data(), ColumnCount);
 			}
-			catch (ApiException const& ex)
+			catch (AtmosphereException const& ex)
 			{
 				// Keep the reported error, then unwrap the original it carries.
 				status = ex.m_status;
@@ -378,7 +388,7 @@ namespace pr::physics::tests
 				{
 					std::rethrow_if_nested(ex);
 				}
-				catch (ApiException const& inner)
+				catch (AtmosphereException const& inner)
 				{
 					nested_status = inner.m_status;
 					nested_message = inner.what();
@@ -397,7 +407,7 @@ namespace pr::physics::tests
 			// Every method now reports the failure, and no further work is submitted.
 			PR_EXPECT(RequiresRecreate([&] { record->SetFloors(floors.data(), ColumnCount); }));
 			PR_EXPECT(RequiresRecreate([&] { ReadCells(*record); }));
-			PR_EXPECT(RequiresRecreate([&] { record->BeginStep(AtmosphereStepDesc{ .dt = 0.1f }); }));
+			PR_EXPECT(RequiresRecreate([&] { record->BeginStep(AtmosphereStepDesc{ .m_dt = 0.1f }); }));
 			PR_EXPECT(gsync.LastAddedSyncPoint() == last + 1);
 
 			// Destruction waits for the signalled read back through the terminal wait.
@@ -465,8 +475,8 @@ namespace pr::physics::tests
 			auto& gsync = record->m_gpu.m_job.m_gsync;
 			auto const last = gsync.LastAddedSyncPoint();
 			auto const slot = record->m_tracers->CurrentSlot();
-			auto const heat = AtmosphereHeatSource{ .centre = { 4.0f, 4.0f, 1.0f, 1.0f }, .radius = std::numeric_limits<float>::quiet_NaN(), .heating_rate = 1.0f, .target_temperature = 300.0f, .relaxation_rate = 0.1f };
-			auto const desc = AtmosphereStepDesc{ .dt = 0.1f, .heat_source_count = 1, .heat_sources = &heat };
+			auto const heat = AtmosphereHeatSource{ .m_centre = { 4.0f, 4.0f, 1.0f, 1.0f }, .m_radius = std::numeric_limits<float>::quiet_NaN(), .m_heating_rate = 1.0f, .m_target_temperature = 300.0f, .m_relaxation_rate = 0.1f };
+			auto const desc = AtmosphereStepDesc{ .m_dt = 0.1f, .m_heat_source_count = 1, .m_heat_sources = &heat };
 			PR_EXPECT(StatusOf([&] { record->BeginStep(desc); }) == EStatus::InvalidArgument);
 
 			// Nothing was submitted and the tracers did not advance.
@@ -499,17 +509,17 @@ namespace pr::physics::tests
 			// The step is rejected without being submitted, and the atmosphere is still usable.
 			auto& gsync = record->m_gpu.m_job.m_gsync;
 			auto const last = gsync.LastAddedSyncPoint();
-			PR_EXPECT(StatusOf([&] { record->BeginStep(AtmosphereStepDesc{ .dt = 0.1f }); }) == EStatus::InvalidArgument);
+			PR_EXPECT(StatusOf([&] { record->BeginStep(AtmosphereStepDesc{ .m_dt = 0.1f }); }) == EStatus::InvalidArgument);
 			PR_EXPECT(gsync.LastAddedSyncPoint() == last);
 			PR_EXPECT(!record->m_failed);
 
 			// Releasing the oldest slot lets the next step write it.
-			record->ReleaseTracers(slots.front().slot, nullptr, 0);
+			record->ReleaseTracers(slots.front().m_slot, nullptr, 0);
 			Step(*record, 1);
-			PR_EXPECT(record->m_tracers->CurrentSlot() == slots.front().slot);
+			PR_EXPECT(record->m_tracers->CurrentSlot() == slots.front().m_slot);
 
 			// A release without a hold, or of a slot out of range, is rejected and does not fail the atmosphere.
-			PR_EXPECT(StatusOf([&] { record->ReleaseTracers(slots.front().slot, nullptr, 0); }) == EStatus::InvalidArgument);
+			PR_EXPECT(StatusOf([&] { record->ReleaseTracers(slots.front().m_slot, nullptr, 0); }) == EStatus::InvalidArgument);
 			PR_EXPECT(StatusOf([&] { record->ReleaseTracers(atmosphere::AtmosphereTracers::SlotCount, nullptr, 0); }) == EStatus::InvalidArgument);
 			PR_EXPECT(!record->m_failed);
 
@@ -518,9 +528,9 @@ namespace pr::physics::tests
 			{
 				// The first slot's hold was released above.
 				if (&slot != &slots.front())
-					record->ReleaseTracers(slot.slot, nullptr, 0);
+					record->ReleaseTracers(slot.m_slot, nullptr, 0);
 
-				static_cast<IUnknown*>(slot.resource)->Release();
+				static_cast<IUnknown*>(slot.m_resource)->Release();
 			}
 		}
 	};

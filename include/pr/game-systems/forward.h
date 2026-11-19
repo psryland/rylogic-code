@@ -24,6 +24,15 @@
 #include "pr/view3d-12/texture/texture_desc.h"
 #include "pr/view3d-12/texture/texture_2d.h"
 #include "pr/view3d-12/texture/texture_cube.h"
+#include "pr/compute/gpu.h"
+#include "pr/compute/gpu_job.h"
+#include "pr/compute/compute_pso.h"
+#include "pr/compute/compute_step.h"
+#include "pr/compute/shaders/shader_compiler.h"
+#include "pr/compute/shaders/shader_cache.h"
+#include "pr/compute/shaders/shader_cache_fs.h"
+#include "pr/compute/shaders/shader_precompile.h"
+#include "pr/compute/utility/root_signature.h"
 
 namespace pr::game_systems
 {
@@ -40,5 +49,16 @@ namespace pr::game_systems
 	namespace ocean
 	{
 		struct OceanSurface;
+	}
+
+	// Atmosphere
+	namespace atmosphere
+	{
+		struct Gpu;
+		class AtmosphereSolver;
+		struct AtmosphereConfig;
+		struct AtmosphereState;
+		struct AtmosphereCellState;
+		struct AtmosphereRecord;
 	}
 }

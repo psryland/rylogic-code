@@ -1,16 +1,11 @@
 //*********************************************
-// Physics Engine
+// Game Systems
 //  Copyright (C) Rylogic Ltd 2026
 //*********************************************
-#include "pr/physics/atmosphere/atmosphere.h"
-#include "pr/compute/compute_pso.h"
-#include "pr/compute/compute_step.h"
-#include "pr/compute/shaders/shader_compiler.h"
-#include "pr/compute/utility/root_signature.h"
-#include "src/utility/gpu.h"
-#include "src/utility/shader_recipes.h"
+#include "pr/game-systems/forward.h"
+#include "pr/game-systems/atmosphere/atmosphere.h"
 
-namespace pr::physics::atmosphere
+namespace pr::game_systems::atmosphere
 {
 	using namespace pr::compute;
 
@@ -26,7 +21,7 @@ namespace pr::physics::atmosphere
 		// Compile one atmosphere kernel. Constructors and precompilation share this so their cache keys match.
 		std::vector<uint8_t> CompileAtmosphereKernel(wchar_t const* entry_point, IShaderCache* cache)
 		{
-			// Runtime compilation matches the other physics GPU modules and uses the embedded resource resolver. The optional cache skips DXC when the source is unchanged.
+			// Runtime compilation uses the embedded resource resolver (see compute_shaders_game_systems.rc). The optional cache skips DXC when the source is unchanged.
 			auto resolver = shader_cache::ResourceSourceResolver{};
 			return ShaderCompiler{}.Source("src/atmosphere/atmosphere.hlsl", resolver).Cache(cache).HlslVersion(EHlslVersion::Hlsl2021).Define(L"SHADER_BUILD").Optimise(true).ShaderModel(L"cs_6_6").EntryPoint(entry_point).Compile();
 		}
@@ -740,13 +735,13 @@ namespace pr::physics::atmosphere
 				.U32<CBufAtmosphere>(hlsl::ECBufReg::b0)
 				.UAV(hlsl::EUAVReg::u0).UAV(hlsl::EUAVReg::u1).UAV(hlsl::EUAVReg::u2).UAV(hlsl::EUAVReg::u3).UAV(hlsl::EUAVReg::u4).UAV(hlsl::EUAVReg::u5).UAV(hlsl::EUAVReg::u6)
 				.SRV(hlsl::ESRVReg::t0).SRV(hlsl::ESRVReg::t1).SRV(hlsl::ESRVReg::t2).SRV(hlsl::ESRVReg::t3).SRV(hlsl::ESRVReg::t4).SRV(hlsl::ESRVReg::t5).SRV(hlsl::ESRVReg::t6).SRV(hlsl::ESRVReg::t7)
-				.Create(gpu, "Physics.Atmosphere.RootSig");
+				.Create(gpu, "GameSystems.Atmosphere.RootSig");
 			auto make_step = [&](wchar_t const* entry_point, char const* name)
 			{
 				// Each kernel only needs its own pipeline state on top of the shared root signature.
 				auto step = ComputeStep{};
 				auto code = CompileAtmosphereKernel(entry_point, cache);
-				auto pso_name = std::format("Physics.Atmosphere.{}.PSO", name);
+				auto pso_name = std::format("GameSystems.Atmosphere.{}.PSO", name);
 				step.m_sig = m_sig;
 				step.m_pso = ComputePSO(m_sig.get(), code).Cache(cache).Create(gpu, pso_name.c_str());
 				return step;
@@ -1635,8 +1630,8 @@ namespace pr::physics::atmosphere
 				// The tracer kernels share the atmosphere root layout so they can sample the solver buffers directly.
 				auto step = ComputeStep{};
 				auto code = CompileAtmosphereKernel(entry_point, cache);
-				auto sig_name = std::format("Physics.Atmosphere.Tracers.{}.RootSig", name);
-				auto pso_name = std::format("Physics.Atmosphere.Tracers.{}.PSO", name);
+				auto sig_name = std::format("GameSystems.Atmosphere.Tracers.{}.RootSig", name);
+				auto pso_name = std::format("GameSystems.Atmosphere.Tracers.{}.PSO", name);
 				step.m_sig = RootSig(ERootSigFlags::ComputeOnly)
 					.U32<CBufAtmosphere>(hlsl::ECBufReg::b0)
 					.U32<CBufAtmosphereTracers>(hlsl::ECBufReg::b1)
@@ -1924,8 +1919,8 @@ namespace pr::physics::atmosphere
 				.U32<CBufAtmosphereProbes>(hlsl::ECBufReg::b2)
 				.UAV(hlsl::EUAVReg::u8)
 				.SRV(hlsl::ESRVReg::t0).SRV(hlsl::ESRVReg::t1).SRV(hlsl::ESRVReg::t2).SRV(hlsl::ESRVReg::t3).SRV(hlsl::ESRVReg::t6).SRV(hlsl::ESRVReg::t8)
-				.Create(gpu, "Physics.Atmosphere.Probes.RootSig");
-			m_sample.m_pso = ComputePSO(m_sample.m_sig.get(), code).Cache(cache).Create(gpu, "Physics.Atmosphere.Probes.PSO");
+				.Create(gpu, "GameSystems.Atmosphere.Probes.RootSig");
+			m_sample.m_pso = ComputePSO(m_sample.m_sig.get(), code).Cache(cache).Create(gpu, "GameSystems.Atmosphere.Probes.PSO");
 			m_samples = CreateBuffer<GpuProbeSample>(gpu, gpu.m_job, MaxPoints, "Atmosphere:ProbeSamples");
 		}
 	};
@@ -2039,8 +2034,8 @@ namespace pr::physics::atmosphere
 				.U32<CBufAtmosphereSurfaceWind>(hlsl::ECBufReg::b3)
 				.UAV(hlsl::EUAVReg::u9)
 				.SRV(hlsl::ESRVReg::t0).SRV(hlsl::ESRVReg::t1).SRV(hlsl::ESRVReg::t2).SRV(hlsl::ESRVReg::t6).SRV(hlsl::ESRVReg::t7)
-				.Create(gpu, "Physics.Atmosphere.SurfaceWind.RootSig");
-			m_sample.m_pso = ComputePSO(m_sample.m_sig.get(), code).Cache(cache).Create(gpu, "Physics.Atmosphere.SurfaceWind.PSO");
+				.Create(gpu, "GameSystems.Atmosphere.SurfaceWind.RootSig");
+			m_sample.m_pso = ComputePSO(m_sample.m_sig.get(), code).Cache(cache).Create(gpu, "GameSystems.Atmosphere.SurfaceWind.PSO");
 			m_wind = CreateBuffer<v2>(gpu, gpu.m_job, solver.Config().m_grid.ColumnCount(), "Atmosphere:SurfaceWind");
 		}
 	};
@@ -2112,10 +2107,11 @@ namespace pr::physics::atmosphere
 		return wind;
 	}
 
-	// Add a recipe for every atmosphere kernel.
-	void AppendAtmosphereShaderRecipes(std::vector<ShaderRecipe>& recipes)
+	// Return a recipe for every atmosphere kernel.
+	std::vector<ShaderRecipe> ShaderRecipes()
 	{
 		// Each recipe compiles exactly as the owning constructor does.
+		auto recipes = std::vector<ShaderRecipe>{};
 		for (auto entry_point : AtmosphereEntryPoints)
 		{
 			recipes.push_back({
@@ -2123,5 +2119,6 @@ namespace pr::physics::atmosphere
 				.m_compile = [entry_point](IShaderCache* cache) { return CompileAtmosphereKernel(entry_point, cache); },
 			});
 		}
+		return recipes;
 	}
 }

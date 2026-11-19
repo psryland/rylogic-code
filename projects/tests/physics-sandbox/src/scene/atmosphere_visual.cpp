@@ -84,7 +84,7 @@ namespace physics_sandbox
 		// Tracers are optional so diagnostic-only atmosphere scenes can omit particle cost.
 		if (m_desc.m_tracers.m_particle_count > 0)
 		{
-			m_tracers = std::make_unique<physics::atmosphere::AtmosphereTracers>(m_solver, m_gpu, m_desc.m_tracers, &shader_cache);
+			m_tracers = std::make_unique<game_systems::atmosphere::AtmosphereTracers>(m_solver, m_gpu, m_desc.m_tracers, &shader_cache);
 		}
 	}
 
@@ -338,21 +338,21 @@ namespace physics_sandbox
 
 		// Map the coloured property to a palette index. The loop avoids helper calls because this runs for every tracer every frame, including in Debug builds.
 		auto const palette_max = isize(m_tracer_palette) - 1;
-		auto field = &physics::atmosphere::AtmosphereTracerParticle::m_temperature;
+		auto field = &game_systems::atmosphere::AtmosphereTracerParticle::m_temperature;
 		auto min_value = 0.0f;
 		auto max_value = 1.0f;
 		switch (m_desc.m_visual.m_colour_by)
 		{
 			case scene_loader::EAtmosphereColourBy::Temperature:
 			{
-				field = &physics::atmosphere::AtmosphereTracerParticle::m_temperature;
+				field = &game_systems::atmosphere::AtmosphereTracerParticle::m_temperature;
 				min_value = m_desc.m_visual.m_min_temperature;
 				max_value = m_desc.m_visual.m_max_temperature;
 				break;
 			}
 			case scene_loader::EAtmosphereColourBy::Speed:
 			{
-				field = &physics::atmosphere::AtmosphereTracerParticle::m_speed;
+				field = &game_systems::atmosphere::AtmosphereTracerParticle::m_speed;
 				min_value = m_desc.m_visual.m_min_speed;
 				max_value = m_desc.m_visual.m_max_speed;
 				break;

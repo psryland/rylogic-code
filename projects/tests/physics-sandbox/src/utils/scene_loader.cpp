@@ -1055,23 +1055,23 @@ namespace physics_sandbox::scene_loader
 
 
 	// Parse a side-boundary value for the atmosphere block.
-	physics::atmosphere::EAtmosphereBoundary ReadAtmosphereBoundary(pr::json::Value const& jboundary)
+	game_systems::atmosphere::EAtmosphereBoundary ReadAtmosphereBoundary(pr::json::Value const& jboundary)
 	{
 		// Text keeps scene files readable while mapping to the physics API enum at the parser boundary.
 		auto const value = jboundary.to<std::string>();
 		if (value == "solid")
-			return physics::atmosphere::EAtmosphereBoundary::Solid;
+			return game_systems::atmosphere::EAtmosphereBoundary::Solid;
 		if (value == "open")
-			return physics::atmosphere::EAtmosphereBoundary::Open;
+			return game_systems::atmosphere::EAtmosphereBoundary::Open;
 		throw std::runtime_error(std::format("Unknown atmosphere boundary '{}'", value));
 	}
 
 	// Level the floor near the open sides of 'config'. Columns within 'm_open_edge_band' of an open side are set to the mean floor height of
 	// those columns, and the next band blends smoothly back to the original floor. Solid columns are not changed.
-	static void LevelOpenEdgeFloor(physics::atmosphere::AtmosphereConfig& config)
+	static void LevelOpenEdgeFloor(game_systems::atmosphere::AtmosphereConfig& config)
 	{
 		// Find each column's distance, in columns, to the nearest open side.
-		using EBoundary = physics::atmosphere::EAtmosphereBoundary;
+		using EBoundary = game_systems::atmosphere::EAtmosphereBoundary;
 		auto& grid = config.m_grid;
 		auto const& sides = config.m_boundaries;
 		auto const band = config.m_open_edge_band;
@@ -1134,8 +1134,8 @@ namespace physics_sandbox::scene_loader
 		auto desc = AtmosphereDesc{};
 		auto const& obj = jatmosphere.to_object();
 		auto& config = desc.m_config;
-		config.m_grid = physics::atmosphere::AtmosphereGrid{ .m_cell_count = iv3{64, 64, 8}, .m_origin = v4{-640.0f, -640.0f, 0.0f, 1.0f}, .m_dx = 20.0f, .m_lid_z = 400.0f, .m_first_layer_thickness = 8.0f };
-		config.m_reference = physics::atmosphere::AtmosphereReferenceProfile{ .m_temperature_at_origin = 288.0f, .m_lapse_rate = -0.0065f, .m_min_temperature = 220.0f };
+		config.m_grid = game_systems::atmosphere::AtmosphereGrid{ .m_cell_count = iv3{64, 64, 8}, .m_origin = v4{-640.0f, -640.0f, 0.0f, 1.0f}, .m_dx = 20.0f, .m_lid_z = 400.0f, .m_first_layer_thickness = 8.0f };
+		config.m_reference = game_systems::atmosphere::AtmosphereReferenceProfile{ .m_temperature_at_origin = 288.0f, .m_lapse_rate = -0.0065f, .m_min_temperature = 220.0f };
 
 		if (auto const* grid = obj.find("grid"))
 		{
@@ -1197,7 +1197,7 @@ namespace physics_sandbox::scene_loader
 			v2 m_min;
 			v2 m_max;
 			float m_wind_noise;
-			physics::atmosphere::AtmosphereOutsideAir m_air;
+			game_systems::atmosphere::AtmosphereOutsideAir m_air;
 		};
 		auto outside_air_regions = std::vector<OutsideAirRegion>{};
 		if (auto const* regions = obj.find("outside_air"))
@@ -1221,7 +1221,7 @@ namespace physics_sandbox::scene_loader
 			for (auto const& jsource : sources->to_array())
 			{
 				auto const& s = jsource.to_object();
-				auto source = physics::atmosphere::AtmosphereHeatSource{};
+				auto source = game_systems::atmosphere::AtmosphereHeatSource{};
 				if (auto const* value = s.find("centre")) source.m_centre = ReadVec3(*value, 1.0f);
 				if (auto const* value = s.find("radius")) source.m_radius = value->to<float>();
 				if (auto const* value = s.find("heating_rate")) source.m_heating_rate = value->to<float>();
@@ -1315,7 +1315,7 @@ namespace physics_sandbox::scene_loader
 			// The terrain source is evaluated once per column, so it only lives for the build.
 			auto const& grid = config.m_grid;
 			auto const surface = desc.m_terrain_floor ? std::make_optional<pr::physics::terrain::landscape::BaselineSurface>(terrain->surface) : std::nullopt;
-			config.m_grid.m_floor_heights = physics::atmosphere::AtmosphereGrid::BuildFloorHeights(iv2{ grid.m_cell_count.x, grid.m_cell_count.y }, grid.m_origin, grid.m_dx, [&](v2 pos)
+			config.m_grid.m_floor_heights = game_systems::atmosphere::AtmosphereGrid::BuildFloorHeights(iv2{ grid.m_cell_count.x, grid.m_cell_count.y }, grid.m_origin, grid.m_dx, [&](v2 pos)
 			{
 				// Cylinders reach the lid wherever they are.
 				for (auto const& cylinder : desc.m_cylinders)
@@ -1372,7 +1372,7 @@ namespace physics_sandbox::scene_loader
 				air.m_wind += region.m_wind_noise * v2{ noise(0), noise(1) };
 				return air;
 			}
-			return physics::atmosphere::AtmosphereOutsideAir{};
+			return game_systems::atmosphere::AtmosphereOutsideAir{};
 		});
 		return desc;
 	}

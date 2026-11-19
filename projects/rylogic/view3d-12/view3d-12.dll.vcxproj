@@ -43,6 +43,7 @@
 				;view3d-12-static.lib
 				;compute-static.lib
 				;compute_shaders.res
+				;compute_shaders_game_systems.res
 				;strmiids.lib
 				;comctl32.lib
 				;dxcompiler.lib
@@ -56,6 +57,7 @@
 	<ItemGroup>
 		<ClInclude Include="$(RylogicRoot)include\pr\view3d-12\view3d-dll.h" />
 		<ClInclude Include="$(RylogicRoot)include\pr\view3d-12\view3d-ui-bridge.h" />
+		<ResourceCompile Include="$(RylogicRoot)include\pr\hlsl\pr_hlsl.rc" />
 		<ClInclude Include="src\dll\context.h" />
 		<ClInclude Include="src\dll\diagnostics_policy.h" />
 		<ClInclude Include="src\dll\dll_forward.h" />

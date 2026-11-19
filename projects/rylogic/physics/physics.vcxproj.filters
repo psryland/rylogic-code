@@ -75,9 +75,6 @@
     <ClCompile Include="src\articulation\articulation_gpu_data.cpp">
       <Filter>src\articulation</Filter>
     </ClCompile>
-    <ClCompile Include="src\atmosphere\atmosphere.cpp">
-      <Filter>src\atmosphere</Filter>
-    </ClCompile>
     <ClCompile Include="src\buoyancy\gpu_water.cpp">
       <Filter>src\buoyancy</Filter>
     </ClCompile>
@@ -249,9 +246,6 @@
       <Filter>src\rigid_body</Filter>
     </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\physics\atmosphere\air.h">
-      <Filter>src\atmosphere</Filter>
-    </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\physics\atmosphere\atmosphere.h">
       <Filter>src\atmosphere</Filter>
     </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\physics\buoyancy\buoyancy_primitives.h">
@@ -587,9 +581,6 @@
     </ShaderBuild>
     <ShaderBuild Include="src\compute\sweep.hlsl">
       <Filter>src\compute</Filter>
-    </ShaderBuild>
-    <ShaderBuild Include="src\atmosphere\atmosphere.hlsl">
-      <Filter>src\atmosphere</Filter>
     </ShaderBuild>
     <ShaderBuild Include="src\buoyancy\gpu_water.hlsl">
       <Filter>src\buoyancy</Filter>

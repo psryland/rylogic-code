@@ -51,6 +51,10 @@ namespace pr
 		{
 			struct OceanSurface;
 		}
+		namespace atmosphere
+		{
+			struct AtmosphereRecord;
+		}
 	}
 
 	namespace view3d
@@ -64,6 +68,7 @@ namespace pr
 		using Shader = rdr12::Shader*;
 		using WeatherMap = game_systems::WeatherMap*;
 		using Ocean = game_systems::ocean::OceanSurface*;
+		using Atmosphere = game_systems::atmosphere::AtmosphereRecord*;
 		using PopulationPrototype = rdr12::PopulationPrototype*;
 		using Population = rdr12::Population*;
 		using DetailStrengthMap = rdr12::materials::DetailStrengthMap*;
@@ -1166,6 +1171,151 @@ namespace pr
 			double m_crest_depth_m;      // Still-water depth (m) at which crest foam is gone. It fades in up to twice this depth, so shallow water near the shore shows only shore foam.
 			double m_churn_mps;          // Rough speed (m/s) at which the foam pattern wanders in place.
 		};
+
+		// The result of an atmosphere function. On failure, View3D_AtmosphereLastError describes it.
+		enum class EAtmosphereStatus :int32_t
+		{
+			Success = 0,
+			InvalidArgument = 1,
+			StepPending = 2,
+			NoStepPending = 3,
+			BufferTooSmall = 4,
+			DeviceRemoved = 5,
+			InternalError = 6,
+			Timeout = 7,
+		};
+
+		// Boundary condition of one outside face of an atmosphere domain.
+		enum class EAtmosphereBoundary :int32_t
+		{
+			Solid = 0,
+			Open = 1,
+		};
+
+		// Indices of the six outside faces of an atmosphere domain, used by 'AtmosphereDesc::m_boundaries' and 'AtmosphereDesc::m_wall_drag'.
+		enum class EAtmosphereSide :int32_t
+		{
+			XMin = 0,
+			XMax = 1,
+			YMin = 2,
+			YMax = 3,
+			ZMin = 4,
+			ZMax = 5,
+		};
+
+		// A terrain-following GPU air solver and its optional tracer particles. Distances are metres, temperatures are kelvin, and rates are 1/s.
+		// The domain has 'm_cell_count.x * m_cell_count.y' columns of 'm_cell_count.z' layers (each count above one, at most 32 layers) with square
+		// columns of size 'm_dx' starting at 'm_origin'; the w components of 'm_cell_count' and 'm_origin' are ignored. Each column runs from its floor
+		// to 'm_lid_z'. 'm_floor_heights' is null for a flat floor at 'm_origin.z', or one height per column in row-major order (x fastest); a floor at
+		// or above the lid makes the column solid. 'm_active_columns' is null when every column is active, or one byte per column (non-zero = active).
+		// The arrays are copied. 'm_boundaries' and 'm_wall_drag' are indexed by EAtmosphereSide; drag is a quadratic coefficient in [0, 1] and only
+		// solid sides may have drag. The reference profile 'm_reference_temperature + m_lapse_rate * (z - m_origin.z)', limited below by
+		// 'm_min_temperature', sets the initial air at rest. Moving air changes temperature by 'm_adiabatic_lapse_rate' (K/m, normally negative) per
+		// metre that it rises; the air at rest is stable when 'm_lapse_rate' is greater than 'm_adiabatic_lapse_rate'.
+		// 'm_tracer_count' particles follow the wind for diagnostics; zero disables them. Tracer heights are spread with the relative densities
+		// 'm_tracer_ground_density' at the floor, 'm_tracer_break_density' at the column fraction 'm_tracer_break_height', and
+		// 'm_tracer_upper_density' above it. The pressure and stability fields match 'game_systems::atmosphere::AtmosphereConfig', which documents them.
+		struct AtmosphereDesc
+		{
+			int32_t m_cell_count[4];
+			Vec4 m_origin;
+			float m_dx, m_lid_z, m_first_layer_thickness;
+			float const* m_floor_heights;
+			uint8_t const* m_active_columns;
+			EAtmosphereBoundary m_boundaries[6];
+			float m_wall_drag[6];
+			float m_reference_temperature, m_lapse_rate, m_adiabatic_lapse_rate, m_min_temperature;
+			float m_gravity, m_floor_exchange_rate, m_lid_temperature, m_lid_relaxation_rate;
+			int32_t m_pressure_vcycles, m_pressure_pre_smooth, m_pressure_post_smooth, m_pressure_coarse_smooth, m_open_edge_band;
+			float m_vorticity_confinement, m_vertical_viscosity;
+			int32_t m_tracer_count;
+			uint32_t m_tracer_seed;
+			float m_tracer_max_age, m_tracer_ground_density, m_tracer_break_density, m_tracer_upper_density, m_tracer_break_height;
+		};
+		static_assert(sizeof(AtmosphereDesc) == 200);
+
+		// A sphere at 'm_centre' (m, w = 1) with 'm_radius' (m) that heats air at 'm_heating_rate' (K/s) and relaxes it towards
+		// 'm_target_temperature' at 'm_relaxation_rate' (1/s).
+		struct AtmosphereHeatSource
+		{
+			Vec4 m_centre;
+			float m_radius;
+			float m_heating_rate, m_target_temperature, m_relaxation_rate;
+		};
+		static_assert(sizeof(AtmosphereHeatSource) == 32);
+
+		// Air outside one column: its horizontal wind (m/s) and its temperature relative to the reference profile (K). 'm_reserved' must be zero.
+		struct AtmosphereOutsideAir
+		{
+			Vec2 m_wind;
+			float m_temperature_offset;
+			float m_reserved;
+		};
+		static_assert(sizeof(AtmosphereOutsideAir) == 16);
+
+		// The air at one probe point after a step: velocity (m/s, w = 0) and temperature (K). 'm_inside' is 1 when the point is in the air of the
+		// domain, otherwise 0 with zero velocity and temperature.
+		struct AtmosphereProbeSample
+		{
+			Vec4 m_velocity;
+			float m_temperature;
+			int32_t m_inside;
+		};
+		static_assert(sizeof(AtmosphereProbeSample) == 24);
+
+		// The inputs to one atmosphere step of 'm_dt' seconds; the heat sources are copied and apply to this step only. At most 64 heat sources.
+		// The air is sampled at the 'm_probe_count' world-space probe points (m, w = 1; at most 64) once the step has updated it; read the samples with
+		// View3D_AtmosphereProbesCopy. When 'm_surface_wind_height' is positive, the horizontal wind at that height (m) above the floor of every column
+		// is also sampled once the step has updated it; read it with View3D_AtmosphereSurfaceWindCopy. Zero skips the surface wind.
+		struct AtmosphereStepDesc
+		{
+			float m_dt;
+			int32_t m_heat_source_count;
+			AtmosphereHeatSource const* m_heat_sources;
+			int32_t m_probe_count;
+			float m_surface_wind_height;
+			Vec4 const* m_probes;
+		};
+		static_assert(sizeof(AtmosphereStepDesc) == 32);
+
+		// One atmosphere tracer particle: world position (m, w = 1), air temperature (K), age (s), the air speed that last moved it (m/s), and padding.
+		// GPU tracer slots store particles in this 32-byte layout, which HLSL readers of a slot buffer use.
+		struct AtmosphereTracerParticle
+		{
+			Vec4 m_position;
+			float m_temperature, m_age, m_speed;
+			float m_reserved;
+		};
+		static_assert(sizeof(AtmosphereTracerParticle) == 32);
+
+		// A held GPU tracer slot. 'm_resource' is an owned ID3D12Resource COM reference that the caller releases exactly once with IUnknown::Release.
+		// It is a buffer of 'm_count' AtmosphereTracerParticle records, 'm_stride' bytes apart, on the atmosphere's device.
+		struct AtmosphereTracerSlot
+		{
+			void* m_resource;
+			int32_t m_slot;
+			uint32_t m_count;
+			uint32_t m_stride;
+			uint32_t m_reserved;
+		};
+		static_assert(sizeof(AtmosphereTracerSlot) == 24);
+
+		// The air at one cell centre: velocity (m/s, w = 0, averaged from the cell faces) and temperature (K).
+		struct AtmosphereCellState
+		{
+			Vec4 m_velocity;
+			float m_temperature;
+		};
+		static_assert(sizeof(AtmosphereCellState) == 20);
+
+		// Simple diagnostics of a completed atmosphere field.
+		struct AtmosphereStats
+		{
+			float m_max_speed, m_max_divergence, m_rms_divergence, m_mean_top_temperature, m_peak_vertical_velocity;
+			int32_t m_reserved;
+		};
+		static_assert(sizeof(AtmosphereStats) == 24);
+
 		struct WindowOptions
 		{
 			ReportErrorCB m_error_cb;
@@ -2011,6 +2161,75 @@ extern "C"
 	// View3D_OceanUpdate, which must have been called. The waves are evaluated on the CPU exactly as the vertex shader draws them.
 	// Positions beyond the ocean's radius take the height at its edge.
 	VIEW3D_API BOOL __stdcall View3D_OceanHeight(pr::view3d::Ocean ocean, double x_m, double y_m, double& out_height_m);
+
+	// Atmospheres ******************************
+	// A terrain-following GPU air solver. Each atmosphere runs on the caller's D3D12 device with its own compute queue, and steps independently of
+	// any other simulation. Atmosphere functions do not use the renderer and are not serialised by View3D; callers must not call functions on one
+	// atmosphere from more than one thread at a time. Every function returns an EAtmosphereStatus; on failure, View3D_AtmosphereLastError describes
+	// the most recent failure on the calling thread.
+
+	// Copy the description of the calling thread's most recent atmosphere failure, as a null-terminated UTF-8 string, into 'buffer'.
+	// 'required' receives the size including the terminator; the text is truncated when 'capacity' is smaller. 'buffer' may be null when 'capacity' is zero.
+	VIEW3D_API pr::view3d::EAtmosphereStatus __stdcall View3D_AtmosphereLastError(char* buffer, uint32_t capacity, uint32_t* required);
+
+	// Create an atmosphere on the ID3D12Device 'd3d12_device'. 'shader_cache_dir' is the directory of compiled kernels, or null to compile without
+	// caching. Creation compiles the solver kernels and blocks until the air is at rest on the reference profile.
+	VIEW3D_API pr::view3d::EAtmosphereStatus __stdcall View3D_AtmosphereCreate(void* d3d12_device, pr::view3d::AtmosphereDesc const* desc, wchar_t const* shader_cache_dir, pr::view3d::Atmosphere* atmosphere);
+
+	// Destroy an atmosphere after waiting up to 'timeout_ms' for its GPU work. Fails with Timeout, leaving the handle valid, when the GPU work does not finish in time.
+	VIEW3D_API pr::view3d::EAtmosphereStatus __stdcall View3D_AtmosphereDestroy(pr::view3d::Atmosphere atmosphere, uint32_t timeout_ms);
+
+	// Submit one step, and tracer advection when tracers exist, without waiting for the GPU. Fails with StepPending while a step is in flight.
+	VIEW3D_API pr::view3d::EAtmosphereStatus __stdcall View3D_AtmosphereBeginStep(pr::view3d::Atmosphere atmosphere, pr::view3d::AtmosphereStepDesc const* step);
+
+	// Finish the step in flight if the GPU has completed it, without waiting. 'idle' is set to 1 when no step is in flight after the call.
+	VIEW3D_API pr::view3d::EAtmosphereStatus __stdcall View3D_AtmospherePollStep(pr::view3d::Atmosphere atmosphere, int32_t* idle);
+
+	// Copy the probe samples of the last finished step, in the order of its probes. 'required' is the sample count, which is zero before the
+	// first finished step and after a step without probes. Does not wait, and may be called while a step is in flight.
+	VIEW3D_API pr::view3d::EAtmosphereStatus __stdcall View3D_AtmosphereProbesCopy(pr::view3d::Atmosphere atmosphere, pr::view3d::AtmosphereProbeSample* samples, uint32_t capacity, uint32_t* required);
+
+	// Copy the surface wind of the last finished step: the horizontal wind (m/s) at the requested height above each column floor, one entry per column
+	// in the order of AtmosphereDesc's columns. Inactive columns report their outside air's wind; solid columns report zero. 'required' is the column
+	// count, or zero before the first finished step and after a step that did not sample the surface wind. Does not wait, and may be called while
+	// a step is in flight.
+	VIEW3D_API pr::view3d::EAtmosphereStatus __stdcall View3D_AtmosphereSurfaceWindCopy(pr::view3d::Atmosphere atmosphere, pr::view3d::Vec2* wind, uint32_t capacity, uint32_t* required);
+
+	// Wait for and finish the step in flight. Fails with NoStepPending when there is none.
+	VIEW3D_API pr::view3d::EAtmosphereStatus __stdcall View3D_AtmosphereCompleteStep(pr::view3d::Atmosphere atmosphere);
+
+	// Change the column floor heights (one per column, as in AtmosphereDesc) and remap the air in changed columns. Blocks; requires no step in flight.
+	VIEW3D_API pr::view3d::EAtmosphereStatus __stdcall View3D_AtmosphereFloorsSet(pr::view3d::Atmosphere atmosphere, float const* floor_heights, int32_t count);
+
+	// Set the floor temperature under each column (K, one per column in the floor-height order). The lowest layer relaxes toward it at the
+	// descriptor's 'm_floor_exchange_rate'. Initially the reference temperature at each column's floor. The values are copied and used from the next step.
+	VIEW3D_API pr::view3d::EAtmosphereStatus __stdcall View3D_AtmosphereFloorTemperaturesSet(pr::view3d::Atmosphere atmosphere, float const* floor_temperatures, int32_t count);
+
+	// Set the air outside the open faces (one entry per column in row-major floor-height order). Initially calm air at the reference temperature.
+	// The values are copied and used from the next step.
+	VIEW3D_API pr::view3d::EAtmosphereStatus __stdcall View3D_AtmosphereOutsideAirSet(pr::view3d::Atmosphere atmosphere, pr::view3d::AtmosphereOutsideAir const* outside_air, int32_t count);
+
+	// Read the tracer particles from the last finished step, or from creation, back from the GPU. 'required' is the particle count.
+	// Blocks; requires no step in flight. For display, prefer reading the GPU buffers directly with View3D_AtmosphereTracersAcquire.
+	VIEW3D_API pr::view3d::EAtmosphereStatus __stdcall View3D_AtmosphereTracersCopy(pr::view3d::Atmosphere atmosphere, pr::view3d::AtmosphereTracerParticle* particles, uint32_t capacity, uint32_t* required);
+
+	// Hold the GPU buffer of the tracer particles from the last finished step, or from creation, so that later steps do not write it. Tracers
+	// advance through a small ring of buffers, so at most two slots can be held at once; a step fails while it has no free buffer to write.
+	// The buffer may be read on any queue of the atmosphere's device until the matching View3D_AtmosphereTracersRelease. Fails if the atmosphere has no tracers.
+	VIEW3D_API pr::view3d::EAtmosphereStatus __stdcall View3D_AtmosphereTracersAcquire(pr::view3d::Atmosphere atmosphere, pr::view3d::AtmosphereTracerSlot* slot);
+
+	// Release one hold on 'slot'. 'fence' is an ID3D12Fence that reaches 'value' when the caller's GPU reads of the slot have finished, or null when
+	// they already have. The step that next writes the slot waits for the fence on the GPU, so this call never blocks.
+	VIEW3D_API pr::view3d::EAtmosphereStatus __stdcall View3D_AtmosphereTracersRelease(pr::view3d::Atmosphere atmosphere, int32_t slot, void* fence, uint64_t value);
+
+	// Read the whole field back from the GPU and copy the cell-centre states, packed by layer, then row, then column (x fastest).
+	// 'required' is the cell count and 'stats' is optional. Blocks; requires no step in flight.
+	VIEW3D_API pr::view3d::EAtmosphereStatus __stdcall View3D_AtmosphereCellStatesCopy(pr::view3d::Atmosphere atmosphere, pr::view3d::AtmosphereCellState* cells, uint32_t capacity, uint32_t* required, pr::view3d::AtmosphereStats* stats);
+
+	// Compile every atmosphere kernel into the shader cache directory 'shader_cache_dir' using 'thread_count' worker threads, so later atmosphere
+	// creation does not invoke the shader compiler. Blocks until done. 'progress' is optional; it is called on the calling thread with the number of
+	// completed and total kernels, and returning zero cancels the remaining work (the call still returns Success).
+	VIEW3D_API pr::view3d::EAtmosphereStatus __stdcall View3D_AtmosphereShaderPrecompile(wchar_t const* shader_cache_dir, int thread_count, int(__stdcall* progress)(void* ctx, int completed, int total), void* ctx);
 
 	// Populations ******************************
 	// A population draws many placements of one prototype with GPU instancing. Instances live in GPU buffers and are grouped into caller-owned blocks.
