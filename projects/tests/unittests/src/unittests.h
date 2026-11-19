@@ -69,6 +69,7 @@
 #include "pr/common/fmt.h"
 #include "pr/common/guid.h"
 #include "pr/common/hash.h"
+#include "pr/common/hresult.h"
 #include "pr/common/ldraw.h"
 #include "pr/common/linq.h"
 #include "pr/common/log.h"

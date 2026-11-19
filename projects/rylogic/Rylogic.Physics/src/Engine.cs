@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 using Rylogic.D3D12;
 using Rylogic.Maths;
@@ -671,11 +670,24 @@ public sealed class Engine :IDisposable
 			Native.Check(Native.Physics_CheckpointRead(Handle, checkpoint_ptr, (ulong)checkpoint.Length));
 	}
 
-	/// <summary>Dispose bodies, shapes, pending GPU work, and the native device in dependency order.</summary>
+	/// <summary>Close with an infinite GPU wait. A failure retains this engine for a subsequent TryDispose or Dispose call.</summary>
 	public void Dispose()
 	{
+		// IDisposable opts into blocking; callers needing a bounded wait use TryDispose.
+		if (!TryDispose(-1))
+			throw new TimeoutException("An infinite physics-engine close unexpectedly timed out.");
+	}
+
+	/// <summary>
+	/// Permanently stop this engine and dispose within timeout_ms milliseconds (-1 means infinite).
+	/// Returns false on timeout. A timeout or exception retains all wrappers and native ownership for retry; normal engine operations are then unavailable.
+	/// </summary>
+	public bool TryDispose(int timeout_ms)
+	{
+		// Prepare all fallible managed bookkeeping before native destruction can succeed.
+		var native_timeout = Native.WaitTimeout(timeout_ms);
 		if (m_handle == null)
-			return;
+			return true;
 
 		EnsureOwner();
 		var bodies = new RigidBody[m_bodies.Count];
@@ -689,34 +701,9 @@ public sealed class Engine :IDisposable
 		var atmospheres = new Atmosphere[m_atmospheres.Count];
 		m_atmospheres.CopyTo(atmospheres);
 
-		// A terminal native cleanup failure still retires the engine, so preserve it while invalidating every managed identity exactly once.
-		var destroy_status = Native.Physics_EngineDestroy(Handle);
-		ExceptionDispatchInfo? destroy_failure = null;
-		switch (destroy_status)
-		{
-			case EStatus.Success:
-			{
-				break;
-			}
-			case EStatus.DeviceRemoved:
-			case EStatus.InternalError:
-			{
-				try
-				{
-					Native.Check(destroy_status);
-				}
-				catch (PhysicsException exception)
-				{
-					destroy_failure = ExceptionDispatchInfo.Capture(exception);
-				}
-				break;
-			}
-			default:
-			{
-				Native.Check(destroy_status);
-				throw new InvalidOperationException($"Unexpected successful engine-destroy status {destroy_status}.");
-			}
-		}
+		// Native failure leaves every identity valid for another close attempt.
+		if (!Native.CloseCompleted(Native.Physics_EngineDestroy(Handle, native_timeout)))
+			return false;
 
 		// Native destruction owns dependency ordering, including checkpoint-only objects.
 		foreach (var constraint in constraints)
@@ -735,7 +722,7 @@ public sealed class Engine :IDisposable
 		m_handle = null;
 		m_runtime.Remove(this);
 		GC.SuppressFinalize(this);
-		destroy_failure?.Throw();
+		return true;
 	}
 
 	/// <summary>The current stable native engine identity.</summary>
@@ -869,6 +856,7 @@ public sealed class Engine :IDisposable
 		/// <inheritdoc/>
 		protected override bool ReleaseHandle()
 		{
+			// A nonblocking finalizer transfers unfinished ownership to the native context rather than freeing unsafe resources.
 			Native.Physics_EngineAbandon(Value);
 			GC.KeepAlive(m_runtime);
 			return true;

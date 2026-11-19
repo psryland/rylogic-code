@@ -18,7 +18,7 @@ namespace pr::physics
 	{
 		// Notes:
 		//  - The engine does not own bodies or articulations. The caller must keep them alive and
-		//    unchanged until each BeginStep call is paired with CompleteStep or AbandonStep.
+		//    unchanged until each BeginStep call is paired with CompleteStep or a successful TryClose.
 		//  - The engine does not have a universal gravity setting, Gravity should be applied
 		//    as a force to bodies each frame before calling Step().
 		//  - Collision resolution and 'sleeping objects' require a concept of "down" however,
@@ -388,8 +388,12 @@ namespace pr::physics
 		// Report whether a submitted or recorded frame still owns pending engine state.
 		bool StepPending() const;
 
-		// Wait for a pending step during terminal cleanup without updating bodies or reusing command state.
-		void AbandonStep();
+		// Permanently stop this engine and retire GPU work without publishing results. S_OK permits destruction; S_FALSE means timeout;
+		// a failed HRESULT leaves the engine and pending input lifetimes owned for retry. The caller supplies the millisecond wait budget.
+		HRESULT TryClose(DWORD timeout) noexcept;
+
+		// True once closure or a partial GPU-operation failure has stopped further work.
+		bool Closing() const;
 
 		// Build missing sleep-island ids for bodies created directly in the sleeping state.
 		// Call this after loading/creating sleeping bodies; Step() assumes sleep islands have already been established when needed.

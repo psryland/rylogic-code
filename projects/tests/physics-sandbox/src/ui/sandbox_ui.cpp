@@ -374,15 +374,43 @@ namespace physics_sandbox
 		}
 	}
 
+	// Stop all scene interaction before explicit closure or after a simulation failure.
+	void SandboxUI::BeginClose()
+	{
+		// Unlike ordinary pause, shutdown must not impose an infinite completion wait before its bounded close.
+		m_closing = true;
+		m_physics_accumulator = 0;
+		m_steps_remaining = 0;
+		m_media.Enabled(false);
+		m_details.Enabled(false);
+		m_view3d.Enabled(false);
+	}
+
 	// Override message processing to ensure clean shutdown
 	bool SandboxUI::ProcessWindowMessage(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, LRESULT& result)
 	{
 		if (message == WM_CLOSE)
 		{
-			PauseSimulation();
+			// Stop rendering and simulation while closure is attempted, including after a retryable failure.
+			BeginClose();
+			auto const close_result = m_scene.TryClose(5000);
+			if (close_result != S_OK)
+			{
+				// This interactive host chooses a five-second budget and retains the paused window for the user's next close attempt.
+				auto const error = close_result == S_FALSE ? std::string("GPU cleanup timed out.") : pr::HrMsg(close_result);
+				auto const message_text = error + "\nThe scene is retained safely. Close the window again to retry.";
+				::MessageBoxA(hwnd, message_text.c_str(), "Cleanup pending", MB_OK | MB_ICONERROR);
+				result = 0;
+				return true;
+			}
+		}
 
-			// Set closing flag so the step/render lambdas stop accessing the renderer
-			m_closing = true;
+		// A partly closed scene accepts only another window-close attempt.
+		if (m_closing && message == WM_COMMAND)
+		{
+			// Do not let menu commands restart work on a closing physics engine.
+			result = 0;
+			return true;
 		}
 
 		// Reflect visibility changes made through any control before displaying the View menu.
@@ -669,6 +697,10 @@ namespace physics_sandbox
 		}
 		catch (std::exception const& ex)
 		{
+			// A GPU failure is terminal, unlike a rejected scene file; preserve its owners until the user closes the window.
+			if (m_scene.m_physics.Closing() || (m_scene.m_atmosphere_gfx && m_scene.m_atmosphere_gfx->m_gpu.m_job.m_closing))
+				BeginClose();
+
 			auto msg = std::format("Failed to load scene:\n{}", ex.what());
 			OutputDebugStringA(msg.c_str());
 

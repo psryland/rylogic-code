@@ -83,47 +83,22 @@ namespace pr::compute
 				if (m_used.empty()) return;
 				m_used.back().m_sync_point = m_gsync->LastAddedSyncPoint();
 				EndReuseWindow();
-				PurgeCompleted(false);
+				PurgeCompleted();
 			};
 		}
-		GpuTransferBuffer(GpuTransferBuffer&& rhs) noexcept
-			: m_used(std::move(rhs.m_used))
-			, m_free(std::move(rhs.m_free))
-			, m_blk_size(rhs.m_blk_size)
-			, m_blk_align(rhs.m_blk_align)
-			, m_gsync(rhs.m_gsync)
-			, m_lookup(std::move(rhs.m_lookup))
-			, m_reuse_id(rhs.m_reuse_id)
-			, m_eh0(std::move(rhs.m_eh0))
-		{
-			// The moved-from buffer gets a new id so addresses cached against the old id are not reused through it
-			rhs.m_reuse_id = ++s_reuse_ids;
-			rhs.m_blk_size = 0;
-			rhs.m_blk_align = 0;
-			rhs.m_gsync = nullptr;
-		}
+		// The fence callback captures this address, so the buffer must stay at its construction address.
+		GpuTransferBuffer(GpuTransferBuffer&&) = delete;
 		GpuTransferBuffer(GpuTransferBuffer const&) = delete;
-		GpuTransferBuffer& operator=(GpuTransferBuffer&& rhs) noexcept
-		{
-			if (this == &rhs) return *this;
-			std::swap(m_used, rhs.m_used);
-			std::swap(m_free, rhs.m_free);
-			std::swap(m_blk_size, rhs.m_blk_size);
-			std::swap(m_blk_align, rhs.m_blk_align);
-			std::swap(m_gsync, rhs.m_gsync);
-			std::swap(m_lookup, rhs.m_lookup);
-			std::swap(m_reuse_id, rhs.m_reuse_id);
-			std::swap(m_eh0, rhs.m_eh0);
-			return *this;
-		}
+		GpuTransferBuffer& operator=(GpuTransferBuffer&&) = delete;
 		GpuTransferBuffer& operator=(GpuTransferBuffer const&) = delete;
 		~GpuTransferBuffer()
 		{
-			for (; !m_used.empty();)
+			// The owner must retire submitted work and release allocation handles before destruction. Destroy pages directly;
+			// recycling them into the free list would allocate memory during teardown.
+			for (auto const& used : m_used)
 			{
-				auto& used = m_used.front();
 				m_gsync->Wait(used.m_sync_point);
-				PurgeCompleted(true);
+				assert(used.m_ref_count == 0 && "Allocation still in use at shutdown");
 			}
 		}
 
@@ -199,13 +174,23 @@ namespace pr::compute
 		// Recycle blocks that the GPU has finished with
 		void PurgeCompleted()
 		{
-			PurgeCompleted(false);
+			// Keep the active tail and any page whose allocation handles are still in use.
+			auto completed = m_gsync->CompletedSyncPoint();
+			for (; m_used.size() > 1 && m_used.front().m_sync_point <= completed && m_used.front().m_ref_count == 0; )
+			{
+				// Allocate the destination before removing the source, so allocation failure cannot lose a page.
+				m_free.emplace_back();
+				m_free.back() = std::move(m_used.front());
+				m_used.pop_front();
+				m_free.back().m_size = 0;
+				m_free.back().m_sync_point = completed;
+			}
 		}
 
 		// Cancel reservations beyond the last submitted fence point. The caller must exclusively own recording on this
-		// buffer/fence and first abandon every unsubmitted command list and allocation handle. Never call after Execute
+		// buffer/fence and first abandon every unsubmitted command list. Allocation handles may remain alive, but must no longer record work. Never call after Execute
 		// without a successful queue Signal. A page shared with earlier submissions stays protected by their last fence point.
-		void CancelUnsubmitted()
+		void CancelUnsubmitted() noexcept
 		{
 			// Remove only the unsubmitted reservation; do not rewind offsets or claim that earlier GPU work has completed.
 			auto last_submitted = m_gsync->LastAddedSyncPoint();
@@ -215,7 +200,6 @@ namespace pr::compute
 					block.m_sync_point = last_submitted;
 			}
 			EndReuseWindow();
-			PurgeCompleted(false);
 		}
 
 	private:
@@ -226,36 +210,6 @@ namespace pr::compute
 			// A new id invalidates addresses that callers cached against the old one
 			m_lookup.clear();
 			m_reuse_id = ++s_reuse_ids;
-		}
-
-		// Recycle blocks that the GPU has finished with
-		void PurgeCompleted(bool shutdown)
-		{
-			auto completed = m_gsync->CompletedSyncPoint();
-
-			// Any blocks with sync points <= 'completed' are ready to be recycled.
-			for (; !m_used.empty() && m_used.front().m_sync_point <= completed; )
-			{
-				// To reduce allocations, keep the last used block active (unless destructing)
-				if (!shutdown && m_used.size() == 1)
-					break;
-
-				// The front block still has external references
-				if (!shutdown && m_used.front().m_ref_count != 0)
-					break;
-
-				if (m_used.front().m_ref_count != 0)
-					throw std::runtime_error("Allocation still in use at shutdown");
-
-				// Remove from the used list
-				auto block = std::move(m_used.front());
-				m_used.pop_front();
-
-				// Add to the free list
-				block.m_size = 0;
-				block.m_sync_point = completed;
-				m_free.push_back(std::move(block));
-			}
 		}
 
 		// D3D device
@@ -320,4 +274,8 @@ namespace pr::compute
 
 	using GpuUploadBuffer = GpuTransferBuffer<D3D12_HEAP_TYPE_UPLOAD>;
 	using GpuReadbackBuffer = GpuTransferBuffer<D3D12_HEAP_TYPE_READBACK>;
+
+	// Moving either buffer would leave its fence subscription bound to a different owner.
+	static_assert(!std::is_move_constructible_v<GpuUploadBuffer> && !std::is_move_assignable_v<GpuUploadBuffer>);
+	static_assert(!std::is_move_constructible_v<GpuReadbackBuffer> && !std::is_move_assignable_v<GpuReadbackBuffer>);
 }

@@ -321,9 +321,30 @@ int __stdcall WinMain(HINSTANCE, HINSTANCE, LPTSTR lpCmdLine, int)
 		// One high-rate variable callback services physics before each render without message-loop catch-up bursts.
 		loop.AddLoop(1000.0, true, [&](double dt)
 		{
-			// Publish pending physics and service the fixed-step accumulator before presenting the next frame.
-			sandbox.Step(dt);
-			sandbox.Render(dt);
+			// Keep the window and its scene alive when simulation fails, so explicit close can retire pending work.
+			try
+			{
+				// Publish pending physics and service the fixed-step accumulator before presenting the next frame.
+				sandbox.Step(dt);
+				sandbox.Render(dt);
+			}
+			catch (std::exception const& ex)
+			{
+				// Stop callbacks before showing a modal dialog, which pumps window messages.
+				sandbox.BeginClose();
+				OutputDebugStringA(ex.what());
+				fputs(ex.what(), stderr);
+				::MessageBoxA(sandbox, ex.what(), "Simulation stopped; close the window to release retained resources", MB_OK | MB_ICONERROR);
+			}
+			catch (...)
+			{
+				// Unknown callback failures have the same ownership obligation as ordinary exceptions.
+				sandbox.BeginClose();
+				auto const* message = "Unknown simulation failure. Close the window to release retained resources.";
+				OutputDebugStringA(message);
+				fputs(message, stderr);
+				::MessageBoxA(sandbox, message, "Simulation stopped", MB_OK | MB_ICONERROR);
+			}
 		});
 		loop.AddMessageFilter(sandbox);
 		return loop.Run();

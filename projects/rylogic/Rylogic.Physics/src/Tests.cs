@@ -12,6 +12,80 @@ namespace Rylogic.Physics;
 [TestFixture]
 public sealed class TestPhysics
 {
+	/// <summary>A refused final-context release leaves the managed runtime usable for explicit cleanup and retry.</summary>
+	[Test]
+	public unsafe void RefusedShutdownRetainsContextForRetry()
+	{
+		// Native callers can own engines that are not in this managed runtime's tracking set.
+		using var runtime = new Physics();
+		var native_context = Native.Physics_Initialise(default);
+		ulong native_engine;
+		try
+		{
+			// A second native caller contributes an engine, then relinquishes its own initialization token.
+			Native.Check(Native.Physics_EngineCreate(native_context, null, IntPtr.Zero, out native_engine));
+		}
+		finally
+		{
+			// The managed runtime is now the last context-token owner.
+			Native.Check(Native.Physics_Shutdown(native_context));
+		}
+		try
+		{
+			// The failed close must not invalidate the context token or collect a live native caller's engine.
+			Assert.False(runtime.TryDispose(0));
+			Assert.Equal(0U, runtime.CollectAbandoned(0));
+			var managed_engine = runtime.CreateEngine();
+			Assert.False(managed_engine.IsDisposed);
+			Native.Check(Native.Physics_EngineDestroy(native_engine, uint.MaxValue));
+			native_engine = 0;
+
+			// Retrying closes the managed child and releases the same runtime token successfully.
+			Assert.True(runtime.TryDispose(-1));
+			Assert.True(managed_engine.IsDisposed);
+			Assert.True(runtime.TryDispose(0));
+		}
+		finally
+		{
+			// Do not leave an untracked native engine behind when an assertion fails.
+			if (native_engine != 0)
+				Native.Check(Native.Physics_EngineDestroy(native_engine, uint.MaxValue));
+		}
+	}
+
+	/// <summary>Invalid close budgets preserve ownership; successful parent closure invalidates every owned wrapper.</summary>
+	[Test]
+	public void RetryableDisposePreservesOwnershipUntilSuccess()
+	{
+		// Build real engine and atmosphere ownership rather than testing only HRESULT conversion.
+		using var runtime = new Physics();
+		var engine = runtime.CreateEngine();
+		var shape = engine.CreateSphere(0.5f);
+		var atmosphere = engine.CreateAtmosphere(new AtmosphereOptions
+		{
+			CellCountX = 8,
+			CellCountY = 8,
+			CellCountZ = 4,
+			CellSize = 1,
+			LidZ = 4,
+		});
+		Assert.Throws<ArgumentOutOfRangeException>(() => runtime.TryDispose(-2));
+		Assert.Throws<ArgumentOutOfRangeException>(() => engine.TryDispose(-2));
+		Assert.Throws<ArgumentOutOfRangeException>(() => atmosphere.TryDispose(-2));
+		Assert.False(engine.IsDisposed);
+		Assert.False(atmosphere.IsDisposed);
+		Assert.False(shape.IsDisposed);
+
+		// Completion, not the start of disposal, ends all managed identities.
+		Assert.True(engine.TryDispose(-1));
+		Assert.True(engine.IsDisposed);
+		Assert.True(atmosphere.IsDisposed);
+		Assert.True(shape.IsDisposed);
+		Assert.True(engine.TryDispose(0));
+		Assert.True(atmosphere.TryDispose(0));
+		Assert.True(runtime.TryDispose(0));
+	}
+
 	/// <summary>Keep managed blittable records aligned with the ABI-reported native sizes.</summary>
 	[Test]
 	public unsafe void Layouts()

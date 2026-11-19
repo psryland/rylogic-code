@@ -223,8 +223,9 @@ namespace pr::physics
 	// Replace or disable the owned terrain between completed frames; validate a replacement before discarding the current source.
 	void Engine::Terrain(std::optional<terrain::landscape::BaselineSurface> surface, float spacing)
 	{
-		if (m_pending_step.m_active)
-			throw std::runtime_error("Terrain cannot change while a step is pending");
+		// In-flight and closing owners must retain the resources already referenced by their GPU work.
+		if (m_pending_step.m_active || Closing())
+			throw std::runtime_error("Terrain cannot change while a step is pending or the engine is closing");
 
 		// Keep the current source intact if replacement validation or pipeline creation fails.
 		if (!surface && (!m_gpu_world_contacts || !m_gpu_world_contacts->m_surface))
@@ -255,8 +256,9 @@ namespace pr::physics
 	// Preserve the independent terrain source when changing the cylindrical boundary.
 	void Engine::CylindricalBoundary(std::optional<CylindricalBoundaryConfig> boundary)
 	{
-		if (m_pending_step.m_active)
-			throw std::runtime_error("Cylindrical boundary cannot change while a step is pending");
+		// A maintenance failure can retain resources without a normal pending-step handle.
+		if (m_pending_step.m_active || Closing())
+			throw std::runtime_error("Cylindrical boundary cannot change while a step is pending or the engine is closing");
 
 		// Build and validate replacement resources before retiring the current world endpoint.
 		if (!boundary && (!m_gpu_world_contacts || !m_gpu_world_contacts->m_boundary))
@@ -284,8 +286,9 @@ namespace pr::physics
 	// Replace or disable the water environment; validate a replacement before changing the current one.
 	void Engine::Water(std::optional<WaterConfig> water)
 	{
-		if (m_pending_step.m_active)
-			throw std::runtime_error("Water cannot change while a step is pending");
+		// The existing pipeline and configuration remain owned until explicit closure succeeds.
+		if (m_pending_step.m_active || Closing())
+			throw std::runtime_error("Water cannot change while a step is pending or the engine is closing");
 
 		// Removing absent water is not an environment change.
 		if (!water && !m_water_active)
@@ -601,8 +604,8 @@ namespace pr::physics
 	void Engine::RefreshShapeTransform(collision::Shape const& shape)
 	{
 		// The packed shape buffer is read by an in-flight step, so it can only change between steps.
-		if (m_pending_step.m_active)
-			throw std::runtime_error("Engine::RefreshShapeTransform cannot run while a step is pending");
+		if (m_pending_step.m_active || Closing())
+			throw std::runtime_error("Engine::RefreshShapeTransform cannot run while a step is pending or the engine is closing");
 
 		m_cache->m_shape_cache.RefreshTransform(shape);
 
@@ -615,8 +618,8 @@ namespace pr::physics
 	void Engine::ForgetShape(collision::Shape const& shape)
 	{
 		// The packed shape buffer is read by an in-flight step, so it can only change between steps.
-		if (m_pending_step.m_active)
-			throw std::runtime_error("Engine::ForgetShape cannot run while a step is pending");
+		if (m_pending_step.m_active || Closing())
+			throw std::runtime_error("Engine::ForgetShape cannot run while a step is pending or the engine is closing");
 
 		// Only the address-keyed caches can confuse a later shape with this one. World-contact plans are keyed by shape content and replan
 		// when the shape cache changes, and no body uses the shape, so no contact or warm start refers to it.
@@ -628,8 +631,9 @@ namespace pr::physics
 	// Drop all internally-cached references to caller-supplied data.
 	void Engine::ResetCaches()
 	{
-		if (m_pending_step.m_active)
-			throw std::runtime_error("Engine::ResetCaches cannot run while a step is pending");
+		// Failed maintenance recording can retain GPU resources even without a submitted simulation frame.
+		if (m_pending_step.m_active || Closing())
+			throw std::runtime_error("Engine::ResetCaches cannot run while a step is pending or the engine is closing");
 
 		// Forget every topology-derived cache so subsequent caller-owned objects cannot inherit stale warm starts or resources.
 		m_cache->Reset();
@@ -709,6 +713,9 @@ namespace pr::physics
 	void Engine::BeginStep(StepInput const& input)
 	{
 		// Reject re-entry before establishing this call's recovery scope so an existing unsubmitted empty frame remains completable.
+		if (Closing())
+			throw std::runtime_error("A closing physics engine cannot begin another step");
+
 		if (m_pending_step.m_active)
 			throw std::runtime_error("Engine::BeginStep called while a previous step is pending");
 
@@ -718,19 +725,13 @@ namespace pr::physics
 		}
 		catch (...)
 		{
-			auto const step_error = std::current_exception();
 			if (m_pending_step.m_active && !m_pending_step.m_submitted)
 			{
-				// Retire every recorded command before releasing pending CPU state so transfer allocations never reference an unsignalled fence.
+				// Stop the failed recording without executing it. Submitted prefixes and their resources remain owned until explicit closure.
 				m_pending_step.RestoreRejectedSleepState();
-				m_pending_step.Clear();
-				m_gpu->m_job.RetireRecordedWork();
-
-				// Forget cached caller data and incremental GPU upload shadows because the failed frame did not become observable simulation state.
-				ResetCaches();
+				m_gpu->m_job.Stop();
 			}
-
-			std::rethrow_exception(step_error);
+			throw;
 		}
 	}
 
@@ -1239,7 +1240,17 @@ namespace pr::physics
 			return;
 		}
 
-		CompleteGpuJob(m_gpu->m_job, m_pending_step.m_run, m_last_step_profile);
+		try
+		{
+			// Preserve the pending frame if waiting, notification, or recording reset fails.
+			CompleteGpuJob(m_gpu->m_job, m_pending_step.m_run, m_last_step_profile);
+		}
+		catch (...)
+		{
+			// Completion failure cannot be treated as a reusable recording or as safely retired GPU work.
+			m_gpu->m_job.Stop();
+			throw;
+		}
 
 		// Publish the water diagnostics and GPU time read back by this step.
 		if (m_gpu_water)
@@ -1293,23 +1304,33 @@ namespace pr::physics
 		return m_pending_step.m_active;
 	}
 
-	// Wait for a pending step during terminal cleanup without updating bodies or reusing command state.
-	void Engine::AbandonStep()
+	// Retire GPU work under caller control before releasing any pending allocation or body references.
+	HRESULT Engine::TryClose(DWORD timeout) noexcept
 	{
-		if (!m_pending_step.m_active)
-			return;
+		// A failed wait retains the complete frame, including allocations referenced by queued commands.
+		auto const result = m_gpu->m_job.TryClose(timeout);
+		if (result != S_OK)
+			return result;
 
-		if (m_pending_step.m_submitted)
-			m_gpu->m_job.Abandon(m_pending_step.m_run);
-		if (m_gpu_constraint_solver != nullptr)
-			m_gpu_constraint_solver->InvalidateRuntimeState();
-
+		// Terminal closure does not publish or mutate caller-owned simulation state.
 		m_pending_step.Clear();
+		return S_OK;
+	}
+
+	// Report whether the engine is restricted to retrying closure.
+	bool Engine::Closing() const
+	{
+		// The job owns the terminal submission state.
+		return m_gpu->m_job.m_closing;
 	}
 
 	// Explicitly initialise missing sleep islands for newly-created sleeping bodies.
 	void Engine::UpdateSleepIslands(std::span<RigidBody*> rigid_bodies)
 	{
+		// Maintenance must not reopen an engine stopped by an earlier failure.
+		if (Closing())
+			throw std::runtime_error("Engine::UpdateSleepIslands cannot run after closure has started");
+
 		if (m_pending_step.m_active)
 			throw std::runtime_error("Engine::UpdateSleepIslands cannot run while a step is pending");
 
@@ -1332,7 +1353,7 @@ namespace pr::physics
 		GpuBuffers buffers;
 		buffers.emit_collisions = false;
 
-		// A recording failure must retire its valid command prefix before transfer buffers or cached inputs can be released.
+		// A recording failure stops the engine; explicit closure owns any already submitted work.
 		try
 		{
 			{
@@ -1369,24 +1390,20 @@ namespace pr::physics
 				auto profile_scope = ProfileScope<&Engine::StepProfile::m_readback_ms>(m_last_step_profile);
 				Readback(buffers, GpuArticulationMidpointOutput{}, false);
 			}
-		}
-		catch (...)
-		{
-			auto const recording_error = std::current_exception();
-			m_gpu->m_job.RetireRecordedWork();
-			ResetCaches();
-			std::rethrow_exception(recording_error);
-		}
 
-		// Submit only after the complete maintenance frame has been recorded successfully.
-		{
+			// Submit only the complete maintenance frame; wait and observer failures belong to the same fail-stop boundary.
 			RunGpuJob(m_gpu->m_job, m_last_step_profile);
-		}
-		{
 			auto profile_scope = ProfileScope<&Engine::StepProfile::m_unpack_ms>(m_last_step_profile);
 			auto output_committed = false;
 			Unpack(buffers, rigid_bodies, {}, {}, nullptr, 0.0f, 0.0f, output_committed);
 		}
+		catch (...)
+		{
+			// Never execute a partial maintenance recording during exception unwinding.
+			m_gpu->m_job.Stop();
+			throw;
+		}
+
 	}
 
 	// Pack the body data into GPU buffers for the current frame.

@@ -113,10 +113,11 @@ namespace pr
 		return HrMsg(static_cast<HRESULT>(result));
 	}
 
-	// A string to put the last error message into
+	// The last error message on the calling thread.
 	inline std::string& Reason()
 	{
-		static std::string s_reason;
+		// Independent callers must not overwrite each other's failure details.
+		thread_local std::string s_reason;
 		return s_reason;
 	}
 
@@ -213,6 +214,47 @@ namespace pr
 		}
 	}
 }
+
+#if PR_UNITTESTS
+#include <semaphore>
+#include <thread>
+#include "pr/common/unittests.h"
+namespace pr::common
+{
+	// Ordered failures on different threads retain their own diagnostic messages.
+	PRUnitTest(HResultReasonIsPerThread, Quick)
+	{
+		// Order the writes so this also reproduces the shared-string bug without a data race in the test.
+		std::binary_semaphore first_written(0), second_written(0);
+		auto first_reason = std::string{}, second_reason = std::string{};
+		auto first_failed = false, second_failed = false;
+		auto first = std::jthread([&]
+		{
+			// Read the first error only after the second thread has stored a different error.
+			first_failed = !Succeeded(E_OUTOFMEMORY);
+			first_written.release();
+			second_written.acquire();
+			first_reason = Reason();
+		});
+		auto second = std::jthread([&]
+		{
+			// Establish a deterministic overwrite in the old shared-string implementation.
+			first_written.acquire();
+			second_failed = !Succeeded(E_INVALIDARG);
+			second_reason = Reason();
+			second_written.release();
+		});
+		first.join();
+		second.join();
+
+		// Neither diagnostic may be replaced by the other thread's failure.
+		PR_EXPECT(first_failed && second_failed);
+		PR_EXPECT(first_reason == HrMsg(E_OUTOFMEMORY));
+		PR_EXPECT(second_reason == HrMsg(E_INVALIDARG));
+		PR_EXPECT(first_reason != second_reason);
+	}
+}
+#endif
 
 #undef PR_SUPPORT_D3D9_ERRORS
 #undef PR_SUPPORT_D3D11_ERRORS

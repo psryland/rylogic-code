@@ -7,10 +7,9 @@
 
 namespace pr::physics
 {
-	Context::Context(ReportErrorCB error_cb)
+	Context::Context()
 		: m_inits()
 		, m_mutex()
-		, m_error_cb(error_cb)
 		, m_interop(new InteropState())
 	{}
 

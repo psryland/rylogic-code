@@ -1485,7 +1485,20 @@ namespace physics_sandbox::diag
 		auto column_metric = options.m_column_metric ? CreateColumnMetric(scene_desc) : ColumnMetricState{};
 		auto pyramid_metric = options.m_pyramid_metric ? CreatePyramidMetric(scene_desc) : PyramidMetricState{};
 		auto cradle_metric = options.m_cradle_metric ? CreateCradleMetric(scene_desc) : CradleMetricState{};
-		auto scene = Scene(nullptr);
+		auto scene_owner = std::make_unique<Scene>(nullptr);
+		auto& scene = *scene_owner;
+		Scope<void> close_scene([&]
+		{
+			// This command-line host waits explicitly. If a failure prevents retirement during unwinding, retain the entire owner until process exit.
+			if (scene.TryClose(INFINITE) != S_OK)
+			{
+				// Do not release GPU resources merely because the diagnostic is exiting with an error.
+				(void)scene_owner.release();
+				auto const* message = "ERROR: Diagnostic GPU cleanup failed; scene resources are retained until process exit.\n";
+				OutputDebugStringA(message);
+				std::fputs(message, stderr);
+			}
+		});
 		scene.LoadScene(std::move(scene_desc));
 		if (
 			options.m_buoyancy_linear_drag_time_constant_s ||
@@ -1847,6 +1860,10 @@ namespace physics_sandbox::diag
 				result.m_link));
 		}
 
+		// Report a normal-path cleanup failure rather than returning successful diagnostic results.
+		auto const close_result = scene.TryClose(INFINITE);
+		Check(close_result, "Diagnostic GPU cleanup failed");
+		Check(close_result == S_OK, "Diagnostic GPU cleanup did not complete");
 		return result;
 	}
 }

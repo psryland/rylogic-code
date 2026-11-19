@@ -21,4 +21,7 @@ namespace pr::physics
 
 	// Pin the process context when it exists.
 	std::shared_ptr<Context> TryPinDll();
+
+	// Release the process context only after both caller tokens and retained engines have gone.
+	void ReleaseUnusedContext();
 }

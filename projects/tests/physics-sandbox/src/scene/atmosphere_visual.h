@@ -33,8 +33,11 @@ namespace physics_sandbox
 		// interleave with physics steps that are still in flight. 'shader_cache' must outlive this object.
 		AtmosphereVisual(ID3D12Device4* device, rdr12::Renderer& rdr, ::pr::compute::shader_cache::IShaderCache& shader_cache, scene_loader::AtmosphereDesc desc);
 
-		// Wait for any climate step still in flight before the GPU resources are released.
-		~AtmosphereVisual();
+		// Run initialization after the scene has taken ownership.
+		void Initialise();
+
+		// Stop the climate and retire its GPU work within the caller's millisecond budget before destruction.
+		HRESULT TryClose(DWORD timeout) noexcept;
 
 		// Advance simulated time by 'dt'. Collects a finished climate step without blocking and submits a new one each step period (1 / step_rate).
 		void Step(float dt);

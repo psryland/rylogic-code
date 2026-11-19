@@ -15,6 +15,9 @@ namespace pr::physics
 	struct EngineSlot;
 	struct InteropGpuBackend;
 
+	// Preserve ABI error text without letting allocation failure escape the native boundary.
+	void SetLastError(char const* message) noexcept;
+
 	// Owns all generation-aware ABI objects associated with the process DLL context.
 	struct InteropState
 	{

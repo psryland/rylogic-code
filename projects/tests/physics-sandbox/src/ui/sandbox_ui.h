@@ -66,6 +66,9 @@ namespace physics_sandbox
 		// Process window messages for this form.
 		bool ProcessWindowMessage(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, LRESULT& result) override;
 
+		// Stop scheduling and disable scene controls without completing or publishing pending GPU work.
+		void BeginClose();
+
 		// Reset the scene and sync graphics
 		void ResetScene();
 

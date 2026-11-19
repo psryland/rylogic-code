@@ -671,11 +671,46 @@ namespace physics_sandbox
 			m_buoyancy_debug_gfx = result.m_objects.front();
 	}
 
+	// Close both independent simulation queues within one host-owned wait budget.
+	HRESULT Scene::TryClose(DWORD timeout)
+	{
+		// The climate is closed first so its resources survive any failed wait.
+		auto const started = GetTickCount64();
+		if (m_atmosphere_gfx)
+		{
+			// A partial close leaves this scene intact for a subsequent close attempt.
+			auto const result = m_atmosphere_gfx->TryClose(timeout);
+			if (result != S_OK)
+				return result;
+		}
+
+		// Do not give the second queue another full timeout.
+		auto const elapsed = GetTickCount64() - started;
+		auto const remaining = timeout == INFINITE ? INFINITE : elapsed >= timeout ? 0 : static_cast<DWORD>(timeout - elapsed);
+		return m_physics.TryClose(remaining);
+	}
+
+	// Release the climate only after explicit successful closure.
+	void Scene::ClearAtmosphere()
+	{
+		// Scene loading chooses a blocking close, but a failed wait still preserves the previous owner.
+		if (!m_atmosphere_gfx)
+			return;
+
+		auto const result = m_atmosphere_gfx->TryClose(INFINITE);
+		Check(result, "Atmosphere cleanup failed; the previous atmosphere is retained");
+		Check(result == S_OK, "Atmosphere cleanup timed out; the previous atmosphere is retained");
+		m_atmosphere_gfx.reset();
+	}
+
 	// Reset the simulation to the current scenario's initial conditions
 	void Scene::Reset()
 	{
 		if (m_step_pending)
 			throw std::runtime_error("Scene::Reset cannot run while a step is pending");
+
+		// Retain the current atmosphere if its queue cannot be retired.
+		ClearAtmosphere();
 
 		m_clock = 0;
 		m_step_count = 0;
@@ -696,7 +731,6 @@ namespace physics_sandbox
 		m_terrain_gfx = nullptr;
 		m_water.reset();
 		m_water_gfx = nullptr;
-		m_atmosphere_gfx = nullptr;
 		m_env_map = nullptr;
 		m_sky_gfx = nullptr;
 
@@ -915,10 +949,11 @@ namespace physics_sandbox
 	// forces so that collisions can be validated against analytic predictions.
 	void Scene::SetupScenario(EScenario scenario)
 	{
+		// Close the previous independent climate queue before replacing any scene state.
+		ClearAtmosphere();
 		ClearSimulationObjects();
 		m_water.reset();
 		m_water_gfx = nullptr;
-		m_atmosphere_gfx = nullptr;
 		m_env_map = nullptr;
 		m_sky_gfx = nullptr;
 
@@ -1035,6 +1070,8 @@ namespace physics_sandbox
 	// Shapes are heap-allocated and owned by m_owned_shapes.
 	void Scene::LoadScene(scene_loader::SceneDesc scene_desc)
 	{
+		// Scene replacement must not release an atmosphere whose GPU work could still be running.
+		ClearAtmosphere();
 		auto const load_beg = Clock::now();
 		auto mark = load_beg;
 		m_last_load_profile = {};
@@ -1055,7 +1092,6 @@ namespace physics_sandbox
 		m_terrain_gfx = nullptr;
 		m_water = scene_desc.water;
 		m_water_gfx = nullptr;
-		m_atmosphere_gfx = nullptr;
 		m_env_map = nullptr;
 		m_sky_gfx = nullptr;
 
@@ -1315,7 +1351,11 @@ namespace physics_sandbox
 		// Create the scene-owned atmosphere solver on the physics engine's device. A second standalone device is not possible here because
 		// creating one enables the D3D debug layer, and D3D12 removes every existing device when that happens after device creation.
 		if (scene_desc.atmosphere && m_rdr != nullptr)
+		{
+			// Establish scene ownership before initialization submits GPU work.
 			m_atmosphere_gfx = std::make_unique<AtmosphereVisual>(m_physics.Device(), *m_rdr, m_shader_cache, std::move(*scene_desc.atmosphere));
+			m_atmosphere_gfx->Initialise();
+		}
 
 		// Show the surface samples used by the physics that this scene exercises: buoyancy in water scenes, otherwise terrain collision.
 		if (scene_desc.water)
@@ -2774,6 +2814,8 @@ namespace physics_sandbox::tests
 			}
 			PR_EXPECT(max_speed > 40.0f && max_speed < 240.0f);
 			window.WaitForGpu();
+			PR_EXPECT(sandbox.TryClose(INFINITE) == S_OK);
+			PR_THROWS(sandbox.m_atmosphere_gfx->Step(0.1f), std::runtime_error);
 		}
 	};
 

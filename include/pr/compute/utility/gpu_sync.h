@@ -131,23 +131,57 @@ namespace pr::compute
 			Check(m_fence->SetEventOnCompletion(sync_point, event));
 		}
 
-		// Wait until the given sync point value is reached.
-		// Returns true if 'sync_point' is reached, false it timeout.
-		bool Wait(uint64_t sync_point, DWORD timeout = INFINITE) const
+		// Wait within the caller's total millisecond budget. S_OK means complete, S_FALSE means timed out, and a failed HRESULT describes the error.
+		// This does not invoke observers or allocate exception messages, so a failed wait can be retried by the resource owner.
+		HRESULT TryWait(uint64_t sync_point, DWORD timeout) const noexcept
 		{
-			// Wait until the fence reports a completed sync point >= 'sync_point'
-			for (auto sp = CompletedSyncPoint(); sp < sync_point; sp = CompletedSyncPoint())
+			// Repeated or stale event notifications must not restart a finite timeout.
+			auto const started = GetTickCount64();
+			for (;;)
 			{
-				Check(m_fence->SetEventOnCompletion(sync_point, m_event));
-				switch (WaitForSingleObject(m_event, timeout))
+				// A removed device cannot complete more work; distinguish it from an ordinary completed fence.
+				auto const completed = CompletedSyncPoint();
+				auto const removed = DeviceRemovedReason();
+				if (FAILED(removed))
+					return removed;
+
+				if (completed == UINT64_MAX)
+					return DXGI_ERROR_DEVICE_REMOVED;
+
+				if (completed >= sync_point)
+					return S_OK;
+
+				auto const elapsed = GetTickCount64() - started;
+				if (timeout != INFINITE && elapsed >= timeout)
+					return S_FALSE;
+
+				// A zero-budget poll returns above without registering an event.
+				auto const result = m_fence->SetEventOnCompletion(sync_point, m_event);
+				if (FAILED(result))
+					return result;
+
+				auto const wait_elapsed = GetTickCount64() - started;
+				auto const remaining = timeout == INFINITE ? INFINITE : wait_elapsed >= timeout ? 0 : static_cast<DWORD>(timeout - wait_elapsed);
+				switch (WaitForSingleObject(m_event, remaining))
 				{
-					case WAIT_OBJECT_0: break; // Event signalled, go round again
-					case WAIT_TIMEOUT: return false; // Timeout,
-					case WAIT_FAILED: throw std::runtime_error(HrMsg(GetLastError()));
-					case WAIT_ABANDONED: throw std::runtime_error("Wait for sync point abandoned");
+					case WAIT_OBJECT_0: { break; }
+					case WAIT_TIMEOUT: { return S_FALSE; }
+					case WAIT_FAILED: { return HRESULT_FROM_WIN32(GetLastError()); }
+					default: { return E_UNEXPECTED; }
 				}
 			}
-			return !FAILED(DeviceRemovedReason());
+		}
+
+		// Wait for a sync point. Returns false on timeout or device removal, and throws for other wait failures.
+		bool Wait(uint64_t sync_point, DWORD timeout = INFINITE) const
+		{
+			// Keep throwing diagnostics out of the nonthrowing teardown primitive.
+			auto const result = TryWait(sync_point, timeout);
+			if (result == S_FALSE || FAILED(DeviceRemovedReason()) || CompletedSyncPoint() == UINT64_MAX)
+				return false;
+
+			Check(result);
+			return true;
 		}
 		
 		// Wait till the last sync point is reached

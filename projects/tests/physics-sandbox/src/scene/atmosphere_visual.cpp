@@ -75,29 +75,61 @@ namespace physics_sandbox
 	{
 		// The scene's outside air is static, so the solver keeps it for every step. An empty list leaves the calm default.
 		if (!m_desc.m_outside_air.empty())
-			m_solver.SetOutsideAir(m_desc.m_outside_air);
+		{
+			// Reject an invalid scene description before submitting any work.
+			if (auto const check = m_solver.SetOutsideAir(m_desc.m_outside_air); !check.Accepted())
+				throw std::runtime_error(check.m_rejection);
+		}
 
 		// Tracers are optional so diagnostic-only atmosphere scenes can omit particle cost.
 		if (m_desc.m_tracers.m_particle_count > 0)
 		{
 			m_tracers = std::make_unique<physics::atmosphere::AtmosphereTracers>(m_solver, m_gpu, m_desc.m_tracers, &shader_cache);
-			m_particles = m_tracers->ReadBack(m_gpu.m_job);
-			CreateTracerGfx();
-			m_tracers_stale = true;
 		}
 	}
 
-	// Wait for any climate step still in flight before the GPU resources are released.
-	AtmosphereVisual::~AtmosphereVisual()
+	// Submit initialization only after the scene can retain this owner if a wait fails.
+	void AtmosphereVisual::Initialise()
 	{
-		// The solver and tracer buffers must outlive GPU work that references them.
-		if (m_pending)
-			m_gpu.m_job.Abandon(m_pending);
+		// A failed initialization remains owned by the scene but may not record another step.
+		try
+		{
+			// Particle readback also executes the initialization recorded by the constructors.
+			if (m_tracers)
+			{
+				// Build presentation from initialized particle data.
+				m_particles = m_tracers->ReadBack(m_gpu.m_job);
+				CreateTracerGfx();
+				m_tracers_stale = true;
+			}
+			else
+			{
+				// Field-only atmospheres still need their initialization submitted.
+				m_gpu.m_job.Run();
+			}
+		}
+		catch (...)
+		{
+			// Explicit close, rather than a later frame, owns any partially submitted initialization.
+			m_gpu.m_job.Stop();
+			throw;
+		}
+	}
+
+	// Leave the scene-owned object intact on timeout or failure.
+	HRESULT AtmosphereVisual::TryClose(DWORD timeout) noexcept
+	{
+		// No command recording or result publication is needed during terminal closure.
+		return m_gpu.m_job.TryClose(timeout);
 	}
 
 	// Advance simulated time, collecting finished climate steps and submitting new ones at the fixed climate rate.
 	void AtmosphereVisual::Step(float dt)
 	{
+		// A failed initialization or close may retain resources, but it never permits another recording.
+		if (m_gpu.m_job.m_closing)
+			throw std::runtime_error("Atmosphere work has stopped; retry scene closure before releasing it");
+
 		// Collect the step in flight only once the GPU has finished it, so the frame never waits on the climate.
 		auto& job = m_gpu.m_job;
 		if (m_pending)
@@ -125,7 +157,9 @@ namespace physics_sandbox
 		m_unstepped_time -= step_period;
 
 		// Record the solver, tracers, and particle copy in submission order, then submit without waiting. The scene's heat sources are static.
-		m_solver.Step(job, step_period, m_desc.m_heat_sources);
+		if (auto const check = m_solver.Step(job, step_period, m_desc.m_heat_sources); !check.Accepted())
+			throw std::runtime_error(check.m_rejection);
+
 		if (m_tracers != nullptr)
 		{
 			// The particle copy is collected when this submission completes.

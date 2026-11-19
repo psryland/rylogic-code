@@ -125,7 +125,7 @@ internal static unsafe partial class Native
 	}
 
 	[DllImport(Dll)] internal static extern EStatus Physics_AtmosphereCreate(ulong engine, AtmosphereDesc* desc, out ulong atmosphere);
-	[DllImport(Dll)] internal static extern EStatus Physics_AtmosphereDestroy(ulong engine, ulong atmosphere);
+	[DllImport(Dll)] internal static extern EStatus Physics_AtmosphereDestroy(ulong engine, ulong atmosphere, uint timeout_ms);
 	[DllImport(Dll)] internal static extern EStatus Physics_AtmosphereBeginStep(ulong engine, ulong atmosphere, AtmosphereStepDesc* step);
 	[DllImport(Dll)] internal static extern EStatus Physics_AtmospherePollStep(ulong engine, ulong atmosphere, out int idle);
 	[DllImport(Dll)] internal static extern EStatus Physics_AtmosphereProbesCopy(ulong engine, ulong atmosphere, AtmosphereProbeSample* samples, uint capacity, out uint required);

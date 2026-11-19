@@ -48,7 +48,7 @@ namespace pr::physics
 
 namespace pr::physics
 {
-	inline constexpr std::uint32_t PHYSICS_API_VERSION = 0x00080001U;
+	inline constexpr std::uint32_t PHYSICS_API_VERSION = 0x00090000U;
 	inline constexpr std::uint32_t PHYSICS_STRUCT_VERSION = 3U;
 	inline constexpr std::uint32_t PHYSICS_CHECKPOINT_VERSION = 4U;
 
@@ -92,6 +92,7 @@ namespace pr::physics
 		IncompatibleVersion = 9,
 		DeviceRemoved = 10,
 		InternalError = 11,
+		Timeout = 12,
 	};
 
 	enum class EStructId : std::int32_t
@@ -1117,7 +1118,16 @@ extern "C"
 {
 	// DLL context lifecycle. Calls are reference counted and must be paired.
 	PHYSICS_API pr::physics::DllHandle __stdcall Physics_Initialise(pr::physics::ReportErrorCB global_error_cb);
-	PHYSICS_API void __stdcall Physics_Shutdown(pr::physics::DllHandle context);
+	// Failed shutdown retains the token. The last context cannot close while engines still own resources.
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_Shutdown(pr::physics::DllHandle context);
+
+	// Finalizer-only transfer of ownership to the process context. Outstanding resources remain available for explicit collection.
+	PHYSICS_API void __stdcall Physics_ContextAbandon(pr::physics::DllHandle context);
+
+	// Retry abandoned engines and failed atmosphere creations within one millisecond budget (UINT32_MAX means infinite).
+	// 'remaining' counts retained owners plus busy engines that could not be inspected. Busy engines are not waited on, even with an infinite
+	// GPU budget, and report Timeout. Retry collection once those operations finish; no live caller-owned object is collected.
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_CollectAbandoned(pr::physics::DllHandle context, std::uint32_t timeout_ms, std::uint32_t* remaining);
 
 	// Cache runtime-compiled GPU kernels in 'directory' for engines created afterwards, and for their atmospheres; null disables caching.
 	// Each engine keeps the cache that was current when it was created. The cache is shared by every context token.
@@ -1135,7 +1145,8 @@ extern "C"
 
 	// Engine lifecycle and device ownership.
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_EngineCreate(pr::physics::DllHandle context, pr::physics::Config const* config, void* external_d3d12_device, pr::physics::EngineHandle* engine);
-	PHYSICS_API pr::physics::EStatus __stdcall Physics_EngineDestroy(pr::physics::EngineHandle engine);
+	// Destruction is terminal but retryable. Only Success invalidates handles; timeout/failure retains all ownership.
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_EngineDestroy(pr::physics::EngineHandle engine, std::uint32_t timeout_ms);
 	PHYSICS_API void __stdcall Physics_EngineAbandon(pr::physics::EngineHandle engine);
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_EngineDeviceLeaseAcquire(pr::physics::EngineHandle engine, void** d3d12_device);
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_EngineConfigGet(pr::physics::EngineHandle engine, pr::physics::Config* config);
@@ -1293,7 +1304,7 @@ extern "C"
 	// step, and is destroyed with its engine. Atmospheres are not part of native checkpoints. All calls are owner-thread only.
 	// Creation compiles the solver kernels and blocks until the air is at rest on the reference profile.
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_AtmosphereCreate(pr::physics::EngineHandle engine, pr::physics::AtmosphereDesc const* desc, pr::physics::AtmosphereHandle* atmosphere);
-	PHYSICS_API pr::physics::EStatus __stdcall Physics_AtmosphereDestroy(pr::physics::EngineHandle engine, pr::physics::AtmosphereHandle atmosphere);
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_AtmosphereDestroy(pr::physics::EngineHandle engine, pr::physics::AtmosphereHandle atmosphere, std::uint32_t timeout_ms);
 
 	// Submit one step, and tracer advection when tracers exist, without waiting for the GPU. Fails with StepPending while a step is in flight.
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_AtmosphereBeginStep(pr::physics::EngineHandle engine, pr::physics::AtmosphereHandle atmosphere, pr::physics::AtmosphereStepDesc const* step);
