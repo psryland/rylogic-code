@@ -132,23 +132,6 @@ namespace pr::rdr12
 			return res;
 		}
 
-		// Create a command signature for a single draw argument with a 'ArgStride' byte stride.
-		D3DPtr<ID3D12CommandSignature> CreateDrawSignature(ID3D12Device4* device, D3D12_INDIRECT_ARGUMENT_TYPE type, char const* name)
-		{
-			// Population draws change no root arguments, so the signature has no root signature.
-			auto arg = D3D12_INDIRECT_ARGUMENT_DESC{ .Type = type };
-			auto desc = D3D12_COMMAND_SIGNATURE_DESC{
-				.ByteStride = PopulationCuller::ArgStride,
-				.NumArgumentDescs = 1,
-				.pArgumentDescs = &arg,
-				.NodeMask = 0,
-			};
-			D3DPtr<ID3D12CommandSignature> sig;
-			Check(device->CreateCommandSignature(&desc, nullptr, __uuidof(ID3D12CommandSignature), (void**)sig.address_of()));
-			DebugName(sig, name);
-			return sig;
-		}
-
 		// True if a world-space box may hold instances that are visible: it is on the inside of all four 'planes', its closest point is within 'far_limit'
 		// of 'origin', and its furthest point is at least 'near_limit' from 'origin'. The distance tests assume the box contains the instance origins and
 		// bounding spheres. The test is conservative: a box crossing a plane or a distance limit counts as visible.
@@ -896,8 +879,6 @@ namespace pr::rdr12
 		, m_pso_count()
 		, m_pso_prefix()
 		, m_pso_scatter()
-		, m_draw_indexed()
-		, m_draw()
 	{
 		auto device = rdr.d3d();
 
@@ -916,10 +897,6 @@ namespace pr::rdr12
 		m_pso_count = ComputePSO(m_signature.get(), shader_code::population_count_cs).Create(device, "PopulationCountPSO");
 		m_pso_prefix = ComputePSO(m_signature.get(), shader_code::population_prefix_cs).Create(device, "PopulationPrefixPSO");
 		m_pso_scatter = ComputePSO(m_signature.get(), shader_code::population_scatter_cs).Create(device, "PopulationScatterPSO");
-
-		// Indirect draws read one argument record per call.
-		m_draw_indexed = CreateDrawSignature(device, D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED, "PopulationDrawIndexedSig");
-		m_draw = CreateDrawSignature(device, D3D12_INDIRECT_ARGUMENT_TYPE_DRAW, "PopulationDrawSig");
 	}
 
 	// Classify 'pop' for 'view'.
@@ -1125,12 +1102,6 @@ namespace pr::rdr12
 			PopulationNuggets(proxy, step, [&](Nugget const&, Material const&) { arg_count += 2; });
 
 		return ClassificationSize(pop, ListBase(pop, arg_count));
-	}
-
-	// The command signature for an indexed or non-indexed draw.
-	ID3D12CommandSignature* PopulationCuller::DrawSignature(bool indexed)
-	{
-		return indexed ? m_draw_indexed.get() : m_draw.get();
 	}
 
 	// Return the overlay whose vertex shader 'material' applies for 'step', or null if the stock vertex shader is used.

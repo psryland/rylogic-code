@@ -468,8 +468,6 @@ namespace pr::rdr12
 		D3DPtr<ID3D12PipelineState> m_pso_count;
 		D3DPtr<ID3D12PipelineState> m_pso_prefix;
 		D3DPtr<ID3D12PipelineState> m_pso_scatter;
-		D3DPtr<ID3D12CommandSignature> m_draw_indexed;
-		D3DPtr<ID3D12CommandSignature> m_draw;
 
 	public:
 
@@ -481,9 +479,6 @@ namespace pr::rdr12
 
 		// The size of the classification scratch buffer that 'Cull' uses for 'pop' and 'step'.
 		int64_t ViewSize(Population const& pop, ERenderStep step) const;
-
-		// The command signature for an indexed or non-indexed draw.
-		ID3D12CommandSignature* DrawSignature(bool indexed);
 	};
 
 	// Throw if 'prototype' or 'population' is null.

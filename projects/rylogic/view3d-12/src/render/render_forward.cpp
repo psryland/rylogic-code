@@ -1277,12 +1277,17 @@ namespace pr::rdr12
 			bound_pipe_state = desc;
 		};
 
-		// Ordinary draws draw one instance. Population draws take their instance counts from the classification's argument records.
+		// Ordinary draws draw one instance. Population draws take their instance counts from the classification's argument records,
+		// and nuggets with GPU-written draw arguments take theirs from the nugget's argument record.
+		// The command list holds a reference to the argument buffer until the draw completes, which needs a non-const pointer.
+		auto* draw_args = const_cast<ID3D12Resource*>(nugget.m_draw_args.m_buffer.get());
 		auto draw_indexed = [&]
 		{
 			// Keep indexed draws at base-vertex zero because optional model vertex streams use SV_VertexID to read buffers parallel to the primary vertex buffer.
 			if (population != nullptr)
-				cmd_list.ExecuteIndirect(rdr().PopulationCulling().DrawSignature(true), 1, population->m_lists->m_scratch, s_cast<UINT64>(population->m_draw->m_args_indexed));
+				cmd_list.ExecuteIndirect(rdr().DrawSignature(true), 1, population->m_lists->m_scratch, s_cast<UINT64>(population->m_draw->m_args_indexed));
+			else if (draw_args != nullptr)
+				cmd_list.ExecuteIndirect(rdr().DrawSignature(true), 1, draw_args, s_cast<UINT64>(nugget.m_draw_args.m_offset));
 			else
 				cmd_list.DrawIndexedInstanced(s_cast<size_t>(nugget.m_irange.size()), 1U, s_cast<size_t>(nugget.m_irange.m_beg), 0, 0U);
 		};
@@ -1290,7 +1295,9 @@ namespace pr::rdr12
 		{
 			// Draw the nugget's vertex range without indices.
 			if (population != nullptr)
-				cmd_list.ExecuteIndirect(rdr().PopulationCulling().DrawSignature(false), 1, population->m_lists->m_scratch, s_cast<UINT64>(population->m_draw->m_args_vertex));
+				cmd_list.ExecuteIndirect(rdr().DrawSignature(false), 1, population->m_lists->m_scratch, s_cast<UINT64>(population->m_draw->m_args_vertex));
+			else if (draw_args != nullptr)
+				cmd_list.ExecuteIndirect(rdr().DrawSignature(false), 1, draw_args, s_cast<UINT64>(nugget.m_draw_args.m_offset));
 			else
 				cmd_list.DrawInstanced(s_cast<size_t>(nugget.m_vrange.size()), 1U, s_cast<size_t>(nugget.m_vrange.m_beg), 0U);
 		};

@@ -181,6 +181,10 @@ namespace pr::rdr12
 			if (AllSet(nug.m_nflags, ENuggetFlag::Hidden))
 				continue;
 
+			// GPU-written draw arguments describe geometry the CPU cannot know, so those nuggets are not ray cast (see NuggetDrawArgs)
+			if (nug.m_draw_args.m_buffer != nullptr)
+				continue;
+
 			// Add an element to the draw list
 			auto sk = pass->AddSortKey(m_step_id, inst, material, nug, nug.m_sort_key);
 			drawlist.push_back(DrawListElement{ .m_sort_key = sk, .m_nugget = &nug, .m_instance = &inst });

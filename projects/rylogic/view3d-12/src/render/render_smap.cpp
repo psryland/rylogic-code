@@ -178,6 +178,10 @@ namespace pr::rdr12
 			if (AnySet(nug.m_nflags, ENuggetFlag::ShadowCastExclude | ENuggetFlag::Hidden))
 				continue;
 
+			// Shadow draws use the instance index to select the shadow view, so nuggets with GPU-written instance counts cannot cast shadows (see NuggetDrawArgs)
+			if (nug.m_draw_args.m_buffer != nullptr)
+				continue;
+
 			// Don't add nuggets without a surface area
 			if (nug.FillMode() != EFillMode::Default && nug.FillMode() != EFillMode::Solid)
 				break;
@@ -908,9 +912,9 @@ namespace pr::rdr12
 							m_cmd_list.SetGraphicsRoot32BitConstants(shaders::smap::ERootParam::PopulationDraw, pop_draw);
 							m_shader.SetupDrawViews(m_cmd_list.get(), { &view, 1 }, batch_beg);
 							if (!nugget.m_irange.empty())
-								m_cmd_list.ExecuteIndirect(rdr().PopulationCulling().DrawSignature(true), 1, lists.m_scratch, s_cast<UINT64>(view_draw.m_args_indexed));
+								m_cmd_list.ExecuteIndirect(rdr().DrawSignature(true), 1, lists.m_scratch, s_cast<UINT64>(view_draw.m_args_indexed));
 							else
-								m_cmd_list.ExecuteIndirect(rdr().PopulationCulling().DrawSignature(false), 1, lists.m_scratch, s_cast<UINT64>(view_draw.m_args_vertex));
+								m_cmd_list.ExecuteIndirect(rdr().DrawSignature(false), 1, lists.m_scratch, s_cast<UINT64>(view_draw.m_args_vertex));
 						}
 					}
 				}
