@@ -42,7 +42,7 @@ namespace colour_blend_tests
 {
 	using pr::rdr12::ldraw::RdrInstance;
 	static_assert(int(pr::rdr12::EInstComp::ColourBlend32) == int(pr::rdr12::EInstComp::TintColour32) + 1);
-	static_assert(pr::rdr12::SizeOf(pr::rdr12::EInstComp::ColourBlend32) == sizeof(pr::Colour32));
+	static_assert(pr::rdr12::IsComponentType<pr::Colour32>(pr::rdr12::EInstComp::ColourBlend32));
 	static_assert(std::is_same_v<decltype(RdrInstance::m_colour_blend), pr::Colour32>);
 	static_assert(offsetof(RdrInstance, m_colour_blend) == offsetof(RdrInstance, m_colour) + sizeof(pr::Colour32));
 

@@ -2133,7 +2133,7 @@ namespace pr::sqlite
 			std::wstring str = L"����";
 			table.Insert(Record(str), row);
 
-			std::wstring STR = table.GetColumn<std::wstring>(PKs(row), 1);
+			std::wstring STR = table.template GetColumn<std::wstring>(PKs(row), 1);
 			PR_EXPECT(str == STR);
 		}
 		PRUnitTestMethod(TextIsStoredVerbatim, Quick)

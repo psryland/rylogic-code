@@ -528,13 +528,13 @@ namespace pr::space_filling::tests
 					}
 				}
 			};
-			hilbert2d_round_trip.operator()<1>();
-			hilbert2d_round_trip.operator()<2>();
-			hilbert2d_round_trip.operator()<3>();
-			hilbert2d_round_trip.operator()<4>();
-			hilbert2d_round_trip.operator()<5>();
-			hilbert2d_round_trip.operator()<6>();
-			hilbert2d_round_trip.operator()<8>();
+			hilbert2d_round_trip.template operator()<1>();
+			hilbert2d_round_trip.template operator()<2>();
+			hilbert2d_round_trip.template operator()<3>();
+			hilbert2d_round_trip.template operator()<4>();
+			hilbert2d_round_trip.template operator()<5>();
+			hilbert2d_round_trip.template operator()<6>();
+			hilbert2d_round_trip.template operator()<8>();
 
 			#if PR_UNITTESTS_VISUALISE
 			if constexpr (CreateVisualisations)

@@ -11,6 +11,6 @@ src/shaders/hlsl/lighting/lighting_cbuf.hlsli TEXT DISCARDABLE "view3d-12/src/sh
 src/shaders/hlsl/sky/cloud_cbuf.hlsli       TEXT DISCARDABLE "view3d-12/src/shaders/hlsl/sky/cloud_cbuf.hlsli"
 src/shaders/hlsl/forward/forward_cbuf.hlsli TEXT DISCARDABLE "view3d-12/src/shaders/hlsl/forward/forward_cbuf.hlsli"
 src/shaders/hlsl/forward/kbuffer.hlsli      TEXT DISCARDABLE "view3d-12/src/shaders/hlsl/forward/kbuffer.hlsli"
-src/shaders/hlsl/utility/colour_space.hlsli TEXT DISCARDABLE "view3d-12/src/shaders/hlsl/utility/colour_space.hlsli"
+pr/view3d-12/shaders/colour_space.hlsli     TEXT DISCARDABLE "pr/view3d-12/shaders/colour_space.hlsli"
 
 #endif

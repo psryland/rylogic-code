@@ -396,7 +396,7 @@ namespace pr::compute
 		#if PR_PIX_ENABLED && PR_COMPUTE_SHADER_DEBUG
 		// Force shader symbols and warnings-as-errors for explicit shader debugging builds.
 		DebugInfo().Arg(L"-WX").Optimise(false).PDBOutput(std::filesystem::temp_directory_path() / L"Rylogic" / L"Symbols");
-		#pragma message(PR_LINK "WARNING: ************************************************** Debug Shader Compiling enabled")
+		#pragma message(PR_LINK "note: ************************************************** Debug Shader Compiling enabled")
 		#endif
 
 		BuildArgs();

@@ -772,7 +772,7 @@ namespace pr::physics
 		// lower 'm_uploaded', which only happens between steps.
 		auto const added = count - arr.m_uploaded;
 		auto upload = job.m_upload.Alloc<T>(added);
-		memcpy(upload.ptr<T>(), arr.m_cpu.data() + arr.m_uploaded, added * sizeof(T));
+		memcpy(upload.template ptr<T>(), arr.m_cpu.data() + arr.m_uploaded, added * sizeof(T));
 		job.m_barriers.Transition(arr.m_res.get(), D3D12_RESOURCE_STATE_COPY_DEST).Commit();
 		job.m_cmd_list.CopyBufferRegion(arr.m_res.get(), static_cast<UINT64>(arr.m_uploaded) * sizeof(T), upload);
 		job.m_barriers.Transition(arr.m_res.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE).Commit();

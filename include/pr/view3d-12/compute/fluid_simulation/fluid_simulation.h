@@ -401,7 +401,7 @@ namespace pr::rdr12::compute::fluid
 
 				// Allocate upload buffer space and copy from 'particles' into the upload buffer, then into the particle buffer
 				auto buf = job.m_upload.Alloc(isize(particles) * sizeof(Particle), alignof(Particle));
-				memcpy(buf.ptr<Particle>(), particles.data(), particles.size() * sizeof(Particle));
+				memcpy(buf.template ptr<Particle>(), particles.data(), particles.size() * sizeof(Particle));
 				job.m_cmd_list.CopyBufferRegion(m_r_particles.get(), start * sizeof(Particle), buf);
 
 				job.m_barriers.Transition(m_r_particles.get(), previous_state.Mip0State());
@@ -416,7 +416,7 @@ namespace pr::rdr12::compute::fluid
 
 				// Allocate upload buffer space and copy from 'dynamics' into the upload buffer, then into the dynamics buffer
 				auto buf = job.m_upload.Alloc(isize(dynamics) * sizeof(Dynamics), alignof(Dynamics));
-				memcpy(buf.ptr<Dynamics>(), dynamics.data(), dynamics.size() * sizeof(Dynamics));
+				memcpy(buf.template ptr<Dynamics>(), dynamics.data(), dynamics.size() * sizeof(Dynamics));
 				job.m_cmd_list.CopyBufferRegion(m_r_dynamics.get(), start * sizeof(Dynamics), buf);
 
 				job.m_barriers.Transition(m_r_dynamics.get(), previous_state.Mip0State());

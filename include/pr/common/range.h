@@ -212,19 +212,19 @@ namespace pr
 	}
 
 	// Returns true if 'rhs' is with 'range'
-	template <Rangeable T, Rangeable U> inline [[nodiscard]] bool IsWithin(Range<T> const& range, U rhs)
+	template <Rangeable T, Rangeable U> [[nodiscard]] inline bool IsWithin(Range<T> const& range, U rhs)
 	{
 		return range.contains(rhs);
 	}
 
 	// Returns true if 'sub_range' is entirely within 'range'
-	template <Rangeable T, Rangeable U> inline [[nodiscard]] bool IsWithin(Range<T> const& range, Range<U> const& sub_range)
+	template <Rangeable T, Rangeable U> [[nodiscard]] inline bool IsWithin(Range<T> const& range, Range<U> const& sub_range)
 	{
 		return range.contains(sub_range);
 	}
 
 	// Returns true if the ranges 'lhs' and 'rhs' overlap
-	template <Rangeable T, Rangeable U> inline [[nodiscard]] bool Intersects(Range<T> const& lhs, Range<U> const& rhs)
+	template <Rangeable T, Rangeable U> [[nodiscard]] inline bool Intersects(Range<T> const& lhs, Range<U> const& rhs)
 	{
 		return lhs.intersects(rhs);
 	}

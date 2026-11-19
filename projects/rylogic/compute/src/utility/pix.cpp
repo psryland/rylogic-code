@@ -9,7 +9,7 @@
 #include "pr/compute/utility/pix.h"
 
 #if PR_PIX_ENABLED
-#pragma message (PR_LINK "warning : ************************************************* PIX Enabled")
+#pragma message (PR_LINK "note: ************************************************* PIX Enabled")
 
 using namespace pr::compute::pix;
 

@@ -321,7 +321,7 @@ namespace pr::str
 		static StrOut& convert(std::basic_string_view<InChar> istr, StrOut& out, ou_char_t dflt = '_')
 		{
 			convert_utf<InChar,OuChar> cvt;
-			return cvt.conv<StrOut>(istr, out, dflt);
+			return cvt.template conv<StrOut>(istr, out, dflt);
 		}
 		template <typename StrOut>
 		static StrOut convert(std::basic_string_view<InChar> istr, ou_char_t dflt = '_')
