@@ -27,6 +27,7 @@
 #include "pr/game-systems/sky/celestial_clock.h"
 #include "pr/game-systems/sky/procedural_sky.h"
 #include "pr/game-systems/sky/weather_map.h"
+#include "pr/game-systems/ocean/ocean_surface.h"
 #include "pr/view3d-12/population/population.h"
 #include "pr/view3d-12/sampler/sampler_desc.h"
 #include "pr/view3d-12/sampler/sampler.h"
@@ -2986,6 +2987,146 @@ VIEW3D_API void __stdcall View3D_WeatherMapUpload(view3d::WeatherMap weather)
 		weather->Upload();
 	}
 	CatchAndReport(View3D_WeatherMapUpload, , );
+}
+
+// Ocean ******************************
+
+// Return 'ocean', which must not be null.
+static game_systems::ocean::OceanSurface& RequireOcean(view3d::Ocean ocean)
+{
+	if (ocean == nullptr)
+		throw std::invalid_argument("Ocean handle is null");
+
+	return *ocean;
+}
+
+// Create an ocean and its object. The caller owns both.
+VIEW3D_API view3d::Ocean __stdcall View3D_OceanCreate(view3d::OceanOptions const& options, char const* name, view3d::Object* out_object)
+{
+	try
+	{
+		// The ocean creates its object through this API, so the object exists only when the ocean does.
+		if (out_object == nullptr)
+			throw std::invalid_argument("Ocean object output is required");
+
+		*out_object = nullptr;
+		DllLockGuard;
+		auto object = view3d::Object{};
+		auto ocean = game_systems::ocean::OceanSurface::Create(options, name, object);
+		*out_object = object;
+		return ocean.release();
+	}
+	CatchAndReport(View3D_OceanCreate, , nullptr);
+}
+VIEW3D_API void __stdcall View3D_OceanDestroy(view3d::Ocean ocean)
+{
+	try
+	{
+		// Destroying a null ocean does nothing.
+		if (ocean == nullptr) return;
+		DllLockGuard;
+		delete ocean;
+	}
+	CatchAndReport(View3D_OceanDestroy, , );
+}
+VIEW3D_API BOOL __stdcall View3D_OceanLatticePrepare(int vertices_per_side)
+{
+	try
+	{
+		// The lattice cache has its own lock and needs no renderer.
+		game_systems::ocean::OceanSurface::PrepareLattice(vertices_per_side);
+		return TRUE;
+	}
+	CatchAndReport(View3D_OceanLatticePrepare, , FALSE);
+}
+VIEW3D_API BOOL __stdcall View3D_OceanDetailMapBake(uint32_t* out_pixels, int pixel_count)
+{
+	try
+	{
+		// The bake uses only the CPU and needs no renderer.
+		if (out_pixels == nullptr || pixel_count != view3d::OceanDetailMapSize * view3d::OceanDetailMapSize)
+			throw std::invalid_argument("Ocean detail map output must hold OceanDetailMapSize^2 pixels");
+
+		auto const pixels = game_systems::ocean::OceanSurface::BakeDetailMap();
+		std::memcpy(out_pixels, pixels.data(), pixels.size() * sizeof(uint32_t));
+		return TRUE;
+	}
+	CatchAndReport(View3D_OceanDetailMapBake, , FALSE);
+}
+VIEW3D_API BOOL __stdcall View3D_OceanUpdate(view3d::Ocean ocean, view3d::Object object, view3d::OceanFrame const& frame)
+{
+	try
+	{
+		DllLockGuard;
+		RequireOcean(ocean).Update(object, frame);
+		return TRUE;
+	}
+	CatchAndReport(View3D_OceanUpdate, , FALSE);
+}
+VIEW3D_API BOOL __stdcall View3D_OceanSetWindSea(view3d::Ocean ocean, view3d::Object object, view3d::OceanWindSea const& wind_sea)
+{
+	try
+	{
+		DllLockGuard;
+		RequireOcean(ocean).SetWindSea(object, wind_sea);
+		return TRUE;
+	}
+	CatchAndReport(View3D_OceanSetWindSea, , FALSE);
+}
+VIEW3D_API BOOL __stdcall View3D_OceanSetEffects(view3d::Ocean ocean, BOOL ripples, BOOL foam)
+{
+	try
+	{
+		DllLockGuard;
+		RequireOcean(ocean).SetEffects(ripples != 0, foam != 0);
+		return TRUE;
+	}
+	CatchAndReport(View3D_OceanSetEffects, , FALSE);
+}
+VIEW3D_API BOOL __stdcall View3D_OceanShowRippleStrength(view3d::Ocean ocean, BOOL show)
+{
+	try
+	{
+		DllLockGuard;
+		RequireOcean(ocean).ShowRippleStrength(show != 0);
+		return TRUE;
+	}
+	CatchAndReport(View3D_OceanShowRippleStrength, , FALSE);
+}
+VIEW3D_API BOOL __stdcall View3D_OceanSetFoam(view3d::Ocean ocean, view3d::OceanFoam const& foam)
+{
+	try
+	{
+		DllLockGuard;
+		RequireOcean(ocean).SetFoam(foam);
+		return TRUE;
+	}
+	CatchAndReport(View3D_OceanSetFoam, , FALSE);
+}
+VIEW3D_API BOOL __stdcall View3D_OceanShoreSourceSet(view3d::Ocean ocean, view3d::Object object, void* buffer, uint32_t const* params)
+{
+	try
+	{
+		// Params are required with a buffer; without one they are ignored and zeroed.
+		static uint32_t const no_params[12] = {};
+		if (buffer != nullptr && params == nullptr)
+			throw std::invalid_argument("Ocean shore source params are required with a buffer");
+
+		DllLockGuard;
+		RequireOcean(ocean).SetShoreSource(object, static_cast<ID3D12Resource*>(buffer), std::span<uint32_t const, 12>(params != nullptr ? params : no_params, 12));
+		return TRUE;
+	}
+	CatchAndReport(View3D_OceanShoreSourceSet, , FALSE);
+}
+VIEW3D_API BOOL __stdcall View3D_OceanHeight(view3d::Ocean ocean, double x_m, double y_m, double& out_height_m)
+{
+	try
+	{
+		DllLockGuard;
+		out_height_m = RequireOcean(ocean).Height(x_m, y_m);
+		return TRUE;
+	}
+	CatchAndReport(View3D_OceanHeight, , FALSE);
 }
 
 // Create a population prototype. The caller owns the returned reference.

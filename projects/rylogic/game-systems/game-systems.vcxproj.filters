@@ -25,6 +25,30 @@
     <ShaderBuild Include="src\shaders\hlsl\sky\procedural_sky.hlsl">
       <Filter>src\shaders</Filter>
     </ShaderBuild>
+    <ClInclude Include="$(RylogicRoot)include\pr\game-systems\ocean\ocean_surface.h">
+      <Filter>pr\ocean</Filter>
+    </ClInclude>
+    <ClCompile Include="src\ocean\ocean_surface.cpp">
+      <Filter>src\ocean</Filter>
+    </ClCompile>
+    <None Include="$(RylogicRoot)include\pr\game-systems\ocean\ocean_surface.hlsli">
+      <Filter>pr\ocean</Filter>
+    </None>
+    <None Include="$(RylogicRoot)include\pr\game-systems\ocean\ocean_buffer.hlsli">
+      <Filter>pr\ocean</Filter>
+    </None>
+    <None Include="$(RylogicRoot)include\pr\game-systems\ocean\ocean_forward_ps.hlsli">
+      <Filter>pr\ocean</Filter>
+    </None>
+    <ShaderBuild Include="src\shaders\hlsl\ocean\ocean_forward_vs.hlsl">
+      <Filter>src\shaders</Filter>
+    </ShaderBuild>
+    <ShaderBuild Include="src\shaders\hlsl\ocean\ocean_forward_ps.hlsl">
+      <Filter>src\shaders</Filter>
+    </ShaderBuild>
+    <ShaderBuild Include="src\shaders\hlsl\ocean\ocean_foam_cs.hlsl">
+      <Filter>src\shaders</Filter>
+    </ShaderBuild>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="pr">
@@ -41,6 +65,12 @@
     </Filter>
     <Filter Include="src\shaders">
       <UniqueIdentifier>{7e2c4b19-8d6a-4f30-a1b5-3c9e0d2f6a84}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="pr\ocean">
+      <UniqueIdentifier>{a3d6f2c8-51e4-4b7a-9c02-6e8f1b3d5a70}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\ocean">
+      <UniqueIdentifier>{d84b1e07-2f6c-4a93-b5e1-0c7a9f3e2d16}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
 </Project>

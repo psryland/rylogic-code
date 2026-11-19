@@ -5,7 +5,10 @@
 // Game-agnostic world systems (sky, ocean, climate, particles) built on View3D.
 // This header holds every foreign include for the library, like a precompiled header.
 #pragma once
+#include <cmath>
+#include <numeric>
 #include "pr/view3d-12/forward.h"
+#include "pr/view3d-12/view3d-dll.h"
 #include "pr/view3d-12/instance/instance.h"
 #include "pr/view3d-12/main/renderer.h"
 #include "pr/view3d-12/main/window.h"
@@ -32,4 +35,10 @@ namespace pr::game_systems
 	struct ProceduralSkySettings;
 	struct WeatherMap;
 	using WeatherMapPtr = pr::RefPtr<WeatherMap>;
+
+	// Ocean
+	namespace ocean
+	{
+		struct OceanSurface;
+	}
 }

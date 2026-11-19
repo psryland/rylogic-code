@@ -47,6 +47,10 @@ namespace pr
 	namespace game_systems
 	{
 		struct WeatherMap;
+		namespace ocean
+		{
+			struct OceanSurface;
+		}
 	}
 
 	namespace view3d
@@ -59,6 +63,7 @@ namespace pr
 		using Sampler = rdr12::Sampler*;
 		using Shader = rdr12::Shader*;
 		using WeatherMap = game_systems::WeatherMap*;
+		using Ocean = game_systems::ocean::OceanSurface*;
 		using PopulationPrototype = rdr12::PopulationPrototype*;
 		using Population = rdr12::Population*;
 		using DetailStrengthMap = rdr12::materials::DetailStrengthMap*;
@@ -702,6 +707,7 @@ namespace pr
 			float m_lit_fraction;
 		};
 
+
 		// Whole-screen underwater post effect. Colours are sRGB ARGB; alpha is ignored.
 		// Requires visibility > 0 (positive infinity disables the fog), finite distortion amplitude >= 0, frequency > 0, and speed >= 0.
 		// 'm_surface' is a world-space plane with its normal pointing out of the water; fog applies only below it.
@@ -1045,6 +1051,120 @@ namespace pr
 			int m_thread_group_size_x;      // GpuGeneratedBuffer numthreads X dimension used to derive the dispatch count.
 			void const* m_input;            // Optional GpuGeneratedBuffer input copied to a GPU buffer and bound as a root SRV at t0 for the dispatch only.
 			size_t m_input_size;            // Size of 'm_input' in bytes. A nonzero multiple of 4 when 'm_input' is supplied, otherwise zero.
+		};
+		// The fixed layout of an ocean's wind sea: waves whose amplitude and crest sharpness follow the wind at each place. Wind node (i, j)
+		// is at origin + cell * (i, j) and holds 'm_level_count' wind vectors; the table holds 'm_speed_count' rows per band at multiples of
+		// 'm_speed_step_mps'. See pr/physics/terrain/water/wind_sea.hlsli for the full contract.
+		struct OceanWindSeaGrid
+		{
+			double m_origin_x_m;
+			double m_origin_y_m;
+			double m_cell_m;         // Node spacing (m). Positive.
+			double m_speed_step_mps; // Wind speed between table rows (m/s). Positive.
+			int32_t m_width;         // Nodes along x and y, each at least 2.
+			int32_t m_height;
+			int32_t m_band_count;    // Wavelength bands, in [1, 5].
+			int32_t m_speed_count;   // Table rows per band, at least 2.
+			int32_t m_level_count;   // Wind vectors per node, in [1, band_count].
+			int32_t m_reserved;
+		};
+
+		// The data of an ocean's wind sea, laid out by its OceanWindSeaGrid.
+		struct OceanWindSea
+		{
+			// 'm_element_count' (at most 40) Gerstner wave elements of 64 bytes each, in the shared physics water-field layout. Wind-sea elements
+			// name their band in info.y (see WaterFieldWindSeaBand); their amplitude and crest sharpness come from the table and the local wind.
+			// Null keeps the current elements and table.
+			void const* m_elements;
+
+			// band_count * speed_count rows of four floats (see WindSeaTableRow), indexed [band * speed_count + row]. Required with 'm_elements',
+			// and otherwise ignored.
+			float const* m_table;
+
+			// width * height * level_count (x, y) downwind vectors (m/s), indexed [(j * width + i) * level_count + level]. Required.
+			float const* m_winds;
+			int32_t m_element_count;
+			int32_t m_reserved;
+		};
+
+		// Fixed inputs of an ocean surface. World positions are metres, Z up, with the ocean's circular domain centred on the origin.
+		struct OceanOptions
+		{
+			// The wind-sea layout, which is fixed for the ocean's lifetime, and its initial data, which requires elements.
+			// View3D_OceanSetWindSea changes the data, so changing weather never needs a new ocean.
+			OceanWindSeaGrid m_wind_sea_grid;
+			OceanWindSea m_wind_sea;
+
+			// Ground heights at 'm_bathymetry_width' x 'm_bathymetry_height' nodes, row-major. Node (i, j) is at origin + cell * (i, j).
+			// Waves are corrected for the depth below the water level, and vertices over ground above the reach of the swash stay flat.
+			float const* m_bathymetry_heights;
+			double m_bathymetry_origin_x_m;
+			double m_bathymetry_origin_y_m;
+			double m_bathymetry_cell_m;
+			int32_t m_bathymetry_width;
+			int32_t m_bathymetry_height;
+
+			// Lattice vertices per side (odd, in [3, 4097]). The surface has this many squared vertices; the triangle density is highest at the camera.
+			int32_t m_vertices_per_side;
+
+			// The surface stays inside this circle about the origin.
+			double m_radius_m;
+
+			// Half the vertical extent of the culling bounds, about z = 0. It must cover every water level plus the highest wave.
+			double m_half_height_m;
+
+			// Height of the domain floor. An opaque curtain hangs from the surface's edge down to this height, so the water meets the domain wall
+			// without showing what lies beyond it.
+			double m_floor_height_m;
+
+			// The detail map baked by View3D_OceanDetailMapBake: OceanDetailMapSize x OceanDetailMapSize RGBA8 pixels, row-major. Required.
+			uint32_t const* m_detail_map;
+
+			// Optional replacements for the three forward pixel shaders (opaque, opaque reflection attributes, and alpha collect), for example to
+			// supply the ground height for the shore foam (see pr/game-systems/ocean/ocean_forward_ps.hlsli). Null bytecode uses the default shader,
+			// which has no shore. Either all three or none are given.
+			ShaderByteCode m_forward_pixel[3];
+		};
+		static constexpr int OceanDetailMapSize = 512;
+
+		// Per-frame state of an ocean.
+		struct OceanFrame
+		{
+			double m_camera_x_m;
+			double m_camera_y_m;
+			double m_camera_z_m;
+			double m_wave_time_s;        // The wave clock, wrapped by the caller into the spectrum's repeat period.
+			double m_level_m;            // Still-water level.
+			double m_wave_radius_m;      // Waves fade to flat water at this distance from the camera.
+			double m_min_spacing_m;      // Vertex spacing at the camera.
+			double m_warp_power;         // Growth of the vertex spacing with distance (1 is uniform).
+			double m_breaking_ratio;     // Waves break at this height-to-depth ratio.
+			double m_shore_sharpness;    // Crest sharpness that waves reach at the breaking height, in [0, WaterFieldMaxCrestSharpness]. See WaterFieldShoreSharpness.
+			uint32_t m_colour_argb;      // Surface tint. Alpha is the opacity when viewed from directly above.
+			uint32_t m_depth_effects;    // Non-zero to apply shoaling and breaking.
+		};
+
+		// The white foam drawn on an ocean, and the dark lip of the water at the waterline. All foam is one foam texture, revealed by a foam
+		// amount: shore foam where the water laps the ground, crest foam on breaking wave crests, and the trails that crests leave behind as they
+		// pass, which fade where they formed. Shore foam and the lip are drawn only within 'm_radius_m' of the camera. Every value is finite and
+		// non-negative, and the shore foam depth, softness, crest threshold, tile size, lip height, radius, fade, crest range, and trail time
+		// are positive. A zero strength turns that effect off.
+		struct OceanFoam
+		{
+			double m_shore_foam_depth_m; // Vertical water depth (m) at which the shore foam fades out. Shallower water foams more, up to full cover at the waterline.
+			double m_edge_softness;      // Blur of the foam's broken edge, as a fraction of the foam pattern's range. Small values give crisp patches.
+			double m_crest_strength;     // Crest foam amount on the sharpest breaking crests. 0 turns crest foam and its trails off.
+			double m_crest_threshold;    // Crest steepness at which crest foam starts: the summed steepest-face slopes of the waves near their crests.
+			double m_tile_m;             // Size (m) of one repeat of the foam texture. It holds 5 of the foam's largest holes across.
+			double m_bump_m;             // Height (m) of the foam's relief, which tilts its normal.
+			double m_radius_m;           // Distance (m) from the camera beyond which there is no shore foam or lip.
+			double m_fade_m;             // Distance (m) inside the radius over which the shore foam and lip fade out. A fade longer than the radius starts at the camera.
+			double m_lip_height_m;       // Vertical water depth (m) over which the water darkens towards the ground, like a rounded lip in shadow.
+			double m_lip_strength;       // Darkness of the lip at the waterline: 0 for none, and 1 for black.
+			double m_crest_range;        // Crest steepness above the threshold at which the crest foam reaches the crest strength.
+			double m_trail_time_s;       // Time (s) for a fully covered trail behind a crest to fade away.
+			double m_crest_depth_m;      // Still-water depth (m) at which crest foam is gone. It fades in up to twice this depth, so shallow water near the shore shows only shore foam.
+			double m_churn_mps;          // Rough speed (m/s) at which the foam pattern wanders in place.
 		};
 		struct WindowOptions
 		{
@@ -1842,6 +1962,55 @@ extern "C"
 
 	// Copy the CPU grid to the GPU so later frames show the edits.
 	VIEW3D_API void __stdcall View3D_WeatherMapUpload(pr::view3d::WeatherMap weather);
+
+	// Ocean ******************************
+	// An ocean is a wind-driven wave surface with foam, drawn as one procedural View3D object whose vertices are generated on the GPU. The ocean
+	// handle keeps the fixed layout needed to pack each frame's constants, and its own copies of the wind sea and bathymetry for View3D_OceanHeight.
+	// The object casts no shadow and has no ray-cast shader, so callers exclude it from hit tests. See pr/game-systems/ocean/ocean_surface.h.
+
+	// Create an ocean and its View3D object. The options' arrays are copied, so they can be released afterwards. Returns null on failure, with
+	// 'out_object' null. Destroy the ocean with View3D_OceanDestroy and the object with View3D_ObjectDelete; each outlives the other safely.
+	VIEW3D_API pr::view3d::Ocean __stdcall View3D_OceanCreate(pr::view3d::OceanOptions const& options, char const* name, pr::view3d::Object* out_object);
+	VIEW3D_API void __stdcall View3D_OceanDestroy(pr::view3d::Ocean ocean);
+
+	// Build the triangle list shared by oceans with 'vertices_per_side' vertices per side, so View3D_OceanCreate does not build it. The list
+	// depends on nothing else and is kept for the life of the process. Optional; any thread may call it, without a View3D context.
+	VIEW3D_API BOOL __stdcall View3D_OceanLatticePrepare(int vertices_per_side);
+
+	// Bake the ocean detail map, a tileable map of ripple slopes and foam, into 'out_pixels' (OceanDetailMapSize^2 RGBA8 pixels, row-major).
+	// The map depends on nothing else and uses only the CPU, so it can be baked ahead of time on any thread, without a View3D context.
+	VIEW3D_API BOOL __stdcall View3D_OceanDetailMapBake(uint32_t* out_pixels, int pixel_count);
+
+	// Set the per-frame state of 'object', which must have been created with 'ocean'.
+	VIEW3D_API BOOL __stdcall View3D_OceanUpdate(pr::view3d::Ocean ocean, pr::view3d::Object object, pr::view3d::OceanFrame const& frame);
+
+	// Replace the wind-sea data of 'object' (created with 'ocean'), laid out by the grid the ocean was created with. The data is copied, and
+	// later frames draw it; View3D_OceanHeight uses it from the next View3D_OceanUpdate.
+	VIEW3D_API BOOL __stdcall View3D_OceanSetWindSea(pr::view3d::Ocean ocean, pr::view3d::Object object, pr::view3d::OceanWindSea const& wind_sea);
+
+	// Non-zero 'ripples' draws the small-scale ripple normals on the surface; zero shows only the wave normals. Non-zero 'foam' draws the foam and
+	// the dark lip at the waterline; zero draws neither and stops the foam trails, which start afresh when foam is turned back on. Both are on for a
+	// new ocean. Takes effect from the next update.
+	VIEW3D_API BOOL __stdcall View3D_OceanSetEffects(pr::view3d::Ocean ocean, BOOL ripples, BOOL foam);
+
+	// Non-zero 'show' draws the ripple strength of the local wind as colour instead of the shaded water: blue for calm, green for a fresh breeze
+	// (8 m/s), and red for twice its roughness or more. Off for a new ocean. Takes effect from the next update.
+	VIEW3D_API BOOL __stdcall View3D_OceanShowRippleStrength(pr::view3d::Ocean ocean, BOOL show);
+
+	// Set the foam of 'ocean'. Oceans start with a default foam. Takes effect from the next View3D_OceanUpdate. Foam is drawn only; it does not
+	// change the surface height.
+	VIEW3D_API BOOL __stdcall View3D_OceanSetFoam(pr::view3d::Ocean ocean, pr::view3d::OceanFoam const& foam);
+
+	// Set the ground source that the ocean's pixel shaders read for the shore foam and the waterline lip of 'object' (created with 'ocean').
+	// 'buffer' (an ID3D12Resource, typically borrowed from another object with View3D_ObjectProceduralBufferGet) is bound at procedural buffer
+	// slot 1, and the 12 'params' are copied into the 'shore_source' constants (see OceanShoreHeight in pr/game-systems/ocean/ocean_forward_ps.hlsli).
+	// A null 'buffer' binds the ocean's own buffer and zeroes the params. Oceans start with no ground source. Takes effect from the next update.
+	VIEW3D_API BOOL __stdcall View3D_OceanShoreSourceSet(pr::view3d::Ocean ocean, pr::view3d::Object object, void* buffer, uint32_t const* params);
+
+	// Return in 'out_height_m' the height of the drawn surface at the finite world position 'x_m', 'y_m', for the last frame passed to
+	// View3D_OceanUpdate, which must have been called. The waves are evaluated on the CPU exactly as the vertex shader draws them.
+	// Positions beyond the ocean's radius take the height at its edge.
+	VIEW3D_API BOOL __stdcall View3D_OceanHeight(pr::view3d::Ocean ocean, double x_m, double y_m, double& out_height_m);
 
 	// Populations ******************************
 	// A population draws many placements of one prototype with GPU instancing. Instances live in GPU buffers and are grouped into caller-owned blocks.

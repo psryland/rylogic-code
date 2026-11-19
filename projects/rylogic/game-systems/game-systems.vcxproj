@@ -31,6 +31,7 @@
         ;PR_VIEW3D_12=1
         ;PR_RDR_RUNTIME_SHADERS=0
         ;PR_SUPPORT_D3D11_ERRORS=1
+        ;VIEW3D_EXPORTS
       </PreprocessorDefinitions>
       <AdditionalIncludeDirectories>
         ;$(RylogicRoot)projects\rylogic
@@ -74,10 +75,18 @@
     <ClInclude Include="$(RylogicRoot)include\pr\game-systems\sky\celestial_clock.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\game-systems\sky\procedural_sky.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\game-systems\sky\weather_map.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\game-systems\ocean\ocean_surface.h" />
     <ClCompile Include="src\sky\procedural_sky.cpp" />
     <ClCompile Include="src\sky\weather_map.cpp" />
+    <ClCompile Include="src\ocean\ocean_surface.cpp" />
     <None Include="src\shaders\hlsl\sky\procedural_sky_cbuf.hlsli" />
+    <None Include="$(RylogicRoot)include\pr\game-systems\ocean\ocean_surface.hlsli" />
+    <None Include="$(RylogicRoot)include\pr\game-systems\ocean\ocean_buffer.hlsli" />
+    <None Include="$(RylogicRoot)include\pr\game-systems\ocean\ocean_forward_ps.hlsli" />
     <ShaderBuild Include="src\shaders\hlsl\sky\procedural_sky.hlsl" VertexEntryPoints="procedural_sky_vs=VSProceduralSky" PixelEntryPoints="procedural_sky_ps=PSProceduralSky" />
+    <ShaderBuild Include="src\shaders\hlsl\ocean\ocean_forward_vs.hlsl" VertexEntryPoints="ocean_forward_vs=Main" />
+    <ShaderBuild Include="src\shaders\hlsl\ocean\ocean_forward_ps.hlsl" PixelEntryPoints="ocean_forward_ps0=PSWaterOpaque;ocean_forward_ps1=PSWaterOpaqueReflectionAttrs;ocean_forward_ps2=PSWaterAlphaCollect" />
+    <ShaderBuild Include="src\shaders\hlsl\ocean\ocean_foam_cs.hlsl" ComputeEntryPoints="ocean_foam_cs=Main" />
   </ItemGroup>
   <!--
   Dependencies
