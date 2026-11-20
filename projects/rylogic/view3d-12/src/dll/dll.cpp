@@ -29,6 +29,7 @@
 #include "pr/game-systems/sky/weather_map.h"
 #include "pr/game-systems/ocean/ocean_surface.h"
 #include "pr/game-systems/atmosphere/atmosphere.h"
+#include "pr/game-systems/particles/particle_system.h"
 #include "game-systems/src/atmosphere/atmosphere_record.h"
 #include "pr/view3d-12/population/population.h"
 #include "pr/view3d-12/sampler/sampler_desc.h"
@@ -3129,6 +3130,150 @@ VIEW3D_API BOOL __stdcall View3D_OceanHeight(view3d::Ocean ocean, double x_m, do
 		return TRUE;
 	}
 	CatchAndReport(View3D_OceanHeight, , FALSE);
+}
+
+// Particles ******************************
+static game_systems::particles::ParticleSystem& RequireParticles(view3d::ParticleSystem system)
+{
+	if (system == nullptr)
+		throw std::invalid_argument("Particle system handle is null");
+
+	return *system;
+}
+
+// View caller parameter bytes as a span, requiring data whenever a size is given.
+static std::span<std::byte const> ParticleParams(void const* params, size_t params_size)
+{
+	if (params == nullptr && params_size != 0)
+		throw std::invalid_argument("Particle emitter parameters are required");
+
+	return std::span<std::byte const>(static_cast<std::byte const*>(params), params_size);
+}
+VIEW3D_API view3d::ParticleSystem __stdcall View3D_ParticleSystemCreate(char const* name)
+{
+	try
+	{
+		DllLockGuard;
+		return game_systems::particles::ParticleSystem::Create(Dll().m_rdr, name).release();
+	}
+	CatchAndReport(View3D_ParticleSystemCreate, , nullptr);
+}
+VIEW3D_API void __stdcall View3D_ParticleSystemDestroy(view3d::ParticleSystem system)
+{
+	try
+	{
+		// Destroying a null system does nothing.
+		if (system == nullptr) return;
+		DllLockGuard;
+		delete system;
+	}
+	CatchAndReport(View3D_ParticleSystemDestroy, , );
+}
+VIEW3D_API BOOL __stdcall View3D_ParticleSpriteShaders(view3d::ParticleTypeShaders* out_shaders)
+{
+	try
+	{
+		// The shaders are static data and need no renderer.
+		if (out_shaders == nullptr)
+			throw std::invalid_argument("Particle sprite shaders output is required");
+
+		*out_shaders = game_systems::particles::ParticleSystem::SpriteShaders();
+		return TRUE;
+	}
+	CatchAndReport(View3D_ParticleSpriteShaders, , FALSE);
+}
+VIEW3D_API BOOL __stdcall View3D_ParticleTypeCreate(view3d::ParticleSystem system, view3d::ParticleTypeOptions const& options, char const* name, int* out_type, view3d::Object* out_object)
+{
+	try
+	{
+		// The object exists only when the type does.
+		if (out_type == nullptr || out_object == nullptr)
+			throw std::invalid_argument("Particle type outputs are required");
+
+		*out_object = nullptr;
+		DllLockGuard;
+		auto object = view3d::Object{};
+		*out_type = RequireParticles(system).TypeCreate(options, name, object);
+		*out_object = object;
+		return TRUE;
+	}
+	CatchAndReport(View3D_ParticleTypeCreate, , FALSE);
+}
+VIEW3D_API BOOL __stdcall View3D_ParticleEmitterCreate(view3d::ParticleSystem system, int type, view3d::ParticleEmitter const& emitter, void const* params, size_t params_size, uint64_t* out_emitter)
+{
+	try
+	{
+		if (out_emitter == nullptr)
+			throw std::invalid_argument("Particle emitter output is required");
+
+		DllLockGuard;
+		*out_emitter = RequireParticles(system).EmitterCreate(type, emitter, ParticleParams(params, params_size));
+		return TRUE;
+	}
+	CatchAndReport(View3D_ParticleEmitterCreate, , FALSE);
+}
+VIEW3D_API BOOL __stdcall View3D_ParticleEmitterUpdate(view3d::ParticleSystem system, uint64_t emitter, view3d::ParticleEmitter const& settings, void const* params, size_t params_size)
+{
+	try
+	{
+		DllLockGuard;
+		RequireParticles(system).EmitterUpdate(emitter, settings, ParticleParams(params, params_size));
+		return TRUE;
+	}
+	CatchAndReport(View3D_ParticleEmitterUpdate, , FALSE);
+}
+VIEW3D_API BOOL __stdcall View3D_ParticleEmitterBurst(view3d::ParticleSystem system, uint64_t emitter, uint32_t count)
+{
+	try
+	{
+		DllLockGuard;
+		RequireParticles(system).EmitterBurst(emitter, count);
+		return TRUE;
+	}
+	CatchAndReport(View3D_ParticleEmitterBurst, , FALSE);
+}
+VIEW3D_API BOOL __stdcall View3D_ParticleEmitterDelete(view3d::ParticleSystem system, uint64_t emitter)
+{
+	try
+	{
+		DllLockGuard;
+		RequireParticles(system).EmitterDelete(emitter);
+		return TRUE;
+	}
+	CatchAndReport(View3D_ParticleEmitterDelete, , FALSE);
+}
+VIEW3D_API BOOL __stdcall View3D_ParticleSystemStep(view3d::ParticleSystem system, double dt)
+{
+	try
+	{
+		DllLockGuard;
+		RequireParticles(system).Step(dt);
+		return TRUE;
+	}
+	CatchAndReport(View3D_ParticleSystemStep, , FALSE);
+}
+VIEW3D_API BOOL __stdcall View3D_ParticleSystemReset(view3d::ParticleSystem system)
+{
+	try
+	{
+		DllLockGuard;
+		RequireParticles(system).Reset();
+		return TRUE;
+	}
+	CatchAndReport(View3D_ParticleSystemReset, , FALSE);
+}
+VIEW3D_API BOOL __stdcall View3D_ParticleStats(view3d::ParticleSystem system, int type, view3d::ParticleStats* out_stats)
+{
+	try
+	{
+		if (out_stats == nullptr)
+			throw std::invalid_argument("Particle stats output is required");
+
+		DllLockGuard;
+		*out_stats = RequireParticles(system).Stats(type);
+		return TRUE;
+	}
+	CatchAndReport(View3D_ParticleStats, , FALSE);
 }
 
 // Atmospheres ******************************
