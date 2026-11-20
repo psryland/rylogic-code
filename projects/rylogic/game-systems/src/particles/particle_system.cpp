@@ -126,7 +126,7 @@ namespace pr::game_systems::particles
 		uint32_t m_capacity;
 		int m_max_emitters;
 		int m_params_stride;
-		std::vector<std::byte> m_constants;
+		std::vector<std::byte> m_constants; // The type's constants, zero-padded to ProceduralBinding::ConstantsSize.
 		D3DPtr<ID3D12PipelineState> m_emit;
 		D3DPtr<ID3D12PipelineState> m_update;
 
@@ -255,7 +255,9 @@ namespace pr::game_systems::particles
 			type->m_capacity = static_cast<uint32_t>(options.m_capacity);
 			type->m_max_emitters = options.m_max_emitters;
 			type->m_params_stride = options.m_params_stride;
+			// Procedural vertex constants have a fixed size, so the type's constants are zero-padded to it.
 			type->m_constants.assign(static_cast<std::byte const*>(options.m_constants), static_cast<std::byte const*>(options.m_constants) + options.m_constants_size);
+			type->m_constants.resize(pr::view3d::ProceduralBinding::ConstantsSize);
 			type->m_emit = ComputePSO(m_sig.get(), Bytecode(shaders.m_emit)).Create(m_rdr.d3d(), (type_name + ":Emit").c_str());
 			type->m_update = ComputePSO(m_sig.get(), Bytecode(shaders.m_update)).Create(m_rdr.d3d(), (type_name + ":Update").c_str());
 			type->m_emitter_headers.assign(options.m_max_emitters, ParticleEmitterHeader{});
