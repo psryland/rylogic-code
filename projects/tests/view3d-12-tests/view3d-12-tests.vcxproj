@@ -86,6 +86,7 @@
 		<ClCompile Include="src\interactive\demos_effects.cpp" />
 		<ClCompile Include="src\interactive\demos_procedural.cpp" />
 		<ClCompile Include="src\interactive\demos_population.cpp" />
+		<ClCompile Include="src\interactive\demos_game_systems.cpp" />
 		<ClCompile Include="src\interactive\view3d_ui_demo.cpp" />
 		<None Include="src\interactive\StreamingTest.csx" />
 	</ItemGroup>
