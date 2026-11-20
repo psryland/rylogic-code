@@ -2438,6 +2438,12 @@ extern "C"
 	// changes; a new assignment starts with no layers. Throws if the nugget material is not a simple material.
 	VIEW3D_API void __stdcall View3D_ObjectNuggetDetailNormalsSet(pr::view3d::Object object, pr::view3d::Texture tex, pr::view3d::Sampler sam, char const* name, int index);
 
+	// Draw nugget 'index' of 'object' with one indirect draw whose arguments the GPU writes at 'offset' bytes into 'buffer' (an ID3D12Resource),
+	// or restore ordinary draws when 'buffer' is null. The record is a D3D12_DRAW_INDEXED_ARGUMENTS for nuggets with indices, otherwise a
+	// D3D12_DRAW_ARGUMENTS. The caller writes it and keeps the buffer in the INDIRECT_ARGUMENT state whenever the object is drawn. Such nuggets are
+	// drawn only by the forward render steps: they cast no shadows and are not ray cast. The object keeps a reference to the buffer.
+	VIEW3D_API void __stdcall View3D_ObjectNuggetDrawArgsSet(pr::view3d::Object object, void* buffer, int64_t offset, int index);
+
 	// Replace the detail-normal layers of every nugget of 'object' (not its children) that has detail normals. Layers are shared by the
 	// material, so this is cheap enough to call every frame. 'count' must be in [0, 4]. 'base_slope_variance' (non-negative) is the mean square
 	// slope of roughness finer than every layer; it blurs and weakens the environment reflection everywhere on the surface. Throws if the object

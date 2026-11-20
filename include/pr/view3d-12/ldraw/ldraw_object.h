@@ -264,6 +264,9 @@ namespace pr::rdr12::ldraw
 		// Set the detail-normal slope map of a simple-material model nugget, or remove detail normals when 'tex' is null.
 		void NuggetDetailNormals(Texture2D* tex, Sampler* sam, char const* name, int index);
 
+		// Set the GPU-written draw arguments of a model nugget and its dependents, or remove them when 'buffer' is null (see NuggetDrawArgs).
+		void NuggetDrawArgs(ID3D12Resource* buffer, int64_t offset, char const* name, int index);
+
 		// Set the normal map of this object's instance material override, or remove it when 'tex' is null. Only this object is changed;
 		// the shared model and other instances of it keep their materials. When the object has no override yet, the override starts as a PBR
 		// copy of nugget 'index's material. The override replaces the material of every nugget of the object's model.

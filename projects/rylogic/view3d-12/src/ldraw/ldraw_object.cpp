@@ -910,6 +910,33 @@ namespace pr::rdr12::ldraw
 		}, name);
 	}
 
+	// Set the GPU-written draw arguments of a model nugget and its dependents, or remove them when 'buffer' is null.
+	void LdrObject::NuggetDrawArgs(ID3D12Resource* buffer, int64_t offset, char const* name, int index)
+	{
+		// Apply to the model nugget, as the other nugget setters do.
+		Apply([=](LdrObject* obj)
+		{
+			// Ignore matched objects without geometry, as the existing nugget setters do.
+			if (obj->m_model == nullptr)
+				return true;
+
+			auto nug = obj->m_model->m_nuggets;
+			for (auto i = 0; i != index && nug; ++i, nug = nug->m_next)
+			{}
+			if (nug == nullptr)
+				throw std::runtime_error("nugget index out of range");
+
+			// Dependent nuggets draw the same geometry in other steps, so they share the argument record.
+			auto args = rdr12::NuggetDrawArgs{ .m_buffer = D3DPtr<ID3D12Resource>(buffer, true), .m_offset = buffer != nullptr ? offset : 0 };
+			nug->Dependents([&](Nugget& n)
+			{
+				// Each nugget keeps its own buffer reference.
+				n.m_draw_args = args;
+			});
+			return true;
+		}, name);
+	}
+
 	// Colour assignment helpers
 	namespace
 	{

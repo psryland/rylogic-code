@@ -317,8 +317,9 @@ namespace pr::rdr12
 		}
 		void Dependents(std::invocable<Nugget&> auto&& fn)
 		{
-			for (auto& n : Dependents())
-				fn(n);
+			// Visit this nugget, then each dependent in chain order.
+			for (auto* n = this; n != nullptr; n = n->m_dependent.get())
+				fn(*n);
 		}
 
 		// Attach a dependent nugget to this nugget. The dependent nugget is added to the front of the dependent chain for this nugget.
