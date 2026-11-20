@@ -535,9 +535,10 @@ namespace Rylogic.Maths
 			if (significant_digits > 19)
 				return d;
 
+			// Scale in decimal so that the significant digits become the integer part. Double cannot represent long.MaxValue
 			var pow = (int)Math.Floor(Math.Log10(d >= 0 ? d : ~d));
-			var scale = (decimal)Math.Pow(10, significant_digits - pow - 1); // Double cannot represent long.MaxValue
-			var result = scale != 0 ? (long)((long)Math.Round(d * scale, 0) / scale) : 0L;
+			var exp = significant_digits - pow - 1;
+			var result = (long)ScaleByPow10(Math.Round(ScaleByPow10(d, exp), 0, rounding), -exp);
 			return result;
 		}
 		public static double RoundSD(double d, int significant_digits, MidpointRounding rounding = MidpointRounding.ToEven)
@@ -571,9 +572,10 @@ namespace Rylogic.Maths
 			if (significant_digits > 29)
 				return d;
 
+			// Scale so that the significant digits become the integer part
 			var pow = (int)Math.Floor(Math.Log10(Math.Abs((double)d)));
-			var scale = (decimal)Math.Pow(10, significant_digits - pow - 1);
-			var result = Math.Round(d * scale, 0) / scale;
+			var exp = significant_digits - pow - 1;
+			var result = ScaleByPow10(Math.Round(ScaleByPow10(d, exp), 0, rounding), -exp);
 			return result;
 		}
 
@@ -587,13 +589,14 @@ namespace Rylogic.Maths
 			if (d == 0 || significant_digits == 0)
 				return 0;
 
-			// long.MaxValue is 19 digits
-			if (significant_digits > 19)
+			// int.MaxValue is 10 digits
+			if (significant_digits > 10)
 				return d;
 
+			// Scale in decimal so that the significant digits become the integer part
 			var pow = (int)Math.Floor(Math.Log10(d >= 0 ? d : ~d));
-			var scale = (decimal)Math.Pow(10, significant_digits - pow - 1); // Double cannot represent long.MaxValue
-			var result = scale != 0 ? (int)((long)(d * scale) / scale) : 0;
+			var exp = significant_digits - pow - 1;
+			var result = (int)ScaleByPow10(Math.Truncate(ScaleByPow10(d, exp)), -exp);
 			return result;
 		}
 		public static long TruncSD(long d, int significant_digits)
@@ -609,9 +612,10 @@ namespace Rylogic.Maths
 			if (significant_digits > 19)
 				return d;
 
+			// Scale in decimal so that the significant digits become the integer part. Double cannot represent long.MaxValue
 			var pow = (int)Math.Floor(Math.Log10(d >= 0 ? d : ~d));
-			var scale = (decimal)Math.Pow(10, significant_digits - pow - 1); // Double cannot represent long.MaxValue
-			var result = scale != 0 ? (long)((long)(d * scale) / scale) : 0L;
+			var exp = significant_digits - pow - 1;
+			var result = (long)ScaleByPow10(Math.Truncate(ScaleByPow10(d, exp)), -exp);
 			return result;
 		}
 		public static double TruncSD(double d, int significant_digits)
@@ -645,11 +649,58 @@ namespace Rylogic.Maths
 			if (significant_digits > 29)
 				return d;
 
+			// Scale so that the significant digits become the integer part
 			var pow = (int)Math.Floor(Math.Log10(Math.Abs((double)d)));
-			var scale = (decimal)Math.Pow(10, significant_digits - pow - 1);
-			var result = Math.Truncate(d * scale) / scale;
+			var exp = significant_digits - pow - 1;
+			var result = ScaleByPow10(Math.Truncate(ScaleByPow10(d, exp)), -exp);
 			return result;
 		}
+
+		/// <summary>Return 'x' * 10^'exponent', using exact decimal powers of ten</summary>
+		private static decimal ScaleByPow10(decimal x, int exponent)
+		{
+			// Apply the exponent in steps no larger than the largest decimal power of ten (10^28), so every factor is exact
+			for (; exponent > 0; exponent -= Math.Min(exponent, 28))
+				x *= DecimalPow10[Math.Min(exponent, 28)];
+			for (; exponent < 0; exponent += Math.Min(-exponent, 28))
+				x /= DecimalPow10[Math.Min(-exponent, 28)];
+
+			return x;
+		}
+
+		/// <summary>Exact decimal powers of ten, 10^0 to 10^28</summary>
+		private static readonly decimal[] DecimalPow10 =
+		[
+			1m,
+			10m,
+			100m,
+			1000m,
+			10000m,
+			100000m,
+			1000000m,
+			10000000m,
+			100000000m,
+			1000000000m,
+			10000000000m,
+			100000000000m,
+			1000000000000m,
+			10000000000000m,
+			100000000000000m,
+			1000000000000000m,
+			10000000000000000m,
+			100000000000000000m,
+			1000000000000000000m,
+			10000000000000000000m,
+			100000000000000000000m,
+			1000000000000000000000m,
+			10000000000000000000000m,
+			100000000000000000000000m,
+			1000000000000000000000000m,
+			10000000000000000000000000m,
+			100000000000000000000000000m,
+			1000000000000000000000000000m,
+			10000000000000000000000000000m,
+		];
 
 		/// <summary>Quantise a value to 'scale'. For best results, 'scale' should be a power of 2, i.e. 256, 1024, 2048, etc</summary>
 		public static double Quantise(double x, long scale)
