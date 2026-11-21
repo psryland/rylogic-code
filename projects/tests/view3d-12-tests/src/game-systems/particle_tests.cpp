@@ -8,18 +8,25 @@
 #include "../view3d-12/render_test_support.h"
 #include "pr/game-systems/particles/particle_sprite.hlsli"
 #include "shaders/hlsl/particle_marker.hlsli"
+#include "shaders/hlsl/particle_chip.hlsli"
 
 namespace render_tests
 {
 	namespace compiled
 	{
-		// The kernels of the test marker type.
+		// The shaders of the test marker and chip types.
 		#ifdef NDEBUG
 		#include "shaders/hlsl/compiled/release/particle_marker_emit_cs.h"
 		#include "shaders/hlsl/compiled/release/particle_marker_update_cs.h"
+		#include "shaders/hlsl/compiled/release/particle_chip_emit_cs.h"
+		#include "shaders/hlsl/compiled/release/particle_chip_update_cs.h"
+		#include "shaders/hlsl/compiled/release/particle_chip_vs.h"
 		#else
 		#include "shaders/hlsl/compiled/debug/particle_marker_emit_cs.h"
 		#include "shaders/hlsl/compiled/debug/particle_marker_update_cs.h"
+		#include "shaders/hlsl/compiled/debug/particle_chip_emit_cs.h"
+		#include "shaders/hlsl/compiled/debug/particle_chip_update_cs.h"
+		#include "shaders/hlsl/compiled/debug/particle_chip_vs.h"
 		#endif
 	}
 
@@ -77,19 +84,27 @@ namespace render_tests
 		// Add a batch drawn by the stock sprite vertex shader to the fixture's window, returning its index and its object in 'out_object'.
 		int BatchCreate(int capacity, api::EParticleBlend blend, api::Object& out_object)
 		{
-			// The stock sprite draw shaders.
+			// The stock sprite draw shaders, with no batch constants.
 			auto sim = api::ParticleSimShaders{};
 			auto draw = api::ParticleDrawShaders{};
 			Require(View3D_ParticleSpriteShaders(&sim, &draw) != FALSE, "Particle sprite shaders unavailable");
+			return BatchCreate(draw, sizeof(pr::game_systems::particles::ParticleSpriteRecord), nullptr, 0, capacity, blend, out_object);
+		}
+
+		// Add a batch of 'capacity' records of 'record_stride' bytes, drawn by 'draw' with the batch constants 'constants', to the fixture's window.
+		// Returns the batch index, and its object in 'out_object'.
+		int BatchCreate(api::ParticleDrawShaders const& draw, int record_stride, void const* constants, size_t constants_size, int capacity, api::EParticleBlend blend, api::Object& out_object)
+		{
+			// The bounds cover the whole view, so the object is never culled.
 			auto options = api::ParticleBatchOptions
 			{
 				.m_struct_size = sizeof(api::ParticleBatchOptions),
 				.m_version = api::ParticleBatchOptions::CurrentVersion,
 				.m_shaders = draw,
 				.m_capacity = capacity,
-				.m_record_stride = sizeof(pr::game_systems::particles::ParticleSpriteRecord),
-				.m_constants = nullptr,
-				.m_constants_size = 0,
+				.m_record_stride = record_stride,
+				.m_constants = constants,
+				.m_constants_size = constants_size,
 				.m_blend = blend,
 				.m_bbox = api::BBox{ {0, 0, 0, 1}, {100, 100, 100, 0} },
 			};
@@ -423,6 +438,89 @@ namespace render_tests
 		fixture.CheckDebugLayer();
 	}
 
+	// A caller-defined type with its own render record, vertex shader and batch constants, drawn opaque by a batch of its own.
+	void ParticleCustomRecordTests()
+	{
+		auto fixture = Fixture(1);
+		{
+			using namespace game_systems_tests;
+
+			// An opaque chip batch next to the helper's sprite batch. Chips are half as wide as they are long.
+			static constexpr auto indices = ParticleChipIndices();
+			auto particles = SpriteParticles(fixture, 16, 4);
+			auto draw = api::ParticleDrawShaders
+			{
+				.m_vertex = { compiled::particle_chip_vs, sizeof(compiled::particle_chip_vs) },
+				.m_indices = indices.data(),
+				.m_index_count = static_cast<int>(indices.size()),
+				.m_vertex_count = static_cast<int>(ParticleChipVertexCount),
+			};
+			auto draw_constants = ParticleChipDrawConstants{ .width = 0.5f, .thickness = 0.25f };
+			auto object = api::Object{};
+			auto batch = particles.BatchCreate(draw, sizeof(ParticleChipRecord), &draw_constants, sizeof(draw_constants), 16, api::EParticleBlend::Opaque, object);
+
+			// A chip type with no gravity, so chips stay where they are born.
+			auto constants = ParticleChipConstants{};
+			auto chips = particles.TypeCreate(api::ParticleTypeOptions
+			{
+				.m_struct_size = sizeof(api::ParticleTypeOptions),
+				.m_version = api::ParticleTypeOptions::CurrentVersion,
+				.m_shaders =
+				{
+					.m_emit = { compiled::particle_chip_emit_cs, sizeof(compiled::particle_chip_emit_cs) },
+					.m_update = { compiled::particle_chip_update_cs, sizeof(compiled::particle_chip_update_cs) },
+				},
+				.m_batch = batch,
+				.m_capacity = 16,
+				.m_max_emitters = 4,
+				.m_state_stride = sizeof(ParticleChipState),
+				.m_record_stride = sizeof(ParticleChipRecord),
+				.m_params_stride = sizeof(ParticleChipEmitter),
+				.m_constants = &constants,
+				.m_constants_size = sizeof(constants),
+			}, "TestChips");
+
+			// Three unturned red chips, 8 long and 4 wide, spaced 10 apart.
+			auto params = ParticleChipEmitter
+			{
+				.position = { 5.0f, 0.0f, -ParticleDepth, 8.0f },
+				.velocity = { 0.0f, 0.0f, 0.0f, 0.0f },
+				.spacing = 10.0f,
+				.spin = 0.0f,
+				.lifetime = 100.0f,
+				.colour = 0xFFFF0000U,
+			};
+			auto emitter = particles.EmitterCreate(chips, &params, sizeof(params), 0.0f, 1);
+			particles.Burst(emitter, 3);
+			particles.Step(BirthStep);
+			Require(particles.Stats(chips).m_live == 3, "Chip count is wrong");
+
+			// Each chip covers its length along x, and the batch constants limit its width along y.
+			auto image = fixture.Image();
+			for (auto x : { 5.0f, 15.0f, 25.0f, 5.0f + 3.0f, 5.0f - 3.0f })
+				Require(RedAt(image, x) > 0.25f, "A chip is not drawn over its length");
+
+			auto px = PixelX(5.0f);
+			auto in_y = static_cast<int>(1.5f * ImageSize / 100.0f);
+			auto off_y = static_cast<int>(3.0f * ImageSize / 100.0f);
+			Require(RegionRed(image, px - 1, px + 2, ImageSize / 2 + in_y - 1, ImageSize / 2 + in_y + 1) > 0.25f, "A chip is narrower than its batch constants say");
+			Require(RegionRed(image, px - 1, px + 2, ImageSize / 2 + off_y, ImageSize / 2 + off_y + 2) < 0.01f, "A chip is wider than its batch constants allow");
+			Require(RedAt(image, -25.0f) < 0.01f, "Pixels outside every chip should be background");
+
+			// The sprite batch and the chip batch are one indirect draw each.
+			auto stats = api::DrawStats{};
+			Require(View3D_WindowDrawStats(fixture.m_window, stats) != FALSE, "Draw stats failed");
+			Require(stats.m_forward_indirect == 2, "Each batch should be one indirect draw");
+
+			// Chips die at their lifetime.
+			particles.Step(200.0);
+			Require(particles.Stats(chips).m_live == 0, "Chips outlived their lifetime");
+			Require(RedAt(fixture.Image(), 5.0f) < 0.01f, "Dead chips are drawn");
+		}
+		fixture.CheckErrors();
+		fixture.CheckDebugLayer();
+	}
+
 	// A batch rejects a type whose record stride differs from its own, or whose capacity would overflow it.
 	void ParticleBatchValidationTests()
 	{
@@ -643,6 +741,10 @@ namespace pr::unittests::game_systems
 	{
 		render_tests::ParticleBatchTests();
 		render_tests::ParticleBatchValidationTests();
+	}
+	PRUnitTest(GameSystems_ParticleCustomRecord, Extended | Serial)
+	{
+		render_tests::ParticleCustomRecordTests();
 	}
 	PRUnitTest(GameSystems_ParticleCost, Stress | Serial)
 	{

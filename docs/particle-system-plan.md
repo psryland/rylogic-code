@@ -536,3 +536,9 @@ The following are planned engineering proofs, not unresolved product requirement
 - **Proof.** `GameSystems_ParticleBatch` draws the stock sprite type and a test marker type with different state, emitter parameters, constants and
   kernels (`view3d-12-tests\src\game-systems\shaders\hlsl\particle_marker_cs.hlsl`) through one batch and one indirect draw, and checks the batch
   validation. `GameSystems_ParticleDrawCount` checks that a second type in a batch adds no draw and a second batch adds one.
+- **Custom records and vertex shaders.** A batch's `ParticleDrawShaders` can supply any vertex shader and logical-vertex index list, with a record
+  stride of the caller's choosing and optional batch constants bound at the procedural forward constants register (b6). The reference example is the
+  test "chip" type (`view3d-12-tests\src\game-systems\shaders\hlsl\particle_chip*.hlsl*`): a tumbling box whose position and orientation are pure
+  functions of age, drawn from 24 logical vertices by an opaque batch with width and thickness constants. An opaque batch is its own draw, because the
+  blend mode belongs to the batch. `GameSystems_ParticleCustomRecord` checks the chips' footprints, the two draws and their expiry, and the particle
+  demo's "Chop" button emits wood chips.
