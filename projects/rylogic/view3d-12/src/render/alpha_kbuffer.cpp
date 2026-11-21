@@ -33,6 +33,9 @@ namespace pr::rdr12
 		, m_alpha_colour()
 		, m_alpha_depth()
 		, m_alpha_rt_attrs()
+		, m_weighted_behind()
+		, m_weighted_front()
+		, m_weighted_reveal()
 		, m_signature_alpha_resolve()
 		, m_pso_alpha_resolve()
 	{}
@@ -44,6 +47,9 @@ namespace pr::rdr12
 		m_alpha_colour = nullptr;
 		m_alpha_depth = nullptr;
 		m_alpha_rt_attrs = nullptr;
+		m_weighted_behind = nullptr;
+		m_weighted_front = nullptr;
+		m_weighted_reveal = nullptr;
 		m_signature_alpha_resolve = nullptr;
 		m_pso_alpha_resolve = nullptr;
 	}
@@ -72,9 +78,20 @@ namespace pr::rdr12
 		m_alpha_depth = factory.CreateTexture2D(TextureDesc(AutoId, kbuffer_desc).name("KBuffer-AlphaDepth"));
 		m_alpha_rt_attrs = factory.CreateTexture2D(TextureDesc(AutoId, kbuffer_desc).name("KBuffer-AlphaRtAttrs"));
 
+		// Weighted transparency accumulates in linear float targets. Half precision is enough for the sums, and the reveal targets clear to one (nothing hidden).
+		auto accum_desc = ResDesc::Tex2D(Image{ size.x, size.y, nullptr, WeightedAccumFormat }, 1U, EUsage::RenderTarget)
+			.clear(ClearValue(WeightedAccumFormat, ColourZero))
+			.def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
+		auto reveal_desc = ResDesc::Tex2D(Image{ size.x, size.y, nullptr, WeightedRevealFormat }, 1U, EUsage::RenderTarget)
+			.clear(ClearValue(WeightedRevealFormat, Colour(1.0f, 1.0f, 0.0f, 0.0f)))
+			.def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
+		m_weighted_behind = factory.CreateTexture2D(TextureDesc(AutoId, accum_desc).name("KBuffer-WeightedBehind"));
+		m_weighted_front = factory.CreateTexture2D(TextureDesc(AutoId, accum_desc).name("KBuffer-WeightedFront"));
+		m_weighted_reveal = factory.CreateTexture2D(TextureDesc(AutoId, reveal_desc).name("KBuffer-WeightedReveal"));
+
 		// Create the root signature for the alpha resolve pass
 		m_signature_alpha_resolve = RootSig(ERootSigFlags::GraphicsOnly)
-			.SRV(EReg::OpaqueColour, 3, D3D12_SHADER_VISIBILITY_PIXEL)
+			.SRV(EReg::OpaqueColour, 6, D3D12_SHADER_VISIBILITY_PIXEL)
 			.U32(EReg::Constants, 1, D3D12_SHADER_VISIBILITY_PIXEL)
 			.Create(rdr.d3d(), "KBufferAlphaResolveSig");
 
@@ -109,17 +126,27 @@ namespace pr::rdr12
 		m_pso_alpha_resolve = std::move(pso_alpha_resolve);
 	}
 
-	// Create the buffers for the next frame
+	// Clear the buffers for the next frame
 	void AlphaKBuffer::Clear(GfxCmdList& cmd_list, GpuViewHeap& heap_view)
 	{
-		if (m_alpha_colour == nullptr || m_alpha_depth == nullptr || m_alpha_rt_attrs == nullptr)
+		if (!*this)
 			return;
 
 		BarrierBatch bb(cmd_list);
 		bb.Transition(m_alpha_colour->m_res.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		bb.Transition(m_alpha_depth->m_res.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		bb.Transition(m_alpha_rt_attrs->m_res.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		bb.Transition(m_weighted_behind->m_res.get(), D3D12_RESOURCE_STATE_RENDER_TARGET);
+		bb.Transition(m_weighted_front->m_res.get(), D3D12_RESOURCE_STATE_RENDER_TARGET);
+		bb.Transition(m_weighted_reveal->m_res.get(), D3D12_RESOURCE_STATE_RENDER_TARGET);
 		bb.Commit();
+
+		// The weighted targets are cleared every frame, so the resolve can detect untouched pixels from the reveal value alone.
+		float const clear_accum[4] = { 0, 0, 0, 0 };
+		float const clear_reveal[4] = { 1, 1, 0, 0 };
+		cmd_list.ClearRenderTargetView(m_weighted_behind->m_rtv.m_cpu, clear_accum);
+		cmd_list.ClearRenderTargetView(m_weighted_front->m_rtv.m_cpu, clear_accum);
+		cmd_list.ClearRenderTargetView(m_weighted_reveal->m_rtv.m_cpu, clear_reveal);
 
 		auto alpha_colour_uav = heap_view.Add(m_alpha_colour->m_uav);
 		auto alpha_depth_uav = heap_view.Add(m_alpha_depth->m_uav);
@@ -153,7 +180,7 @@ namespace pr::rdr12
 	// Composite the collected alpha buffer over the resolved opaque colour
 	void AlphaKBuffer::ResolveAlpha(GfxCmdList& cmd_list, GpuViewHeap& heap_view, BackBuffer const& bb_post, Viewport const& viewport, D3D12_RECT const& scissor, float dither_amount)
 	{
-		if (m_opaque_colour_1x == nullptr || m_alpha_colour == nullptr || m_alpha_depth == nullptr || m_alpha_rt_attrs == nullptr || bb_post.m_render_target == nullptr)
+		if (m_opaque_colour_1x == nullptr || !*this || bb_post.m_render_target == nullptr)
 			return;
 
 		BarrierBatch bb(cmd_list);
@@ -162,9 +189,13 @@ namespace pr::rdr12
 		bb.Transition(m_alpha_colour->m_res.get(), D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
 		bb.Transition(m_alpha_depth->m_res.get(), D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
 		bb.Transition(m_alpha_rt_attrs->m_res.get(), D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
+		bb.Transition(m_weighted_behind->m_res.get(), D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
+		bb.Transition(m_weighted_front->m_res.get(), D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
+		bb.Transition(m_weighted_reveal->m_res.get(), D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
 		bb.Commit();
 
-		Descriptor descriptors[] = { m_opaque_colour_1x->m_srv, m_alpha_colour->m_srv, m_alpha_depth->m_srv };
+		// The table order matches the resolve shader's registers t0..t5
+		Descriptor descriptors[] = { m_opaque_colour_1x->m_srv, m_alpha_colour->m_srv, m_alpha_depth->m_srv, m_weighted_behind->m_srv, m_weighted_front->m_srv, m_weighted_reveal->m_srv };
 		auto textures = heap_view.Add(descriptors);
 
 		cmd_list.SetPipelineState(m_pso_alpha_resolve.get());
@@ -182,7 +213,7 @@ namespace pr::rdr12
 	AlphaKBuffer::operator bool() const
 	{
 		// It should be all non-null or all null
-		return m_alpha_colour != nullptr && m_alpha_depth != nullptr && m_alpha_rt_attrs != nullptr;
+		return m_alpha_colour != nullptr && m_alpha_depth != nullptr && m_alpha_rt_attrs != nullptr && m_weighted_behind != nullptr && m_weighted_front != nullptr && m_weighted_reveal != nullptr;
 	}
 }
 

@@ -95,6 +95,12 @@ namespace pr::rdr12
 		SkinnedGeometryCache m_skinned_geometry;
 		PopulationCuller m_population_culler;
 
+		// Command signatures for one indirect draw whose arguments, including the instance count, are written on the GPU. [0] = non-indexed, [1] = indexed.
+		D3DPtr<ID3D12CommandSignature> m_draw_signature[2];
+
+		// Command signature for one indirect dispatch whose group counts are written on the GPU.
+		D3DPtr<ID3D12CommandSignature> m_dispatch_signature;
+
 		// The shared resource factory state of the open resource batch, its owning thread, and its nesting depth. See 'BeginResourceBatch'.
 		std::unique_ptr<ResourceFactoryState> m_resource_batch;
 		std::atomic<DWORD> m_resource_batch_thread;
@@ -225,6 +231,12 @@ namespace pr::rdr12
 
 		// Access the shared population classification pipeline.
 		PopulationCuller& PopulationCulling();
+
+		// The command signature for one indirect D3D12_DRAW_INDEXED_ARGUMENTS ('indexed') or D3D12_DRAW_ARGUMENTS record. It changes no root arguments.
+		ID3D12CommandSignature* DrawSignature(bool indexed);
+
+		// The command signature for one indirect D3D12_DISPATCH_ARGUMENTS record. It changes no root arguments.
+		ID3D12CommandSignature* DispatchSignature();
 
 		// Access the graphics pipeline state objects shared by all windows.
 		PipeStateCache& PipeStates();

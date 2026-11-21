@@ -86,6 +86,7 @@
 		<ClCompile Include="src\interactive\demos_effects.cpp" />
 		<ClCompile Include="src\interactive\demos_procedural.cpp" />
 		<ClCompile Include="src\interactive\demos_population.cpp" />
+		<ClCompile Include="src\interactive\demos_game_systems.cpp" />
 		<ClCompile Include="src\interactive\view3d_ui_demo.cpp" />
 		<None Include="src\interactive\StreamingTest.csx" />
 	</ItemGroup>
@@ -134,6 +135,7 @@
 		<ClInclude Include="src\game-systems\shared_gpu.h" />
 		<ClCompile Include="src\game-systems\atmosphere_tests.cpp" />
 		<ClCompile Include="src\game-systems\atmosphere_record_tests.cpp" />
+		<ClCompile Include="src\game-systems\particle_tests.cpp" />
 		<!-- The game-systems kernels compile at run time and include the shared pr/hlsl headers from this resource. -->
 		<ResourceCompile Include="$(RylogicRoot)include\pr\hlsl\pr_hlsl.rc">
 			<AdditionalIncludeDirectories>$(RylogicRoot)include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>

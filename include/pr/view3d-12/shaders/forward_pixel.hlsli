@@ -5,8 +5,8 @@
 // Forward pixel families: caller-written forward pixel shaders that reuse the stock simple-material shading and outputs.
 //
 // A forward pass draws the same material through several pixel-shader entry points, one per output contract: opaque, opaque with reflection
-// attributes, and transparent K-buffer collection. A family is the three entry points that share one shading function. Write the shading
-// function once and expand VIEW3D_FORWARD_PIXEL_ENTRY_POINTS to generate the family:
+// attributes, transparent K-buffer collection, and weighted transparency. A family is the entry points that share one shading function. Write the
+// shading function once and expand VIEW3D_FORWARD_PIXEL_ENTRY_POINTS to generate the family:
 //
 //   #include "pr/view3d-12/shaders/forward_pixel.hlsli"
 //   float4 MyShade(inout PSIn In, bool is_front_face)
@@ -17,9 +17,10 @@
 //   }
 //   VIEW3D_FORWARD_PIXEL_ENTRY_POINTS(My, MyShade)
 //
-// This generates PSMy, PSMyReflectionAttrs and PSMyAlphaCollect.
+// This generates PSMy, PSMyReflectionAttrs, PSMyAlphaCollect and PSMyAlphaWeighted.
 // Compile each with '-T ps_6_6 -HV 2021' and the Rylogic native include directory on the include path, then pass the bytecode to
 // ShaderOptions::m_procedural.m_forward_pixel in that order with 'm_forward_pixel_model' set to EForwardPixelModel::Simple.
+// PSMyAlphaWeighted is optional. Without it, the shader cannot draw nuggets flagged ENuggetFlag::AlphaWeighted.
 // Changes made to 'In' by the shading function are used for the reflection attributes. For PBR materials, see 'forward_pixel_pbr.hlsli'.
 // For simple materials with detail normals, see 'forward_pixel_detail.hlsli'.
 // ForwardShade discards the pixels excluded by population LOD dithering. A shading function that does not call ForwardShade must call
@@ -39,7 +40,7 @@
 #include "pr/view3d-12/shaders/procedural_vertex.hlsli"
 #include "view3d-12/src/shaders/hlsl/forward/forward.hlsl"
 
-// Generate the three forward pixel entry points 'PS<Prefix>...' around 'Shade', a function 'float4 Shade(inout PSIn In, bool is_front_face)'
+// Generate the four forward pixel entry points 'PS<Prefix>...' around 'Shade', a function 'float4 Shade(inout PSIn In, bool is_front_face)'
 // that returns the linear fragment colour before output dithering.
 #define VIEW3D_FORWARD_PIXEL_ENTRY_POINTS(Prefix, Shade)\
 	PSOut PS##Prefix(PSIn In, bool is_front_face : SV_IsFrontFace)\
@@ -61,6 +62,11 @@
 		ClipAlphaHiddenByOpaque(In.ss_vert);\
 		float4 diff = Shade(In, is_front_face);\
 		CollectAlphaLayer(In, diff, AlphaRtAttributes(In, diff, is_front_face));\
+	}\
+	PSWeightedOut PS##Prefix##AlphaWeighted(PSIn In, bool is_front_face : SV_IsFrontFace)\
+	{\
+		ClipAlphaHiddenByOpaque(In.ss_vert);\
+		return WeightedAlphaOut(In, Shade(In, is_front_face));\
 	}
 
 #endif

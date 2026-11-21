@@ -55,6 +55,23 @@ namespace pr::rdr12
 		return DefWindowProcW(hwnd, message, wparam, lparam);
 	}
 
+	// Create a command signature for a single draw or dispatch argument record that changes no root arguments.
+	static D3DPtr<ID3D12CommandSignature> CreateIndirectSignature(ID3D12Device4* device, D3D12_INDIRECT_ARGUMENT_TYPE type, UINT stride, char const* name)
+	{
+		// No root arguments change, so the signature does not need a root signature.
+		auto arg = D3D12_INDIRECT_ARGUMENT_DESC{ .Type = type };
+		auto desc = D3D12_COMMAND_SIGNATURE_DESC{
+			.ByteStride = stride,
+			.NumArgumentDescs = 1,
+			.pArgumentDescs = &arg,
+			.NodeMask = 0,
+		};
+		D3DPtr<ID3D12CommandSignature> sig;
+		Check(device->CreateCommandSignature(&desc, nullptr, __uuidof(ID3D12CommandSignature), (void**)sig.address_of()));
+		DebugName(sig, name);
+		return sig;
+	}
+
 	// Create DX interface pointers
 	Renderer::RdrState::RdrState(RdrSettings const& settings)
 		:m_settings(settings)
@@ -278,6 +295,11 @@ namespace pr::rdr12
 		,m_res_store(rdr())
 		,m_skinned_geometry(rdr())
 		,m_population_culler(rdr())
+		,m_draw_signature{
+			CreateIndirectSignature(d3d(), D3D12_INDIRECT_ARGUMENT_TYPE_DRAW, sizeof(D3D12_DRAW_ARGUMENTS), "DrawSig"),
+			CreateIndirectSignature(d3d(), D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED, sizeof(D3D12_DRAW_INDEXED_ARGUMENTS), "DrawIndexedSig"),
+		}
+		,m_dispatch_signature(CreateIndirectSignature(d3d(), D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH, sizeof(D3D12_DISPATCH_ARGUMENTS), "DispatchSig"))
 		,m_resource_batch()
 		,m_resource_batch_thread()
 		,m_resource_batch_depth()
@@ -397,6 +419,18 @@ namespace pr::rdr12
 	PopulationCuller& Renderer::PopulationCulling()
 	{
 		return m_population_culler;
+	}
+
+	// The command signature for one indirect draw argument record.
+	ID3D12CommandSignature* Renderer::DrawSignature(bool indexed)
+	{
+		return m_draw_signature[indexed ? 1 : 0].get();
+	}
+
+	// The command signature for one indirect dispatch argument record.
+	ID3D12CommandSignature* Renderer::DispatchSignature()
+	{
+		return m_dispatch_signature.get();
 	}
 
 	// Access the graphics pipeline state objects shared by all windows.

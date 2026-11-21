@@ -206,6 +206,10 @@ namespace pr::rdr12
 
 			throw std::runtime_error("Simple forward pixel families require a stock simple-material forward pixel shader without detail normals");
 		}
+		// Optional slots are empty when the family does not support that sub-pass.
+		if (family[*slot].pShaderBytecode == nullptr)
+			throw std::runtime_error("This procedural forward pixel family has no weighted transparency entry point, so it cannot draw AlphaWeighted nuggets");
+
 		desc.Apply(PSO<EPipeState::PS>(family[*slot]));
 	}
 

@@ -23,6 +23,9 @@ namespace pr::rdr12
 
 			// Transparent layer collection into the alpha K-buffer.
 			Alpha,
+
+			// Weighted blended transparency accumulation, split by depth against the nearest K-buffer layer.
+			AlphaWeighted,
 		};
 
 	private:
@@ -54,6 +57,7 @@ namespace pr::rdr12
 		GfxCmdList m_alp_list;
 		PipeStateDesc m_reflection_pipe_state;
 		PipeStateDesc m_alpha_pipe_state;
+		PipeStateDesc m_alpha_weighted_pipe_state;
 		PipeStateDesc m_post_alpha_pipe_state;
 		Texture2DPtr m_default_tex;
 		SamplerPtr m_default_sam;

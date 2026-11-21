@@ -27,14 +27,16 @@ namespace pr::rdr12
 		Opaque,
 		ReflectionAttrs,
 		AlphaCollect,
+		AlphaWeighted,
 	};
 
 	// The set of forward pixel-shader entry points that share one shading function, one per output contract.
 	// See 'pr/view3d-12/shaders/forward_pixel.hlsli' for how a family is written in HLSL.
+	// The 'AlphaWeighted' entry point is optional in procedural families. It is empty when the family cannot draw weighted transparency.
 	struct ForwardPixelFamily
 	{
 		using ByteCode = ::pr::compute::ByteCode;
-		static constexpr size_t SlotCount = static_cast<size_t>(EForwardPixelSlot::AlphaCollect) + 1;
+		static constexpr size_t SlotCount = static_cast<size_t>(EForwardPixelSlot::AlphaWeighted) + 1;
 		std::array<ByteCode, SlotCount> m_code;
 
 		// The stock family whose entry points this family replaces, or null for a base stock family. Its pixel shader identifies the slot to replace.
@@ -52,6 +54,10 @@ namespace pr::rdr12
 		{
 			for (size_t i = 0; i != m_code.size(); ++i)
 			{
+				// Empty optional slots never identify a pixel shader.
+				if (m_code[i].pShaderBytecode == nullptr)
+					continue;
+
 				if (m_code[i].pShaderBytecode == ps.pShaderBytecode && m_code[i].BytecodeLength == ps.BytecodeLength)
 					return static_cast<EForwardPixelSlot>(i);
 			}
@@ -141,6 +147,10 @@ namespace pr::rdr12
 	    extern ByteCode const forward_detail_ps;
 	    extern ByteCode const forward_reflection_attrs_detail_ps;
 	    extern ByteCode const forward_alpha_collect_detail_ps;
+		extern ByteCode const forward_alpha_weighted_ps;
+		extern ByteCode const forward_alpha_weighted_pbr_ps;
+		extern ByteCode const forward_alpha_weighted_texn_pbr_ps;
+		extern ByteCode const forward_alpha_weighted_detail_ps;
 
 		// The stock forward pixel families. Each groups the entries above that share one shading function.
 		extern ForwardPixelFamily const forward_family;

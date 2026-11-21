@@ -39,7 +39,8 @@ namespace pr::rdr12
 		PostOpaques,           // 
 		PreAlpha = Default+16, // Last group before the alpha group
 		Alpha,                 // Alpha nuggets, collected into the K-buffer
-		PostAlpha,             // First group after the alpha group
+		AlphaWeighted,         // Alpha nuggets drawn with weighted blended transparency (see ENuggetFlag::AlphaWeighted)
+		PostAlpha,             // First group after the alpha groups
 		Max = 127,             // The maximum sort group value
 
 		_arith_enum = 0,

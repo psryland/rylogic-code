@@ -94,7 +94,22 @@ namespace pr::rdr12
 		// usually an error, but in advanced cases it isn't.
 		RangesCanOverlap = 1 << 5,
 
+		// Draw alpha with weighted blended transparency instead of the sorted K-buffer layers. Weighted fragments have no per-pixel order among
+		// themselves, so this suits soft, overlapping effects like smoke, where many layers would overflow the K-buffer.
+		AlphaWeighted = 1 << 6,
+
 		_flags_enum = 0,
+	};
+
+	// A GPU-written argument record for one indirect draw of a nugget.
+	// The record is a D3D12_DRAW_INDEXED_ARGUMENTS for nuggets with an index range, otherwise a D3D12_DRAW_ARGUMENTS (see Renderer::DrawSignature).
+	// The owner writes the record, including its instance count, and keeps 'm_buffer' in a state that includes D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT
+	// whenever the nugget is drawn. Only the forward render steps draw these nuggets: they cast no shadows and are not ray cast, because those steps
+	// use the instance index for their own views or need geometry known on the CPU.
+	struct NuggetDrawArgs
+	{
+		D3DPtr<ID3D12Resource> m_buffer;
+		int64_t m_offset = 0;
 	};
 
 	// Nugget initialisation data
@@ -107,6 +122,7 @@ namespace pr::rdr12
 		ENuggetVariant m_variant;       // An id to allow identification of procedurally added nugget variants
 		ENuggetFlag    m_nflags;        // Flags for boolean properties of the nugget
 		SortKey        m_sort_key;      // A base sort key for this nugget
+		NuggetDrawArgs m_draw_args;     // Optional GPU-written draw arguments. When set, forward steps draw this nugget with one indirect draw.
 
 		// When passed in to Model->CreateNugget(), these ranges should be relative to the model.
 		// If the ranges are invalid, they are assumed to mean the entire model.
@@ -121,6 +137,7 @@ namespace pr::rdr12
 			, m_variant(DefaultNugget)
 			, m_nflags(ENuggetFlag::None)
 			, m_sort_key(ESortGroup::Default)
+			, m_draw_args()
 			, m_vrange(Range::Reset())
 			, m_irange(Range::Reset())
 		{}
@@ -204,6 +221,13 @@ namespace pr::rdr12
 		{
 			// Request alpha-blended variants for this nugget even if its current material is opaque.
 			m_nflags = SetBits(m_nflags, ENuggetFlag::AlphaBlend, has);
+			return *this;
+		}
+
+		// Draw this nugget with GPU-written arguments (see NuggetDrawArgs)
+		NuggetDesc& draw_args(D3DPtr<ID3D12Resource> buffer, int64_t offset)
+		{
+			m_draw_args = NuggetDrawArgs{ .m_buffer = buffer, .m_offset = offset };
 			return *this;
 		}
 
@@ -297,8 +321,9 @@ namespace pr::rdr12
 		}
 		void Dependents(std::invocable<Nugget&> auto&& fn)
 		{
-			for (auto& n : Dependents())
-				fn(n);
+			// Visit this nugget, then each dependent in chain order.
+			for (auto* n = this; n != nullptr; n = n->m_dependent.get())
+				fn(*n);
 		}
 
 		// Attach a dependent nugget to this nugget. The dependent nugget is added to the front of the dependent chain for this nugget.

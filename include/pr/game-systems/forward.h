@@ -61,4 +61,10 @@ namespace pr::game_systems
 		struct AtmosphereCellState;
 		struct AtmosphereRecord;
 	}
+
+	// Particles
+	namespace particles
+	{
+		struct ParticleSystem;
+	}
 }

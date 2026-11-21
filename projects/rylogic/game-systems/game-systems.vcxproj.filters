@@ -49,6 +49,30 @@
     <ShaderBuild Include="src\shaders\hlsl\ocean\ocean_foam_cs.hlsl">
       <Filter>src\shaders</Filter>
     </ShaderBuild>
+    <ClInclude Include="$(RylogicRoot)include\pr\game-systems\particles\particle_system.h">
+      <Filter>pr\particles</Filter>
+    </ClInclude>
+    <ClCompile Include="src\particles\particle_system.cpp">
+      <Filter>src\particles</Filter>
+    </ClCompile>
+    <None Include="$(RylogicRoot)include\pr\game-systems\particles\particles.hlsli">
+      <Filter>pr\particles</Filter>
+    </None>
+    <None Include="$(RylogicRoot)include\pr\game-systems\particles\particle_kernels.hlsli">
+      <Filter>pr\particles</Filter>
+    </None>
+    <None Include="$(RylogicRoot)include\pr\game-systems\particles\particle_sprite.hlsli">
+      <Filter>pr\particles</Filter>
+    </None>
+    <ShaderBuild Include="src\shaders\hlsl\particles\particle_system_cs.hlsl">
+      <Filter>src\shaders</Filter>
+    </ShaderBuild>
+    <ShaderBuild Include="src\shaders\hlsl\particles\particle_sprite_cs.hlsl">
+      <Filter>src\shaders</Filter>
+    </ShaderBuild>
+    <ShaderBuild Include="src\shaders\hlsl\particles\particle_sprite_vs.hlsl">
+      <Filter>src\shaders</Filter>
+    </ShaderBuild>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="pr">
@@ -71,6 +95,12 @@
     </Filter>
     <Filter Include="src\ocean">
       <UniqueIdentifier>{d84b1e07-2f6c-4a93-b5e1-0c7a9f3e2d16}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="pr\particles">
+      <UniqueIdentifier>{3f6a2c91-8e47-4b1d-9a52-7c0e4d1b6f83}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\particles">
+      <UniqueIdentifier>{a17d5e3b-62c9-4f08-b3e4-91d2c6a8f05e}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
 </Project>

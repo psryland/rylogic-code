@@ -55,6 +55,10 @@ namespace pr
 		{
 			struct AtmosphereRecord;
 		}
+		namespace particles
+		{
+			struct ParticleSystem;
+		}
 	}
 
 	namespace view3d
@@ -69,6 +73,7 @@ namespace pr
 		using WeatherMap = game_systems::WeatherMap*;
 		using Ocean = game_systems::ocean::OceanSurface*;
 		using Atmosphere = game_systems::atmosphere::AtmosphereRecord*;
+		using ParticleSystem = game_systems::particles::ParticleSystem*;
 		using PopulationPrototype = rdr12::PopulationPrototype*;
 		using Population = rdr12::Population*;
 		using DetailStrengthMap = rdr12::materials::DetailStrengthMap*;
@@ -147,6 +152,10 @@ namespace pr
 			// of an existing nugget. For simple models, overlapping nugget ranges is
 			// usually an error, but in advanced cases it isn't.
 			RangesCanOverlap = 1 << 5,
+
+			// Draw alpha with weighted blended transparency instead of the sorted K-buffer layers. Weighted fragments have no per-pixel order among
+			// themselves, so this suits soft, overlapping effects like smoke, where many layers would overflow the K-buffer.
+			AlphaWeighted = 1 << 6,
 
 			_flags_enum = 0,
 			// PR_CODE_SYNC_END()
@@ -409,7 +418,8 @@ namespace pr
 			PostOpaques,           // 
 			PreAlpha = Default+16, // Last group before the alpha group
 			Alpha,                 // Alpha nuggets, collected into the K-buffer
-			PostAlpha,             // First group after the alpha group
+			AlphaWeighted,         // Alpha nuggets drawn with weighted blended transparency (see ENuggetFlag::AlphaWeighted)
+			PostAlpha,             // First group after the alpha groups
 			Max = 127,             // The maximum sort group value
 	
 			// Arithmetic operators supported
@@ -1008,7 +1018,7 @@ namespace pr
 		{
 			static constexpr size_t ConstantsSize = 1024;
 			static constexpr size_t MaxBufferSize = 64 * 1024 * 1024;
-			static constexpr size_t ForwardPixelCount = 3;
+			static constexpr size_t ForwardPixelCount = 4;
 			static constexpr int BufferSlotCount = 2;
 			static constexpr int TextureSlotCount = 4;
 
@@ -1018,9 +1028,10 @@ namespace pr
 			void const* m_buffer;    // Optional immutable data, copied once and bound as a raw root SRV (ByteAddressBuffer, no bounds) at VIEW3D_PROCEDURAL_BUFFER0_REGISTER. Null for none.
 			size_t m_buffer_size;    // Size of 'm_buffer' in bytes. A non-zero multiple of 4 up to MaxBufferSize when 'm_buffer' is not null, otherwise 0.
 
-			// Forward pixel family that replaces the stock forward pixel shaders of the 'm_forward_pixel_model' material model. All entries are null, or all are
-			// valid, and only for ForwardRender. Optional for the Vertex stage and required for the Pixel stage. Materials of other models reject the family.
-			// Order: Opaque, ReflectionAttrs, AlphaCollect. See 'pr/view3d-12/shaders/forward_pixel.hlsli'.
+			// Forward pixel family that replaces the stock forward pixel shaders of the 'm_forward_pixel_model' material model. The first three entries are all null,
+			// or all valid, and only for ForwardRender. The AlphaWeighted entry is optional; without it the shader cannot draw ENuggetFlag::AlphaWeighted nuggets.
+			// Optional for the Vertex stage and required for the Pixel stage. Materials of other models reject the family.
+			// Order: Opaque, ReflectionAttrs, AlphaCollect, AlphaWeighted. See 'pr/view3d-12/shaders/forward_pixel.hlsli'.
 			EForwardPixelModel m_forward_pixel_model;
 			ShaderByteCode m_forward_pixel[ForwardPixelCount];
 		};
@@ -1028,7 +1039,7 @@ namespace pr
 		// Callers supply readable descriptor storage and buffers matching this header and runtime; size/version are not a global ABI handshake.
 		struct ShaderOptions
 		{
-			static constexpr int CurrentVersion = 8;
+			static constexpr int CurrentVersion = 9;
 			static constexpr size_t MaxByteCodeSize = 1024 * 1024;
 
 			int m_struct_size;
@@ -1315,6 +1326,55 @@ namespace pr
 			int32_t m_reserved;
 		};
 		static_assert(sizeof(AtmosphereStats) == 24);
+
+		// The shaders of a particle type and the index list that its vertex shader draws for each particle. See pr/game-systems/particles/particle_kernels.hlsli.
+		struct ParticleTypeShaders
+		{
+			ShaderByteCode m_emit;      // Compute shader with the entry point 'ParticleEmitCS'.
+			ShaderByteCode m_update;    // Compute shader with the entry point 'ParticleUpdateCS'.
+			ShaderByteCode m_vertex;    // Procedural forward vertex shader. It reads the records at VIEW3D_PROCEDURAL_BUFFER0_REGISTER, one per instance.
+			uint32_t const* m_indices;  // Triangle list of logical vertex ids drawn for each particle.
+			int m_index_count;          // Number of 'm_indices'. A positive multiple of 3.
+			int m_vertex_count;         // One more than the largest logical vertex id in 'm_indices'.
+		};
+
+		// Fixed inputs of a particle type. A type is a pool of particles that share their layout and shaders, drawn as one View3D object.
+		struct ParticleTypeOptions
+		{
+			static constexpr int CurrentVersion = 1;
+
+			int m_struct_size;
+			int m_version;
+			ParticleTypeShaders m_shaders;
+			int m_capacity;              // Most particles alive at once. In [1, 4194240].
+			int m_max_emitters;          // Most emitters alive at once. In [1, 65535].
+			int m_state_stride;          // Bytes per particle state (sizeof ParticleState). A multiple of 4 in [4, 2048].
+			int m_record_stride;         // Bytes per render record (sizeof ParticleRecord). A multiple of 4 in [4, 2048].
+			int m_params_stride;         // Bytes per emitter's parameters (sizeof EmitterParams). A multiple of 4 in [4, 2048].
+			void const* m_constants;     // The type's constants (TypeConstants), seen by its kernels at b1 and its vertex shader as its procedural constants.
+			size_t m_constants_size;     // A multiple of 4 in [4, ProceduralBinding::ConstantsSize].
+			BBox m_bbox;                 // Bounds of every particle, in the object's space, for culling.
+		};
+
+		// The system-owned settings of a particle emitter. The caller's parameters are passed separately.
+		struct ParticleEmitter
+		{
+			float m_rate;     // Particles per simulated second. Finite and non-negative.
+			uint32_t m_seed;  // Random seed; emitters with equal seeds and parameters make equal particles.
+			BOOL m_active;    // Inactive emitters make no particles, and discard bursts requested while inactive.
+		};
+		static_assert(sizeof(ParticleEmitter) == 12);
+
+		// The pool usage of a particle type after its last step. Counts of particles requested, admitted, and dropped accumulate from the last reset.
+		struct ParticleStats
+		{
+			uint32_t m_free;
+			uint32_t m_live;
+			uint32_t m_requested;
+			uint32_t m_admitted;
+			uint32_t m_dropped;
+		};
+		static_assert(sizeof(ParticleStats) == 20);
 
 		struct WindowOptions
 		{
@@ -2162,6 +2222,43 @@ extern "C"
 	// Positions beyond the ocean's radius take the height at its edge.
 	VIEW3D_API BOOL __stdcall View3D_OceanHeight(pr::view3d::Ocean ocean, double x_m, double y_m, double& out_height_m);
 
+	// Particles ******************************
+	// A particle system owns pools of GPU-resident particles. Each particle type is one pool, drawn as one View3D object with one indirect draw
+	// whose instance count the GPU writes. The CPU only uploads emitter changes; particles are born, updated, and die on the GPU, in steps of
+	// simulated time, so they move correctly at any step rate and in slow motion. See pr/game-systems/particles/particle_system.h.
+
+	// Create an empty particle system on the renderer. Returns null on failure. Destroy it with View3D_ParticleSystemDestroy.
+	VIEW3D_API pr::view3d::ParticleSystem __stdcall View3D_ParticleSystemCreate(char const* name);
+	VIEW3D_API void __stdcall View3D_ParticleSystemDestroy(pr::view3d::ParticleSystem system);
+
+	// Fill 'out_shaders' with the shaders of the stock sprite type (see pr/game-systems/particles/particle_sprite.hlsli). The data is static.
+	VIEW3D_API BOOL __stdcall View3D_ParticleSpriteShaders(pr::view3d::ParticleTypeShaders* out_shaders);
+
+	// Add a particle type to 'system', returning its index in 'out_type' and its View3D object in 'out_object'. The options' data is copied.
+	// Delete the object with View3D_ObjectDelete. An object that outlives its system keeps drawing the particles of the system's last step.
+	VIEW3D_API BOOL __stdcall View3D_ParticleTypeCreate(pr::view3d::ParticleSystem system, pr::view3d::ParticleTypeOptions const& options, char const* name, int* out_type, pr::view3d::Object* out_object);
+
+	// Add an emitter of particles of 'type', returning its id in 'out_emitter'. 'params' is 'params_size' bytes, the type's parameter stride.
+	VIEW3D_API BOOL __stdcall View3D_ParticleEmitterCreate(pr::view3d::ParticleSystem system, int type, pr::view3d::ParticleEmitter const& emitter, void const* params, size_t params_size, uint64_t* out_emitter);
+
+	// Replace the settings and parameters of an emitter, from the next step. Its particles already alive are unchanged.
+	VIEW3D_API BOOL __stdcall View3D_ParticleEmitterUpdate(pr::view3d::ParticleSystem system, uint64_t emitter, pr::view3d::ParticleEmitter const& settings, void const* params, size_t params_size);
+
+	// Ask an active emitter for 'count' extra particles, born at the end of the next step.
+	VIEW3D_API BOOL __stdcall View3D_ParticleEmitterBurst(pr::view3d::ParticleSystem system, uint64_t emitter, uint32_t count);
+
+	// Remove an emitter. Its particles already alive live out their lives.
+	VIEW3D_API BOOL __stdcall View3D_ParticleEmitterDelete(pr::view3d::ParticleSystem system, uint64_t emitter);
+
+	// Advance every particle by 'dt' simulated seconds (finite, non-negative). Zero does nothing, so a paused game draws its particles unchanged.
+	VIEW3D_API BOOL __stdcall View3D_ParticleSystemStep(pr::view3d::ParticleSystem system, double dt);
+
+	// Remove every particle and restart every emitter's emission. Emitters are kept.
+	VIEW3D_API BOOL __stdcall View3D_ParticleSystemReset(pr::view3d::ParticleSystem system);
+
+	// Read the pool usage of 'type'. Waits for the GPU, so use it for tests and diagnostics only.
+	VIEW3D_API BOOL __stdcall View3D_ParticleStats(pr::view3d::ParticleSystem system, int type, pr::view3d::ParticleStats* out_stats);
+
 	// Atmospheres ******************************
 	// A terrain-following GPU air solver. Each atmosphere runs on the caller's D3D12 device with its own compute queue, and steps independently of
 	// any other simulation. Atmosphere functions do not use the renderer and are not serialised by View3D; callers must not call functions on one
@@ -2437,6 +2534,12 @@ extern "C"
 	// the roughness that minified slopes lose. Set 'tex' and 'sam' to null to remove detail normals. Layers are kept when the map
 	// changes; a new assignment starts with no layers. Throws if the nugget material is not a simple material.
 	VIEW3D_API void __stdcall View3D_ObjectNuggetDetailNormalsSet(pr::view3d::Object object, pr::view3d::Texture tex, pr::view3d::Sampler sam, char const* name, int index);
+
+	// Draw nugget 'index' of 'object' with one indirect draw whose arguments the GPU writes at 'offset' bytes into 'buffer' (an ID3D12Resource),
+	// or restore ordinary draws when 'buffer' is null. The record is a D3D12_DRAW_INDEXED_ARGUMENTS for nuggets with indices, otherwise a
+	// D3D12_DRAW_ARGUMENTS. The caller writes it and keeps the buffer in the INDIRECT_ARGUMENT state whenever the object is drawn. Such nuggets are
+	// drawn only by the forward render steps: they cast no shadows and are not ray cast. The object keeps a reference to the buffer.
+	VIEW3D_API void __stdcall View3D_ObjectNuggetDrawArgsSet(pr::view3d::Object object, void* buffer, int64_t offset, int index);
 
 	// Replace the detail-normal layers of every nugget of 'object' (not its children) that has detail normals. Layers are shared by the
 	// material, so this is cheap enough to call every frame. 'count' must be in [0, 4]. 'base_slope_variance' (non-negative) is the mean square

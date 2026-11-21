@@ -627,24 +627,22 @@ namespace pr::rdr12
 			// Apply the PBR forward shader variant for the active forward sub-pass.
 			static void ApplyForwardPipeline(MaterialPipelineContext const& ctx, PipeStateDesc& pipe_state)
 			{
+				// The base pixel shader is a stock simple-family entry point that identifies the sub-pass output contract.
 				auto const* desc = static_cast<D3D12_GRAPHICS_PIPELINE_STATE_DESC const*>(pipe_state);
+				auto slot = shader_code::forward_family.Find(desc->PS);
+				if (!slot)
+					throw std::runtime_error("PBR materials require a stock forward pixel shader in the base pipeline state");
 				
 				// If the pass uses extra texture coordinate streams or a tint mask, select a shader variant that supports them
 				if (MaterialPBR::UsesTexNShader(ctx.m_material, &ctx.m_nugget))
 				{
 					pipe_state.Apply(PSO<EPipeState::VS>(shader_code::forward_texn_pbr_vs));
-					pipe_state.Apply(PSO<EPipeState::PS>(
-						desc->NumRenderTargets == 0U ? shader_code::forward_alpha_collect_texn_pbr_ps :
-						desc->NumRenderTargets > 1U ? shader_code::forward_reflection_attrs_texn_pbr_ps :
-						shader_code::forward_texn_pbr_ps));
+					pipe_state.Apply(PSO<EPipeState::PS>(shader_code::forward_texn_pbr_family[*slot]));
 				}
 				else
 				{
 					pipe_state.Apply(PSO<EPipeState::VS>(shader_code::forward_vs));
-					pipe_state.Apply(PSO<EPipeState::PS>(
-						desc->NumRenderTargets == 0U ? shader_code::forward_alpha_collect_pbr_ps :
-						desc->NumRenderTargets > 1U ? shader_code::forward_reflection_attrs_pbr_ps :
-						shader_code::forward_pbr_ps));
+					pipe_state.Apply(PSO<EPipeState::PS>(shader_code::forward_pbr_family[*slot]));
 				}
 				ApplyTwoSidedPipeline(ctx, pipe_state);
 			}

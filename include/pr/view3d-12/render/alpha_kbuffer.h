@@ -15,10 +15,17 @@ namespace pr::rdr12
 		using Viewport = ::pr::compute::Viewport;
 		using ClearValue = ::pr::compute::ClearValue;
 
+		// Render target formats of the weighted transparency buffers. The weighted pass PSO must use the same formats.
+		inline static constexpr DXGI_FORMAT WeightedAccumFormat = DXGI_FORMAT_R16G16B16A16_FLOAT;
+		inline static constexpr DXGI_FORMAT WeightedRevealFormat = DXGI_FORMAT_R16G16_FLOAT;
+
 		Texture2DPtr m_opaque_colour_1x; // 1x resolved opaque colour used as the base for alpha resolve
 		Texture2DPtr m_alpha_colour;     // Per-pixel nearest four alpha colours, RGBA8 packed in uint lanes
 		Texture2DPtr m_alpha_depth;      // Per-pixel nearest four D24 depths, with packed OIA bytes in high bits
 		Texture2DPtr m_alpha_rt_attrs;   // Per-pixel nearest four RT alpha attributes, matching m_alpha_colour/depth layer order
+		Texture2DPtr m_weighted_behind;  // Weighted transparency accumulation (premultiplied rgb, alpha) of fragments behind the nearest K-buffer layer
+		Texture2DPtr m_weighted_front;   // Weighted transparency accumulation (premultiplied rgb, alpha) of fragments in front of the nearest K-buffer layer
+		Texture2DPtr m_weighted_reveal;  // Product of (1 - alpha) of the weighted fragments: r = behind group, g = front group
 		D3DPtr<ID3D12RootSignature> m_signature_alpha_resolve;
 		D3DPtr<ID3D12PipelineState> m_pso_alpha_resolve;
 
@@ -30,13 +37,13 @@ namespace pr::rdr12
 		// Resize the buffers to 'size'
 		void Resize(Renderer& rdr, iv2 size, ClearValue rt_clear);
 
-		// Create the buffers for the next frame
+		// Clear the buffers for the next frame
 		void Clear(GfxCmdList& cmd_list, GpuViewHeap& heap_view);
 
 		// Copy the opaque buffer 'source' into the 1x resolved buffer using resolve or direct copy
 		void CopyOpaqueBuffer(GfxCmdList& cmd_list, ID3D12Resource* source, DXGI_FORMAT format, bool resolve);
 
-		// Composite the collected alpha buffer over the resolved opaque colour.
+		// Composite the collected alpha buffer and the weighted transparency over the resolved opaque colour.
 		// 'dither_amount' is the dither noise amplitude, in 8-bit sRGB steps, applied to pixels with alpha coverage. Zero disables dithering.
 		void ResolveAlpha(GfxCmdList& cmd_list, GpuViewHeap& heap_view, BackBuffer const& bb_post, Viewport const& viewport, D3D12_RECT const& scissor, float dither_amount);
 

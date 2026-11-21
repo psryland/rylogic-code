@@ -29,6 +29,7 @@
 #include "pr/game-systems/sky/weather_map.h"
 #include "pr/game-systems/ocean/ocean_surface.h"
 #include "pr/game-systems/atmosphere/atmosphere.h"
+#include "pr/game-systems/particles/particle_system.h"
 #include "game-systems/src/atmosphere/atmosphere_record.h"
 #include "pr/view3d-12/population/population.h"
 #include "pr/view3d-12/sampler/sampler_desc.h"
@@ -3131,6 +3132,150 @@ VIEW3D_API BOOL __stdcall View3D_OceanHeight(view3d::Ocean ocean, double x_m, do
 	CatchAndReport(View3D_OceanHeight, , FALSE);
 }
 
+// Particles ******************************
+static game_systems::particles::ParticleSystem& RequireParticles(view3d::ParticleSystem system)
+{
+	if (system == nullptr)
+		throw std::invalid_argument("Particle system handle is null");
+
+	return *system;
+}
+
+// View caller parameter bytes as a span, requiring data whenever a size is given.
+static std::span<std::byte const> ParticleParams(void const* params, size_t params_size)
+{
+	if (params == nullptr && params_size != 0)
+		throw std::invalid_argument("Particle emitter parameters are required");
+
+	return std::span<std::byte const>(static_cast<std::byte const*>(params), params_size);
+}
+VIEW3D_API view3d::ParticleSystem __stdcall View3D_ParticleSystemCreate(char const* name)
+{
+	try
+	{
+		DllLockGuard;
+		return game_systems::particles::ParticleSystem::Create(Dll().m_rdr, name).release();
+	}
+	CatchAndReport(View3D_ParticleSystemCreate, , nullptr);
+}
+VIEW3D_API void __stdcall View3D_ParticleSystemDestroy(view3d::ParticleSystem system)
+{
+	try
+	{
+		// Destroying a null system does nothing.
+		if (system == nullptr) return;
+		DllLockGuard;
+		delete system;
+	}
+	CatchAndReport(View3D_ParticleSystemDestroy, , );
+}
+VIEW3D_API BOOL __stdcall View3D_ParticleSpriteShaders(view3d::ParticleTypeShaders* out_shaders)
+{
+	try
+	{
+		// The shaders are static data and need no renderer.
+		if (out_shaders == nullptr)
+			throw std::invalid_argument("Particle sprite shaders output is required");
+
+		*out_shaders = game_systems::particles::ParticleSystem::SpriteShaders();
+		return TRUE;
+	}
+	CatchAndReport(View3D_ParticleSpriteShaders, , FALSE);
+}
+VIEW3D_API BOOL __stdcall View3D_ParticleTypeCreate(view3d::ParticleSystem system, view3d::ParticleTypeOptions const& options, char const* name, int* out_type, view3d::Object* out_object)
+{
+	try
+	{
+		// The object exists only when the type does.
+		if (out_type == nullptr || out_object == nullptr)
+			throw std::invalid_argument("Particle type outputs are required");
+
+		*out_object = nullptr;
+		DllLockGuard;
+		auto object = view3d::Object{};
+		*out_type = RequireParticles(system).TypeCreate(options, name, object);
+		*out_object = object;
+		return TRUE;
+	}
+	CatchAndReport(View3D_ParticleTypeCreate, , FALSE);
+}
+VIEW3D_API BOOL __stdcall View3D_ParticleEmitterCreate(view3d::ParticleSystem system, int type, view3d::ParticleEmitter const& emitter, void const* params, size_t params_size, uint64_t* out_emitter)
+{
+	try
+	{
+		if (out_emitter == nullptr)
+			throw std::invalid_argument("Particle emitter output is required");
+
+		DllLockGuard;
+		*out_emitter = RequireParticles(system).EmitterCreate(type, emitter, ParticleParams(params, params_size));
+		return TRUE;
+	}
+	CatchAndReport(View3D_ParticleEmitterCreate, , FALSE);
+}
+VIEW3D_API BOOL __stdcall View3D_ParticleEmitterUpdate(view3d::ParticleSystem system, uint64_t emitter, view3d::ParticleEmitter const& settings, void const* params, size_t params_size)
+{
+	try
+	{
+		DllLockGuard;
+		RequireParticles(system).EmitterUpdate(emitter, settings, ParticleParams(params, params_size));
+		return TRUE;
+	}
+	CatchAndReport(View3D_ParticleEmitterUpdate, , FALSE);
+}
+VIEW3D_API BOOL __stdcall View3D_ParticleEmitterBurst(view3d::ParticleSystem system, uint64_t emitter, uint32_t count)
+{
+	try
+	{
+		DllLockGuard;
+		RequireParticles(system).EmitterBurst(emitter, count);
+		return TRUE;
+	}
+	CatchAndReport(View3D_ParticleEmitterBurst, , FALSE);
+}
+VIEW3D_API BOOL __stdcall View3D_ParticleEmitterDelete(view3d::ParticleSystem system, uint64_t emitter)
+{
+	try
+	{
+		DllLockGuard;
+		RequireParticles(system).EmitterDelete(emitter);
+		return TRUE;
+	}
+	CatchAndReport(View3D_ParticleEmitterDelete, , FALSE);
+}
+VIEW3D_API BOOL __stdcall View3D_ParticleSystemStep(view3d::ParticleSystem system, double dt)
+{
+	try
+	{
+		DllLockGuard;
+		RequireParticles(system).Step(dt);
+		return TRUE;
+	}
+	CatchAndReport(View3D_ParticleSystemStep, , FALSE);
+}
+VIEW3D_API BOOL __stdcall View3D_ParticleSystemReset(view3d::ParticleSystem system)
+{
+	try
+	{
+		DllLockGuard;
+		RequireParticles(system).Reset();
+		return TRUE;
+	}
+	CatchAndReport(View3D_ParticleSystemReset, , FALSE);
+}
+VIEW3D_API BOOL __stdcall View3D_ParticleStats(view3d::ParticleSystem system, int type, view3d::ParticleStats* out_stats)
+{
+	try
+	{
+		if (out_stats == nullptr)
+			throw std::invalid_argument("Particle stats output is required");
+
+		DllLockGuard;
+		*out_stats = RequireParticles(system).Stats(type);
+		return TRUE;
+	}
+	CatchAndReport(View3D_ParticleStats, , FALSE);
+}
+
 // Atmospheres ******************************
 namespace pr::view3d::atmosphere_abi
 {
@@ -4858,6 +5003,23 @@ VIEW3D_API void __stdcall View3D_ObjectNuggetDetailNormalsSet(view3d::Object obj
 	CatchAndReport(View3D_ObjectNuggetDetailNormalsSet, ,);
 }
 
+// Set or remove the GPU-written draw arguments of an object's nugget.
+VIEW3D_API void __stdcall View3D_ObjectNuggetDrawArgsSet(view3d::Object object, void* buffer, int64_t offset, int index)
+{
+	// The record must lie within the buffer; its contents are the caller's.
+	try
+	{
+		Validate(object);
+		auto* res = static_cast<ID3D12Resource*>(buffer);
+		if (res != nullptr && (offset < 0 || offset % 4 != 0 || s_cast<uint64_t>(offset) + sizeof(D3D12_DRAW_INDEXED_ARGUMENTS) > res->GetDesc().Width))
+			throw std::invalid_argument("Draw arguments must be a 4-byte aligned record within the buffer");
+
+		DllLockGuard;
+		object->NuggetDrawArgs(res, offset, nullptr, index);
+	}
+	CatchAndReport(View3D_ObjectNuggetDrawArgsSet, ,);
+}
+
 // Replace the detail-normal layers of an object's own nuggets.
 VIEW3D_API void __stdcall View3D_ObjectDetailNormalLayersSet(view3d::Object object, view3d::DetailNormalLayer const* layers, int count, float base_slope_variance)
 {
@@ -5233,10 +5395,16 @@ VIEW3D_API view3d::Shader __stdcall View3D_ShaderCreate(view3d::ShaderOptions co
 		if (!is_pixel_stage)
 			validate_bytecode(options.m_bytecode, options.m_bytecode_size, "vertex");
 
-		// The forward pixel family is all or nothing, and only the forward pass has pixel shaders to replace.
-		auto pixel_count = std::ranges::count_if(binding.m_forward_pixel, [](auto const& ps) { return ps.m_bytecode != nullptr || ps.m_size != 0; });
-		if (pixel_count != 0 && pixel_count != view3d::ProceduralBinding::ForwardPixelCount)
-			throw std::invalid_argument("Procedural forward pixel shaders must be all supplied or all omitted");
+		// The required forward pixel entry points are all or nothing, and only the forward pass has pixel shaders to replace.
+		// The last entry point (weighted transparency) is optional, but needs the required ones.
+		auto const is_supplied = [](auto const& ps) { return ps.m_bytecode != nullptr || ps.m_size != 0; };
+		auto const required_count = view3d::ProceduralBinding::ForwardPixelCount - 1;
+		auto pixel_count = std::ranges::count_if(std::span(binding.m_forward_pixel).first(required_count), is_supplied);
+		auto has_weighted = is_supplied(binding.m_forward_pixel[required_count]);
+		if (pixel_count != 0 && pixel_count != required_count)
+			throw std::invalid_argument("Procedural forward pixel shaders must be all supplied or all omitted, except the optional weighted transparency entry point");
+		if (has_weighted && pixel_count == 0)
+			throw std::invalid_argument("The procedural weighted transparency pixel shader requires the other forward pixel shaders");
 		if (pixel_count != 0 && binding.m_rdr_step != view3d::ERenderStep::ForwardRender)
 			throw std::invalid_argument("Procedural pixel shaders are only supported for the ForwardRender render step");
 		if (is_pixel_stage && pixel_count == 0)
@@ -5270,8 +5438,11 @@ VIEW3D_API view3d::Shader __stdcall View3D_ShaderCreate(view3d::ShaderOptions co
 		std::array<std::span<BYTE const>, view3d::ProceduralBinding::ForwardPixelCount> pixel_family = {};
 		for (size_t i = 0; pixel_count != 0 && i != pixel_family.size(); ++i)
 		{
-			// Validate each entry point before any storage is allocated.
+			// Validate each supplied entry point before any storage is allocated. An omitted weighted entry point stays empty.
 			auto const& ps = binding.m_forward_pixel[i];
+			if (i == required_count && !has_weighted)
+				continue;
+
 			validate_bytecode(ps.m_bytecode, ps.m_size, "pixel");
 			pixel_family[i] = std::span<BYTE const>(static_cast<BYTE const*>(ps.m_bytecode), ps.m_size);
 		}
