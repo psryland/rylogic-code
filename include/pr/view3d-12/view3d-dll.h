@@ -1334,33 +1334,69 @@ namespace pr
 		};
 		static_assert(sizeof(AtmosphereStats) == 24);
 
-		// The shaders of a particle type and the index list that its vertex shader draws for each particle. See pr/game-systems/particles/particle_kernels.hlsli.
-		struct ParticleTypeShaders
+		// The simulation shaders of a particle type. See pr/game-systems/particles/particle_kernels.hlsli.
+		struct ParticleSimShaders
 		{
 			ShaderByteCode m_emit;      // Compute shader with the entry point 'ParticleEmitCS'.
 			ShaderByteCode m_update;    // Compute shader with the entry point 'ParticleUpdateCS'.
+		};
+
+		// The drawing shaders of a particle batch, and the index list that its vertex shader draws for each render record.
+		struct ParticleDrawShaders
+		{
 			ShaderByteCode m_vertex;    // Procedural forward vertex shader. It reads the records at VIEW3D_PROCEDURAL_BUFFER0_REGISTER, one per instance.
-			uint32_t const* m_indices;  // Triangle list of logical vertex ids drawn for each particle.
+			uint32_t const* m_indices;  // Triangle list of logical vertex ids drawn for each record.
 			int m_index_count;          // Number of 'm_indices'. A positive multiple of 3.
 			int m_vertex_count;         // One more than the largest logical vertex id in 'm_indices'.
 		};
 
-		// Fixed inputs of a particle type. A type is a pool of particles that share their layout and shaders, drawn as one View3D object.
-		struct ParticleTypeOptions
+		// How a particle batch blends with the scene.
+		enum class EParticleBlend :int
+		{
+			// Alpha fragments sorted per pixel with the scene's other transparent geometry. Suits sparse particles that must sort exactly.
+			Sorted = 0,
+
+			// Weighted blended transparency (see ENuggetFlag::AlphaWeighted). Suits dense, soft, overlapping particles such as smoke and dust.
+			Weighted = 1,
+
+			// Opaque, depth-tested and depth-written. Suits solid particles such as chips and leaves.
+			Opaque = 2,
+		};
+
+		// Fixed inputs of a particle batch. A batch is one View3D object that draws the render records of every particle type added to it with one
+		// indirect draw. Types with different particle states share a batch when they write the same render record.
+		struct ParticleBatchOptions
 		{
 			static constexpr int CurrentVersion = 1;
 
 			int m_struct_size;
 			int m_version;
-			ParticleTypeShaders m_shaders;
+			ParticleDrawShaders m_shaders;
+			int m_capacity;              // Most records drawn at once. At least the sum of the capacities of the batch's types. In [1, 4194240].
+			int m_record_stride;         // Bytes per render record (sizeof ParticleRecord). A multiple of 4 in [4, 2048].
+			void const* m_constants;     // Optional constants seen by the vertex shader as its procedural constants. Null for none.
+			size_t m_constants_size;     // Zero when 'm_constants' is null, otherwise a multiple of 4 in [4, ProceduralBinding::ConstantsSize].
+			EParticleBlend m_blend;
+			BBox m_bbox;                 // Bounds of every particle, in the object's space, for culling.
+		};
+
+		// Fixed inputs of a particle type. A type is a pool of particles that share their state layout and simulation shaders. Its particles are
+		// drawn by the batch it is added to.
+		struct ParticleTypeOptions
+		{
+			static constexpr int CurrentVersion = 2;
+
+			int m_struct_size;
+			int m_version;
+			ParticleSimShaders m_shaders;
+			int m_batch;                 // The batch that draws the type's particles.
 			int m_capacity;              // Most particles alive at once. In [1, 4194240].
 			int m_max_emitters;          // Most emitters alive at once. In [1, 65535].
 			int m_state_stride;          // Bytes per particle state (sizeof ParticleState). A multiple of 4 in [4, 2048].
-			int m_record_stride;         // Bytes per render record (sizeof ParticleRecord). A multiple of 4 in [4, 2048].
+			int m_record_stride;         // Bytes per render record (sizeof ParticleRecord). Equal to the batch's record stride.
 			int m_params_stride;         // Bytes per emitter's parameters (sizeof EmitterParams). A multiple of 4 in [4, 2048].
-			void const* m_constants;     // The type's constants (TypeConstants), seen by its kernels at b1 and its vertex shader as its procedural constants.
-			size_t m_constants_size;     // A multiple of 4 in [4, ProceduralBinding::ConstantsSize].
-			BBox m_bbox;                 // Bounds of every particle, in the object's space, for culling.
+			void const* m_constants;     // The type's constants (TypeConstants), seen by its kernels at b1.
+			size_t m_constants_size;     // A multiple of 4 in [4, 65536].
 		};
 
 		// The system-owned settings of a particle emitter. The caller's parameters are passed separately.
@@ -2233,20 +2269,25 @@ extern "C"
 	VIEW3D_API BOOL __stdcall View3D_OceanHeight(pr::view3d::Ocean ocean, double x_m, double y_m, double& out_height_m);
 
 	// Particles ******************************
-	// A particle system owns pools of GPU-resident particles. Each particle type is one pool, drawn as one View3D object with one indirect draw
-	// whose instance count the GPU writes. The CPU only uploads emitter changes; particles are born, updated, and die on the GPU, in steps of
-	// simulated time, so they move correctly at any step rate and in slow motion. See pr/game-systems/particles/particle_system.h.
+	// A particle system owns pools of GPU-resident particles. Each particle type is one pool. Each batch is one View3D object that draws the
+	// particles of all of its types with one indirect draw, whose instance count the GPU writes. The CPU only uploads emitter changes; particles are
+	// born, updated, and die on the GPU, in steps of simulated time, so they move correctly at any step rate and in slow motion.
+	// See pr/game-systems/particles/particle_system.h.
 
 	// Create an empty particle system on the renderer. Returns null on failure. Destroy it with View3D_ParticleSystemDestroy.
 	VIEW3D_API pr::view3d::ParticleSystem __stdcall View3D_ParticleSystemCreate(char const* name);
 	VIEW3D_API void __stdcall View3D_ParticleSystemDestroy(pr::view3d::ParticleSystem system);
 
-	// Fill 'out_shaders' with the shaders of the stock sprite type (see pr/game-systems/particles/particle_sprite.hlsli). The data is static.
-	VIEW3D_API BOOL __stdcall View3D_ParticleSpriteShaders(pr::view3d::ParticleTypeShaders* out_shaders);
+	// Fill 'out_sim' and 'out_draw' with the shaders of the stock sprite type and its batch (see pr/game-systems/particles/particle_sprite.hlsli).
+	// The data is static.
+	VIEW3D_API BOOL __stdcall View3D_ParticleSpriteShaders(pr::view3d::ParticleSimShaders* out_sim, pr::view3d::ParticleDrawShaders* out_draw);
 
-	// Add a particle type to 'system', returning its index in 'out_type' and its View3D object in 'out_object'. The options' data is copied.
+	// Add a particle batch to 'system', returning its index in 'out_batch' and its View3D object in 'out_object'. The options' data is copied.
 	// Delete the object with View3D_ObjectDelete. An object that outlives its system keeps drawing the particles of the system's last step.
-	VIEW3D_API BOOL __stdcall View3D_ParticleTypeCreate(pr::view3d::ParticleSystem system, pr::view3d::ParticleTypeOptions const& options, char const* name, int* out_type, pr::view3d::Object* out_object);
+	VIEW3D_API BOOL __stdcall View3D_ParticleBatchCreate(pr::view3d::ParticleSystem system, pr::view3d::ParticleBatchOptions const& options, char const* name, int* out_batch, pr::view3d::Object* out_object);
+
+	// Add a particle type to 'system', drawn by the batch 'options.m_batch', returning its index in 'out_type'. The options' data is copied.
+	VIEW3D_API BOOL __stdcall View3D_ParticleTypeCreate(pr::view3d::ParticleSystem system, pr::view3d::ParticleTypeOptions const& options, char const* name, int* out_type);
 
 	// Add an emitter of particles of 'type', returning its id in 'out_emitter'. 'params' is 'params_size' bytes, the type's parameter stride.
 	VIEW3D_API BOOL __stdcall View3D_ParticleEmitterCreate(pr::view3d::ParticleSystem system, int type, pr::view3d::ParticleEmitter const& emitter, void const* params, size_t params_size, uint64_t* out_emitter);

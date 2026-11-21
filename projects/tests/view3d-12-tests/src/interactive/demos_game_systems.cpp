@@ -70,21 +70,43 @@ namespace view3d_test
 				m_scene.Add("*Plane floor FF404850 { *Data {60 60} *AxisId {+3} }");
 				View3D_CameraPositionSet(ctx.m_window, { 0, -28, 9, 1 }, { 0, 0, 4, 1 }, { 0, 0, 1, 0 });
 
-				// One sprite type for every effect. The fade keeps births and deaths soft.
+				// One sprite type for every effect, drawn by one batch. The fade keeps births and deaths soft.
 				m_system = View3D_ParticleSystemCreate("DemoParticles");
 				if (m_system == nullptr)
 					throw std::runtime_error("Particle system creation failed");
 
-				auto shaders = api::ParticleTypeShaders{};
-				if (!View3D_ParticleSpriteShaders(&shaders))
+				auto sim = api::ParticleSimShaders{};
+				auto draw = api::ParticleDrawShaders{};
+				if (!View3D_ParticleSpriteShaders(&sim, &draw))
 					throw std::runtime_error("Particle sprite shaders unavailable");
+
+				// Weighted transparency blends overlapping soft sprites, such as smoke, smoothly in any order. The K-buffer keeps only the nearest layers.
+				auto batch_options = api::ParticleBatchOptions
+				{
+					.m_struct_size = sizeof(api::ParticleBatchOptions),
+					.m_version = api::ParticleBatchOptions::CurrentVersion,
+					.m_shaders = draw,
+					.m_capacity = Capacity,
+					.m_record_stride = sizeof(pr::game_systems::particles::ParticleSpriteRecord),
+					.m_constants = nullptr,
+					.m_constants_size = 0,
+					.m_blend = api::EParticleBlend::Weighted,
+					.m_bbox = api::BBox{ {0, 0, 20, 1}, {60, 60, 30, 0} },
+				};
+				auto batch = -1;
+				auto object = api::Object{};
+				if (!View3D_ParticleBatchCreate(m_system, batch_options, "DemoSprites", &batch, &object))
+					throw std::runtime_error("Particle batch creation failed");
+
+				m_scene.Add(object);
 
 				auto constants = ParticleSpriteConstants{ .fade_in = 0.05f, .fade_out = 0.3f };
 				auto options = api::ParticleTypeOptions
 				{
 					.m_struct_size = sizeof(api::ParticleTypeOptions),
 					.m_version = api::ParticleTypeOptions::CurrentVersion,
-					.m_shaders = shaders,
+					.m_shaders = sim,
+					.m_batch = batch,
 					.m_capacity = Capacity,
 					.m_max_emitters = MaxEmitters,
 					.m_state_stride = sizeof(pr::game_systems::particles::ParticleSpriteState),
@@ -92,16 +114,10 @@ namespace view3d_test
 					.m_params_stride = sizeof(ParticleSpriteEmitter),
 					.m_constants = &constants,
 					.m_constants_size = sizeof(constants),
-					.m_bbox = api::BBox{ {0, 0, 20, 1}, {60, 60, 30, 0} },
 				};
-				auto object = api::Object{};
-				if (!View3D_ParticleTypeCreate(m_system, options, "DemoSprites", &m_type, &object))
+				if (!View3D_ParticleTypeCreate(m_system, options, "DemoSprites", &m_type))
 					throw std::runtime_error("Particle type creation failed");
 
-				m_scene.Add(object);
-
-				// Weighted transparency blends overlapping soft sprites, such as smoke, smoothly in any order. The K-buffer keeps only the nearest layers.
-				View3D_ObjectNuggetFlagsSet(object, api::ENuggetFlag::AlphaWeighted, TRUE, nullptr, 0);
 				// Sparks: a fountain thrown up and pulled down by gravity.
 				AddEffect(600.0f, Params({ -8, 0, 0.2f, 0.1f }, { 0, 0, 9, 3 }, { 0, 0, -9.8f }, { 1.2f, 2.0f }, { 0.15f, 0.05f }, 0xFFFFD040, 0x00FF4000));
 
@@ -116,7 +132,7 @@ namespace view3d_test
 
 				// Demo controls.
 				auto& ui = ctx.m_controls;
-				ui.AddLabel(L"All particles are one particle type, drawn with one draw call. Particle state lives on the GPU.");
+				ui.AddLabel(L"All particles are one particle type in one batch, drawn with one draw call. Particle state lives on the GPU.");
 				ui.AddSlider(L"Time scale (0 = pause)", 0, 2, m_time_scale, [this](float v)
 				{
 					m_time_scale = v;
@@ -147,7 +163,7 @@ namespace view3d_test
 			}
 			~ParticlesDemo()
 			{
-				// The type's object stays in the scene until the scene is destroyed, and keeps its own references to the particle buffers.
+				// The batch's object stays in the scene until the scene is destroyed, and keeps its own references to the particle buffers.
 				View3D_ParticleSystemDestroy(m_system);
 			}
 

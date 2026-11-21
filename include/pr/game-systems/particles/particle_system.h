@@ -2,12 +2,14 @@
 // Game Systems
 //  Copyright (c) Rylogic Ltd 2026
 //************************************
-// GPU-resident particles. A particle system owns one pool per particle type. Particles are born, updated, and die in compute kernels, and each
-// type draws all of its particles as one View3D object with one indirect draw, whose instance count the GPU writes. The CPU only uploads the
-// emitters that change, so a step costs a few small uploads and dispatches however many particles are alive.
+// GPU-resident particles. A particle system owns one pool per particle type and one View3D object per batch. Particles are born, updated, and
+// die in compute kernels. Each type writes the render records of its live particles into its batch, and each batch draws all of its records with
+// one indirect draw, whose instance count the GPU writes. The CPU only uploads the emitters that change, so a step costs a few small uploads and
+// dispatches however many particles are alive.
 //
-// Particle types supply their own state and render record layouts and their own shaders (see particle_kernels.hlsli). The stock sprite type
-// (see particle_sprite.hlsli) serves small untextured particles.
+// Particle types supply their own state layouts and simulation shaders (see particle_kernels.hlsli). Batches supply the render record layout
+// and its vertex shader, so types with different states share one draw when they write the same record. The stock sprite type and batch
+// (see particle_sprite.hlsli) serve small untextured particles.
 //
 // Particles evolve only in Step, in simulated seconds, so they move correctly at any step rate, in slow motion, and not at all while paused.
 #pragma once
@@ -15,7 +17,7 @@
 
 namespace pr::game_systems::particles
 {
-	// A set of particle types and their emitters on one renderer. The type's View3D objects are created by TypeCreate and owned by the caller.
+	// A set of particle batches, types and emitters on one renderer. The batches' View3D objects are created by BatchCreate and owned by the caller.
 	// Emitter ids are 64-bit handles that become invalid when the emitter is deleted; using a stale id throws.
 	struct ParticleSystem
 	{
@@ -24,11 +26,17 @@ namespace pr::game_systems::particles
 		// Create an empty particle system on 'rdr'.
 		static std::unique_ptr<ParticleSystem> Create(Renderer& rdr, char const* name);
 
-		// The shaders of the stock sprite type. The data is static.
-		static pr::view3d::ParticleTypeShaders SpriteShaders();
+		// The simulation shaders of the stock sprite type. The data is static.
+		static pr::view3d::ParticleSimShaders SpriteSimShaders();
 
-		// Validate 'options' and add a particle type, returning its index. Its View3D object is returned in 'out_object'.
-		virtual int TypeCreate(pr::view3d::ParticleTypeOptions const& options, char const* name, pr::view3d::Object& out_object) = 0;
+		// The drawing shaders of the stock sprite batch. The data is static.
+		static pr::view3d::ParticleDrawShaders SpriteDrawShaders();
+
+		// Validate 'options' and add a particle batch, returning its index. Its View3D object is returned in 'out_object'.
+		virtual int BatchCreate(pr::view3d::ParticleBatchOptions const& options, char const* name, pr::view3d::Object& out_object) = 0;
+
+		// Validate 'options' and add a particle type to the batch 'options.m_batch', returning the type's index.
+		virtual int TypeCreate(pr::view3d::ParticleTypeOptions const& options, char const* name) = 0;
 
 		// Add an emitter of particles of 'type'. 'params' must be the type's parameter stride in size.
 		virtual uint64_t EmitterCreate(int type, pr::view3d::ParticleEmitter const& emitter, std::span<std::byte const> params) = 0;

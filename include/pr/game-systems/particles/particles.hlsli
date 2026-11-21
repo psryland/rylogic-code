@@ -7,10 +7,12 @@
 // A particle type is a pool with a fixed capacity. Its particles live only in GPU memory:
 //  - 'states' holds each particle's state, in a caller-defined layout, at its pool slot.
 //  - 'free' is a stack of unused slots, and 'live' holds two lists of used slots. Each tick reads one live list and writes the other.
-//  - 'records' holds each live particle's render record, in a caller-defined layout, at its position in the written live list.
-//    The type's vertex shader draws one instance per record.
 //  - 'counters' holds the list lengths and the cumulative emission counts (see ParticleCounterFree...).
-//  - 'args' holds the draw arguments and the update dispatch arguments, both written on the GPU (see ParticleArgsIndexCount...).
+//  - 'args' holds the update dispatch arguments, written on the GPU (see ParticleArgsDispatchX).
+// A particle batch draws the live particles of one or more types:
+//  - 'records' holds a render record, in a caller-defined layout, for each live particle of the batch's types, in no particular order.
+//    The batch's vertex shader draws one instance per record.
+//  - 'draw args' holds the draw arguments, whose instance count the types' kernels increase as they write records (see ParticleDrawIndexCount...).
 // Emitters live in CPU memory. The CPU uploads a header and caller-defined parameters for each emitter slot that changes. The GPU keeps the
 // emission progress of each slot in 'runtime', so the CPU never reads particle data back.
 #ifndef PR_GAME_SYSTEMS_PARTICLES_HLSLI
@@ -35,12 +37,14 @@ static const uint ParticleCounterAdmitted = 5;  // Cumulative particles that wer
 static const uint ParticleCounterDropped = 6;   // Cumulative particles not created because the pool was full.
 static const uint ParticleCounterCount = 8;
 
-// Indices into the args buffer. The draw arguments are a D3D12_DRAW_INDEXED_ARGUMENTS record, followed by a D3D12_DISPATCH_ARGUMENTS record.
-static const uint ParticleArgsIndexCount = 0;
-static const uint ParticleArgsInstanceCount = 1;
-static const uint ParticleArgsDispatchX = 5;
-static const uint ParticleArgsCount = 8;
-static const uint ParticleArgsDispatchOffset = 20; // Byte offset of the dispatch record.
+// Indices into a pool's args buffer, a D3D12_DISPATCH_ARGUMENTS record for the pool's update pass.
+static const uint ParticleArgsDispatchX = 0;
+static const uint ParticleArgsCount = 4;
+
+// Indices into a batch's draw args buffer, a D3D12_DRAW_INDEXED_ARGUMENTS record. The instance count is the number of records written this tick.
+static const uint ParticleDrawIndexCount = 0;
+static const uint ParticleDrawInstanceCount = 1;
+static const uint ParticleDrawArgsCount = 5;
 
 // Emitter header flags.
 static const uint ParticleEmitterActive = 1u << 0;

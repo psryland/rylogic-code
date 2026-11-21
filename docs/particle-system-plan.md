@@ -492,7 +492,7 @@ The following are planned engineering proofs, not unresolved product requirement
   culler to the renderer. A C ABI setter (`View3D_ObjectNuggetDrawArgsSet`) lets DLL consumers use the same seam.
 - **Rendering.** The type supplies a triangle list of logical vertex ids drawn for each particle (the stock sprite is a soft disc of 8 rim triangles: opaque centre, transparent rim); `SV_InstanceID` selects a compact live render record. All emitters of a type share one nugget and
   therefore one instanced draw per pass. Particles render through alpha collection with `GeometryHasAlpha | ShadowCastExclude`.
-- **API.** The C++ API (`pr::game_systems::particles`) and a C ABI in `view3d-dll.h` (`View3D_ParticleSystemCreate/Destroy`, `View3D_ParticleSpriteShaders`, `View3D_ParticleTypeCreate`, `View3D_ParticleEmitterCreate/Update/Burst/Delete`, `View3D_ParticleSystemStep/Reset`, `View3D_ParticleStats`). The tests and demo use the ABI. The managed wrapper is added with Petri integration.
+- **API.** The C++ API (`pr::game_systems::particles`) and a C ABI in `view3d-dll.h` (`View3D_ParticleSystemCreate/Destroy`, `View3D_ParticleSpriteShaders`, `View3D_ParticleBatchCreate`, `View3D_ParticleTypeCreate`, `View3D_ParticleEmitterCreate/Update/Burst/Delete`, `View3D_ParticleSystemStep/Reset`, `View3D_ParticleStats`). The tests and demo use the ABI. The managed wrapper is added with Petri integration. (Render batches were added in milestone 2; see below.)
 - **Clock.** `Step(dt)` takes simulated seconds supplied by the host; pause is simply not stepping. Each tick applies queued commands first, then emits,
   then updates. Ages are float seconds per particle; the system epoch increments on `Reset`. `Step(0)` is a pause: it does no work, so bursts are admitted only by positive steps and burst particles are born at the end of that step with age 0.
 - **Type constants.** Constants are zero-padded to `ProceduralBinding::ConstantsSize` (1024 bytes), because the procedural vertex path binds exactly that size.
@@ -522,3 +522,17 @@ The following are planned engineering proofs, not unresolved product requirement
   Budgets are set from measurements of the production effects, not from this synthetic case.
 
   Rerun with `view3d-12-tests.exe -flags:Stress GameSystems_ParticleCost` from a Release build, under an exclusive load lease.
+
+## Milestone 2 implementation decisions
+
+- **Explicit render batches.** A batch (`View3D_ParticleBatchCreate`, `ParticleBatchOptions`) is one View3D object with one nugget and one indirect
+  draw. It owns the draw shaders (`ParticleDrawShaders`: vertex shader, logical-vertex index list, optional vertex-shader constants), the record stride,
+  the blend mode (`EParticleBlend::Sorted`, `Weighted` or `Opaque`), the record capacity and the culling bounds. A type
+  (`ParticleTypeOptions::m_batch`) owns only its simulation: state stride, emitter-parameter stride, type constants and emit/update kernels
+  (`ParticleSimShaders`). Batching is an explicit caller choice rather than an inferred key, so it is predictable and has no hidden merge rules.
+- **Shared records.** Types in one batch write compact records into the batch's buffer, each claiming its index with an atomic add on the batch's
+  draw instance count. The record order within a batch is therefore unspecified. Each step zeroes every batch's count before the types run. A type's
+  record stride must equal its batch's, and the sum of its types' capacities must not exceed the batch capacity, so the records never overflow.
+- **Proof.** `GameSystems_ParticleBatch` draws the stock sprite type and a test marker type with different state, emitter parameters, constants and
+  kernels (`view3d-12-tests\src\game-systems\shaders\hlsl\particle_marker_cs.hlsl`) through one batch and one indirect draw, and checks the batch
+  validation. `GameSystems_ParticleDrawCount` checks that a second type in a batch adds no draw and a second batch adds one.

@@ -7,9 +7,9 @@
 //
 // Define before including:
 //   struct ParticleState    - The state of one particle. Its size is the type's state stride.
-//   struct ParticleRecord   - What the type's vertex shader reads for one particle. Its size is the type's record stride.
+//   struct ParticleRecord   - What the batch's vertex shader reads for one particle. Its size is the batch's record stride.
 //   struct EmitterParams    - The caller-defined parameters of one emitter. Its size is the type's parameter stride.
-//   struct TypeConstants    - The type's immutable constants, which its vertex shader also reads.
+//   struct TypeConstants    - The type's immutable constants.
 //
 //   ParticleState ParticleInit(EmitterParams params, ParticleSpawn spawn, TypeConstants c)
 //     Return a new particle's state at the end of the tick, 'spawn.age' simulated seconds after its birth.
@@ -33,10 +33,11 @@ RWStructuredBuffer<uint> g_live : register(u2);
 RWStructuredBuffer<ParticleState> g_states : register(u3);
 RWStructuredBuffer<ParticleRecord> g_records : register(u4);
 RWStructuredBuffer<ParticleEmitterRuntime> g_runtime : register(u5);
+RWStructuredBuffer<uint> g_draw_args : register(u7);
 StructuredBuffer<ParticleEmitterHeader> g_headers : register(t0);
 StructuredBuffer<EmitterParams> g_params : register(t1);
 
-// Append the live particle in 'slot' to the written live list, with its render record at the same position.
+// Append the live particle in 'slot' to the written live list, and add its render record to the batch.
 void ParticleKeep(uint slot, ParticleState state)
 {
 	// The written list is the one not read this tick.
@@ -44,7 +45,11 @@ void ParticleKeep(uint slot, ParticleState state)
 	uint index;
 	InterlockedAdd(g_counters[ParticleCounterLive0 + next], 1u, index);
 	g_live[next * g_tick.capacity + index] = slot;
-	g_records[index] = ParticleProject(state, g_type);
+
+	// The batch's records are shared with its other types, so each record claims the next free position in the batch.
+	uint record;
+	InterlockedAdd(g_draw_args[ParticleDrawInstanceCount], 1u, record);
+	g_records[record] = ParticleProject(state, g_type);
 }
 
 // Advance each particle in the read live list, keeping the survivors and returning the slots of the dead to the free stack.

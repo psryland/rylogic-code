@@ -3188,32 +3188,47 @@ VIEW3D_API void __stdcall View3D_ParticleSystemDestroy(view3d::ParticleSystem sy
 	}
 	CatchAndReport(View3D_ParticleSystemDestroy, , );
 }
-VIEW3D_API BOOL __stdcall View3D_ParticleSpriteShaders(view3d::ParticleTypeShaders* out_shaders)
+VIEW3D_API BOOL __stdcall View3D_ParticleSpriteShaders(view3d::ParticleSimShaders* out_sim, view3d::ParticleDrawShaders* out_draw)
 {
 	try
 	{
 		// The shaders are static data and need no renderer.
-		if (out_shaders == nullptr)
-			throw std::invalid_argument("Particle sprite shaders output is required");
+		if (out_sim == nullptr || out_draw == nullptr)
+			throw std::invalid_argument("Particle sprite shaders outputs are required");
 
-		*out_shaders = game_systems::particles::ParticleSystem::SpriteShaders();
+		*out_sim = game_systems::particles::ParticleSystem::SpriteSimShaders();
+		*out_draw = game_systems::particles::ParticleSystem::SpriteDrawShaders();
 		return TRUE;
 	}
 	CatchAndReport(View3D_ParticleSpriteShaders, , FALSE);
 }
-VIEW3D_API BOOL __stdcall View3D_ParticleTypeCreate(view3d::ParticleSystem system, view3d::ParticleTypeOptions const& options, char const* name, int* out_type, view3d::Object* out_object)
+VIEW3D_API BOOL __stdcall View3D_ParticleBatchCreate(view3d::ParticleSystem system, view3d::ParticleBatchOptions const& options, char const* name, int* out_batch, view3d::Object* out_object)
 {
 	try
 	{
-		// The object exists only when the type does.
-		if (out_type == nullptr || out_object == nullptr)
-			throw std::invalid_argument("Particle type outputs are required");
+		// The object exists only when the batch does.
+		if (out_batch == nullptr || out_object == nullptr)
+			throw std::invalid_argument("Particle batch outputs are required");
 
 		*out_object = nullptr;
 		DllLockGuard;
 		auto object = view3d::Object{};
-		*out_type = RequireParticles(system).TypeCreate(options, name, object);
+		*out_batch = RequireParticles(system).BatchCreate(options, name, object);
 		*out_object = object;
+		return TRUE;
+	}
+	CatchAndReport(View3D_ParticleBatchCreate, , FALSE);
+}
+VIEW3D_API BOOL __stdcall View3D_ParticleTypeCreate(view3d::ParticleSystem system, view3d::ParticleTypeOptions const& options, char const* name, int* out_type)
+{
+	try
+	{
+		// Types are drawn by their batch's object.
+		if (out_type == nullptr)
+			throw std::invalid_argument("Particle type output is required");
+
+		DllLockGuard;
+		*out_type = RequireParticles(system).TypeCreate(options, name);
 		return TRUE;
 	}
 	CatchAndReport(View3D_ParticleTypeCreate, , FALSE);

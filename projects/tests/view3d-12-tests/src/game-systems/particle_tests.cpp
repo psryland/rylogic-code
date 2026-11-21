@@ -2,16 +2,31 @@
 // Game Systems Particle Tests
 //  Copyright (C) Rylogic Ltd 2026
 //*********************************************
-// Render tests of the GPU-resident particle system through the View3D ABI, using the stock sprite type.
+// Render tests of the GPU-resident particle system through the View3D ABI, using the stock sprite type and a test type of its own kernels.
 // The fixture's orthographic camera looks down -z with a 100x100 view, so world x maps to pixel column (x + 50) * 128 / 100.
 #include "../view3d-12/forward.h"
 #include "../view3d-12/render_test_support.h"
 #include "pr/game-systems/particles/particle_sprite.hlsli"
+#include "shaders/hlsl/particle_marker.hlsli"
 
 namespace render_tests
 {
+	namespace compiled
+	{
+		// The kernels of the test marker type.
+		#ifdef NDEBUG
+		#include "shaders/hlsl/compiled/release/particle_marker_emit_cs.h"
+		#include "shaders/hlsl/compiled/release/particle_marker_update_cs.h"
+		#else
+		#include "shaders/hlsl/compiled/debug/particle_marker_emit_cs.h"
+		#include "shaders/hlsl/compiled/debug/particle_marker_update_cs.h"
+		#endif
+	}
+
 	using ParticleSpriteEmitter = pr::game_systems::particles::ParticleSpriteEmitter;
 	using ParticleSpriteConstants = pr::game_systems::particles::ParticleSpriteConstants;
+	using ParticleMarkerEmitter = game_systems_tests::ParticleMarkerEmitter;
+	using ParticleMarkerConstants = game_systems_tests::ParticleMarkerConstants;
 
 	// Sprites sit at this depth in front of the camera.
 	constexpr float ParticleDepth = 10.0f;
@@ -34,47 +49,24 @@ namespace render_tests
 		return RegionRed(image, px - 1, px + 2, ImageSize / 2 - 1, ImageSize / 2 + 2);
 	}
 
-	// Own a particle system with one sprite type, and destroy the system before the fixture shuts View3D down.
+	// Own a particle system with one sprite batch and one sprite type, and destroy the system before the fixture shuts View3D down.
 	struct SpriteParticles
 	{
 		Fixture& m_fixture;
 		api::ParticleSystem m_system = nullptr;
 		api::Object m_object = nullptr;
+		int m_batch = -1;
 		int m_type = -1;
 
-		// Create the system and one sprite type of 'capacity' particles, drawn in the fixture's window.
-		SpriteParticles(Fixture& fixture, int capacity, int max_emitters = 64)
+		// Create the system, a sprite batch of 'batch_capacity' records (or 'capacity' when zero), and a sprite type of 'capacity' particles in it.
+		SpriteParticles(Fixture& fixture, int capacity, int max_emitters = 64, api::EParticleBlend blend = api::EParticleBlend::Sorted, int batch_capacity = 0)
 			: m_fixture(fixture)
 		{
-			// The stock sprite shaders and layouts.
+			// The system, its first batch, and the stock sprite type drawn by that batch.
 			m_system = View3D_ParticleSystemCreate("TestParticles");
 			Require(m_system != nullptr, "Particle system creation failed");
-			auto shaders = api::ParticleTypeShaders{};
-			Require(View3D_ParticleSpriteShaders(&shaders) != FALSE, "Particle sprite shaders unavailable");
-
-			// No fading, so a sprite's centre has its full colour for its whole life.
-			auto constants = ParticleSpriteConstants{};
-			auto options = api::ParticleTypeOptions
-			{
-				.m_struct_size = sizeof(api::ParticleTypeOptions),
-				.m_version = api::ParticleTypeOptions::CurrentVersion,
-				.m_shaders = shaders,
-				.m_capacity = capacity,
-				.m_max_emitters = max_emitters,
-				.m_state_stride = sizeof(pr::game_systems::particles::ParticleSpriteState),
-				.m_record_stride = sizeof(pr::game_systems::particles::ParticleSpriteRecord),
-				.m_params_stride = sizeof(ParticleSpriteEmitter),
-				.m_constants = &constants,
-				.m_constants_size = sizeof(constants),
-				.m_bbox = api::BBox{ {0, 0, 0, 1}, {100, 100, 100, 0} },
-			};
-			View3D_ParticleTypeCreate(m_system, options, "TestSprites", &m_type, &m_object);
-			m_fixture.CheckErrors();
-
-			// The fixture owns the object, which keeps its own references to the particle buffers.
-			m_fixture.m_objects.push_back(m_object);
-			View3D_WindowAddObject(m_fixture.m_window, m_object);
-			m_fixture.CheckErrors();
+			m_batch = BatchCreate(batch_capacity != 0 ? batch_capacity : capacity, blend, m_object);
+			m_type = SpriteTypeCreate(m_batch, capacity, max_emitters);
 		}
 		~SpriteParticles()
 		{
@@ -82,7 +74,81 @@ namespace render_tests
 			View3D_ParticleSystemDestroy(m_system);
 		}
 
-		// Create an emitter of red sprites at world (x, 0) with velocity 'vx' along x.
+		// Add a batch drawn by the stock sprite vertex shader to the fixture's window, returning its index and its object in 'out_object'.
+		int BatchCreate(int capacity, api::EParticleBlend blend, api::Object& out_object)
+		{
+			// The stock sprite draw shaders.
+			auto sim = api::ParticleSimShaders{};
+			auto draw = api::ParticleDrawShaders{};
+			Require(View3D_ParticleSpriteShaders(&sim, &draw) != FALSE, "Particle sprite shaders unavailable");
+			auto options = api::ParticleBatchOptions
+			{
+				.m_struct_size = sizeof(api::ParticleBatchOptions),
+				.m_version = api::ParticleBatchOptions::CurrentVersion,
+				.m_shaders = draw,
+				.m_capacity = capacity,
+				.m_record_stride = sizeof(pr::game_systems::particles::ParticleSpriteRecord),
+				.m_constants = nullptr,
+				.m_constants_size = 0,
+				.m_blend = blend,
+				.m_bbox = api::BBox{ {0, 0, 0, 1}, {100, 100, 100, 0} },
+			};
+			auto batch = -1;
+			View3D_ParticleBatchCreate(m_system, options, "TestBatch", &batch, &out_object);
+			m_fixture.CheckErrors();
+
+			// The fixture owns the object, which keeps its own references to the particle buffers.
+			m_fixture.m_objects.push_back(out_object);
+			View3D_WindowAddObject(m_fixture.m_window, out_object);
+			m_fixture.CheckErrors();
+			return batch;
+		}
+
+		// Add a stock sprite type of 'capacity' particles, drawn by 'batch'.
+		int SpriteTypeCreate(int batch, int capacity, int max_emitters)
+		{
+			// No fading, so a sprite's centre has its full colour for its whole life.
+			auto sim = api::ParticleSimShaders{};
+			auto draw = api::ParticleDrawShaders{};
+			Require(View3D_ParticleSpriteShaders(&sim, &draw) != FALSE, "Particle sprite shaders unavailable");
+			auto constants = ParticleSpriteConstants{};
+			return TypeCreate(api::ParticleTypeOptions
+			{
+				.m_struct_size = sizeof(api::ParticleTypeOptions),
+				.m_version = api::ParticleTypeOptions::CurrentVersion,
+				.m_shaders = sim,
+				.m_batch = batch,
+				.m_capacity = capacity,
+				.m_max_emitters = max_emitters,
+				.m_state_stride = sizeof(pr::game_systems::particles::ParticleSpriteState),
+				.m_record_stride = sizeof(pr::game_systems::particles::ParticleSpriteRecord),
+				.m_params_stride = sizeof(ParticleSpriteEmitter),
+				.m_constants = &constants,
+				.m_constants_size = sizeof(constants),
+			}, "TestSprites");
+		}
+
+		// Add a particle type, returning its index.
+		int TypeCreate(api::ParticleTypeOptions const& options, char const* name)
+		{
+			// Option errors are reported through the fixture's error callback.
+			auto type = -1;
+			View3D_ParticleTypeCreate(m_system, options, name, &type);
+			m_fixture.CheckErrors();
+			return type;
+		}
+
+		// Create an emitter of 'type' with the type's parameters 'params'.
+		uint64_t EmitterCreate(int type, void const* params, size_t params_size, float rate, uint32_t seed)
+		{
+			// Emitters start active.
+			auto settings = api::ParticleEmitter{ .m_rate = rate, .m_seed = seed, .m_active = TRUE };
+			auto id = uint64_t{};
+			Require(View3D_ParticleEmitterCreate(m_system, type, settings, params, params_size, &id) != FALSE, "Particle emitter creation failed");
+			return id;
+		}
+
+		// Create an emitter of red sprites of the sprite type at world (x, 0) with velocity 'vx' along x.
 		uint64_t Emitter(float x, float rate = 0.0f, float vx = 0.0f, float lifetime = 100.0f, uint32_t seed = 1)
 		{
 			// Birth positions and velocities are exact, so every sprite of the emitter follows the same path.
@@ -94,11 +160,7 @@ namespace render_tests
 			params.size = { 8.0f, 8.0f };
 			params.colour0 = 0xFFFF0000U;
 			params.colour1 = 0xFFFF0000U;
-
-			auto settings = api::ParticleEmitter{ .m_rate = rate, .m_seed = seed, .m_active = TRUE };
-			auto id = uint64_t{};
-			Require(View3D_ParticleEmitterCreate(m_system, m_type, settings, &params, sizeof(params), &id) != FALSE, "Particle emitter creation failed");
-			return id;
+			return EmitterCreate(m_type, &params, sizeof(params), rate, seed);
 		}
 
 		// Request 'count' particles from 'emitter' at the end of the next step.
@@ -124,12 +186,12 @@ namespace render_tests
 			m_fixture.CheckErrors();
 		}
 
-		// Read the type's pool usage after the last step.
-		api::ParticleStats Stats()
+		// Read the pool usage of 'type' after the last step.
+		api::ParticleStats Stats(int type = -1)
 		{
-			// Stats are read back from the GPU.
+			// Stats are read back from the GPU. The default is the sprite type.
 			auto stats = api::ParticleStats{};
-			Require(View3D_ParticleStats(m_system, m_type, &stats) != FALSE, "Particle stats failed");
+			Require(View3D_ParticleStats(m_system, type != -1 ? type : m_type, &stats) != FALSE, "Particle stats failed");
 			return stats;
 		}
 	};
@@ -236,7 +298,7 @@ namespace render_tests
 		fixture.CheckDebugLayer();
 	}
 
-	// A type draws all of its emitters' particles with one indirect draw, so the draw count depends on the number of types, not emitters.
+	// A batch draws all of its types' and emitters' particles with one indirect draw, so the draw count depends on the number of batches only.
 	void ParticleDrawCountTests()
 	{
 		auto fixture = Fixture(1);
@@ -251,12 +313,12 @@ namespace render_tests
 				return stats;
 			};
 
-			// One emitter of one type.
-			auto sparks = SpriteParticles(fixture, 4096, 256);
+			// One emitter of one type in one batch. The batch has room for a second type.
+			auto sparks = SpriteParticles(fixture, 4096, 256, api::EParticleBlend::Sorted, 4096 + 64);
 			sparks.Burst(sparks.Emitter(-40.0f), 4);
 			sparks.Step(BirthStep);
 			auto one = draw_stats();
-			Require(one.m_forward_indirect == 1, "One particle type should be one indirect draw");
+			Require(one.m_forward_indirect == 1, "One particle batch should be one indirect draw");
 
 			// Many more emitters of the same type add particles but no draws.
 			for (auto i = 1; i != 256; ++i)
@@ -267,12 +329,143 @@ namespace render_tests
 			auto many = draw_stats();
 			Require(many.m_forward == one.m_forward && many.m_forward_indirect == one.m_forward_indirect, "More emitters changed the draw count");
 
-			// A second type is one more draw.
-			auto smoke = SpriteParticles(fixture, 64);
-			smoke.Burst(smoke.Emitter(20.0f), 4);
-			smoke.Step(BirthStep);
+			// A second type in the same batch adds particles but no draws.
+			auto embers = sparks.SpriteTypeCreate(sparks.m_batch, 64, 4);
+			auto params = ParticleSpriteEmitter{};
+			params.position = { 20.0f, 0.0f, -ParticleDepth, 0.0f };
+			params.lifetime = { 100.0f, 100.0f };
+			params.size = { 8.0f, 8.0f };
+			params.colour0 = 0xFFFF0000U;
+			params.colour1 = 0xFFFF0000U;
+			Require(View3D_ParticleEmitterBurst(sparks.m_system, sparks.EmitterCreate(embers, &params, sizeof(params), 0.0f, 1), 4) != FALSE, "Particle burst failed");
+			sparks.Step(BirthStep);
+			Require(sparks.Stats(embers).m_live == 4, "The second type's particles should be live");
+			auto shared = draw_stats();
+			Require(shared.m_forward == one.m_forward && shared.m_forward_indirect == 1, "A second type in the same batch changed the draw count");
+
+			// A second batch is one more draw.
+			auto object = api::Object{};
+			auto batch = sparks.BatchCreate(64, api::EParticleBlend::Weighted, object);
+			auto smoke = sparks.SpriteTypeCreate(batch, 64, 4);
+			params.position = { 30.0f, 0.0f, -ParticleDepth, 0.0f };
+			Require(View3D_ParticleEmitterBurst(sparks.m_system, sparks.EmitterCreate(smoke, &params, sizeof(params), 0.0f, 1), 4) != FALSE, "Particle burst failed");
+			sparks.Step(BirthStep);
 			auto two = draw_stats();
-			Require(two.m_forward == one.m_forward + 1 && two.m_forward_indirect == 2, "A second type should add one indirect draw");
+			Require(two.m_forward == one.m_forward + 1 && two.m_forward_indirect == 2, "A second batch should add one indirect draw");
+		}
+		fixture.CheckErrors();
+		fixture.CheckDebugLayer();
+	}
+
+	// Types with different states, emitter parameters, constants and kernels share a batch when they write the same render record.
+	void ParticleBatchTests()
+	{
+		auto fixture = Fixture(1);
+		{
+			// A sprite type and a marker type in one batch.
+			auto particles = SpriteParticles(fixture, 64, 4, api::EParticleBlend::Sorted, 64 + 16);
+			auto constants = ParticleMarkerConstants{ .size = 6.0f };
+			auto markers = particles.TypeCreate(api::ParticleTypeOptions
+			{
+				.m_struct_size = sizeof(api::ParticleTypeOptions),
+				.m_version = api::ParticleTypeOptions::CurrentVersion,
+				.m_shaders =
+				{
+					.m_emit = { compiled::particle_marker_emit_cs, sizeof(compiled::particle_marker_emit_cs) },
+					.m_update = { compiled::particle_marker_update_cs, sizeof(compiled::particle_marker_update_cs) },
+				},
+				.m_batch = particles.m_batch,
+				.m_capacity = 16,
+				.m_max_emitters = 4,
+				.m_state_stride = sizeof(game_systems_tests::ParticleMarkerState),
+				.m_record_stride = sizeof(pr::game_systems::particles::ParticleSpriteRecord),
+				.m_params_stride = sizeof(ParticleMarkerEmitter),
+				.m_constants = &constants,
+				.m_constants_size = sizeof(constants),
+			}, "TestMarkers");
+
+			// Two red sprites on the left, and three red markers spaced 10 apart on the right, so no two particles overlap.
+			particles.Burst(particles.Emitter(-35.0f), 1);
+			particles.Burst(particles.Emitter(-25.0f, 0.0f, 0.0f, 100.0f, 2), 1);
+			auto params = ParticleMarkerEmitter{ .position = { 5.0f, 0.0f, -ParticleDepth }, .spacing = 10.0f, .colour = 0xFFFF0000U };
+			particles.Burst(particles.EmitterCreate(markers, &params, sizeof(params), 0.0f, 1), 3);
+			particles.Step(BirthStep);
+
+			// Each type counts only its own particles.
+			auto sprite_stats = particles.Stats();
+			auto marker_stats = particles.Stats(markers);
+			Require(sprite_stats.m_live == 2 && sprite_stats.m_free == 62, "Sprite type counts are wrong");
+			Require(marker_stats.m_live == 3 && marker_stats.m_free == 13, "Marker type counts are wrong");
+
+			// Every particle of both types is drawn, by one indirect draw.
+			auto image = fixture.Image();
+			for (auto x : { -35.0f, -25.0f, 5.0f, 15.0f, 25.0f })
+				Require(RedAt(image, x) > 0.25f, "A particle of the shared batch is not drawn");
+
+			Require(RedAt(image, 40.0f) < 0.01f, "Pixels outside every particle should be background");
+			auto stats = api::DrawStats{};
+			Require(View3D_WindowDrawStats(fixture.m_window, stats) != FALSE, "Draw stats failed");
+			Require(stats.m_forward_indirect == 1, "A shared batch should be one indirect draw");
+
+			// Markers never die, and sprites die at their lifetime, independently of each other.
+			particles.Step(200.0);
+			Require(particles.Stats().m_live == 0 && particles.Stats(markers).m_live == 3, "Types did not age independently");
+			image = fixture.Image();
+			Require(RedAt(image, -35.0f) < 0.01f && RedAt(image, 15.0f) > 0.25f, "Dead sprites drawn or live markers missing");
+
+			// Reset empties every type of the batch.
+			particles.Reset();
+			particles.Step(0.0);
+			Require(particles.Stats(markers).m_live == 0, "Reset left live markers");
+			Require(RedAt(fixture.Image(), 15.0f) < 0.01f, "Reset left markers in the image");
+		}
+		fixture.CheckErrors();
+		fixture.CheckDebugLayer();
+	}
+
+	// A batch rejects a type whose record stride differs from its own, or whose capacity would overflow it.
+	void ParticleBatchValidationTests()
+	{
+		auto fixture = Fixture(1);
+		{
+			auto particles = SpriteParticles(fixture, 64, 4, api::EParticleBlend::Sorted, 80);
+			auto sim = api::ParticleSimShaders{};
+			auto draw = api::ParticleDrawShaders{};
+			Require(View3D_ParticleSpriteShaders(&sim, &draw) != FALSE, "Particle sprite shaders unavailable");
+			auto constants = ParticleSpriteConstants{};
+			auto options = api::ParticleTypeOptions
+			{
+				.m_struct_size = sizeof(api::ParticleTypeOptions),
+				.m_version = api::ParticleTypeOptions::CurrentVersion,
+				.m_shaders = sim,
+				.m_batch = particles.m_batch,
+				.m_capacity = 16,
+				.m_max_emitters = 4,
+				.m_state_stride = sizeof(pr::game_systems::particles::ParticleSpriteState),
+				.m_record_stride = sizeof(pr::game_systems::particles::ParticleSpriteRecord),
+				.m_params_stride = sizeof(ParticleSpriteEmitter),
+				.m_constants = &constants,
+				.m_constants_size = sizeof(constants),
+			};
+
+			// Return true if creating a type with 'opts' fails.
+			auto rejected = [&](api::ParticleTypeOptions const& opts)
+			{
+				// Failures are reported as errors, which the fixture collects.
+				auto type = -1;
+				auto ok = View3D_ParticleTypeCreate(particles.m_system, opts, "Invalid", &type);
+				fixture.m_errors.clear();
+				return ok == FALSE;
+			};
+
+			// The batch holds 80 records and already has 64; a stride mismatch or 17 more records is rejected, and exactly 16 more is accepted.
+			auto bad_stride = options;
+			bad_stride.m_record_stride += 4;
+			Require(rejected(bad_stride), "A record stride mismatch was accepted");
+			auto too_many = options;
+			too_many.m_capacity = 17;
+			Require(rejected(too_many), "A batch capacity overflow was accepted");
+			Require(!rejected(options), "A type that fits the batch was rejected");
 		}
 		fixture.CheckErrors();
 		fixture.CheckDebugLayer();
@@ -304,8 +497,7 @@ namespace render_tests
 		View3D_CameraPositionSet(fixture.m_window, api::Vec4{ 0, -45, 20, 1 }, api::Vec4{ 0, 0, 5, 1 }, api::Vec4{ 0, 0, 1, 0 });
 		{
 			// One sprite type for every emitter, with the blend mode that smoke and other soft sprites use.
-			auto particles = SpriteParticles(fixture, Capacity, EmitterCount);
-			View3D_ObjectNuggetFlagsSet(particles.m_object, api::ENuggetFlag::AlphaWeighted, TRUE, nullptr, 0);
+			auto particles = SpriteParticles(fixture, Capacity, EmitterCount, api::EParticleBlend::Weighted);
 
 			// Tiny sparks thrown up from a grid of emitters over a 40 m square and pulled back down.
 			auto emitters = std::vector<std::pair<uint64_t, ParticleSpriteEmitter>>{};
@@ -446,6 +638,11 @@ namespace pr::unittests::game_systems
 	PRUnitTest(GameSystems_ParticleDrawCount, Extended | Serial)
 	{
 		render_tests::ParticleDrawCountTests();
+	}
+	PRUnitTest(GameSystems_ParticleBatch, Extended | Serial)
+	{
+		render_tests::ParticleBatchTests();
+		render_tests::ParticleBatchValidationTests();
 	}
 	PRUnitTest(GameSystems_ParticleCost, Stress | Serial)
 	{
