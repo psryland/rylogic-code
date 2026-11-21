@@ -305,6 +305,56 @@ namespace render_tests
 		fixture.CheckDebugLayer();
 		std::cout << "PASS alpha layering (" << samples << "x)\n";
 	}
+
+	// Check that weighted transparency is order independent, is hidden by opaque surfaces, and composites in front of or behind the K-buffer layers by depth.
+	void AlphaWeightedTests(int samples)
+	{
+		// Mark a quad's nugget for the weighted transparency pass instead of the K-buffer.
+		auto fixture = Fixture(samples);
+		auto weighted = [&](float depth, unsigned colour)
+		{
+			auto quad = fixture.Quad(depth, colour);
+			View3D_ObjectNuggetFlagsSet(quad, api::ENuggetFlag::AlphaWeighted, TRUE, nullptr, 0);
+			fixture.CheckErrors();
+			return quad;
+		};
+
+		// A single half-transparent weighted quad over black reveals half of the background.
+		weighted(10, 0x80FF0000);
+		Expect(fixture.Image(), 0.5f, 0, 0);
+
+		// Two weighted layers multiply their reveal, in either add order.
+		fixture.Clear();
+		weighted(10, 0x80FF0000);
+		weighted(20, 0x80FF0000);
+		Expect(fixture.Image(), 0.75f, 0, 0);
+		fixture.Clear();
+		weighted(20, 0x80FF0000);
+		weighted(10, 0x80FF0000);
+		Expect(fixture.Image(), 0.75f, 0, 0);
+
+		// An opaque surface in front hides the weighted fragments behind it.
+		fixture.Clear();
+		fixture.Quad(10, 0xFF0000FF);
+		weighted(20, 0x80FF0000);
+		Expect(fixture.Image(), 0, 0, 1);
+
+		// A weighted quad behind a K-buffer layer is composited before that layer: red = 0.5 * 0.5, green = 0.5.
+		fixture.Clear();
+		weighted(20, 0x80FF0000);
+		fixture.Quad(10, 0x8000FF00);
+		Expect(fixture.Image(), 0.25f, 0.5f, 0);
+
+		// A weighted quad in front of a K-buffer layer is composited after that layer: green = 0.5 * 0.5, red = 0.5.
+		fixture.Clear();
+		weighted(10, 0x80FF0000);
+		fixture.Quad(20, 0x8000FF00);
+		Expect(fixture.Image(), 0.5f, 0.25f, 0);
+
+		// Any GPU validation error fails the fixture.
+		fixture.CheckDebugLayer();
+		std::cout << "PASS alpha weighted (" << samples << "x)\n";
+	}
 }
 
 namespace pr::unittests::view3d12
@@ -318,6 +368,11 @@ namespace pr::unittests::view3d12
 	{
 		render_tests::AlphaLayeringTests(1);
 		render_tests::AlphaLayeringTests(4);
+	}
+	PRUnitTest(View3d12_AlphaWeighted, Extended | Serial)
+	{
+		render_tests::AlphaWeightedTests(1);
+		render_tests::AlphaWeightedTests(4);
 	}
 	PRUnitTest(View3d12_EmissiveScale, Extended | Serial)
 	{

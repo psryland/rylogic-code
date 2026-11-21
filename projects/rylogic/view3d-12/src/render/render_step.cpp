@@ -62,21 +62,26 @@ namespace pr::rdr12
 		// Sort by sort key
 		std::sort(std::begin(*drawlist), std::end(*drawlist));
 
-		// Find the alpha range, and sort it back to front by instance distance from the camera. The K-buffer orders fragments itself,
-		// but fragments beyond its layer count merge in arrival order, so far-to-near arrival keeps that approximation closest.
+		// Find the alpha ranges, and sort each back to front by instance distance from the camera. The K-buffer orders fragments itself,
+		// but fragments beyond its layer count merge in arrival order, so far-to-near arrival keeps that approximation closest. Weighted
+		// transparency does not depend on draw order, but sorting it keeps the unordered fallback without a K-buffer closest to correct.
 		auto alpha_start = std::lower_bound(drawlist->begin(), drawlist->end(), SortKey(ESortGroup::Alpha));
-		auto alpha_end = std::lower_bound(drawlist->begin(), drawlist->end(), SortKey(ESortGroup::PostAlpha));
+		auto weighted_start = std::lower_bound(alpha_start, drawlist->end(), SortKey(ESortGroup::AlphaWeighted));
+		auto alpha_end = std::lower_bound(weighted_start, drawlist->end(), SortKey(ESortGroup::PostAlpha));
 
 		auto cam_pos = scn().m_cam.CameraToWorld().pos;
-		std::sort(alpha_start, alpha_end, [=](DrawListElement const& lhs, DrawListElement const& rhs)
+		auto back_to_front = [=](DrawListElement const& lhs, DrawListElement const& rhs)
 		{
 			auto dl = LengthSq(GetO2W(*lhs.m_instance).pos - cam_pos);
 			auto dr = LengthSq(GetO2W(*rhs.m_instance).pos - cam_pos);
-			return dl > dr; // back to front
-		});
+			return dl > dr;
+		};
+		std::sort(alpha_start, weighted_start, back_to_front);
+		std::sort(weighted_start, alpha_end, back_to_front);
 
 		// Sorting done
 		m_boundaries[ESortGroup::Alpha] = s_cast<int>(std::distance(drawlist->begin(), alpha_start));
+		m_boundaries[ESortGroup::AlphaWeighted] = s_cast<int>(std::distance(drawlist->begin(), weighted_start));
 		m_boundaries[ESortGroup::PostAlpha] = s_cast<int>(std::distance(drawlist->begin(), alpha_end));
 		m_sort_needed = false;
 	}

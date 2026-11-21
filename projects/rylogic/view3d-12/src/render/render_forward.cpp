@@ -34,6 +34,24 @@ namespace pr::rdr12
 {
 	using namespace ::pr::compute;
 
+	// Restore the additive accumulation blend of the weighted transparency pass on render target 0. Alpha variant nuggets set an ordinary
+	// alpha blend on render target 0, which would otherwise replace the weighted pass blend when the pipeline is composed.
+	static void ApplyWeightedBlend(PipeStateDesc& desc)
+	{
+		desc.Apply(PSO<EPipeState::BlendState0>({
+			.BlendEnable = TRUE,
+			.LogicOpEnable = FALSE,
+			.SrcBlend = D3D12_BLEND_ONE,
+			.DestBlend = D3D12_BLEND_ONE,
+			.BlendOp = D3D12_BLEND_OP_ADD,
+			.SrcBlendAlpha = D3D12_BLEND_ONE,
+			.DestBlendAlpha = D3D12_BLEND_ONE,
+			.BlendOpAlpha = D3D12_BLEND_OP_ADD,
+			.LogicOp = D3D12_LOGIC_OP_NOOP,
+			.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL,
+		}));
+	}
+
 	// The procedural sky's low cloud accumulated over frames. The sky shader reads the previous frame's history and writes this frame's.
 	struct RenderForward::SkyHistory
 	{
@@ -222,6 +240,20 @@ namespace pr::rdr12
 		psdesc.SampleDesc = MultiSamp(1, 0);
 		m_alpha_pipe_state = psdesc;
 
+		// Weighted transparency accumulates into three 1x targets after the K-buffer collection. Accumulation adds, and reveal multiplies by (1 - alpha).
+		// The alpha variant nuggets set their own blend for render target 0, so 'ApplyWeightedBlend' restores the additive blend after composition.
+		psdesc.PS = shader_code::forward_alpha_weighted_ps;
+		psdesc.NumRenderTargets = 3U;
+		psdesc.RTVFormats[0] = AlphaKBuffer::WeightedAccumFormat;
+		psdesc.RTVFormats[1] = AlphaKBuffer::WeightedAccumFormat;
+		psdesc.RTVFormats[2] = AlphaKBuffer::WeightedRevealFormat;
+		psdesc.BlendState = BlendStateDesc{}
+			.enable(0).blend(0, D3D12_BLEND_OP_ADD, D3D12_BLEND_ONE, D3D12_BLEND_ONE).blend_alpha(0, D3D12_BLEND_OP_ADD, D3D12_BLEND_ONE, D3D12_BLEND_ONE)
+			.enable(1).blend(1, D3D12_BLEND_OP_ADD, D3D12_BLEND_ONE, D3D12_BLEND_ONE).blend_alpha(1, D3D12_BLEND_OP_ADD, D3D12_BLEND_ONE, D3D12_BLEND_ONE)
+			.enable(2).blend(2, D3D12_BLEND_OP_ADD, D3D12_BLEND_ZERO, D3D12_BLEND_INV_SRC_COLOR).blend_alpha(2, D3D12_BLEND_OP_ADD, D3D12_BLEND_ZERO, D3D12_BLEND_INV_SRC_ALPHA);
+		psdesc.BlendState.IndependentBlendEnable = TRUE;
+		m_alpha_weighted_pipe_state = psdesc;
+
 		// Post-alpha overlays render to the resolved target after alpha resolve, so they use a 1x no-depth forward PSO.
 		psdesc = *static_cast<D3D12_GRAPHICS_PIPELINE_STATE_DESC const*>(m_default_pipe_state);
 		psdesc.DepthStencilState = DepthStateDesc{}.Enabled(false);
@@ -275,11 +307,15 @@ namespace pr::rdr12
 				// Let the material add pass-specific sort key information.
 				sk = pass->AddSortKey(m_step_id, inst, material, nug, sk);
 
+				// Alpha variants flagged for weighted transparency draw in their own group, unless an override already moved them out of the alpha group.
+				if (nug.m_variant == AlphaNugget && AllSet(nug.m_nflags, ENuggetFlag::AlphaWeighted) && sk.Group() == ESortGroup::Alpha)
+					sk.Group(ESortGroup::AlphaWeighted);
+
 				// Reject unsupported materials before a window starts recording a frame, because a frame abandoned during recording cannot be retired.
 				// Only procedural pixel families can make the pixel shader selection fail, so other draws skip the composition.
 				if (materials::ProceduralPixelFamily(material, m_step_id) != nullptr)
 				{
-					auto desc = m_default_pipe_state;
+					auto desc = sk.Group() == ESortGroup::AlphaWeighted ? m_alpha_weighted_pipe_state : m_default_pipe_state;
 					ComposePipeline(desc, nug, inst, material, *pass, false, false);
 				}
 
@@ -438,11 +474,32 @@ namespace pr::rdr12
 			// Draw the alphas
 			auto drawlist = m_drawlist.lock();
 			auto alpha_start = boundaries[ESortGroup::Alpha];
+			auto weighted_start = boundaries[ESortGroup::AlphaWeighted];
 			auto alpha_end = boundaries[ESortGroup::PostAlpha];
 
 			// Use the alpha collect shader and disable depth writes for the alpha pass
-			auto pix_collect = pix::EventScope<ID3D12GraphicsCommandList>(m_alp_list.get(), 0xFFBA84E5, "View3D::AlphaCollect");
-			DrawNuggets(frame, m_alp_list, m_alpha_pipe_state, std::span{ *drawlist }.subspan(s_cast<size_t>(alpha_start), s_cast<size_t>(alpha_end - alpha_start)), alpha_start, ESubPass::Alpha);
+			{
+				auto pix_collect = pix::EventScope<ID3D12GraphicsCommandList>(m_alp_list.get(), 0xFFBA84E5, "View3D::AlphaCollect");
+				DrawNuggets(frame, m_alp_list, m_alpha_pipe_state, std::span{ *drawlist }.subspan(s_cast<size_t>(alpha_start), s_cast<size_t>(weighted_start - alpha_start)), alpha_start, ESubPass::Alpha);
+			}
+
+			// Accumulate the weighted transparency after the collection, because each fragment is split by depth against the nearest collected layer.
+			// The weighted targets were cleared at the start of the frame, so they are left untouched when there is nothing to draw.
+			if (weighted_start != alpha_end)
+			{
+				auto pix_weighted = pix::EventScope<ID3D12GraphicsCommandList>(m_alp_list.get(), 0xFFBA84E5, "View3D::AlphaWeighted");
+
+				BarrierBatch bb_weighted(m_alp_list);
+				bb_weighted.UAV(kbuf.m_alpha_depth->m_res.get());
+				bb_weighted.Transition(kbuf.m_weighted_behind->m_res.get(), D3D12_RESOURCE_STATE_RENDER_TARGET);
+				bb_weighted.Transition(kbuf.m_weighted_front->m_res.get(), D3D12_RESOURCE_STATE_RENDER_TARGET);
+				bb_weighted.Transition(kbuf.m_weighted_reveal->m_res.get(), D3D12_RESOURCE_STATE_RENDER_TARGET);
+				bb_weighted.Commit();
+
+				D3D12_CPU_DESCRIPTOR_HANDLE rtvs[] = { kbuf.m_weighted_behind->m_rtv.m_cpu, kbuf.m_weighted_front->m_rtv.m_cpu, kbuf.m_weighted_reveal->m_rtv.m_cpu };
+				m_alp_list.OMSetRenderTargets({ rtvs, _countof(rtvs) }, FALSE, nullptr);
+				DrawNuggets(frame, m_alp_list, m_alpha_weighted_pipe_state, std::span{ *drawlist }.subspan(s_cast<size_t>(weighted_start), s_cast<size_t>(alpha_end - weighted_start)), weighted_start, ESubPass::AlphaWeighted);
+			}
 
 			// Only the alpha surfaces read the reflection. Later passes rebind the frame without it.
 			m_shader.m_reflection_plane = nullptr;
@@ -496,8 +553,8 @@ namespace pr::rdr12
 		// so its states are collected whenever a reflection plane can be projected. See 'ReflectionPlaneNeeded'.
 		auto const mirror = kbuf && !All(scn().m_reflection_plane == v4::Zero());
 
-		// Add the states of one nugget drawn from 'base', with the fill mode variants that 'DrawNugget' applies
-		auto add = [&](PipeStateDesc const& base, Nugget const& nugget, BaseInstance const& instance, bool population, bool mirrored)
+		// Add the states of one nugget drawn from 'base', with the fill mode variants that 'DrawNugget' applies. 'weighted' restores the weighted pass blend.
+		auto add = [&](PipeStateDesc const& base, Nugget const& nugget, BaseInstance const& instance, bool population, bool mirrored, bool weighted = false)
 		{
 			// Draws without a pass for this step are skipped, as in 'DrawNuggets'
 			auto material_override = FindMaterial(instance);
@@ -508,6 +565,8 @@ namespace pr::rdr12
 
 			auto desc = base;
 			ComposePipeline(desc, nugget, instance, material, *pass, population, mirrored);
+			if (weighted)
+				ApplyWeightedBlend(desc);
 
 			// The point fill mode is a diagnostic view, so its pipelines are created when first drawn
 			auto const fill_mode = nugget.FillMode() != EFillMode::Default ? nugget.FillMode() : scn().FillMode();
@@ -561,8 +620,10 @@ namespace pr::rdr12
 				auto const group = dle.m_sort_key.Group();
 				if (!kbuf || group < ESortGroup::Alpha)
 					add_opaque(*dle.m_nugget, *dle.m_instance, false);
-				else if (group < ESortGroup::PostAlpha)
+				else if (group < ESortGroup::AlphaWeighted)
 					add(m_alpha_pipe_state, *dle.m_nugget, *dle.m_instance, false, false);
+				else if (group < ESortGroup::PostAlpha)
+					add(m_alpha_weighted_pipe_state, *dle.m_nugget, *dle.m_instance, false, false, true);
 				else
 					add(m_post_alpha_pipe_state, *dle.m_nugget, *dle.m_instance, false, false);
 			}
@@ -1168,7 +1229,7 @@ namespace pr::rdr12
 		auto bind_frame_resources = [&]
 		{
 			BindFrameResources(cmd_list);
-			if (sub_pass == ESubPass::Alpha)
+			if (sub_pass == ESubPass::Alpha || sub_pass == ESubPass::AlphaWeighted)
 				BindAlphaResources(frame, cmd_list);
 
 			bound.Reset();
@@ -1179,8 +1240,8 @@ namespace pr::rdr12
 		// Draw each element in the draw list
 		for (auto& dle : drawlist)
 		{
-			// The alpha collection must never collect background or overlay fragments.
-			if (sub_pass == ESubPass::Alpha && dle.m_sort_key.Group() < ESortGroup::Alpha)
+			// The alpha passes must never collect background or overlay fragments.
+			if ((sub_pass == ESubPass::Alpha || sub_pass == ESubPass::AlphaWeighted) && dle.m_sort_key.Group() < ESortGroup::Alpha)
 				continue;
 
 			// Something not rendering?
@@ -1216,6 +1277,8 @@ namespace pr::rdr12
 
 			auto const* population = populations.empty() ? nullptr : &populations[s_cast<size_t>(&dle - drawlist.data())];
 			ComposePipeline(desc, nugget, instance, material, *pass, population != nullptr, m_mirrored);
+			if (sub_pass == ESubPass::AlphaWeighted)
+				ApplyWeightedBlend(desc);
 
 			if (!frame_resources_bound)
 				bind_frame_resources();

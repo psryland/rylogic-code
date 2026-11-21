@@ -7,6 +7,9 @@
 Texture2D<float4>  g_opaque_colour :register(t0);
 Texture2D<uint4>   g_alpha_colour :register(t1);
 Texture2D<uint4>   g_alpha_depth :register(t2);
+Texture2D<float4>  g_weighted_behind :register(t3);
+Texture2D<float4>  g_weighted_front :register(t4);
+Texture2D<float2>  g_weighted_reveal :register(t5);
 
 // Root constants for the resolve pass.
 cbuffer CBufAlphaResolve :register(b0)
@@ -28,6 +31,15 @@ PSIn_KBufferResolve VSFullScreenTriangle(uint vid :SV_VertexID)
 	return Out;
 }
 
+// Composite one group of weighted transparency over 'base'. 'accum' is the sum of the weighted premultiplied colours and alphas,
+// and 'reveal' is the fraction of 'base' that remains visible through the group.
+float3 CompositeWeighted(float3 base, float4 accum, float reveal)
+{
+	// The group's colour is the weighted average of its fragment colours, covering (1 - reveal) of the pixel.
+	float3 average = accum.rgb / max(accum.a, 1e-5f);
+	return base * reveal + average * (1.0f - reveal);
+}
+
 float4 PSAlphaResolve(PSIn_KBufferResolve In) :SV_Target
 {
 	int2 pix = int2(In.ss_vert.xy);
@@ -35,9 +47,16 @@ float4 PSAlphaResolve(PSIn_KBufferResolve In) :SV_Target
 	uint4 alpha_colour = g_alpha_colour.Load(int3(pix, 0));
 	uint4 alpha_depth = g_alpha_depth.Load(int3(pix, 0));
 
+	// A reveal of one means no weighted fragment covered the group, so its accumulation is not read.
+	float2 reveal = g_weighted_reveal.Load(int3(pix, 0));
+
 	// Merge the OIA alpha pixels over the opaque colour.
 	float4 oia = UnpackOia(alpha_depth);
 	base.rgb = base.rgb * (1.0f - oia.a) + oia.rgb * oia.a;
+
+	// Merge the weighted fragments that are behind the nearest collected layer. They are treated as behind all of the collected layers.
+	if (reveal.r != 1.0f)
+		base.rgb = CompositeWeighted(base.rgb, g_weighted_behind.Load(int3(pix, 0)), reveal.r);
 
 	// Merge each alpha layer from back to front.
 	if (DepthOf(alpha_depth.w) != KBufferDepthFar)
@@ -61,8 +80,12 @@ float4 PSAlphaResolve(PSIn_KBufferResolve In) :SV_Target
 		base.rgb = base.rgb * (1.0f - src.a) + src.rgb * src.a;
 	}
 
+	// Merge the weighted fragments that are in front of every collected layer.
+	if (reveal.g != 1.0f)
+		base.rgb = CompositeWeighted(base.rgb, g_weighted_front.Load(int3(pix, 0)), reveal.g);
+
 	// Dither only composited pixels. Opaque-only pixels were dithered when drawn, and their stored values are already exact 8-bit steps.
-	if (oia.a != 0.0f || DepthOf(alpha_depth.x) != KBufferDepthFar)
+	if (oia.a != 0.0f || DepthOf(alpha_depth.x) != KBufferDepthFar || any(reveal != 1.0f))
 		base.rgb = DitherSrgb8(base.rgb, uint2(pix), g_dither_amount, 2);
 
 	return base;

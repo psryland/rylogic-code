@@ -94,6 +94,10 @@ namespace pr::rdr12
 		// usually an error, but in advanced cases it isn't.
 		RangesCanOverlap = 1 << 5,
 
+		// Draw alpha with weighted blended transparency instead of the sorted K-buffer layers. Weighted fragments have no per-pixel order among
+		// themselves, so this suits soft, overlapping effects like smoke, where many layers would overflow the K-buffer.
+		AlphaWeighted = 1 << 6,
+
 		_flags_enum = 0,
 	};
 

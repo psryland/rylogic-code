@@ -97,6 +97,10 @@ namespace Rylogic.Gfx
 			// usually an error, but in advanced cases it isn't.
 			RangesCanOverlap = 1 << 5,
 
+			// Draw alpha with weighted blended transparency instead of the sorted K-buffer layers. Weighted fragments have no per-pixel order among
+			// themselves, so this suits soft, overlapping effects like smoke, where many layers would overflow the K-buffer.
+			AlphaWeighted = 1 << 6,
+
 			_flags_enum = 0,
 			// PR_CODE_SYNC_END()
 		}
@@ -355,7 +359,8 @@ namespace Rylogic.Gfx
 			PostOpaques,           // 
 			PreAlpha = Default + 16, // Last group before the alpha group
 			Alpha,                 // Alpha nuggets, collected into the K-buffer
-			PostAlpha,             // First group after the alpha group
+			AlphaWeighted,         // Alpha nuggets drawn with weighted blended transparency (see ENuggetFlag.AlphaWeighted)
+			PostAlpha,             // First group after the alpha groups
 			Max = 127,             // The maximum sort group value
 		}
 		public enum ESceneBounds : int
