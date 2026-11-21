@@ -226,15 +226,16 @@ Dense smoke stresses the K-buffer's finite layers/overflow approximation and pix
 
 **Decision: weighted blended transparency is a general View3D transparency mode, not a particle feature.** It is a render-pipeline concern (targets, pass order, resolve), so it belongs in View3D next to the K-buffer. Any nugget may select it; game-systems only chooses it per particle type.
 
-- Modes, chosen per nugget/material: `Sorted` (the K-buffer, the default and unchanged) and `Weighted` (order-independent accumulation). Opaque and cutout stay as they are.
+- Modes, chosen per nugget: `Sorted` (the K-buffer, the default and unchanged) and `Weighted` (order-independent accumulation), selected by `ENuggetFlag::AlphaWeighted`. A flagged alpha nugget moves to the `ESortGroup::AlphaWeighted` sort group, which follows `Alpha`. Opaque and cutout stay as they are. Without a K-buffer (no alpha targets) weighted nuggets draw with ordinary blending, like other alpha nuggets.
 - `Weighted` suits many overlapping, similar, soft translucent layers where exact order does not matter: smoke, dust, steam, spray and mist, cloud and fog cards, fire glow, light-shaft cards, ghost/placement previews, selection highlights, and dense translucent debug or chart data such as point clouds and atmosphere tracers.
 - `Sorted` stays right for few, distinct layers whose order is visible: glass, water surfaces, UI-like panels, sparks and markers.
-- Targets: an RGBA16F weighted-colour sum and an R16F revealage per view, for each of two depth groups (see below).
-- Pass order: opaque, then K-buffer collection, then weighted accumulation. Weighted fragments test against opaque depth, do not write depth, and read the pixel's nearest K-buffer layer depth to choose a group: behind it or in front of it.
+- Targets (owned by `AlphaKBuffer`): two RGBA16F weighted-colour sums, one for each depth group, and one RG16F revealage target holding both groups (r = behind, g = in front).
+- Pass order: opaque, then K-buffer collection, then weighted accumulation (`ESubPass::AlphaWeighted`). Weighted fragments are clipped against opaque depth, do not write depth, and read the pixel's nearest K-buffer layer depth to choose a group: behind it or in front of it. Stock pixel families provide a weighted entry point in the `Weighted` pixel slot; custom procedural families must provide one to be drawn weighted.
+- Weighting: each fragment adds `(rgb·a, a)·w` with `w = a·clamp(3000·(1 − t)³, 0.01, 3000)`, where `t` is its depth as a fraction of the clip range, so nearer fragments dominate the average independently of scene units.
 - Resolve (one full-screen pass, `kbuffer_resolve.hlsl`): opaque, then the K-buffer overflow, then the weighted *behind* group, then the K-buffer layers back to front, then the weighted *in front* group.
 - Limits: a weighted fragment between two sorted layers composites behind both; there is no order inside a group. Weighted pixels never consume K-buffer layers, which also reduces overflow for sorted surfaces.
-- Cost: four extra targets per view (two per group), 20 bytes per pixel in total, plus one accumulation pass and the extra resolve reads. Measure it. Views with no weighted nuggets skip the clear, the pass and the reads.
-- Parity: scenes with no weighted nuggets must render identically to today; this is a renderer-wide change and needs explicit no-weighted parity tests.
+- Cost: three extra targets per view, 20 bytes per pixel in total, cleared every frame with the K-buffer, plus one accumulation pass when weighted nuggets exist. The resolve reads only revealage for pixels that no weighted fragment covers. Measure it.
+- Parity: pixels with no weighted fragments resolve exactly as before. `View3d12_AlphaLayering` covers the unchanged sorted path and `View3d12_AlphaWeighted` covers order independence, opaque occlusion, and both depth groups.
 
 Additive blending is order-independent and can be expressed in the weighted mode's contract; it does not need a third path. Do not add CPU depth sorting. Emissive appearance does not itself require additive blending.
 

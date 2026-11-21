@@ -100,6 +100,8 @@ namespace view3d_test
 
 				m_scene.Add(object);
 
+				// Weighted transparency blends overlapping soft sprites, such as smoke, smoothly in any order. The K-buffer keeps only the nearest layers.
+				View3D_ObjectNuggetFlagsSet(object, api::ENuggetFlag::AlphaWeighted, TRUE, nullptr, 0);
 				// Sparks: a fountain thrown up and pulled down by gravity.
 				AddEffect(600.0f, Params({ -8, 0, 0.2f, 0.1f }, { 0, 0, 9, 3 }, { 0, 0, -9.8f }, { 1.2f, 2.0f }, { 0.15f, 0.05f }, 0xFFFFD040, 0x00FF4000));
 
@@ -125,6 +127,10 @@ namespace view3d_test
 					for (auto const& effect : m_effects)
 						Update(effect.m_id, effect.m_rate * m_rate_scale, effect.m_params);
 				}, 40);
+				ui.AddCheckBox(L"Weighted transparency (off = K-buffer)", true, [object](bool on)
+				{
+					View3D_ObjectNuggetFlagsSet(object, api::ENuggetFlag::AlphaWeighted, on ? TRUE : FALSE, nullptr, 0);
+				});
 				ui.AddButton(L"Burst 5000", [this]
 				{
 					View3D_ParticleEmitterBurst(m_system, m_burst, 5000);
