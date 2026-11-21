@@ -3202,6 +3202,19 @@ VIEW3D_API BOOL __stdcall View3D_ParticleSpriteShaders(view3d::ParticleSimShader
 	}
 	CatchAndReport(View3D_ParticleSpriteShaders, , FALSE);
 }
+VIEW3D_API BOOL __stdcall View3D_ParticleMeshShaders(view3d::ParticleDrawShaders* out_draw)
+{
+	try
+	{
+		// The shaders are static data and need no renderer.
+		if (out_draw == nullptr)
+			throw std::invalid_argument("Particle mesh shaders output is required");
+
+		*out_draw = game_systems::particles::ParticleSystem::MeshDrawShaders();
+		return TRUE;
+	}
+	CatchAndReport(View3D_ParticleMeshShaders, , FALSE);
+}
 VIEW3D_API BOOL __stdcall View3D_ParticleBatchCreate(view3d::ParticleSystem system, view3d::ParticleBatchOptions const& options, char const* name, int* out_batch, view3d::Object* out_object)
 {
 	try

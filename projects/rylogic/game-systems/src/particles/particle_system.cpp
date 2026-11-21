@@ -6,6 +6,7 @@
 #include "pr/game-systems/particles/particle_system.h"
 #include "pr/game-systems/particles/particles.hlsli"
 #include "pr/game-systems/particles/particle_sprite.hlsli"
+#include "pr/game-systems/particles/particle_mesh.hlsli"
 
 #ifdef NDEBUG
 #define PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(file) PR_STRINGISE(game-systems/src/shaders/hlsl/compiled/release/##file)
@@ -35,6 +36,7 @@ namespace pr::game_systems::particles
 		#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(particle_sprite_emit_cs.h)
 		#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(particle_sprite_update_cs.h)
 		#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(particle_sprite_vs.h)
+		#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(particle_mesh_vs.h)
 	}
 
 	namespace
@@ -134,6 +136,7 @@ namespace pr::game_systems::particles
 		D3DPtr<ID3D12Resource> m_records;
 		D3DPtr<ID3D12Resource> m_draw_args;
 		D3DPtr<ID3D12Resource> m_bounds;
+		D3DPtr<ID3D12Resource> m_vertex_data; // The draw's optional per-vertex data. Null when it has none.
 	};
 
 	// One particle type: its pool of GPU buffers, its kernels, and the CPU copy of its emitter slots.
@@ -241,6 +244,8 @@ namespace pr::game_systems::particles
 				m_rdr.DeferRelease(batch->m_records);
 				m_rdr.DeferRelease(batch->m_draw_args);
 				m_rdr.DeferRelease(batch->m_bounds);
+				if (batch->m_vertex_data != nullptr)
+					m_rdr.DeferRelease(batch->m_vertex_data);
 			}
 			m_rdr.DeferRelease(m_reset);
 			m_rdr.DeferRelease(m_finalize);
@@ -268,6 +273,15 @@ namespace pr::game_systems::particles
 				throw std::invalid_argument("Particle indices must be a non-empty triangle list over a positive vertex count");
 			if (std::any_of(shaders.m_indices, shaders.m_indices + shaders.m_index_count, [&](uint32_t i) { return i >= static_cast<uint32_t>(shaders.m_vertex_count); }))
 				throw std::invalid_argument("Particle indices must be less than the vertex count");
+			if (!AllSet(shaders.m_geom, pr::view3d::EGeom::Vert))
+				throw std::invalid_argument("Particle vertex shader outputs must include positions");
+			if (shaders.m_vertex_data != nullptr)
+				RequireStride(shaders.m_vertex_stride, "Particle vertex data stride must be a multiple of 4 bytes in [4, 2048]");
+			else if (shaders.m_vertex_stride != 0)
+				throw std::invalid_argument("Particle vertex data stride must be zero when there is no vertex data");
+
+			if (static_cast<size_t>(shaders.m_vertex_count) * shaders.m_vertex_stride > pr::view3d::ProceduralBinding::MaxBufferSize)
+				throw std::invalid_argument("Particle vertex data exceeds the procedural buffer size");
 
 			// Create the records, the draw arguments, and the record bounds. They rest in the states that the draw and the renderer's cull read them in. The instance count starts at
 			// zero and is zeroed again at the start of every step and reset, before the batch's types add their records.
@@ -282,6 +296,12 @@ namespace pr::game_systems::particles
 			batch->m_records = m_factory.CreateResource(ResDesc::Buf(options.m_capacity, options.m_record_stride, none, 4).usage(EUsage::UnorderedAccess).def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE), batch_name + ":Records");
 			batch->m_draw_args = m_factory.CreateResource(ResDesc::Buf<uint32_t>(ParticleDrawArgsCount, std::span<uint32_t const>(draw_args)).usage(EUsage::UnorderedAccess).def_state(D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE), batch_name + ":DrawArgs");
 			batch->m_bounds = m_factory.CreateResource(ResDesc::Buf(options.m_capacity, sizeof(v4), none, 16).usage(EUsage::UnorderedAccess).def_state(D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE), batch_name + ":Bounds");
+			if (shaders.m_vertex_data != nullptr)
+			{
+				// The per-vertex data never changes, so it is copied to the GPU once and only read by the draw.
+				auto const data = std::span<std::byte const>(static_cast<std::byte const*>(shaders.m_vertex_data), static_cast<size_t>(shaders.m_vertex_count) * shaders.m_vertex_stride);
+				batch->m_vertex_data = m_factory.CreateResource(ResDesc::Buf(shaders.m_vertex_count, shaders.m_vertex_stride, data, 4).def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE), batch_name + ":VertexData");
+			}
 			m_factory.FlushToGpu(EGpuFlush::Async);
 
 			// Create the batch's object: one instance per record, drawn by one indirect draw whose instance count the GPU writes.
@@ -742,7 +762,7 @@ namespace pr::game_systems::particles
 			}
 			auto nugget = pr::view3d::Nugget{};
 			nugget.m_topo = pr::view3d::ETopo::TriList;
-			nugget.m_geom = pr::view3d::EGeom::Vert | pr::view3d::EGeom::Colr;
+			nugget.m_geom = shaders.m_geom;
 			nugget.m_v0 = 0;
 			nugget.m_v1 = 1;
 			nugget.m_i0 = 0;
@@ -754,6 +774,8 @@ namespace pr::game_systems::particles
 			nugget.m_fill_mode = pr::view3d::EFillMode::Default;
 			nugget.m_tint = 0xFFFFFFFFU;
 			nugget.m_rel_reflec = 1.0f;
+			nugget.m_tex_diffuse = options.m_texture;
+			nugget.m_sam_diffuse = options.m_sampler;
 
 			// The vertex shader generates every vertex from its logical id and instance, so the object has one placeholder vertex.
 			auto const options_create = pr::view3d::ObjectCreateOptions
@@ -774,8 +796,11 @@ namespace pr::game_systems::particles
 
 			try
 			{
-				// The object keeps its own references to the records, the draw arguments, and the record bounds that the renderer culls with.
+				// The object keeps its own references to the records, the optional vertex data, the draw arguments, and the record bounds that the renderer culls with.
 				View3D_ObjectProceduralBufferSet(object, 0, batch.m_records.get());
+				if (batch.m_vertex_data != nullptr)
+					View3D_ObjectProceduralBufferSet(object, 1, batch.m_vertex_data.get());
+
 				View3D_ObjectNuggetDrawArgsSet(object, batch.m_draw_args.get(), 0, batch.m_bounds.get(), static_cast<int>(batch.m_capacity), 0);
 			}
 			catch (...)
@@ -811,6 +836,23 @@ namespace pr::game_systems::particles
 			.m_indices = SpriteIndices.data(),
 			.m_index_count = static_cast<int>(SpriteIndices.size()),
 			.m_vertex_count = static_cast<int>(ParticleSpriteVertexCount),
+			.m_geom = pr::view3d::EGeom::Vert | pr::view3d::EGeom::Colr,
+			.m_vertex_data = nullptr,
+			.m_vertex_stride = 0,
+		};
+	}
+
+	// The vertex shader and outputs of a batch of stock mesh records. The caller supplies the mesh.
+	pr::view3d::ParticleDrawShaders ParticleSystem::MeshDrawShaders()
+	{
+		return pr::view3d::ParticleDrawShaders{
+			.m_vertex = { compiled::particle_mesh_vs, sizeof(compiled::particle_mesh_vs) },
+			.m_indices = nullptr,
+			.m_index_count = 0,
+			.m_vertex_count = 0,
+			.m_geom = pr::view3d::EGeom::Vert | pr::view3d::EGeom::Colr | pr::view3d::EGeom::Norm | pr::view3d::EGeom::Tex0,
+			.m_vertex_data = nullptr,
+			.m_vertex_stride = sizeof(ParticleMeshVertex),
 		};
 	}
 }

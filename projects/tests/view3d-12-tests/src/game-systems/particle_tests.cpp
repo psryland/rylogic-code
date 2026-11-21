@@ -7,6 +7,7 @@
 #include "../view3d-12/forward.h"
 #include "../view3d-12/render_test_support.h"
 #include "pr/game-systems/particles/particle_sprite.hlsli"
+#include "pr/game-systems/particles/particle_mesh.hlsli"
 #include "shaders/hlsl/particle_marker.hlsli"
 #include "shaders/hlsl/particle_chip.hlsli"
 
@@ -484,6 +485,7 @@ namespace render_tests
 				.m_indices = indices.data(),
 				.m_index_count = static_cast<int>(indices.size()),
 				.m_vertex_count = static_cast<int>(ParticleChipVertexCount),
+				.m_geom = api::EGeom::Vert | api::EGeom::Colr | api::EGeom::Norm,
 			};
 			auto draw_constants = ParticleChipDrawConstants{ .width = 0.5f, .thickness = 0.25f };
 			auto object = api::Object{};
@@ -546,6 +548,143 @@ namespace render_tests
 			particles.Step(200.0);
 			Require(particles.Stats(chips).m_live == 0, "Chips outlived their lifetime");
 			Require(RedAt(fixture.Image(), 5.0f) < 0.01f, "Dead chips are drawn");
+		}
+		fixture.CheckErrors();
+		fixture.CheckDebugLayer();
+	}
+
+	// The stock mesh batch draws a caller's shared mesh for each record, textured by the batch texture. Chips write the mesh record layout, so the
+	// test chip type is drawn by it.
+	void ParticleMeshTests()
+	{
+		auto fixture = Fixture(1);
+		{
+			using namespace game_systems_tests;
+			using ParticleMeshVertex = pr::game_systems::particles::ParticleMeshVertex;
+			static_assert(sizeof(ParticleChipRecord) == sizeof(pr::game_systems::particles::ParticleMeshRecord));
+
+			// A unit card facing +z, so the camera sees it face on. 'u' runs along x and 'v' down y.
+			static constexpr auto card = std::array<ParticleMeshVertex, 4>
+			{{
+				{ .pos = { -0.5f, -0.5f, 0.0f }, .u = 0.0f, .norm = { 0.0f, 0.0f, 1.0f }, .v = 1.0f },
+				{ .pos = { +0.5f, -0.5f, 0.0f }, .u = 1.0f, .norm = { 0.0f, 0.0f, 1.0f }, .v = 1.0f },
+				{ .pos = { +0.5f, +0.5f, 0.0f }, .u = 1.0f, .norm = { 0.0f, 0.0f, 1.0f }, .v = 0.0f },
+				{ .pos = { -0.5f, +0.5f, 0.0f }, .u = 0.0f, .norm = { 0.0f, 0.0f, 1.0f }, .v = 0.0f },
+			}};
+			static constexpr auto card_indices = std::array<uint32_t, 6>{ 0, 1, 2, 0, 2, 3 };
+
+			// A two-texel texture: the left texel is transparent and the right one is opaque red. Point sampling keeps the halves sharp.
+			auto texture_options = api::TextureOptions{};
+			texture_options.m_format = DXGI_FORMAT_R8G8B8A8_UNORM;
+			texture_options.m_resource_state = D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE;
+			texture_options.m_mips = 1;
+			texture_options.m_multisamp = { 1, 0 };
+			texture_options.m_t2s = { {1,0,0,0}, {0,1,0,0}, {0,0,1,0}, {0,0,0,1} };
+			auto const texels = std::array<uint32_t, 2>{ 0x00000000U, 0xFF0000FFU };
+			auto texture = api::TexturePtr(View3D_TextureCreate(2, 1, texels.data(), sizeof(texels), texture_options));
+			auto sampler = View3D_SamplerCreateStock(api::EStockSampler::PointClamp);
+			fixture.CheckErrors();
+			Require(texture != nullptr && sampler != nullptr, "Mesh texture creation failed");
+
+			// The stock mesh draw with the card as its shared mesh, in an opaque batch next to the helper's sprite batch.
+			auto particles = SpriteParticles(fixture, 16, 4);
+			auto draw = api::ParticleDrawShaders{};
+			Require(View3D_ParticleMeshShaders(&draw) != FALSE, "Particle mesh shaders unavailable");
+			draw.m_indices = card_indices.data();
+			draw.m_index_count = static_cast<int>(card_indices.size());
+			draw.m_vertex_count = static_cast<int>(card.size());
+			draw.m_vertex_data = card.data();
+			auto options = api::ParticleBatchOptions
+			{
+				.m_struct_size = sizeof(api::ParticleBatchOptions),
+				.m_version = api::ParticleBatchOptions::CurrentVersion,
+				.m_shaders = draw,
+				.m_capacity = 16,
+				.m_record_stride = sizeof(ParticleChipRecord),
+				.m_constants = nullptr,
+				.m_constants_size = 0,
+				.m_blend = api::EParticleBlend::Opaque,
+				.m_bbox = api::BBox{ {0, 0, 0, 1}, {100, 100, 100, 0} },
+				.m_texture = texture.get(),
+				.m_sampler = sampler,
+			};
+
+			// Return true if creating a batch with 'opts' fails. Failures are reported as errors, which the fixture collects.
+			auto rejected = [&](api::ParticleBatchOptions const& opts)
+			{
+				auto batch = -1;
+				auto object = api::Object{};
+				auto ok = View3D_ParticleBatchCreate(particles.m_system, opts, "Invalid", &batch, &object);
+				fixture.m_errors.clear();
+				return ok == FALSE;
+			};
+
+			// Vertex data needs a valid stride, a stride needs vertex data, and every draw generates positions.
+			auto bad_stride = options;
+			bad_stride.m_shaders.m_vertex_stride = 30;
+			Require(rejected(bad_stride), "A vertex data stride that is not a multiple of 4 was accepted");
+			auto no_data = options;
+			no_data.m_shaders.m_vertex_data = nullptr;
+			Require(rejected(no_data), "A vertex data stride without vertex data was accepted");
+			auto no_vert = options;
+			no_vert.m_shaders.m_geom = api::EGeom::Colr;
+			Require(rejected(no_vert), "A draw without positions was accepted");
+
+			auto object = api::Object{};
+			auto batch = -1;
+			View3D_ParticleBatchCreate(particles.m_system, options, "TestMeshes", &batch, &object);
+			fixture.CheckErrors();
+			fixture.m_objects.push_back(object);
+			View3D_WindowAddObject(fixture.m_window, object);
+
+			// Two unturned white chips, 8 long, spaced 12 apart, drawn as cards by the mesh batch.
+			auto constants = ParticleChipConstants{};
+			auto chips = particles.TypeCreate(api::ParticleTypeOptions
+			{
+				.m_struct_size = sizeof(api::ParticleTypeOptions),
+				.m_version = api::ParticleTypeOptions::CurrentVersion,
+				.m_shaders =
+				{
+					.m_emit = { compiled::particle_chip_emit_cs, sizeof(compiled::particle_chip_emit_cs) },
+					.m_update = { compiled::particle_chip_update_cs, sizeof(compiled::particle_chip_update_cs) },
+				},
+				.m_batch = batch,
+				.m_capacity = 16,
+				.m_max_emitters = 4,
+				.m_state_stride = sizeof(ParticleChipState),
+				.m_record_stride = sizeof(ParticleChipRecord),
+				.m_params_stride = sizeof(ParticleChipEmitter),
+				.m_constants = &constants,
+				.m_constants_size = sizeof(constants),
+			}, "TestMeshChips");
+			auto params = ParticleChipEmitter
+			{
+				.position = { 5.0f, 0.0f, -ParticleDepth, 8.0f },
+				.velocity = { 0.0f, 0.0f, 0.0f, 0.0f },
+				.spacing = 12.0f,
+				.spin = 0.0f,
+				.lifetime = 100.0f,
+				.colour = 0xFFFFFFFFU,
+			};
+			auto emitter = particles.EmitterCreate(chips, &params, sizeof(params), 0.0f, 1);
+			particles.Burst(emitter, 2);
+			particles.Step(BirthStep);
+			Require(particles.Stats(chips).m_live == 2, "Mesh chip count is wrong");
+
+			// Each card is red over its right half, where the texture is opaque. Its left half is cut out by the transparent texel, and the cards are
+			// no wider than their size.
+			auto image = fixture.Image();
+			for (auto x : { 7.0f, 19.0f })
+				Require(RedAt(image, x) > 0.1f, "A mesh card does not show the batch texture");
+			for (auto x : { 3.0f, 15.0f })
+				Require(RedAt(image, x) < 0.01f, "A transparent texel of a mesh card is drawn");
+			for (auto x : { 11.0f, 23.0f })
+				Require(RedAt(image, x) < 0.01f, "A mesh card is larger than its size");
+
+			// The sprite batch and the mesh batch are one indirect draw each.
+			auto stats = api::DrawStats{};
+			Require(View3D_WindowDrawStats(fixture.m_window, stats) != FALSE, "Draw stats failed");
+			Require(stats.m_forward_indirect == 2, "Each batch should be one indirect draw");
 		}
 		fixture.CheckErrors();
 		fixture.CheckDebugLayer();
@@ -791,6 +930,10 @@ namespace pr::unittests::game_systems
 	PRUnitTest(GameSystems_ParticleCustomRecord, Extended | Serial)
 	{
 		render_tests::ParticleCustomRecordTests();
+	}
+	PRUnitTest(GameSystems_ParticleMesh, Extended | Serial)
+	{
+		render_tests::ParticleMeshTests();
 	}
 	PRUnitTest(GameSystems_ParticleCost, Stress | Serial)
 	{

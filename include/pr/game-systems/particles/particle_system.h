@@ -32,6 +32,10 @@ namespace pr::game_systems::particles
 		// The drawing shaders of the stock sprite batch. The data is static.
 		static pr::view3d::ParticleDrawShaders SpriteDrawShaders();
 
+		// The vertex shader, outputs and vertex stride of the stock mesh batch (see particle_mesh.hlsli). The caller supplies the mesh: its
+		// ParticleMeshVertex array as 'm_vertex_data', its triangle list as 'm_indices', and their counts. The data is static.
+		static pr::view3d::ParticleDrawShaders MeshDrawShaders();
+
 		// Validate 'options' and add a particle batch, returning its index. Its View3D object is returned in 'out_object'.
 		virtual int BatchCreate(pr::view3d::ParticleBatchOptions const& options, char const* name, pr::view3d::Object& out_object) = 0;
 

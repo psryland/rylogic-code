@@ -73,6 +73,12 @@
     <ShaderBuild Include="src\shaders\hlsl\particles\particle_sprite_vs.hlsl">
       <Filter>src\shaders</Filter>
     </ShaderBuild>
+    <None Include="$(RylogicRoot)include\pr\game-systems\particles\particle_mesh.hlsli">
+      <Filter>pr\particles</Filter>
+    </None>
+    <ShaderBuild Include="src\shaders\hlsl\particles\particle_mesh_vs.hlsl">
+      <Filter>src\shaders</Filter>
+    </ShaderBuild>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="pr">

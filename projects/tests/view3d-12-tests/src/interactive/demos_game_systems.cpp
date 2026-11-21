@@ -4,15 +4,18 @@
 //*********************************************
 // Demos of the game-systems library: GPU-resident particles.
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <format>
 #include <stdexcept>
 #include <vector>
+#include "pr/common/flags_enum.h"
 #include "pr/hlsl/interop.h"
 #include "pr/gui/wingui.h"
 #include "pr/view3d-12/view3d-dll.h"
 #include "pr/game-systems/particles/particle_sprite.hlsli"
+#include "pr/game-systems/particles/particle_mesh.hlsli"
 #include "../game-systems/shaders/hlsl/particle_chip.hlsli"
 #include "demo.h"
 #include "controls_panel.h"
@@ -49,6 +52,7 @@ namespace view3d_test
 			static constexpr int MaxGridSide = 32;
 			static constexpr float GridRate = 100.0f;
 			static constexpr int ChipCapacity = 4096;
+			static constexpr int LeafCapacity = 1024;
 
 			// One continuous effect: its emitter id, its parameters, and its rate before the rate scale.
 			struct Effect
@@ -157,9 +161,12 @@ namespace view3d_test
 				// Wood chips: tumbling opaque boxes thrown from a chopped tree.
 				CreateChips();
 
+				// Leaves: textured cards tumbling down from a canopy, drawn by the stock mesh batch.
+				CreateLeaves();
+
 				// Demo controls.
 				auto& ui = ctx.m_controls;
-				ui.AddLabel(L"Sprites are one particle type in one batch, drawn with one draw call. Wood chips are a custom type with their own record and vertex shader, in a second, opaque batch. Particle state lives on the GPU.");
+				ui.AddLabel(L"Sprites are one particle type in one batch, drawn with one draw call. Wood chips are a custom type with their own record and vertex shader, in a second, opaque batch. Leaves reuse the chip simulation, drawn as textured cards by the stock mesh batch. Particle state lives on the GPU.");
 				ui.AddSlider(L"Time scale (0 = pause)", 0, 2, m_time_scale, [this](float v)
 				{
 					m_time_scale = v;
@@ -250,6 +257,7 @@ namespace view3d_test
 						.m_indices = indices.data(),
 						.m_index_count = static_cast<int>(indices.size()),
 						.m_vertex_count = static_cast<int>(ParticleChipVertexCount),
+						.m_geom = api::EGeom::Vert | api::EGeom::Colr | api::EGeom::Norm,
 					},
 					.m_capacity = ChipCapacity,
 					.m_record_stride = sizeof(ParticleChipRecord),
@@ -301,6 +309,124 @@ namespace view3d_test
 				auto settings = api::ParticleEmitter{ .m_rate = 0.0f, .m_seed = 7, .m_active = TRUE };
 				if (!View3D_ParticleEmitterCreate(m_system, m_chip_type, settings, &params, sizeof(params), &m_chips))
 					throw std::runtime_error("Particle chip emitter creation failed");
+			}
+
+			// Add the falling leaves: the chip simulation drawn by the stock mesh batch as textured, two-sided leaf cards.
+			void CreateLeaves()
+			{
+				// A leaf card in the xy plane, with a back face of reversed winding so tumbling leaves are seen from both sides.
+				using namespace game_systems_tests;
+				using ParticleMeshVertex = pr::game_systems::particles::ParticleMeshVertex;
+				static constexpr auto card = std::array<ParticleMeshVertex, 8>
+				{{
+					{ .pos = { -0.5f, -0.5f, 0.0f }, .u = 0.0f, .norm = { 0.0f, 0.0f, +1.0f }, .v = 1.0f },
+					{ .pos = { +0.5f, -0.5f, 0.0f }, .u = 1.0f, .norm = { 0.0f, 0.0f, +1.0f }, .v = 1.0f },
+					{ .pos = { +0.5f, +0.5f, 0.0f }, .u = 1.0f, .norm = { 0.0f, 0.0f, +1.0f }, .v = 0.0f },
+					{ .pos = { -0.5f, +0.5f, 0.0f }, .u = 0.0f, .norm = { 0.0f, 0.0f, +1.0f }, .v = 0.0f },
+					{ .pos = { -0.5f, -0.5f, 0.0f }, .u = 0.0f, .norm = { 0.0f, 0.0f, -1.0f }, .v = 1.0f },
+					{ .pos = { +0.5f, -0.5f, 0.0f }, .u = 1.0f, .norm = { 0.0f, 0.0f, -1.0f }, .v = 1.0f },
+					{ .pos = { +0.5f, +0.5f, 0.0f }, .u = 1.0f, .norm = { 0.0f, 0.0f, -1.0f }, .v = 0.0f },
+					{ .pos = { -0.5f, +0.5f, 0.0f }, .u = 0.0f, .norm = { 0.0f, 0.0f, -1.0f }, .v = 0.0f },
+				}};
+				static constexpr auto card_indices = std::array<uint32_t, 12>{ 0, 1, 2, 0, 2, 3, 4, 6, 5, 4, 7, 6 };
+
+				// A white leaf shape in the alpha channel: an ellipse pointed at both ends of its diagonal. The opaque batch cuts out alpha below one half.
+				constexpr int LeafTexSize = 32;
+				auto texels = std::vector<uint32_t>(LeafTexSize * LeafTexSize);
+				for (auto y = 0; y != LeafTexSize; ++y)
+				{
+					for (auto x = 0; x != LeafTexSize; ++x)
+					{
+						// Distance from the centre in coordinates along and across the diagonal, with the width narrowing towards the tips.
+						auto u = (x + 0.5f) / LeafTexSize * 2.0f - 1.0f;
+						auto v = (y + 0.5f) / LeafTexSize * 2.0f - 1.0f;
+						auto along = (u + v) * 0.7071f;
+						auto across = (u - v) * 0.7071f;
+						auto half_width = 0.45f * (1.0f - along * along);
+						auto inside = std::abs(along) < 0.95f && std::abs(across) < half_width;
+						texels[y * LeafTexSize + x] = inside ? 0xFFFFFFFFU : 0x00FFFFFFU;
+					}
+				}
+				auto texture_options = api::TextureOptions{};
+				texture_options.m_format = DXGI_FORMAT_R8G8B8A8_UNORM;
+				texture_options.m_resource_state = D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE;
+				texture_options.m_mips = 1;
+				texture_options.m_multisamp = { 1, 0 };
+				texture_options.m_t2s = { {1,0,0,0}, {0,1,0,0}, {0,0,1,0}, {0,0,0,1} };
+				texture_options.m_has_alpha = TRUE;
+				texture_options.m_dbg_name = "DemoLeaf";
+				auto texture = api::TexturePtr(View3D_TextureCreate(LeafTexSize, LeafTexSize, texels.data(), texels.size() * sizeof(uint32_t), texture_options));
+				if (texture == nullptr)
+					throw std::runtime_error("Leaf texture creation failed");
+
+				// The stock mesh draw with the leaf card as its shared mesh. The batch keeps its own reference to the texture.
+				auto draw = api::ParticleDrawShaders{};
+				if (!View3D_ParticleMeshShaders(&draw))
+					throw std::runtime_error("Particle mesh shaders unavailable");
+
+				draw.m_indices = card_indices.data();
+				draw.m_index_count = static_cast<int>(card_indices.size());
+				draw.m_vertex_count = static_cast<int>(card.size());
+				draw.m_vertex_data = card.data();
+				auto batch_options = api::ParticleBatchOptions
+				{
+					.m_struct_size = sizeof(api::ParticleBatchOptions),
+					.m_version = api::ParticleBatchOptions::CurrentVersion,
+					.m_shaders = draw,
+					.m_capacity = LeafCapacity,
+					.m_record_stride = sizeof(ParticleChipRecord),
+					.m_constants = nullptr,
+					.m_constants_size = 0,
+					.m_blend = api::EParticleBlend::Opaque,
+					.m_bbox = api::BBox{ {0, 0, 20, 1}, {60, 60, 30, 0} },
+					.m_texture = texture.get(),
+					.m_sampler = View3D_SamplerCreateStock(api::EStockSampler::LinearClamp),
+				};
+				auto batch = -1;
+				auto object = api::Object{};
+				if (!View3D_ParticleBatchCreate(m_system, batch_options, "DemoLeaves", &batch, &object))
+					throw std::runtime_error("Particle leaf batch creation failed");
+
+				m_scene.Add(object);
+
+				// Leaves drift down slowly. The chip simulation writes the mesh record layout, so its records are drawn as leaf cards.
+				auto constants = ParticleChipConstants{ .gravity = { 0, 0, -0.6f, 0 } };
+				auto options = api::ParticleTypeOptions
+				{
+					.m_struct_size = sizeof(api::ParticleTypeOptions),
+					.m_version = api::ParticleTypeOptions::CurrentVersion,
+					.m_shaders =
+					{
+						.m_emit = { compiled::particle_chip_emit_cs, sizeof(compiled::particle_chip_emit_cs) },
+						.m_update = { compiled::particle_chip_update_cs, sizeof(compiled::particle_chip_update_cs) },
+					},
+					.m_batch = batch,
+					.m_capacity = LeafCapacity,
+					.m_max_emitters = 4,
+					.m_state_stride = sizeof(ParticleChipState),
+					.m_record_stride = sizeof(ParticleChipRecord),
+					.m_params_stride = sizeof(ParticleChipEmitter),
+					.m_constants = &constants,
+					.m_constants_size = sizeof(constants),
+				};
+				auto type = -1;
+				if (!View3D_ParticleTypeCreate(m_system, options, "DemoLeaves", &type))
+					throw std::runtime_error("Particle leaf type creation failed");
+
+				// Leaves fall continuously from a canopy, drifting downwind and tumbling.
+				auto params = ParticleChipEmitter
+				{
+					.position = { -4.0f, 8.0f, 9.0f, 0.5f },
+					.velocity = { 0.6f, 0.0f, 0.0f, 0.8f },
+					.spacing = 0.0f,
+					.spin = 2.5f,
+					.lifetime = 14.0f,
+					.colour = 0xFF70A030,
+				};
+				auto settings = api::ParticleEmitter{ .m_rate = 12.0f, .m_seed = 11, .m_active = TRUE };
+				auto id = uint64_t{};
+				if (!View3D_ParticleEmitterCreate(m_system, type, settings, &params, sizeof(params), &id))
+					throw std::runtime_error("Particle leaf emitter creation failed");
 			}
 
 			// Add a continuous effect.

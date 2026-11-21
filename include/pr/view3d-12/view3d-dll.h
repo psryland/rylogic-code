@@ -1341,13 +1341,17 @@ namespace pr
 			ShaderByteCode m_update;    // Compute shader with the entry point 'ParticleUpdateCS'.
 		};
 
-		// The drawing shaders of a particle batch, and the index list that its vertex shader draws for each render record.
+		// The drawing shaders of a particle batch, and the index list that its vertex shader draws for each render record. Optional per-vertex data,
+		// such as a small mesh shared by every record, is copied to the GPU once when the batch is created and bound at VIEW3D_PROCEDURAL_BUFFER1_REGISTER.
 		struct ParticleDrawShaders
 		{
 			ShaderByteCode m_vertex;    // Procedural forward vertex shader. It reads the records at VIEW3D_PROCEDURAL_BUFFER0_REGISTER, one per instance.
 			uint32_t const* m_indices;  // Triangle list of logical vertex ids drawn for each record.
 			int m_index_count;          // Number of 'm_indices'. A positive multiple of 3.
 			int m_vertex_count;         // One more than the largest logical vertex id in 'm_indices'.
+			EGeom m_geom;               // The surface outputs that 'm_vertex' generates. Must include Vert. Norm enables lighting, and Tex0 enables the batch texture.
+			void const* m_vertex_data;  // Optional data for each of the 'm_vertex_count' logical vertices. Null for none.
+			int m_vertex_stride;        // Bytes of 'm_vertex_data' per logical vertex. A multiple of 4 in [4, 2048] when 'm_vertex_data' is set, otherwise 0.
 		};
 
 		// How a particle batch blends with the scene.
@@ -1378,6 +1382,8 @@ namespace pr
 			size_t m_constants_size;     // Zero when 'm_constants' is null, otherwise a multiple of 4 in [4, ProceduralBinding::ConstantsSize].
 			EParticleBlend m_blend;
 			BBox m_bbox;                 // Bounds of every particle, in the object's space, for culling.
+			Texture m_texture;           // Optional diffuse texture, sampled at the vertex shader's UVs when 'm_shaders.m_geom' includes Tex0. Null for none.
+			Sampler m_sampler;           // Sampler of 'm_texture'. Null for the default.
 		};
 
 		// Fixed inputs of a particle type. A type is a pool of particles that share their state layout and simulation shaders. Its particles are
@@ -2281,6 +2287,10 @@ extern "C"
 	// Fill 'out_sim' and 'out_draw' with the shaders of the stock sprite type and its batch (see pr/game-systems/particles/particle_sprite.hlsli).
 	// The data is static.
 	VIEW3D_API BOOL __stdcall View3D_ParticleSpriteShaders(pr::view3d::ParticleSimShaders* out_sim, pr::view3d::ParticleDrawShaders* out_draw);
+
+	// Fill 'out_draw' with the stock mesh batch's vertex shader and its outputs (see pr/game-systems/particles/particle_mesh.hlsli). The caller
+	// supplies the mesh: its ParticleMeshVertex array as the vertex data, and its triangle list as the indices. The data is static.
+	VIEW3D_API BOOL __stdcall View3D_ParticleMeshShaders(pr::view3d::ParticleDrawShaders* out_draw);
 
 	// Add a particle batch to 'system', returning its index in 'out_batch' and its View3D object in 'out_object'. The options' data is copied.
 	// Delete the object with View3D_ObjectDelete. An object that outlives its system keeps drawing the particles of the system's last step.

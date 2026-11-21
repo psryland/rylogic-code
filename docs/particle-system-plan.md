@@ -489,7 +489,8 @@ The following are planned engineering proofs, not unresolved product requirement
   snapshot ring are deferred to milestone 7, and only if measurements justify them.
 - **View3D seam: per-nugget indirect draw arguments.** `NuggetDesc::m_draw_args` (buffer + offset) makes the forward, shadow and raycast passes issue one
   `ExecuteIndirect` with a single DRAW or DRAW_INDEXED argument whose instance count is written by the GPU. The draw signatures move from the population
-  culler to the renderer. A C ABI setter (`View3D_ObjectNuggetDrawArgsSet`) lets DLL consumers use the same seam.
+  culler to the renderer. A C ABI setter (`View3D_ObjectNuggetDrawArgsSet`) lets DLL consumers use the same seam. (Milestone 2 added per-instance
+  bounds and per-view GPU culling to this seam; see below.)
 - **Rendering.** The type supplies a triangle list of logical vertex ids drawn for each particle (the stock sprite is a soft disc of 8 rim triangles: opaque centre, transparent rim); `SV_InstanceID` selects a compact live render record. All emitters of a type share one nugget and
   therefore one instanced draw per pass. Particles render through alpha collection with `GeometryHasAlpha | ShadowCastExclude`.
 - **API.** The C++ API (`pr::game_systems::particles`) and a C ABI in `view3d-dll.h` (`View3D_ParticleSystemCreate/Destroy`, `View3D_ParticleSpriteShaders`, `View3D_ParticleBatchCreate`, `View3D_ParticleTypeCreate`, `View3D_ParticleEmitterCreate/Update/Burst/Delete`, `View3D_ParticleSystemStep/Reset`, `View3D_ParticleStats`). The tests and demo use the ABI. The managed wrapper is added with Petri integration. (Render batches were added in milestone 2; see below.)
@@ -549,3 +550,43 @@ The following are planned engineering proofs, not unresolved product requirement
   behind it. Empty pixels count as the far plane. Zero keeps hard intersections. The value travels in the element constants' former padding, so the
   constant layouts are unchanged. Opaque batches are unaffected. `View3d12_SoftDepth` checks both passes and the far plane, and the demo's sprite
   batch uses a soft depth of one unit.
+- **GPU instance culling is a View3D feature of GPU-written draw arguments.** Culling is generic, so View3D owns it rather than the particle system.
+  `View3D_ObjectNuggetDrawArgsSet(object, buffer, offset, bounds, capacity, index)` takes, beside the argument record, a buffer of one object-space
+  bounding sphere (`float4` centre and radius) per instance index and the instance capacity. Each frame, before any draw, View3D's `InstanceCuller`
+  runs a compute pass per view (the camera, and the reflection mirror for opaque elements) that tests every instance below the record's instance count
+  against the view frustum and writes a compact visible-index list and a copied argument record with the visible count. The forward pass draws that
+  record with `ExecuteIndirect`. Vertex shaders map `SV_InstanceID` to the record index with `View3DIndirectInstance` from
+  `pr/view3d-12/shaders/indirect_instances.hlsli`, the same contract that populations use. The list is unordered, which suits weighted and opaque
+  batches; sorted batches rely on the K-buffer for order. Such nuggets draw only in the forward steps: they cast no shadows and are not ray cast.
+  The CPU never reads the counts back.
+- **Particle bounds.** Each particle type's compute shader implements `float4 ParticleBounds(ParticleState, TypeConstants)`, and `ParticleKeep`
+  writes it next to the render record. The radius is in world units and the cull scales it by the largest axis scale of the object transform. A
+  sphere that is too small makes particles vanish at the view edges, so custom types own conservative bounds for any geometry their vertex shader
+  expands (the stock sprite uses half its size, the test chip `0.866 * length`).
+- **Culling proof and cost.** `GameSystems_ParticleCull` checks that a visible sprite and a sprite whose edge reaches into the view are drawn while
+  256 sprites outside the view are not, and that the far sprites appear when the camera moves to them. The cost test gained an "off-screen" column
+  (the same particles with the camera looking away). Before culling, off-screen draws cost as much as on-screen ones (0.38 ms at 64k, 0.78 ms at
+  256k, 2.25 ms at 1M). With culling (Debug build with the debug layer, so indicative only):
+
+  | Live particles | Draw ms | Off-screen ms |
+  |---:|---:|---:|
+  | 64k | 0.53 | 0.35 |
+  | 256k | 0.99 | 0.26 |
+  | 1M | 2.57 | 0.34 |
+
+  Off-screen cost is now flat at the cull pass's fixed cost. On-screen cost rose slightly at 1M because of that pass.
+- **Shared small-mesh prototypes are a stock batch format.** `View3D_ParticleMeshShaders` returns the stock mesh draw
+  (`pr/game-systems/particles/particle_mesh.hlsli`): each `ParticleMeshRecord` (position, scale, quaternion, colour; 48 bytes) draws one copy of a
+  caller-supplied mesh of `ParticleMeshVertex` (position, normal, UV; 32 bytes). The caller fills in `m_vertex_data`, `m_vertex_stride`, the vertex
+  count and the index list. `ParticleDrawShaders` gained `m_vertex_data`/`m_vertex_stride`: optional per-batch vertex data copied once to the GPU and
+  bound at `VIEW3D_PROCEDURAL_BUFFER1_REGISTER`, so any custom vertex shader can also read a shared mesh. `m_geom` declares which vertex outputs the
+  pixel shader uses; it must include `Vert`. Mesh positions are in units of the record's scale, so a type's bounds are its scale times the mesh's
+  largest vertex distance.
+- **Batch texture.** `ParticleBatchOptions` gained an optional `m_texture` and `m_sampler`, sampled at the vertex shader's UVs when `m_geom` includes
+  `Tex0`. The batch's nugget holds its own references. In an `Opaque` batch the forward shader discards texels with alpha below one half, which gives
+  cutout leaves and cards for free. Texture atlases and per-record texture variation are left to the caller's UVs and record colour; texture arrays
+  are deferred until a stock effect needs them.
+- **Mesh proof.** `GameSystems_ParticleMesh` draws the test chip simulation (its record matches `ParticleMeshRecord`) through the stock mesh batch as
+  textured cards, and checks the texture, the alpha cutout, the card extent, one draw per batch, and the vertex-data validation. The particle demo
+  draws falling leaves the same way: a two-sided leaf card with a generated alpha texture. Stock leaf and tumbling-debris simulations belong to the
+  Milestone 4 catalogue.
