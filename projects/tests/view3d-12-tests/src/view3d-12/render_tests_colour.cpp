@@ -355,6 +355,47 @@ namespace render_tests
 		fixture.CheckDebugLayer();
 		std::cout << "PASS alpha weighted (" << samples << "x)\n";
 	}
+
+	// Check that a soft depth fades transparent fragments linearly in view depth as they approach the opaque surface behind them, in both alpha passes.
+	void SoftDepthTests(int samples)
+	{
+		// A half-transparent red quad two units in front of an opaque blue quad. Hard intersections give red = blue = 0.5.
+		auto fixture = Fixture(samples);
+		fixture.Quad(20, 0xFF0000FF);
+		auto glass = fixture.Quad(18, 0x80FF0000);
+		Require(View3D_ObjectSoftDepthGet(glass, nullptr) == 0.0f, "New object soft depth is not zero");
+		Require(View3D_ObjectSoftDepthGet(glass, "Missing") == 0.0f, "Missing selection did not return the neutral soft depth");
+		Expect(fixture.Image(), 0.5f, 0, 0.5f);
+
+		// Run the same checks in the sorted and weighted alpha passes.
+		for (auto weighted : {false, true})
+		{
+			// Select the alpha pass, then check the hard, half-faded and beyond-range cases.
+			View3D_ObjectNuggetFlagsSet(glass, api::ENuggetFlag::AlphaWeighted, weighted ? TRUE : FALSE, nullptr, 0);
+			View3D_ObjectSoftDepthSet(glass, 0.0f, nullptr);
+			Expect(fixture.Image(), 0.5f, 0, 0.5f);
+
+			// Two units from the opaque surface with a soft depth of four halves the alpha: red = 0.25, blue = 0.75.
+			View3D_ObjectSoftDepthSet(glass, 4.0f, nullptr);
+			Require(View3D_ObjectSoftDepthGet(glass, nullptr) == 4.0f, "Soft depth did not round-trip");
+			Expect(fixture.Image(), 0.25f, 0, 0.75f);
+
+			// A soft depth shorter than the gap leaves the fragment fully visible.
+			View3D_ObjectSoftDepthSet(glass, 1.0f, nullptr);
+			Expect(fixture.Image(), 0.5f, 0, 0.5f);
+		}
+
+		// An empty pixel behind the fragment is the far plane (100), so a quad at 90 with a soft depth of 20 also fades to half.
+		fixture.Clear();
+		auto distant = fixture.Quad(90, 0x80FF0000);
+		View3D_ObjectSoftDepthSet(distant, 20.0f, nullptr);
+		Expect(fixture.Image(), 0.25f, 0, 0);
+
+		// Any DLL or GPU validation error fails the fixture.
+		fixture.CheckErrors();
+		fixture.CheckDebugLayer();
+		std::cout << "PASS soft depth sorted/weighted/far plane (" << samples << "x)\n";
+	}
 }
 
 namespace pr::unittests::view3d12
@@ -373,6 +414,11 @@ namespace pr::unittests::view3d12
 	{
 		render_tests::AlphaWeightedTests(1);
 		render_tests::AlphaWeightedTests(4);
+	}
+	PRUnitTest(View3d12_SoftDepth, Extended | Serial)
+	{
+		render_tests::SoftDepthTests(1);
+		render_tests::SoftDepthTests(4);
 	}
 	PRUnitTest(View3d12_EmissiveScale, Extended | Serial)
 	{

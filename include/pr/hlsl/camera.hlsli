@@ -20,6 +20,14 @@ inline float2 ClipPlanes(float4x4 c2s)
 	return dist.yx;
 }
 
+// Returns the depth in front of the camera, measured along the camera's view axis in camera space, of a point at reversed screen depth 'depth',
+// for a perspective or orthographic projection 'c2s'. This inverts the depth row of the projection, so it is exact at any screen position.
+inline float ViewDistance(float4x4 c2s, float depth)
+{
+	// Screen depth is (z*_33 + _43) / (z*_34 + _44) for camera-space z. Camera space looks down -z, so the distance is -z.
+	return (c2s._43 - depth * c2s._44) / (c2s._33 - depth * c2s._34);
+}
+
 #ifdef __cplusplus
 }
 #endif

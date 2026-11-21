@@ -152,6 +152,7 @@ namespace pr::rdr12::ldraw
 		m_i2w = m4x4::Identity();
 		m_colour = m_base_colour;
 		m_emissive = 1.0f;
+		m_soft_depth = 0.0f;
 		PR_EXPAND(PR_DBG, g_ldr_object_tracker.add(this));
 	}
 	LdrObject::~LdrObject()
@@ -1123,6 +1124,29 @@ namespace pr::rdr12::ldraw
 		{
 			// Store the scale on the instance so it reaches the shader constants of every nugget drawn for it.
 			obj->m_emissive = scale;
+			return true;
+		}, name);
+	}
+
+	// Return the soft depth of the first selected object.
+	float LdrObject::SoftDepth(char const* name) const
+	{
+		// A missing selection reports the hard intersections of a new object.
+		auto obj = Child(name);
+		return obj ? obj->m_soft_depth : 0.0f;
+	}
+
+	// Set the instance-owned depth over which transparent fragments fade out in front of the opaque scene.
+	void LdrObject::SoftDepth(float depth, char const* name)
+	{
+		// The fade divides by the depth, so a negative depth is a caller error rather than a disabled fade.
+		assert(depth >= 0.0f);
+
+		// Each selected instance owns its depth, even when models are shared.
+		Apply([&](LdrObject* obj)
+		{
+			// Store the depth on the instance so it reaches the shader constants of every nugget drawn for it.
+			obj->m_soft_depth = depth;
 			return true;
 		}, name);
 	}

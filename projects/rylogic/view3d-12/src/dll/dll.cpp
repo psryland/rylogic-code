@@ -4300,6 +4300,34 @@ VIEW3D_API void __stdcall View3D_ObjectEmissiveScaleSet(view3d::Object object, f
 	CatchAndReport(View3D_ObjectEmissiveScaleSet, ,);
 }
 
+// Return the soft depth of the first selected object.
+VIEW3D_API float __stdcall View3D_ObjectSoftDepthGet(view3d::Object object, char const* name)
+{
+	// Use the normal DLL error reporting and serialization boundary.
+	try
+	{
+		// Read only instance state, never shared model data.
+		Validate(object);
+		DllLockGuard;
+		return object->SoftDepth(name);
+	}
+	CatchAndReport(View3D_ObjectSoftDepthGet, , 0.0f);
+}
+
+// Set the soft depth of transparent intersections. See View3D_ObjectSoftDepthSet's public contract.
+VIEW3D_API void __stdcall View3D_ObjectSoftDepthSet(view3d::Object object, float depth, char const* name)
+{
+	// Use the normal DLL error reporting and serialization boundary.
+	try
+	{
+		// Validate before applying the change to the requested hierarchy.
+		Validate(object);
+		DllLockGuard;
+		object->SoftDepth(depth, name);
+	}
+	CatchAndReport(View3D_ObjectSoftDepthSet, ,);
+}
+
 // Reset the object colour back to its default
 VIEW3D_API void __stdcall View3D_ObjectResetColour(view3d::Object object, char const* name)
 {

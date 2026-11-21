@@ -121,6 +121,9 @@ namespace view3d_test
 
 				m_scene.Add(object);
 
+				// Fade sprites out where they cut through the ground, so smoke and dust show no hard intersection lines.
+				View3D_ObjectSoftDepthSet(object, 1.0f, nullptr);
+
 				auto constants = ParticleSpriteConstants{ .fade_in = 0.05f, .fade_out = 0.3f };
 				auto options = api::ParticleTypeOptions
 				{

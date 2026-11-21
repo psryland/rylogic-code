@@ -542,3 +542,10 @@ The following are planned engineering proofs, not unresolved product requirement
   functions of age, drawn from 24 logical vertices by an opaque batch with width and thickness constants. An opaque batch is its own draw, because the
   blend mode belongs to the batch. `GameSystems_ParticleCustomRecord` checks the chips' footprints, the two draws and their expiry, and the particle
   demo's "Chop" button emits wood chips.
+- **Soft particles are a View3D object feature.** Soft intersections are not particle-specific, so View3D owns them as a per-instance soft depth
+  (`View3D_ObjectSoftDepthSet`, `Object.SoftDepthSet`), with no new batch option: callers set it on the object that `View3D_ParticleBatchCreate`
+  returns. In both alpha passes (sorted K-buffer collect and weighted), a fragment's alpha is multiplied by
+  `saturate((opaque view distance - fragment view distance) / soft depth)`, so it fades linearly in world units as it approaches the opaque surface
+  behind it. Empty pixels count as the far plane. Zero keeps hard intersections. The value travels in the element constants' former padding, so the
+  constant layouts are unchanged. Opaque batches are unaffected. `View3d12_SoftDepth` checks both passes and the far plane, and the demo's sprite
+  batch uses a soft depth of one unit.

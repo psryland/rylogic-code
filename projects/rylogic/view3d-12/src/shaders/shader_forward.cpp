@@ -242,6 +242,7 @@ namespace pr::rdr12::shaders
 			SetTex2Surf(cb, inst, material);
 			SetReflectivity(cb, inst, material);
 			SetDither(cb, inst);
+			SetSoftDepth(cb, inst);
 
 			// Write the complete entry to the table
 			*elements++ = cb;

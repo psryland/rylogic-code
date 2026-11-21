@@ -2458,6 +2458,8 @@ namespace Rylogic.Gfx
 		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern void View3D_ObjectDitherSet(HObject obj, uint dither, [MarshalAs(UnmanagedType.LPStr)] string? name);
 		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern float View3D_ObjectEmissiveScaleGet(HObject obj, [MarshalAs(UnmanagedType.LPStr)] string? name);
 		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern void View3D_ObjectEmissiveScaleSet(HObject obj, float scale, [MarshalAs(UnmanagedType.LPStr)] string? name);
+		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern float View3D_ObjectSoftDepthGet(HObject obj, [MarshalAs(UnmanagedType.LPStr)] string? name);
+		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern void View3D_ObjectSoftDepthSet(HObject obj, float depth, [MarshalAs(UnmanagedType.LPStr)] string? name);
 
 		// Reset the object colour back to its default
 		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern void View3D_ObjectResetColour(HObject obj, [MarshalAs(UnmanagedType.LPStr)] string? name);

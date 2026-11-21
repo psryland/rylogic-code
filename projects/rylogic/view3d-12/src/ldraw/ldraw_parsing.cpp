@@ -6258,6 +6258,7 @@ namespace pr::rdr12::ldraw
 				obj->m_colour_blend = source->m_colour_blend;
 				obj->m_dither = source->m_dither;
 				obj->m_emissive = source->m_emissive;
+				obj->m_soft_depth = source->m_soft_depth;
 				obj->m_group_tint = source->m_group_tint;
 				obj->m_root_anim = source->m_root_anim;
 				obj->m_flipbook = source->m_flipbook;
@@ -6642,6 +6643,7 @@ namespace pr::rdr12::ldraw
 		obj->m_colour_blend = existing->m_colour_blend;
 		obj->m_dither = existing->m_dither;
 		obj->m_emissive = existing->m_emissive;
+		obj->m_soft_depth = existing->m_soft_depth;
 
 		// Recursively create instances of the child objects
 		for (auto& child : existing->m_child)
@@ -6723,6 +6725,7 @@ namespace pr::rdr12::ldraw
 				std::swap(object->m_colour, rhs->m_colour);
 				std::swap(object->m_colour_blend, rhs->m_colour_blend);
 				std::swap(object->m_emissive, rhs->m_emissive);
+				std::swap(object->m_soft_depth, rhs->m_soft_depth);
 			}
 
 			// LdrObject

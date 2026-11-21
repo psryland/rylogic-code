@@ -49,6 +49,7 @@ namespace pr::rdr12::ldraw
 		x(uint32_t    ,m_dither      ,EInstComp::DitherWord        )/*      4 bytes, align 4 */\
 		x(float       ,m_env         ,EInstComp::EnvMapReflectivity)/*      4 bytes, align 4 */\
 		x(float       ,m_emissive    ,EInstComp::EmissiveScale     )/*      4 bytes, align 4 */\
+		x(float       ,m_soft_depth  ,EInstComp::SoftDepth         )/*      4 bytes, align 4 */\
 		x(EInstFlag   ,m_iflags      ,EInstComp::Flags             )/*      4 bytes, align 4 */\
 		x(SKOverride  ,m_sko         ,EInstComp::SortkeyOverride   )/*      8 bytes, align 4 */
 		PR_RDR12_INSTANCE_MEMBERS(RdrInstance , PR_RDR_INST);
@@ -298,6 +299,12 @@ namespace pr::rdr12::ldraw
 		// One (the default) keeps the authored emission and zero turns it off. Shared models and materials are unchanged.
 		float EmissiveScale(char const* name = nullptr) const;
 		void EmissiveScale(float scale, char const* name = nullptr);
+
+		// Get/Set the instance-owned soft depth of this object or child objects matching 'name' (see Apply). Transparent fragments fade out
+		// linearly over this view depth in front of the opaque scene, so they do not show hard lines where they cut through it. Zero (the default)
+		// keeps hard intersections. The depth is in world units and must not be negative.
+		float SoftDepth(char const* name = nullptr) const;
+		void SoftDepth(float depth, char const* name = nullptr);
 
 		// Get/Set the reflectivity of this object or child objects matching 'name' (see Apply)
 		float Reflectivity(char const* name = nullptr) const;

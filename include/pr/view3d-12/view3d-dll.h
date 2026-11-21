@@ -2638,6 +2638,13 @@ extern "C"
 	VIEW3D_API float __stdcall View3D_ObjectEmissiveScaleGet(pr::view3d::Object object, char const* name);
 	VIEW3D_API void __stdcall View3D_ObjectEmissiveScaleSet(pr::view3d::Object object, float scale, char const* name);
 
+	// Get/Set the soft depth of 'object': the view depth, in world units, over which its transparent fragments fade to zero alpha as they
+	// approach the opaque scene behind them, so they do not show hard lines where they cut through opaque surfaces. Zero (the default) keeps
+	// hard intersections. Applies to the stock transparent pixel shaders and to procedural families built with the stock entry-point macros.
+	// 'depth' must be non-negative. Name follows LdrObject::Apply; the getter returns the first match, or zero if absent.
+	VIEW3D_API float __stdcall View3D_ObjectSoftDepthGet(pr::view3d::Object object, char const* name);
+	VIEW3D_API void __stdcall View3D_ObjectSoftDepthSet(pr::view3d::Object object, float depth, char const* name);
+
 	// Resource batches ******************************
 
 	// Begin a resource batch on the calling thread. Until the matching 'View3D_ResourceBatchEnd', resource creation calls made on this thread

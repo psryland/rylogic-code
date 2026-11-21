@@ -47,7 +47,9 @@ struct ElementConstants
 	uint dither;
 	// Emission
 	float emissive_scale; // Per-instance multiplier of the material emissive colour
-	float pad0;
+
+	// Soft intersections
+	float soft_depth; // View depth over which transparent fragments fade out in front of the opaque scene. Zero means hard intersections
 };
 
 // Constants used for radial fading.

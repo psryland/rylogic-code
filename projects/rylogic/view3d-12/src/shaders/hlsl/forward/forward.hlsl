@@ -677,9 +677,11 @@ PSOut PSForwardPbrTexN(PSInTexN In, bool is_front_face : SV_IsFrontFace)
 	return Out;
 }
 
-// Discard a transparent fragment that is hidden behind the opaque pass.
-// Alpha-collect entry points call this before shading, because the alpha pass has no hardware depth test to reject hidden fragments early.
-void ClipAlphaHiddenByOpaque(float4 ss_vert)
+// Return the visibility of a transparent fragment in front of the opaque pass, in [0,1], and discard the fragment when it is hidden.
+// Alpha entry points call this before shading, because the alpha pass has no hardware depth test to reject hidden fragments early,
+// then multiply the shaded alpha by the result. Elements with a soft depth fade out linearly as the view depth from the fragment to the
+// opaque surface behind it falls to zero, so transparent surfaces do not show hard lines where they cut through the opaque scene.
+float AlphaOpaqueVisibility(float4 ss_vert, float4 ws_vert)
 {
 	// Find the nearest opaque sample in this pixel.
 	uint2 pix = uint2(ss_vert.xy);
@@ -693,10 +695,20 @@ void ClipAlphaHiddenByOpaque(float4 ss_vert)
 
 	if (ss_vert.z <= opaque_depth)
 		discard;
+
+	// Without a soft depth, a visible fragment is fully visible.
+	if (g_nugget.soft_depth <= 0.0f)
+		return 1.0f;
+
+	// Compare view distances rather than screen depths, so the fade is linear in world units at any distance from the camera.
+	// The far plane (an empty pixel) is a finite distance, so fragments also fade out in front of the far plane.
+	float opaque_dist = ViewDistance(g_frame.cam.c2s, opaque_depth);
+	float fragment_dist = -mul(ws_vert, g_frame.cam.w2c).z;
+	return saturate((opaque_dist - fragment_dist) / g_nugget.soft_depth);
 }
 
 // Collect one transparent fragment into the forward alpha K-buffer.
-// The caller must have called 'ClipAlphaHiddenByOpaque' for this fragment.
+// The caller must have applied 'AlphaOpaqueVisibility' to this fragment.
 void CollectAlphaLayer(PSIn In, float4 diff, uint rt_attrs)
 {
 	// Discard fully transparent fragments before accessing the ordered layer buffers.
@@ -719,7 +731,7 @@ void CollectAlphaLayer(PSIn In, float4 diff, uint rt_attrs)
 }
 
 // Return the weighted transparency output for one transparent fragment with linear colour 'diff'.
-// The caller must have called 'ClipAlphaHiddenByOpaque' for this fragment. Weighted fragments are not sorted: within each group the result
+// The caller must have applied 'AlphaOpaqueVisibility' to this fragment. Weighted fragments are not sorted: within each group the result
 // is an average of the fragment colours, weighted by alpha and by nearness to the camera, so overlapping layers blend smoothly in any draw order.
 PSWeightedOut WeightedAlphaOut(PSIn In, float4 diff)
 {
@@ -754,11 +766,12 @@ PSWeightedOut WeightedAlphaOut(PSIn In, float4 diff)
 void PSForwardPbrTexNAlphaCollect(PSInTexN In, bool is_front_face : SV_IsFrontFace)
 {
 	// Skip shading for fragments behind opaque geometry.
-	ClipAlphaHiddenByOpaque(In.ss_vert);
+	float visibility = AlphaOpaqueVisibility(In.ss_vert, In.ws_vert);
 
 	// Resolve optional texture-coordinate lanes before storing the final PBR alpha attributes.
 	PSIn base = ToPSIn(In);
 	float4 diff = PSForwardPbrImpl(In, is_front_face).diff;
+	diff.a *= visibility;
 	float3 normal = ResolvePbrMaterialWorldNormal(base, is_front_face, PbrSlotUV(In, g_pbr.normal_texcoord, g_pbr.normal_uv_transform));
 	CollectAlphaLayer(base, diff, AlphaRtAttributesFromNormal(diff, normal, g_nugget.env_reflectivity));
 }
@@ -767,8 +780,10 @@ void PSForwardPbrTexNAlphaCollect(PSInTexN In, bool is_front_face : SV_IsFrontFa
 PSWeightedOut PSForwardPbrTexNAlphaWeighted(PSInTexN In, bool is_front_face : SV_IsFrontFace)
 {
 	// Skip shading for fragments behind opaque geometry.
-	ClipAlphaHiddenByOpaque(In.ss_vert);
-	return WeightedAlphaOut(ToPSIn(In), PSForwardPbrImpl(In, is_front_face).diff);
+	float visibility = AlphaOpaqueVisibility(In.ss_vert, In.ws_vert);
+	float4 diff = PSForwardPbrImpl(In, is_front_face).diff;
+	diff.a *= visibility;
+	return WeightedAlphaOut(ToPSIn(In), diff);
 }
 
 // PBR forward pass with optional texture-coordinate lanes that also writes reflection attributes for RT reflections.
