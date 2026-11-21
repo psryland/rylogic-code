@@ -1013,7 +1013,7 @@ namespace pr
 		{
 			static constexpr size_t ConstantsSize = 1024;
 			static constexpr size_t MaxBufferSize = 64 * 1024 * 1024;
-			static constexpr size_t ForwardPixelCount = 3;
+			static constexpr size_t ForwardPixelCount = 4;
 			static constexpr int BufferSlotCount = 2;
 			static constexpr int TextureSlotCount = 4;
 
@@ -1023,9 +1023,10 @@ namespace pr
 			void const* m_buffer;    // Optional immutable data, copied once and bound as a raw root SRV (ByteAddressBuffer, no bounds) at VIEW3D_PROCEDURAL_BUFFER0_REGISTER. Null for none.
 			size_t m_buffer_size;    // Size of 'm_buffer' in bytes. A non-zero multiple of 4 up to MaxBufferSize when 'm_buffer' is not null, otherwise 0.
 
-			// Forward pixel family that replaces the stock forward pixel shaders of the 'm_forward_pixel_model' material model. All entries are null, or all are
-			// valid, and only for ForwardRender. Optional for the Vertex stage and required for the Pixel stage. Materials of other models reject the family.
-			// Order: Opaque, ReflectionAttrs, AlphaCollect. See 'pr/view3d-12/shaders/forward_pixel.hlsli'.
+			// Forward pixel family that replaces the stock forward pixel shaders of the 'm_forward_pixel_model' material model. The first three entries are all null,
+			// or all valid, and only for ForwardRender. The AlphaWeighted entry is optional; without it the shader cannot draw ENuggetFlag::AlphaWeighted nuggets.
+			// Optional for the Vertex stage and required for the Pixel stage. Materials of other models reject the family.
+			// Order: Opaque, ReflectionAttrs, AlphaCollect, AlphaWeighted. See 'pr/view3d-12/shaders/forward_pixel.hlsli'.
 			EForwardPixelModel m_forward_pixel_model;
 			ShaderByteCode m_forward_pixel[ForwardPixelCount];
 		};
@@ -1033,7 +1034,7 @@ namespace pr
 		// Callers supply readable descriptor storage and buffers matching this header and runtime; size/version are not a global ABI handshake.
 		struct ShaderOptions
 		{
-			static constexpr int CurrentVersion = 8;
+			static constexpr int CurrentVersion = 9;
 			static constexpr size_t MaxByteCodeSize = 1024 * 1024;
 
 			int m_struct_size;

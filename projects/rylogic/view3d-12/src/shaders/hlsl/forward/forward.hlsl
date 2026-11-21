@@ -82,6 +82,10 @@ RasterizerOrderedTexture2D<uint4> g_alpha_colour :register(u0);
 RasterizerOrderedTexture2D<uint4> g_alpha_depth  :register(u1);
 RasterizerOrderedTexture2D<uint4> g_alpha_rt_attrs :register(u2);
 
+// The K-buffer depths, read without rasterizer ordering by the weighted transparency pass, which runs after collection has finished.
+// This aliases 'g_alpha_depth', so one entry point must not use both.
+RWTexture2D<uint4> g_alpha_depth_collected :register(u1);
+
 #include "view3d-12/src/shaders/hlsl/forward/kbuffer.hlsli"
 #include "view3d-12/src/shaders/hlsl/shadow/shadow_cast.hlsli"
 
@@ -118,6 +122,16 @@ struct PSReflectionOut
 {
 	float4 diff :SV_TARGET0;
 	float4 reflection_attrs :SV_TARGET1;
+};
+
+// Weighted transparency output. Fragments are split into two groups: behind the nearest K-buffer layer, and in front of it.
+// The accumulation targets hold the weighted premultiplied colour sum (rgb) and the weight sum (a) of one group, and are blended additively.
+// The revealage target holds the fraction of the background still visible through each group (r = behind, g = in front), and is blended multiplicatively.
+struct PSWeightedOut
+{
+	float4 accum_behind :SV_TARGET0;
+	float4 accum_front  :SV_TARGET1;
+	float2 reveal       :SV_TARGET2;
 };
 
 // Return the common pixel-shader input fields from a standard pixel-shader input.
@@ -704,6 +718,38 @@ void CollectAlphaLayer(PSIn In, float4 diff, uint rt_attrs)
 	g_alpha_rt_attrs[pix] = alpha_rt_attrs;
 }
 
+// Return the weighted transparency output for one transparent fragment with linear colour 'diff'.
+// The caller must have called 'ClipAlphaHiddenByOpaque' for this fragment. Weighted fragments are not sorted: within each group the result
+// is an average of the fragment colours, weighted by alpha and by nearness to the camera, so overlapping layers blend smoothly in any draw order.
+PSWeightedOut WeightedAlphaOut(PSIn In, float4 diff)
+{
+	// Discard fully transparent fragments; they would only add weight without colour.
+	clip(diff.a - (1.0f / 255.0f));
+	uint2 pix = uint2(In.ss_vert.xy);
+
+	// Find the fragment's depth within the clip range, in the same packing as the K-buffer layers.
+	float view_z = -mul(In.ws_vert, g_frame.cam.w2c).z;
+	float2 near_far = ClipPlanes(g_frame.cam.c2s);
+	uint depth = PackDepth24(view_z, near_far);
+
+	// Weight nearer fragments more strongly, so that near layers dominate far layers in the average. The weight uses the depth
+	// as a fraction of the clip range, so it does not depend on the scene's units. The limits keep the sums within half-float range.
+	float t = float(depth) / float(KBufferDepthFar);
+	float a = saturate(diff.a);
+	float w = a * clamp(3e3f * pow(1.0f - t, 3.0f), 1e-2f, 3e3f);
+
+	// Assign the fragment to the group in front of, or behind, the nearest collected layer. An empty K-buffer has a far depth,
+	// so every weighted fragment is then in front. Fragments between collected layers are composited behind all of them.
+	bool in_front = depth < DepthOf(g_alpha_depth_collected[pix].x);
+	float4 accum = float4(diff.rgb * a, a) * w;
+
+	PSWeightedOut Out = (PSWeightedOut)0;
+	Out.accum_behind = in_front ? float4(0, 0, 0, 0) : accum;
+	Out.accum_front = in_front ? accum : float4(0, 0, 0, 0);
+	Out.reveal = in_front ? float2(0, a) : float2(a, 0);
+	return Out;
+}
+
 // Collect transparent PBR fragments with optional texture-coordinate lanes into the alpha K-buffer.
 void PSForwardPbrTexNAlphaCollect(PSInTexN In, bool is_front_face : SV_IsFrontFace)
 {
@@ -715,6 +761,14 @@ void PSForwardPbrTexNAlphaCollect(PSInTexN In, bool is_front_face : SV_IsFrontFa
 	float4 diff = PSForwardPbrImpl(In, is_front_face).diff;
 	float3 normal = ResolvePbrMaterialWorldNormal(base, is_front_face, PbrSlotUV(In, g_pbr.normal_texcoord, g_pbr.normal_uv_transform));
 	CollectAlphaLayer(base, diff, AlphaRtAttributesFromNormal(diff, normal, g_nugget.env_reflectivity));
+}
+
+// Weighted transparent PBR fragments with optional texture-coordinate lanes.
+PSWeightedOut PSForwardPbrTexNAlphaWeighted(PSInTexN In, bool is_front_face : SV_IsFrontFace)
+{
+	// Skip shading for fragments behind opaque geometry.
+	ClipAlphaHiddenByOpaque(In.ss_vert);
+	return WeightedAlphaOut(ToPSIn(In), PSForwardPbrImpl(In, is_front_face).diff);
 }
 
 // PBR forward pass with optional texture-coordinate lanes that also writes reflection attributes for RT reflections.

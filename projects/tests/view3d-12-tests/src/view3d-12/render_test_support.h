@@ -101,9 +101,9 @@ namespace render_tests
 
 	// Create one copied procedural vertex shader through the public descriptor.
 	api::Shader ProceduralVertexShader(api::ERenderStep rdr_step, unsigned char const* bytecode, size_t bytecode_size, ProceduralVertexConstants const& constants);
-	static_assert(sizeof(api::ProceduralBinding) == 96);
+	static_assert(sizeof(api::ProceduralBinding) == 112);
 	static_assert(offsetof(api::ProceduralBinding, m_forward_pixel_model) == 40);
-	static_assert(sizeof(api::ShaderOptions) == 136);
+	static_assert(sizeof(api::ShaderOptions) == 152);
 	static_assert(offsetof(api::ShaderOptions, m_stage) == 8);
 	static_assert(offsetof(api::ShaderOptions, m_bytecode) == 16);
 	static_assert(offsetof(api::ShaderOptions, m_procedural) == 40);

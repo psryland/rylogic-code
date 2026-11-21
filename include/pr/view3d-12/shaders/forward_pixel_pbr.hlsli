@@ -19,7 +19,7 @@
 // An overload of ForwardShadePbr also takes a per-fragment roughness scale, for surfaces whose roughness varies within one material, and another
 // takes a PbrFragmentDetail, which also fades the procedural surface and adds a per-fragment slope.
 //
-// This generates PSMy, PSMyReflectionAttrs and PSMyAlphaCollect.
+// This generates PSMy, PSMyReflectionAttrs, PSMyAlphaCollect and PSMyAlphaWeighted (optional, see 'forward_pixel.hlsli').
 // Compile each with '-T ps_6_6 -HV 2021' and the Rylogic native include directory on the include path, then pass the bytecode to
 // ShaderOptions::m_procedural.m_forward_pixel in that order with 'm_forward_pixel_model' set to EForwardPixelModel::Pbr.
 // Changes made to 'In' by the shading function are used for the reflection attributes.
@@ -78,7 +78,7 @@ uint ForwardPbrAlphaRtAttrs(PSIn In, float4 diff, bool is_front_face)
 	return AlphaRtAttributesFromNormal(diff, normal, g_nugget.env_reflectivity);
 }
 
-// Generate the three PBR forward pixel entry points 'PS<Prefix>...' around 'Shade', a function 'float4 Shade(inout PSIn In, bool is_front_face)'
+// Generate the four PBR forward pixel entry points 'PS<Prefix>...' around 'Shade', a function 'float4 Shade(inout PSIn In, bool is_front_face)'
 // that returns the linear fragment colour before output dithering.
 #define VIEW3D_FORWARD_PBR_PIXEL_ENTRY_POINTS(Prefix, Shade)\
 	PSOut PS##Prefix(PSIn In, bool is_front_face : SV_IsFrontFace)\
@@ -100,6 +100,11 @@ uint ForwardPbrAlphaRtAttrs(PSIn In, float4 diff, bool is_front_face)
 		ClipAlphaHiddenByOpaque(In.ss_vert);\
 		float4 diff = Shade(In, is_front_face);\
 		CollectAlphaLayer(In, diff, ForwardPbrAlphaRtAttrs(In, diff, is_front_face));\
+	}\
+	PSWeightedOut PS##Prefix##AlphaWeighted(PSIn In, bool is_front_face : SV_IsFrontFace)\
+	{\
+		ClipAlphaHiddenByOpaque(In.ss_vert);\
+		return WeightedAlphaOut(In, Shade(In, is_front_face));\
 	}
 
 #endif

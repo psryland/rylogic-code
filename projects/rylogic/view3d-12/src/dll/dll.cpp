@@ -5395,10 +5395,16 @@ VIEW3D_API view3d::Shader __stdcall View3D_ShaderCreate(view3d::ShaderOptions co
 		if (!is_pixel_stage)
 			validate_bytecode(options.m_bytecode, options.m_bytecode_size, "vertex");
 
-		// The forward pixel family is all or nothing, and only the forward pass has pixel shaders to replace.
-		auto pixel_count = std::ranges::count_if(binding.m_forward_pixel, [](auto const& ps) { return ps.m_bytecode != nullptr || ps.m_size != 0; });
-		if (pixel_count != 0 && pixel_count != view3d::ProceduralBinding::ForwardPixelCount)
-			throw std::invalid_argument("Procedural forward pixel shaders must be all supplied or all omitted");
+		// The required forward pixel entry points are all or nothing, and only the forward pass has pixel shaders to replace.
+		// The last entry point (weighted transparency) is optional, but needs the required ones.
+		auto const is_supplied = [](auto const& ps) { return ps.m_bytecode != nullptr || ps.m_size != 0; };
+		auto const required_count = view3d::ProceduralBinding::ForwardPixelCount - 1;
+		auto pixel_count = std::ranges::count_if(std::span(binding.m_forward_pixel).first(required_count), is_supplied);
+		auto has_weighted = is_supplied(binding.m_forward_pixel[required_count]);
+		if (pixel_count != 0 && pixel_count != required_count)
+			throw std::invalid_argument("Procedural forward pixel shaders must be all supplied or all omitted, except the optional weighted transparency entry point");
+		if (has_weighted && pixel_count == 0)
+			throw std::invalid_argument("The procedural weighted transparency pixel shader requires the other forward pixel shaders");
 		if (pixel_count != 0 && binding.m_rdr_step != view3d::ERenderStep::ForwardRender)
 			throw std::invalid_argument("Procedural pixel shaders are only supported for the ForwardRender render step");
 		if (is_pixel_stage && pixel_count == 0)
@@ -5432,8 +5438,11 @@ VIEW3D_API view3d::Shader __stdcall View3D_ShaderCreate(view3d::ShaderOptions co
 		std::array<std::span<BYTE const>, view3d::ProceduralBinding::ForwardPixelCount> pixel_family = {};
 		for (size_t i = 0; pixel_count != 0 && i != pixel_family.size(); ++i)
 		{
-			// Validate each entry point before any storage is allocated.
+			// Validate each supplied entry point before any storage is allocated. An omitted weighted entry point stays empty.
 			auto const& ps = binding.m_forward_pixel[i];
+			if (i == required_count && !has_weighted)
+				continue;
+
 			validate_bytecode(ps.m_bytecode, ps.m_size, "pixel");
 			pixel_family[i] = std::span<BYTE const>(static_cast<BYTE const*>(ps.m_bytecode), ps.m_size);
 		}

@@ -94,9 +94,17 @@ namespace pr::rdr12
 		,m_dispatch_pso()
 		,m_name(name)
 	{
-		// A pixel family is all or nothing, and only the forward step has pixel shaders to replace.
-		if (!pixel_family.empty() && pixel_family.size() != ForwardPixelFamily::SlotCount)
-			throw std::invalid_argument("A procedural pixel family must contain one pixel shader per forward pixel slot");
+		// A pixel family needs every required slot. The weighted transparency slot is optional, so a family may omit it or leave it empty.
+		// Only the forward step has pixel shaders to replace.
+		auto const required_slots = static_cast<size_t>(EForwardPixelSlot::AlphaWeighted);
+		if (!pixel_family.empty() && pixel_family.size() != required_slots && pixel_family.size() != ForwardPixelFamily::SlotCount)
+			throw std::invalid_argument("A procedural pixel family must contain one pixel shader per forward pixel slot, with the weighted slot optional");
+		for (size_t i = 0; i != std::min(pixel_family.size(), required_slots); ++i)
+		{
+			// Required slots cannot be empty.
+			if (pixel_family[i].empty())
+				throw std::invalid_argument("A procedural pixel family is missing a required pixel shader");
+		}
 		if (!pixel_family.empty() && rdr_step != ERenderStep::RenderForward)
 			throw std::invalid_argument("Procedural pixel shaders are only supported for the forward render step");
 		if (vs_bytecode.empty() && pixel_family.empty())
@@ -113,7 +121,10 @@ namespace pr::rdr12
 
 		for (size_t i = 0; i != pixel_family.size(); ++i)
 		{
-			// The family is selected per sub-pass when the pipeline is built, so it is not stored in 'm_code.PS'.
+			// The family is selected per sub-pass when the pipeline is built, so it is not stored in 'm_code.PS'. Empty optional slots stay empty.
+			if (pixel_family[i].empty())
+				continue;
+
 			m_pixel_family.m_code[i] = OwnByteCode({ pixel_family[i].begin(), pixel_family[i].end() });
 		}
 
@@ -404,6 +415,10 @@ namespace pr::rdr12
 	        #include PR_RDR_SHADER_COMPILED_DIR(forward_detail_ps.h)
 	        #include PR_RDR_SHADER_COMPILED_DIR(forward_reflection_attrs_detail_ps.h)
 	        #include PR_RDR_SHADER_COMPILED_DIR(forward_alpha_collect_detail_ps.h)
+			#include PR_RDR_SHADER_COMPILED_DIR(forward_alpha_weighted_ps.h)
+			#include PR_RDR_SHADER_COMPILED_DIR(forward_alpha_weighted_pbr_ps.h)
+			#include PR_RDR_SHADER_COMPILED_DIR(forward_alpha_weighted_texn_pbr_ps.h)
+			#include PR_RDR_SHADER_COMPILED_DIR(forward_alpha_weighted_detail_ps.h)
 			#include PR_RDR_SHADER_COMPILED_DIR(kbuffer_resolve_vs.h)
 			#include PR_RDR_SHADER_COMPILED_DIR(kbuffer_alpha_resolve_ps.h)
 		}
@@ -426,14 +441,18 @@ namespace pr::rdr12
 	    ByteCode const forward_detail_ps(compiled::forward_detail_ps);
 	    ByteCode const forward_reflection_attrs_detail_ps(compiled::forward_reflection_attrs_detail_ps);
 	    ByteCode const forward_alpha_collect_detail_ps(compiled::forward_alpha_collect_detail_ps);
+		ByteCode const forward_alpha_weighted_ps(compiled::forward_alpha_weighted_ps);
+		ByteCode const forward_alpha_weighted_pbr_ps(compiled::forward_alpha_weighted_pbr_ps);
+		ByteCode const forward_alpha_weighted_texn_pbr_ps(compiled::forward_alpha_weighted_texn_pbr_ps);
+		ByteCode const forward_alpha_weighted_detail_ps(compiled::forward_alpha_weighted_detail_ps);
 		ByteCode const kbuffer_resolve_vs(compiled::kbuffer_resolve_vs);
 		ByteCode const kbuffer_alpha_resolve_ps(compiled::kbuffer_alpha_resolve_ps);
 
 		// Stock families, defined after their members in this translation unit so the members are initialised first. The detail family replaces simple-material shading.
-		ForwardPixelFamily const forward_family = {{ forward_ps, forward_reflection_attrs_ps, forward_alpha_collect_ps }, nullptr};
-		ForwardPixelFamily const forward_pbr_family = {{ forward_pbr_ps, forward_reflection_attrs_pbr_ps, forward_alpha_collect_pbr_ps }, nullptr};
-		ForwardPixelFamily const forward_texn_pbr_family = {{ forward_texn_pbr_ps, forward_reflection_attrs_texn_pbr_ps, forward_alpha_collect_texn_pbr_ps }, nullptr};
-		ForwardPixelFamily const forward_detail_family = {{ forward_detail_ps, forward_reflection_attrs_detail_ps, forward_alpha_collect_detail_ps }, &forward_family};
+		ForwardPixelFamily const forward_family = {{ forward_ps, forward_reflection_attrs_ps, forward_alpha_collect_ps, forward_alpha_weighted_ps }, nullptr};
+		ForwardPixelFamily const forward_pbr_family = {{ forward_pbr_ps, forward_reflection_attrs_pbr_ps, forward_alpha_collect_pbr_ps, forward_alpha_weighted_pbr_ps }, nullptr};
+		ForwardPixelFamily const forward_texn_pbr_family = {{ forward_texn_pbr_ps, forward_reflection_attrs_texn_pbr_ps, forward_alpha_collect_texn_pbr_ps, forward_alpha_weighted_texn_pbr_ps }, nullptr};
+		ForwardPixelFamily const forward_detail_family = {{ forward_detail_ps, forward_reflection_attrs_detail_ps, forward_alpha_collect_detail_ps, forward_alpha_weighted_detail_ps }, &forward_family};
 
 		// Post-processing
 		namespace compiled
