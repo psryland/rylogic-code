@@ -701,6 +701,12 @@
     <ClCompile Include="src\render\back_buffer.cpp">
       <Filter>src\render</Filter>
     </ClCompile>
+    <ClCompile Include="src\render\instance_culler.cpp">
+      <Filter>src\render</Filter>
+    </ClCompile>
+    <ClInclude Include="src\render\instance_culler.h">
+      <Filter>src\render</Filter>
+    </ClInclude>
     <ClCompile Include="src\render\render_forward.cpp">
       <Filter>src\render</Filter>
     </ClCompile>
@@ -834,6 +840,9 @@
     </ShaderBuild>
     <ShaderBuild Include="src\shaders\hlsl\screenspace\point_sprites.hlsl">
       <Filter>src\shaders\hlsl\screenspace</Filter>
+    </ShaderBuild>
+    <ShaderBuild Include="src\shaders\hlsl\population\instance_cull.hlsl">
+      <Filter>src\shaders\hlsl\population</Filter>
     </ShaderBuild>
     <ShaderBuild Include="src\shaders\hlsl\population\population_cull.hlsl">
       <Filter>src\shaders\hlsl\population</Filter>

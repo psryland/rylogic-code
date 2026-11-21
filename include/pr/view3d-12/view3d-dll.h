@@ -1334,33 +1334,77 @@ namespace pr
 		};
 		static_assert(sizeof(AtmosphereStats) == 24);
 
-		// The shaders of a particle type and the index list that its vertex shader draws for each particle. See pr/game-systems/particles/particle_kernels.hlsli.
-		struct ParticleTypeShaders
+		// The simulation shaders of a particle type. See pr/game-systems/particles/particle_kernels.hlsli. The bytecode must be a compiled compute shader
+		// built on particle_kernels.hlsli, so it matches the system's root signature. Other bytecode is a caller error: the D3D12 debug layer reports it,
+		// and otherwise type creation fails with an error naming the kernel.
+		struct ParticleSimShaders
 		{
 			ShaderByteCode m_emit;      // Compute shader with the entry point 'ParticleEmitCS'.
 			ShaderByteCode m_update;    // Compute shader with the entry point 'ParticleUpdateCS'.
-			ShaderByteCode m_vertex;    // Procedural forward vertex shader. It reads the records at VIEW3D_PROCEDURAL_BUFFER0_REGISTER, one per instance.
-			uint32_t const* m_indices;  // Triangle list of logical vertex ids drawn for each particle.
-			int m_index_count;          // Number of 'm_indices'. A positive multiple of 3.
-			int m_vertex_count;         // One more than the largest logical vertex id in 'm_indices'.
 		};
 
-		// Fixed inputs of a particle type. A type is a pool of particles that share their layout and shaders, drawn as one View3D object.
-		struct ParticleTypeOptions
+		// The drawing shaders of a particle batch, and the index list that its vertex shader draws for each render record. Optional per-vertex data,
+		// such as a small mesh shared by every record, is copied to the GPU once when the batch is created and bound at VIEW3D_PROCEDURAL_BUFFER1_REGISTER.
+		struct ParticleDrawShaders
+		{
+			ShaderByteCode m_vertex;    // Procedural forward vertex shader. It reads the records at VIEW3D_PROCEDURAL_BUFFER0_REGISTER, one per instance.
+			uint32_t const* m_indices;  // Triangle list of logical vertex ids drawn for each record.
+			int m_index_count;          // Number of 'm_indices'. A positive multiple of 3.
+			int m_vertex_count;         // One more than the largest logical vertex id in 'm_indices'.
+			EGeom m_geom;               // The surface outputs that 'm_vertex' generates. Must include Vert. Norm enables lighting, and Tex0 enables the batch texture.
+			void const* m_vertex_data;  // Optional data for each of the 'm_vertex_count' logical vertices. Null for none.
+			int m_vertex_stride;        // Bytes of 'm_vertex_data' per logical vertex. A multiple of 4 in [4, 2048] when 'm_vertex_data' is set, otherwise 0.
+		};
+
+		// How a particle batch blends with the scene.
+		enum class EParticleBlend :int
+		{
+			// Alpha fragments sorted per pixel with the scene's other transparent geometry. Suits sparse particles that must sort exactly.
+			Sorted = 0,
+
+			// Weighted blended transparency (see ENuggetFlag::AlphaWeighted). Suits dense, soft, overlapping particles such as smoke and dust.
+			Weighted = 1,
+
+			// Opaque, depth-tested and depth-written. Suits solid particles such as chips and leaves.
+			Opaque = 2,
+		};
+
+		// Fixed inputs of a particle batch. A batch is one View3D object that draws the render records of every particle type added to it with one
+		// indirect draw. Types with different particle states share a batch when they write the same render record.
+		struct ParticleBatchOptions
 		{
 			static constexpr int CurrentVersion = 1;
 
 			int m_struct_size;
 			int m_version;
-			ParticleTypeShaders m_shaders;
+			ParticleDrawShaders m_shaders;
+			int m_capacity;              // Most records drawn at once. At least the sum of the capacities of the batch's types. In [1, 4194240].
+			int m_record_stride;         // Bytes per render record (sizeof ParticleRecord). A multiple of 4 in [4, 2048].
+			void const* m_constants;     // Optional constants seen by the vertex shader as its procedural constants. Null for none.
+			size_t m_constants_size;     // Zero when 'm_constants' is null, otherwise a multiple of 4 in [4, ProceduralBinding::ConstantsSize].
+			EParticleBlend m_blend;
+			BBox m_bbox;                 // Bounds of every particle, in the object's space, for culling.
+			Texture m_texture;           // Optional diffuse texture, sampled at the vertex shader's UVs when 'm_shaders.m_geom' includes Tex0. Null for none.
+			Sampler m_sampler;           // Sampler of 'm_texture'. Null for the default.
+		};
+
+		// Fixed inputs of a particle type. A type is a pool of particles that share their state layout and simulation shaders. Its particles are
+		// drawn by the batch it is added to.
+		struct ParticleTypeOptions
+		{
+			static constexpr int CurrentVersion = 2;
+
+			int m_struct_size;
+			int m_version;
+			ParticleSimShaders m_shaders;
+			int m_batch;                 // The batch that draws the type's particles.
 			int m_capacity;              // Most particles alive at once. In [1, 4194240].
 			int m_max_emitters;          // Most emitters alive at once. In [1, 65535].
 			int m_state_stride;          // Bytes per particle state (sizeof ParticleState). A multiple of 4 in [4, 2048].
-			int m_record_stride;         // Bytes per render record (sizeof ParticleRecord). A multiple of 4 in [4, 2048].
+			int m_record_stride;         // Bytes per render record (sizeof ParticleRecord). Equal to the batch's record stride.
 			int m_params_stride;         // Bytes per emitter's parameters (sizeof EmitterParams). A multiple of 4 in [4, 2048].
-			void const* m_constants;     // The type's constants (TypeConstants), seen by its kernels at b1 and its vertex shader as its procedural constants.
-			size_t m_constants_size;     // A multiple of 4 in [4, ProceduralBinding::ConstantsSize].
-			BBox m_bbox;                 // Bounds of every particle, in the object's space, for culling.
+			void const* m_constants;     // The type's constants (TypeConstants), seen by its kernels at b1.
+			size_t m_constants_size;     // A multiple of 4 in [4, 65536].
 		};
 
 		// The system-owned settings of a particle emitter. The caller's parameters are passed separately.
@@ -2233,20 +2277,29 @@ extern "C"
 	VIEW3D_API BOOL __stdcall View3D_OceanHeight(pr::view3d::Ocean ocean, double x_m, double y_m, double& out_height_m);
 
 	// Particles ******************************
-	// A particle system owns pools of GPU-resident particles. Each particle type is one pool, drawn as one View3D object with one indirect draw
-	// whose instance count the GPU writes. The CPU only uploads emitter changes; particles are born, updated, and die on the GPU, in steps of
-	// simulated time, so they move correctly at any step rate and in slow motion. See pr/game-systems/particles/particle_system.h.
+	// A particle system owns pools of GPU-resident particles. Each particle type is one pool. Each batch is one View3D object that draws the
+	// particles of all of its types with one indirect draw, whose instance count the GPU writes. The CPU only uploads emitter changes; particles are
+	// born, updated, and die on the GPU, in steps of simulated time, so they move correctly at any step rate and in slow motion.
+	// See pr/game-systems/particles/particle_system.h.
 
 	// Create an empty particle system on the renderer. Returns null on failure. Destroy it with View3D_ParticleSystemDestroy.
 	VIEW3D_API pr::view3d::ParticleSystem __stdcall View3D_ParticleSystemCreate(char const* name);
 	VIEW3D_API void __stdcall View3D_ParticleSystemDestroy(pr::view3d::ParticleSystem system);
 
-	// Fill 'out_shaders' with the shaders of the stock sprite type (see pr/game-systems/particles/particle_sprite.hlsli). The data is static.
-	VIEW3D_API BOOL __stdcall View3D_ParticleSpriteShaders(pr::view3d::ParticleTypeShaders* out_shaders);
+	// Fill 'out_sim' and 'out_draw' with the shaders of the stock sprite type and its batch (see pr/game-systems/particles/particle_sprite.hlsli).
+	// The data is static.
+	VIEW3D_API BOOL __stdcall View3D_ParticleSpriteShaders(pr::view3d::ParticleSimShaders* out_sim, pr::view3d::ParticleDrawShaders* out_draw);
 
-	// Add a particle type to 'system', returning its index in 'out_type' and its View3D object in 'out_object'. The options' data is copied.
+	// Fill 'out_draw' with the stock mesh batch's vertex shader and its outputs (see pr/game-systems/particles/particle_mesh.hlsli). The caller
+	// supplies the mesh: its ParticleMeshVertex array as the vertex data, and its triangle list as the indices. The data is static.
+	VIEW3D_API BOOL __stdcall View3D_ParticleMeshShaders(pr::view3d::ParticleDrawShaders* out_draw);
+
+	// Add a particle batch to 'system', returning its index in 'out_batch' and its View3D object in 'out_object'. The options' data is copied.
 	// Delete the object with View3D_ObjectDelete. An object that outlives its system keeps drawing the particles of the system's last step.
-	VIEW3D_API BOOL __stdcall View3D_ParticleTypeCreate(pr::view3d::ParticleSystem system, pr::view3d::ParticleTypeOptions const& options, char const* name, int* out_type, pr::view3d::Object* out_object);
+	VIEW3D_API BOOL __stdcall View3D_ParticleBatchCreate(pr::view3d::ParticleSystem system, pr::view3d::ParticleBatchOptions const& options, char const* name, int* out_batch, pr::view3d::Object* out_object);
+
+	// Add a particle type to 'system', drawn by the batch 'options.m_batch', returning its index in 'out_type'. The options' data is copied.
+	VIEW3D_API BOOL __stdcall View3D_ParticleTypeCreate(pr::view3d::ParticleSystem system, pr::view3d::ParticleTypeOptions const& options, char const* name, int* out_type);
 
 	// Add an emitter of particles of 'type', returning its id in 'out_emitter'. 'params' is 'params_size' bytes, the type's parameter stride.
 	VIEW3D_API BOOL __stdcall View3D_ParticleEmitterCreate(pr::view3d::ParticleSystem system, int type, pr::view3d::ParticleEmitter const& emitter, void const* params, size_t params_size, uint64_t* out_emitter);
@@ -2547,9 +2600,13 @@ extern "C"
 
 	// Draw nugget 'index' of 'object' with one indirect draw whose arguments the GPU writes at 'offset' bytes into 'buffer' (an ID3D12Resource),
 	// or restore ordinary draws when 'buffer' is null. The record is a D3D12_DRAW_INDEXED_ARGUMENTS for nuggets with indices, otherwise a
-	// D3D12_DRAW_ARGUMENTS. The caller writes it and keeps the buffer in the INDIRECT_ARGUMENT state whenever the object is drawn. Such nuggets are
-	// drawn only by the forward render steps: they cast no shadows and are not ray cast. The object keeps a reference to the buffer.
-	VIEW3D_API void __stdcall View3D_ObjectNuggetDrawArgsSet(pr::view3d::Object object, void* buffer, int64_t offset, int index);
+	// D3D12_DRAW_ARGUMENTS. The caller writes it and keeps the buffer in the INDIRECT_ARGUMENT | NON_PIXEL_SHADER_RESOURCE state whenever the object
+	// is drawn. 'bounds' (an ID3D12Resource) holds one float4 per instance index in [0, capacity): the object-space centre and radius of a sphere
+	// containing that instance. The caller keeps it in the NON_PIXEL_SHADER_RESOURCE state whenever the object is drawn. 'capacity' is in
+	// [1, 65535*64], and the record's instance count must not exceed it. Each view draws only the instances whose spheres it can see, as an unordered compacted list (see
+	// pr/view3d-12/shaders/indirect_instances.hlsli). Such nuggets are drawn only by the forward render steps: they cast no shadows and are not ray
+	// cast. The object keeps references to both buffers.
+	VIEW3D_API void __stdcall View3D_ObjectNuggetDrawArgsSet(pr::view3d::Object object, void* buffer, int64_t offset, void* bounds, int capacity, int index);
 
 	// Replace the detail-normal layers of every nugget of 'object' (not its children) that has detail normals. Layers are shared by the
 	// material, so this is cheap enough to call every frame. 'count' must be in [0, 4]. 'base_slope_variance' (non-negative) is the mean square
@@ -2596,6 +2653,13 @@ extern "C"
 	// emissive_scale constant themselves. Name follows LdrObject::Apply; the getter returns the first match, or one if absent.
 	VIEW3D_API float __stdcall View3D_ObjectEmissiveScaleGet(pr::view3d::Object object, char const* name);
 	VIEW3D_API void __stdcall View3D_ObjectEmissiveScaleSet(pr::view3d::Object object, float scale, char const* name);
+
+	// Get/Set the soft depth of 'object': the view depth, in world units, over which its transparent fragments fade to zero alpha as they
+	// approach the opaque scene behind them, so they do not show hard lines where they cut through opaque surfaces. Zero (the default) keeps
+	// hard intersections. Applies to the stock transparent pixel shaders and to procedural families built with the stock entry-point macros.
+	// 'depth' must be non-negative. Name follows LdrObject::Apply; the getter returns the first match, or zero if absent.
+	VIEW3D_API float __stdcall View3D_ObjectSoftDepthGet(pr::view3d::Object object, char const* name);
+	VIEW3D_API void __stdcall View3D_ObjectSoftDepthSet(pr::view3d::Object object, float depth, char const* name);
 
 	// Resource batches ******************************
 

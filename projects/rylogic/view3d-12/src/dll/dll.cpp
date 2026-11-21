@@ -3188,32 +3188,60 @@ VIEW3D_API void __stdcall View3D_ParticleSystemDestroy(view3d::ParticleSystem sy
 	}
 	CatchAndReport(View3D_ParticleSystemDestroy, , );
 }
-VIEW3D_API BOOL __stdcall View3D_ParticleSpriteShaders(view3d::ParticleTypeShaders* out_shaders)
+VIEW3D_API BOOL __stdcall View3D_ParticleSpriteShaders(view3d::ParticleSimShaders* out_sim, view3d::ParticleDrawShaders* out_draw)
 {
 	try
 	{
 		// The shaders are static data and need no renderer.
-		if (out_shaders == nullptr)
-			throw std::invalid_argument("Particle sprite shaders output is required");
+		if (out_sim == nullptr || out_draw == nullptr)
+			throw std::invalid_argument("Particle sprite shaders outputs are required");
 
-		*out_shaders = game_systems::particles::ParticleSystem::SpriteShaders();
+		*out_sim = game_systems::particles::ParticleSystem::SpriteSimShaders();
+		*out_draw = game_systems::particles::ParticleSystem::SpriteDrawShaders();
 		return TRUE;
 	}
 	CatchAndReport(View3D_ParticleSpriteShaders, , FALSE);
 }
-VIEW3D_API BOOL __stdcall View3D_ParticleTypeCreate(view3d::ParticleSystem system, view3d::ParticleTypeOptions const& options, char const* name, int* out_type, view3d::Object* out_object)
+VIEW3D_API BOOL __stdcall View3D_ParticleMeshShaders(view3d::ParticleDrawShaders* out_draw)
 {
 	try
 	{
-		// The object exists only when the type does.
-		if (out_type == nullptr || out_object == nullptr)
-			throw std::invalid_argument("Particle type outputs are required");
+		// The shaders are static data and need no renderer.
+		if (out_draw == nullptr)
+			throw std::invalid_argument("Particle mesh shaders output is required");
+
+		*out_draw = game_systems::particles::ParticleSystem::MeshDrawShaders();
+		return TRUE;
+	}
+	CatchAndReport(View3D_ParticleMeshShaders, , FALSE);
+}
+VIEW3D_API BOOL __stdcall View3D_ParticleBatchCreate(view3d::ParticleSystem system, view3d::ParticleBatchOptions const& options, char const* name, int* out_batch, view3d::Object* out_object)
+{
+	try
+	{
+		// The object exists only when the batch does.
+		if (out_batch == nullptr || out_object == nullptr)
+			throw std::invalid_argument("Particle batch outputs are required");
 
 		*out_object = nullptr;
 		DllLockGuard;
 		auto object = view3d::Object{};
-		*out_type = RequireParticles(system).TypeCreate(options, name, object);
+		*out_batch = RequireParticles(system).BatchCreate(options, name, object);
 		*out_object = object;
+		return TRUE;
+	}
+	CatchAndReport(View3D_ParticleBatchCreate, , FALSE);
+}
+VIEW3D_API BOOL __stdcall View3D_ParticleTypeCreate(view3d::ParticleSystem system, view3d::ParticleTypeOptions const& options, char const* name, int* out_type)
+{
+	try
+	{
+		// Types are drawn by their batch's object.
+		if (out_type == nullptr)
+			throw std::invalid_argument("Particle type output is required");
+
+		DllLockGuard;
+		*out_type = RequireParticles(system).TypeCreate(options, name);
 		return TRUE;
 	}
 	CatchAndReport(View3D_ParticleTypeCreate, , FALSE);
@@ -4285,6 +4313,34 @@ VIEW3D_API void __stdcall View3D_ObjectEmissiveScaleSet(view3d::Object object, f
 	CatchAndReport(View3D_ObjectEmissiveScaleSet, ,);
 }
 
+// Return the soft depth of the first selected object.
+VIEW3D_API float __stdcall View3D_ObjectSoftDepthGet(view3d::Object object, char const* name)
+{
+	// Use the normal DLL error reporting and serialization boundary.
+	try
+	{
+		// Read only instance state, never shared model data.
+		Validate(object);
+		DllLockGuard;
+		return object->SoftDepth(name);
+	}
+	CatchAndReport(View3D_ObjectSoftDepthGet, , 0.0f);
+}
+
+// Set the soft depth of transparent intersections. See View3D_ObjectSoftDepthSet's public contract.
+VIEW3D_API void __stdcall View3D_ObjectSoftDepthSet(view3d::Object object, float depth, char const* name)
+{
+	// Use the normal DLL error reporting and serialization boundary.
+	try
+	{
+		// Validate before applying the change to the requested hierarchy.
+		Validate(object);
+		DllLockGuard;
+		object->SoftDepth(depth, name);
+	}
+	CatchAndReport(View3D_ObjectSoftDepthSet, ,);
+}
+
 // Reset the object colour back to its default
 VIEW3D_API void __stdcall View3D_ObjectResetColour(view3d::Object object, char const* name)
 {
@@ -5023,18 +5079,21 @@ VIEW3D_API void __stdcall View3D_ObjectNuggetDetailNormalsSet(view3d::Object obj
 }
 
 // Set or remove the GPU-written draw arguments of an object's nugget.
-VIEW3D_API void __stdcall View3D_ObjectNuggetDrawArgsSet(view3d::Object object, void* buffer, int64_t offset, int index)
+VIEW3D_API void __stdcall View3D_ObjectNuggetDrawArgsSet(view3d::Object object, void* buffer, int64_t offset, void* bounds, int capacity, int index)
 {
-	// The record must lie within the buffer; its contents are the caller's.
+	// The record and the instance bounds must lie within their buffers; their contents are the caller's.
 	try
 	{
 		Validate(object);
 		auto* res = static_cast<ID3D12Resource*>(buffer);
+		auto* bnd = static_cast<ID3D12Resource*>(bounds);
 		if (res != nullptr && (offset < 0 || offset % 4 != 0 || s_cast<uint64_t>(offset) + sizeof(D3D12_DRAW_INDEXED_ARGUMENTS) > res->GetDesc().Width))
 			throw std::invalid_argument("Draw arguments must be a 4-byte aligned record within the buffer");
+		if (res != nullptr && (bnd == nullptr || capacity < 1 || capacity > NuggetDrawArgs::MaxCapacity || s_cast<uint64_t>(capacity) * sizeof(v4) > bnd->GetDesc().Width))
+			throw std::invalid_argument("Draw arguments need a capacity in [1, 65535*64] and a bounds buffer of at least one float4 per instance");
 
 		DllLockGuard;
-		object->NuggetDrawArgs(res, offset, nullptr, index);
+		object->NuggetDrawArgs(res, offset, res != nullptr ? bnd : nullptr, res != nullptr ? capacity : 0, nullptr, index);
 	}
 	CatchAndReport(View3D_ObjectNuggetDrawArgsSet, ,);
 }

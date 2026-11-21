@@ -206,6 +206,8 @@ namespace pr::rdr12
 		extern ByteCode const population_count_cs;
 		extern ByteCode const population_prefix_cs;
 		extern ByteCode const population_scatter_cs;
+		extern ByteCode const instance_reset_cs;
+		extern ByteCode const instance_cull_cs;
 
 		// Environment map face distances
 		extern ByteCode const env_map_distance_cs;

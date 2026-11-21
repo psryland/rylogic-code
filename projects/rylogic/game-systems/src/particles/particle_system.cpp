@@ -6,6 +6,7 @@
 #include "pr/game-systems/particles/particle_system.h"
 #include "pr/game-systems/particles/particles.hlsli"
 #include "pr/game-systems/particles/particle_sprite.hlsli"
+#include "pr/game-systems/particles/particle_mesh.hlsli"
 
 #ifdef NDEBUG
 #define PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(file) PR_STRINGISE(game-systems/src/shaders/hlsl/compiled/release/##file)
@@ -35,6 +36,7 @@ namespace pr::game_systems::particles
 		#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(particle_sprite_emit_cs.h)
 		#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(particle_sprite_update_cs.h)
 		#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(particle_sprite_vs.h)
+		#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(particle_mesh_vs.h)
 	}
 
 	namespace
@@ -51,15 +53,25 @@ namespace pr::game_systems::particles
 			RootRecords = 6,   // u4
 			RootRuntime = 7,   // u5
 			RootArgs = 8,      // u6
-			RootHeaders = 9,   // t0
-			RootParams = 10,   // t1
+			RootDrawArgs = 9,  // u7
+			RootHeaders = 10,  // t0
+			RootParams = 11,   // t1
+			RootBounds = 12,   // u8
 		};
 
-		// Limits of the type options. The capacity is bounded so that the reset dispatch fits in one dimension of thread groups.
+		// Limits of the type and batch options. The capacity is bounded so that the reset dispatch fits in one dimension of thread groups.
+		// Type constants are bounded by the largest constant buffer view.
 		constexpr int MaxCapacity = 65535 * static_cast<int>(ParticleGroupSize);
 		constexpr int MaxEmitters = 65535;
 		constexpr int MaxStride = 2048;
 		constexpr int MaxTypes = 256;
+		constexpr size_t MaxTypeConstantsSize = D3D12_REQ_CONSTANT_BUFFER_ELEMENT_COUNT * 16;
+
+		// The kernels write the indirect argument records as words at these indices, so they must match D3D12's layouts.
+		static_assert(ParticleArgsDispatchX == offsetof(D3D12_DISPATCH_ARGUMENTS, ThreadGroupCountX) / 4 && sizeof(D3D12_DISPATCH_ARGUMENTS) <= ParticleArgsCount * 4);
+		static_assert(ParticleDrawIndexCount == offsetof(D3D12_DRAW_INDEXED_ARGUMENTS, IndexCountPerInstance) / 4);
+		static_assert(ParticleDrawInstanceCount == offsetof(D3D12_DRAW_INDEXED_ARGUMENTS, InstanceCount) / 4);
+		static_assert(sizeof(D3D12_DRAW_INDEXED_ARGUMENTS) == ParticleDrawArgsCount * 4);
 
 		// Emitter ids pack the slot generation, the type, and the emitter slot. Generation zero is never used, so zero is never a valid id.
 		constexpr int EmitterSlotBits = 24;
@@ -107,6 +119,20 @@ namespace pr::game_systems::particles
 			return std::span<uint8_t const>(static_cast<uint8_t const*>(code.m_bytecode), code.m_size);
 		}
 
+		// Create a compute pipeline for a caller-supplied kernel, naming the kernel if D3D12 rejects it (e.g. it is not a compute shader, or does not fit 'sig').
+		D3DPtr<ID3D12PipelineState> CreateKernel(ID3D12Device* device, ID3D12RootSignature* sig, pr::view3d::ShaderByteCode const& code, std::string const& name)
+		{
+			// Rethrow with the kernel's name, which the device's own error lacks.
+			try
+			{
+				return ComputePSO(sig, Bytecode(code)).Create(device, name.c_str());
+			}
+			catch (std::exception const& ex)
+			{
+				throw std::invalid_argument(std::format("Particle kernel '{}' is invalid: {}", name, ex.what()));
+			}
+		}
+
 		// Copy 'data' into a new constant-buffer allocation of the upload buffer.
 		GpuAddress UploadConstants(GpuUploadBuffer& upload, void const* data, size_t size)
 		{
@@ -118,15 +144,31 @@ namespace pr::game_systems::particles
 		}
 	}
 
+	// One particle batch: the render records of its types' live particles and the draw arguments of its View3D object.
+	struct ParticleBatch
+	{
+		std::string m_name;
+		uint32_t m_capacity;
+		int m_record_stride;
+		int64_t m_pool_capacity; // Sum of the capacities of the batch's types, which must not exceed 'm_capacity'.
+
+		// The GPU buffers (see particles.hlsli). All are read by the draw outside a step.
+		D3DPtr<ID3D12Resource> m_records;
+		D3DPtr<ID3D12Resource> m_draw_args;
+		D3DPtr<ID3D12Resource> m_bounds;
+		D3DPtr<ID3D12Resource> m_vertex_data; // The draw's optional per-vertex data. Null when it has none.
+	};
+
 	// One particle type: its pool of GPU buffers, its kernels, and the CPU copy of its emitter slots.
 	struct ParticleType
 	{
 		// The fixed layout of the type.
 		std::string m_name;
+		ParticleBatch* m_batch;
 		uint32_t m_capacity;
 		int m_max_emitters;
 		int m_params_stride;
-		std::vector<std::byte> m_constants; // The type's constants, zero-padded to ProceduralBinding::ConstantsSize.
+		std::vector<std::byte> m_constants; // The type's kernel constants.
 		D3DPtr<ID3D12PipelineState> m_emit;
 		D3DPtr<ID3D12PipelineState> m_update;
 
@@ -135,7 +177,6 @@ namespace pr::game_systems::particles
 		D3DPtr<ID3D12Resource> m_free;
 		D3DPtr<ID3D12Resource> m_live;
 		D3DPtr<ID3D12Resource> m_states;
-		D3DPtr<ID3D12Resource> m_records;
 		D3DPtr<ID3D12Resource> m_runtime;
 		D3DPtr<ID3D12Resource> m_args;
 		D3DPtr<ID3D12Resource> m_headers;
@@ -170,6 +211,7 @@ namespace pr::game_systems::particles
 		D3DPtr<ID3D12RootSignature> m_sig;
 		D3DPtr<ID3D12PipelineState> m_reset;
 		D3DPtr<ID3D12PipelineState> m_finalize;
+		std::vector<std::unique_ptr<ParticleBatch>> m_batches;
 		std::vector<std::unique_ptr<ParticleType>> m_types;
 		uint32_t m_tick;
 
@@ -182,6 +224,7 @@ namespace pr::game_systems::particles
 			, m_sig()
 			, m_reset()
 			, m_finalize()
+			, m_batches()
 			, m_types()
 			, m_tick()
 		{
@@ -196,8 +239,10 @@ namespace pr::game_systems::particles
 				.UAV(hlsl::EUAVReg::u4)
 				.UAV(hlsl::EUAVReg::u5)
 				.UAV(hlsl::EUAVReg::u6)
+				.UAV(hlsl::EUAVReg::u7)
 				.SRV(hlsl::ESRVReg::t0)
 				.SRV(hlsl::ESRVReg::t1)
+				.UAV(hlsl::EUAVReg::u8)
 				.Create(m_rdr.d3d(), "Particles:Sig");
 			m_reset = ComputePSO(m_sig.get(), compiled::particle_reset_cs).Create(m_rdr.d3d(), "Particles:Reset");
 			m_finalize = ComputePSO(m_sig.get(), compiled::particle_finalize_cs).Create(m_rdr.d3d(), "Particles:Finalize");
@@ -207,59 +252,126 @@ namespace pr::game_systems::particles
 			// The GPU may still be running the last step, so release through the renderer's deferred release.
 			for (auto& type : m_types)
 			{
-				for (auto const* res : { &type->m_counters, &type->m_free, &type->m_live, &type->m_states, &type->m_records, &type->m_runtime, &type->m_args, &type->m_headers, &type->m_params })
+				for (auto const* res : { &type->m_counters, &type->m_free, &type->m_live, &type->m_states, &type->m_runtime, &type->m_args, &type->m_headers, &type->m_params })
 					m_rdr.DeferRelease(*res);
 
 				m_rdr.DeferRelease(type->m_emit);
 				m_rdr.DeferRelease(type->m_update);
+			}
+			for (auto& batch : m_batches)
+			{
+				// The batches' objects keep their own references, so they can keep drawing the last step's records.
+				m_rdr.DeferRelease(batch->m_records);
+				m_rdr.DeferRelease(batch->m_draw_args);
+				m_rdr.DeferRelease(batch->m_bounds);
+				if (batch->m_vertex_data != nullptr)
+					m_rdr.DeferRelease(batch->m_vertex_data);
 			}
 			m_rdr.DeferRelease(m_reset);
 			m_rdr.DeferRelease(m_finalize);
 			m_rdr.DeferRelease(m_sig);
 		}
 
+		// Validate 'options' and add a particle batch.
+		int BatchCreate(pr::view3d::ParticleBatchOptions const& options, char const* name, pr::view3d::Object& out_object) override
+		{
+			// Validate the options against the documented domain.
+			if (options.m_struct_size != sizeof(pr::view3d::ParticleBatchOptions) || options.m_version != pr::view3d::ParticleBatchOptions::CurrentVersion)
+				throw std::invalid_argument("Particle batch options have an unsupported size or version");
+			if (options.m_capacity < 1 || options.m_capacity > MaxCapacity)
+				throw std::invalid_argument("Particle batch capacity is out of range");
+
+			RequireStride(options.m_record_stride, "Particle record stride must be a multiple of 4 bytes in [4, 2048]");
+			if (static_cast<size_t>(options.m_capacity) * options.m_record_stride > pr::view3d::ProceduralBinding::MaxBufferSize)
+				throw std::invalid_argument("Particle batch records exceed the procedural buffer size");
+			if (options.m_constants == nullptr ? options.m_constants_size != 0 : (options.m_constants_size < 4 || options.m_constants_size > pr::view3d::ProceduralBinding::ConstantsSize || options.m_constants_size % 4 != 0))
+				throw std::invalid_argument("Particle batch constants must be absent, or a multiple of 4 bytes within the procedural constants size");
+
+			auto const& shaders = options.m_shaders;
+			RequireBytecode(shaders.m_vertex, "Particle vertex shader is required");
+			if (shaders.m_indices == nullptr || shaders.m_index_count < 3 || shaders.m_index_count % 3 != 0 || shaders.m_vertex_count < 1)
+				throw std::invalid_argument("Particle indices must be a non-empty triangle list over a positive vertex count");
+			if (std::any_of(shaders.m_indices, shaders.m_indices + shaders.m_index_count, [&](uint32_t i) { return i >= static_cast<uint32_t>(shaders.m_vertex_count); }))
+				throw std::invalid_argument("Particle indices must be less than the vertex count");
+			if (!AllSet(shaders.m_geom, pr::view3d::EGeom::Vert))
+				throw std::invalid_argument("Particle vertex shader outputs must include positions");
+			if (shaders.m_vertex_data != nullptr)
+				RequireStride(shaders.m_vertex_stride, "Particle vertex data stride must be a multiple of 4 bytes in [4, 2048]");
+			else if (shaders.m_vertex_stride != 0)
+				throw std::invalid_argument("Particle vertex data stride must be zero when there is no vertex data");
+
+			if (static_cast<size_t>(shaders.m_vertex_count) * shaders.m_vertex_stride > pr::view3d::ProceduralBinding::MaxBufferSize)
+				throw std::invalid_argument("Particle vertex data exceeds the procedural buffer size");
+
+			// Create the records, the draw arguments, and the record bounds. They rest in the states that the draw and the renderer's cull read them in. The instance count starts at
+			// zero and is zeroed again at the start of every step and reset, before the batch's types add their records.
+			auto batch_name = std::string(name != nullptr ? name : "ParticleBatch");
+			auto batch = std::make_unique<ParticleBatch>();
+			batch->m_name = batch_name;
+			batch->m_capacity = static_cast<uint32_t>(options.m_capacity);
+			batch->m_record_stride = options.m_record_stride;
+			batch->m_pool_capacity = 0;
+			auto const draw_args = std::array<uint32_t, ParticleDrawArgsCount>{ static_cast<uint32_t>(shaders.m_index_count), 0, 0, 0, 0 };
+			auto const none = std::span<std::byte const>{};
+			batch->m_records = m_factory.CreateResource(ResDesc::Buf(options.m_capacity, options.m_record_stride, none, 4).usage(EUsage::UnorderedAccess).def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE), batch_name + ":Records");
+			batch->m_draw_args = m_factory.CreateResource(ResDesc::Buf<uint32_t>(ParticleDrawArgsCount, std::span<uint32_t const>(draw_args)).usage(EUsage::UnorderedAccess).def_state(D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE), batch_name + ":DrawArgs");
+			batch->m_bounds = m_factory.CreateResource(ResDesc::Buf(options.m_capacity, sizeof(v4), none, 16).usage(EUsage::UnorderedAccess).def_state(D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE), batch_name + ":Bounds");
+			if (shaders.m_vertex_data != nullptr)
+			{
+				// The per-vertex data never changes, so it is copied to the GPU once and only read by the draw.
+				auto const data = std::span<std::byte const>(static_cast<std::byte const*>(shaders.m_vertex_data), static_cast<size_t>(shaders.m_vertex_count) * shaders.m_vertex_stride);
+				batch->m_vertex_data = m_factory.CreateResource(ResDesc::Buf(shaders.m_vertex_count, shaders.m_vertex_stride, data, 4).def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE), batch_name + ":VertexData");
+			}
+			m_factory.FlushToGpu(EGpuFlush::Async);
+
+			// Create the batch's object: one instance per record, drawn by one indirect draw whose instance count the GPU writes.
+			out_object = CreateObject(*batch, options, batch_name.c_str());
+			m_batches.push_back(std::move(batch));
+			return static_cast<int>(m_batches.size() - 1);
+		}
+
 		// Validate 'options' and add a particle type.
-		int TypeCreate(pr::view3d::ParticleTypeOptions const& options, char const* name, pr::view3d::Object& out_object) override
+		int TypeCreate(pr::view3d::ParticleTypeOptions const& options, char const* name) override
 		{
 			// Validate the options against the documented domain.
 			if (options.m_struct_size != sizeof(pr::view3d::ParticleTypeOptions) || options.m_version != pr::view3d::ParticleTypeOptions::CurrentVersion)
 				throw std::invalid_argument("Particle type options have an unsupported size or version");
 			if (std::ssize(m_types) == MaxTypes)
 				throw std::invalid_argument("Too many particle types");
+			if (options.m_batch < 0 || options.m_batch >= std::ssize(m_batches))
+				throw std::invalid_argument("Particle type batch index is invalid");
 			if (options.m_capacity < 1 || options.m_capacity > MaxCapacity)
 				throw std::invalid_argument("Particle type capacity is out of range");
 			if (options.m_max_emitters < 1 || options.m_max_emitters > MaxEmitters)
 				throw std::invalid_argument("Particle type emitter count is out of range");
 
+			// Every live particle of the batch's types needs a record, so their capacities must fit in the batch.
+			auto& batch = *m_batches[options.m_batch];
+			if (options.m_record_stride != batch.m_record_stride)
+				throw std::invalid_argument("Particle type record stride must equal its batch's record stride");
+			if (batch.m_pool_capacity + options.m_capacity > batch.m_capacity)
+				throw std::invalid_argument("Particle type capacities exceed their batch's capacity");
+
 			RequireStride(options.m_state_stride, "Particle state stride must be a multiple of 4 bytes in [4, 2048]");
-			RequireStride(options.m_record_stride, "Particle record stride must be a multiple of 4 bytes in [4, 2048]");
 			RequireStride(options.m_params_stride, "Particle emitter parameter stride must be a multiple of 4 bytes in [4, 2048]");
-			if (options.m_constants == nullptr || options.m_constants_size < 4 || options.m_constants_size > pr::view3d::ProceduralBinding::ConstantsSize || options.m_constants_size % 4 != 0)
-				throw std::invalid_argument("Particle type constants must be a multiple of 4 bytes within the procedural constants size");
-			if (static_cast<size_t>(options.m_capacity) * options.m_record_stride > pr::view3d::ProceduralBinding::MaxBufferSize)
-				throw std::invalid_argument("Particle type records exceed the procedural buffer size");
+			if (options.m_constants == nullptr || options.m_constants_size < 4 || options.m_constants_size > MaxTypeConstantsSize || options.m_constants_size % 4 != 0)
+				throw std::invalid_argument("Particle type constants must be a multiple of 4 bytes in [4, 65536]");
 
 			auto const& shaders = options.m_shaders;
 			RequireBytecode(shaders.m_emit, "Particle emit shader is required");
 			RequireBytecode(shaders.m_update, "Particle update shader is required");
-			RequireBytecode(shaders.m_vertex, "Particle vertex shader is required");
-			if (shaders.m_indices == nullptr || shaders.m_index_count < 3 || shaders.m_index_count % 3 != 0 || shaders.m_vertex_count < 1)
-				throw std::invalid_argument("Particle indices must be a non-empty triangle list over a positive vertex count");
-			if (std::any_of(shaders.m_indices, shaders.m_indices + shaders.m_index_count, [&](uint32_t i) { return i >= static_cast<uint32_t>(shaders.m_vertex_count); }))
-				throw std::invalid_argument("Particle indices must be less than the vertex count");
 
 			// Record the layout and create the type's kernels.
 			auto type_name = std::string(name != nullptr ? name : "ParticleType");
 			auto type = std::make_unique<ParticleType>();
 			type->m_name = type_name;
+			type->m_batch = &batch;
 			type->m_capacity = static_cast<uint32_t>(options.m_capacity);
 			type->m_max_emitters = options.m_max_emitters;
 			type->m_params_stride = options.m_params_stride;
-			// Procedural vertex constants have a fixed size, so the type's constants are zero-padded to it.
 			type->m_constants.assign(static_cast<std::byte const*>(options.m_constants), static_cast<std::byte const*>(options.m_constants) + options.m_constants_size);
-			type->m_constants.resize(pr::view3d::ProceduralBinding::ConstantsSize);
-			type->m_emit = ComputePSO(m_sig.get(), Bytecode(shaders.m_emit)).Create(m_rdr.d3d(), (type_name + ":Emit").c_str());
-			type->m_update = ComputePSO(m_sig.get(), Bytecode(shaders.m_update)).Create(m_rdr.d3d(), (type_name + ":Update").c_str());
+			type->m_emit = CreateKernel(m_rdr.d3d(), m_sig.get(), shaders.m_emit, type_name + ":Emit");
+			type->m_update = CreateKernel(m_rdr.d3d(), m_sig.get(), shaders.m_update, type_name + ":Update");
 			type->m_emitter_headers.assign(options.m_max_emitters, ParticleEmitterHeader{});
 			type->m_emitter_params.assign(static_cast<size_t>(options.m_max_emitters) * options.m_params_stride, std::byte{});
 			type->m_in_use.assign(options.m_max_emitters, uint8_t{});
@@ -268,11 +380,11 @@ namespace pr::game_systems::particles
 			type->m_dirty_hi = 0;
 			type->m_cur = 0;
 
-			// Create the pool. Buffers rest in the states that their readers outside a step need: the draw reads the records as a shader
-			// resource and the args as indirect arguments. The reset kernel fills the free stack and counters before the first step.
+			// Create the pool. The args rest as indirect arguments for the update dispatch. The reset kernel fills the free stack and counters
+			// before the first step.
 			auto const capacity = static_cast<int64_t>(options.m_capacity);
 			auto const max_emitters = static_cast<int64_t>(options.m_max_emitters);
-			auto const draw_args = std::array<uint32_t, ParticleArgsCount>{ static_cast<uint32_t>(shaders.m_index_count), 0, 0, 0, 0, 0, 1, 1 };
+			auto const dispatch_args = std::array<uint32_t, ParticleArgsCount>{ 0, 1, 1, 0 };
 			auto const none = std::span<std::byte const>{};
 			auto const uav = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
 			auto const srv = D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE;
@@ -280,9 +392,8 @@ namespace pr::game_systems::particles
 			type->m_free = m_factory.CreateResource(ResDesc::Buf(capacity, 4, none, 4).usage(EUsage::UnorderedAccess).def_state(uav), type_name + ":Free");
 			type->m_live = m_factory.CreateResource(ResDesc::Buf(2 * capacity, 4, none, 4).usage(EUsage::UnorderedAccess).def_state(uav), type_name + ":Live");
 			type->m_states = m_factory.CreateResource(ResDesc::Buf(capacity, options.m_state_stride, none, 4).usage(EUsage::UnorderedAccess).def_state(uav), type_name + ":States");
-			type->m_records = m_factory.CreateResource(ResDesc::Buf(capacity, options.m_record_stride, none, 4).usage(EUsage::UnorderedAccess).def_state(srv), type_name + ":Records");
 			type->m_runtime = m_factory.CreateResource(ResDesc::Buf(max_emitters, sizeof(ParticleEmitterRuntime), none, 4).usage(EUsage::UnorderedAccess).def_state(uav), type_name + ":Runtime");
-			type->m_args = m_factory.CreateResource(ResDesc::Buf<uint32_t>(ParticleArgsCount, std::span<uint32_t const>(draw_args)).usage(EUsage::UnorderedAccess).def_state(D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT), type_name + ":Args");
+			type->m_args = m_factory.CreateResource(ResDesc::Buf<uint32_t>(ParticleArgsCount, std::span<uint32_t const>(dispatch_args)).usage(EUsage::UnorderedAccess).def_state(D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT), type_name + ":Args");
 			type->m_headers = m_factory.CreateResource(ResDesc::Buf(max_emitters, sizeof(ParticleEmitterHeader), none, 4).def_state(srv), type_name + ":Headers");
 			type->m_params = m_factory.CreateResource(ResDesc::Buf(max_emitters, options.m_params_stride, none, 4).def_state(srv), type_name + ":Params");
 			RecordReset(*type);
@@ -292,8 +403,8 @@ namespace pr::game_systems::particles
 			type->Dirty(options.m_max_emitters - 1);
 			m_factory.FlushToGpu(EGpuFlush::Async);
 
-			// Create the type's object: one instance per live particle, drawn by one indirect draw whose arguments the GPU writes.
-			out_object = CreateObject(*type, options, type_name.c_str());
+			// The pool starts empty, so the batch's records are unchanged until the next step.
+			batch.m_pool_capacity += options.m_capacity;
 			m_types.push_back(std::move(type));
 			return static_cast<int>(m_types.size() - 1);
 		}
@@ -361,11 +472,14 @@ namespace pr::game_systems::particles
 				return;
 
 			{
-				// Record every type's tick in the factory's command list.
+				// The batches collect their types' records afresh each tick, so their record counts start at zero.
 				auto& cmd_list = m_factory.CmdList();
 				auto pix = pix::EventScope<ID3D12GraphicsCommandList>(cmd_list.get(), 0xFFFFA040, "Particles::Step");
+				BeginBatches();
 				for (auto& type : m_types)
 					RecordTick(*type, static_cast<float>(dt));
+
+				EndBatches();
 			}
 			++m_tick;
 			m_factory.FlushToGpu(EGpuFlush::Async);
@@ -384,6 +498,10 @@ namespace pr::game_systems::particles
 				type->Dirty(type->m_max_emitters - 1);
 				RecordReset(*type);
 			}
+
+			// No particle is live, so no batch draws any record.
+			BeginBatches();
+			EndBatches();
 			m_factory.FlushToGpu(EGpuFlush::Async);
 		}
 
@@ -491,11 +609,48 @@ namespace pr::game_systems::particles
 			cmd_list.SetComputeRootUnorderedAccessView(RootFree, type.m_free);
 			cmd_list.SetComputeRootUnorderedAccessView(RootLive, type.m_live);
 			cmd_list.SetComputeRootUnorderedAccessView(RootStates, type.m_states);
-			cmd_list.SetComputeRootUnorderedAccessView(RootRecords, type.m_records);
+			cmd_list.SetComputeRootUnorderedAccessView(RootRecords, type.m_batch->m_records);
 			cmd_list.SetComputeRootUnorderedAccessView(RootRuntime, type.m_runtime);
 			cmd_list.SetComputeRootUnorderedAccessView(RootArgs, type.m_args);
+			cmd_list.SetComputeRootUnorderedAccessView(RootDrawArgs, type.m_batch->m_draw_args);
 			cmd_list.SetComputeRootShaderResourceView(RootHeaders, type.m_headers);
 			cmd_list.SetComputeRootShaderResourceView(RootParams, type.m_params);
+			cmd_list.SetComputeRootUnorderedAccessView(RootBounds, type.m_batch->m_bounds);
+		}
+
+		// Zero every batch's record count and make its buffers writable by the kernels.
+		void BeginBatches()
+		{
+			// The instance count is zeroed by a copy, so no kernel needs to know which type of a batch runs first.
+			auto& cmd_list = m_factory.CmdList();
+			auto& upload = m_factory.UploadBuffer();
+			auto zero = upload.Alloc(sizeof(uint32_t), 4);
+			std::memset(zero.m_mem + zero.m_ofs, 0, sizeof(uint32_t));
+			for (auto& batch : m_batches)
+			{
+				BarrierBatch(cmd_list).Transition(batch->m_draw_args.get(), D3D12_RESOURCE_STATE_COPY_DEST).Commit();
+				cmd_list.CopyBufferRegion(batch->m_draw_args.get(), ParticleDrawInstanceCount * sizeof(uint32_t), zero);
+				BarrierBatch(cmd_list)
+					.Transition(batch->m_draw_args.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
+					.Transition(batch->m_records.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
+					.Transition(batch->m_bounds.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
+					.Commit();
+			}
+		}
+
+		// Return every batch's buffers to the states that the draw reads them in.
+		void EndBatches()
+		{
+			// The kernels' writes are complete before the draw reads them.
+			auto& cmd_list = m_factory.CmdList();
+			for (auto& batch : m_batches)
+			{
+				BarrierBatch(cmd_list)
+					.Transition(batch->m_draw_args.get(), D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE)
+					.Transition(batch->m_records.get(), D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE)
+					.Transition(batch->m_bounds.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE)
+					.Commit();
+			}
 		}
 
 		// Record the reset of the pool of 'type': every slot free, no particle live, and every emitter slot's progress restarted.
@@ -553,10 +708,9 @@ namespace pr::game_systems::particles
 				.capacity = type.m_capacity,
 				.tick = m_tick,
 			};
-			BarrierBatch(cmd_list).Transition(type.m_records.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS).Commit();
 			Bind(cmd_list, type, tick);
 			cmd_list.SetPipelineState(type.m_update.get());
-			cmd_list.ExecuteIndirect(m_rdr.DispatchSignature(), 1, type.m_args.get(), ParticleArgsDispatchOffset);
+			cmd_list.ExecuteIndirect(m_rdr.DispatchSignature(), 1, type.m_args.get(), ParticleArgsDispatchX * sizeof(uint32_t));
 			BarrierBatch(cmd_list).UAV(nullptr).Commit();
 
 			// Emit after the update, so new particles take the slots that this tick's deaths freed. One group per emitter slot.
@@ -567,22 +721,22 @@ namespace pr::game_systems::particles
 				BarrierBatch(cmd_list).UAV(nullptr).Commit();
 			}
 
-			// Close the tick on the GPU, then return the draw's buffers to the states that the draw reads them in.
+			// Close the tick on the GPU, then return the update's dispatch arguments to the state that the next tick reads them in.
 			BarrierBatch(cmd_list).Transition(type.m_args.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS).Commit();
 			cmd_list.SetPipelineState(m_finalize.get());
 			cmd_list.Dispatch(1, 1, 1);
-			BarrierBatch(cmd_list)
-				.UAV(nullptr)
-				.Transition(type.m_args.get(), D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT)
-				.Transition(type.m_records.get(), D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE)
-				.Commit();
+			BarrierBatch(cmd_list).UAV(nullptr).Transition(type.m_args.get(), D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT).Commit();
 			type.m_cur = 1u - type.m_cur;
 		}
 
-		// Create the View3D object that draws the particles of 'type'.
-		pr::view3d::Object CreateObject(ParticleType& type, pr::view3d::ParticleTypeOptions const& options, char const* name)
+		// Create the View3D object that draws the records of 'batch'.
+		pr::view3d::Object CreateObject(ParticleBatch& batch, pr::view3d::ParticleBatchOptions const& options, char const* name)
 		{
-			// The vertex shader reads the type's constants as its procedural constants.
+			// Procedural vertex constants have a fixed size, so the batch's constants are zero-padded to it. The shader copies them.
+			auto constants = std::vector<std::byte>(pr::view3d::ProceduralBinding::ConstantsSize);
+			if (options.m_constants != nullptr)
+				std::memcpy(constants.data(), options.m_constants, options.m_constants_size);
+
 			auto const& shaders = options.m_shaders;
 			auto const shader_options = pr::view3d::ShaderOptions
 			{
@@ -595,29 +749,53 @@ namespace pr::game_systems::particles
 				.m_procedural =
 				{
 					.m_rdr_step = pr::view3d::ERenderStep::ForwardRender,
-					.m_constants = type.m_constants.data(),
-					.m_constants_size = type.m_constants.size(),
+					.m_constants = constants.data(),
+					.m_constants_size = constants.size(),
 				},
 			};
 			auto forward = pr::view3d::ShaderPtr(View3D_ShaderCreate(shader_options));
 			if (forward == nullptr)
-				throw std::runtime_error("Failed to create the particle vertex shader");
+				throw std::invalid_argument(std::format("Particle batch '{}' has an invalid vertex shader", name));
 
-			// Particles are translucent, seen from both sides, and cast no shadows.
+			// Particles are seen from both sides and cast no shadows. The blend mode chooses how they combine with the scene.
+			auto nflags = pr::view3d::ENuggetFlag::ShadowCastExclude;
+			switch (options.m_blend)
+			{
+				case pr::view3d::EParticleBlend::Sorted:
+				{
+					nflags = nflags | pr::view3d::ENuggetFlag::GeometryHasAlpha;
+					break;
+				}
+				case pr::view3d::EParticleBlend::Weighted:
+				{
+					nflags = nflags | pr::view3d::ENuggetFlag::GeometryHasAlpha | pr::view3d::ENuggetFlag::AlphaWeighted;
+					break;
+				}
+				case pr::view3d::EParticleBlend::Opaque:
+				{
+					break;
+				}
+				default:
+				{
+					throw std::invalid_argument("Unknown particle blend mode");
+				}
+			}
 			auto nugget = pr::view3d::Nugget{};
 			nugget.m_topo = pr::view3d::ETopo::TriList;
-			nugget.m_geom = pr::view3d::EGeom::Vert | pr::view3d::EGeom::Colr;
+			nugget.m_geom = shaders.m_geom;
 			nugget.m_v0 = 0;
 			nugget.m_v1 = 1;
 			nugget.m_i0 = 0;
 			nugget.m_i1 = shaders.m_index_count;
 			nugget.m_shaders[0] = { forward.get(), pr::view3d::ERenderStep::ForwardRender, 0 };
 			nugget.m_shaders[1] = { nullptr, pr::view3d::ERenderStep::Invalid, 0 };
-			nugget.m_nflags = pr::view3d::ENuggetFlag::GeometryHasAlpha | pr::view3d::ENuggetFlag::ShadowCastExclude;
+			nugget.m_nflags = nflags;
 			nugget.m_cull_mode = pr::view3d::ECullMode::None;
 			nugget.m_fill_mode = pr::view3d::EFillMode::Default;
 			nugget.m_tint = 0xFFFFFFFFU;
 			nugget.m_rel_reflec = 1.0f;
+			nugget.m_tex_diffuse = options.m_texture;
+			nugget.m_sam_diffuse = options.m_sampler;
 
 			// The vertex shader generates every vertex from its logical id and instance, so the object has one placeholder vertex.
 			auto const options_create = pr::view3d::ObjectCreateOptions
@@ -638,9 +816,12 @@ namespace pr::game_systems::particles
 
 			try
 			{
-				// The object keeps its own references to the records and the draw arguments.
-				View3D_ObjectProceduralBufferSet(object, 0, type.m_records.get());
-				View3D_ObjectNuggetDrawArgsSet(object, type.m_args.get(), 0, 0);
+				// The object keeps its own references to the records, the optional vertex data, the draw arguments, and the record bounds that the renderer culls with.
+				View3D_ObjectProceduralBufferSet(object, 0, batch.m_records.get());
+				if (batch.m_vertex_data != nullptr)
+					View3D_ObjectProceduralBufferSet(object, 1, batch.m_vertex_data.get());
+
+				View3D_ObjectNuggetDrawArgsSet(object, batch.m_draw_args.get(), 0, batch.m_bounds.get(), static_cast<int>(batch.m_capacity), 0);
 			}
 			catch (...)
 			{
@@ -658,16 +839,40 @@ namespace pr::game_systems::particles
 		return std::make_unique<ParticleSystemImpl>(rdr, name);
 	}
 
-	// The shaders of the stock sprite type.
-	pr::view3d::ParticleTypeShaders ParticleSystem::SpriteShaders()
+	// The simulation shaders of the stock sprite type.
+	pr::view3d::ParticleSimShaders ParticleSystem::SpriteSimShaders()
 	{
-		return pr::view3d::ParticleTypeShaders{
+		return pr::view3d::ParticleSimShaders{
 			.m_emit = { compiled::particle_sprite_emit_cs, sizeof(compiled::particle_sprite_emit_cs) },
 			.m_update = { compiled::particle_sprite_update_cs, sizeof(compiled::particle_sprite_update_cs) },
+		};
+	}
+
+	// The draw shaders of a batch of stock sprite records.
+	pr::view3d::ParticleDrawShaders ParticleSystem::SpriteDrawShaders()
+	{
+		return pr::view3d::ParticleDrawShaders{
 			.m_vertex = { compiled::particle_sprite_vs, sizeof(compiled::particle_sprite_vs) },
 			.m_indices = SpriteIndices.data(),
 			.m_index_count = static_cast<int>(SpriteIndices.size()),
 			.m_vertex_count = static_cast<int>(ParticleSpriteVertexCount),
+			.m_geom = pr::view3d::EGeom::Vert | pr::view3d::EGeom::Colr,
+			.m_vertex_data = nullptr,
+			.m_vertex_stride = 0,
+		};
+	}
+
+	// The vertex shader and outputs of a batch of stock mesh records. The caller supplies the mesh.
+	pr::view3d::ParticleDrawShaders ParticleSystem::MeshDrawShaders()
+	{
+		return pr::view3d::ParticleDrawShaders{
+			.m_vertex = { compiled::particle_mesh_vs, sizeof(compiled::particle_mesh_vs) },
+			.m_indices = nullptr,
+			.m_index_count = 0,
+			.m_vertex_count = 0,
+			.m_geom = pr::view3d::EGeom::Vert | pr::view3d::EGeom::Colr | pr::view3d::EGeom::Norm | pr::view3d::EGeom::Tex0,
+			.m_vertex_data = nullptr,
+			.m_vertex_stride = sizeof(ParticleMeshVertex),
 		};
 	}
 }

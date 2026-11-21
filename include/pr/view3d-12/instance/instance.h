@@ -47,6 +47,7 @@ namespace pr::rdr12
 		Float2,              // pr::v2 - for general use
 		Float4,              // pr::v4 - for general use
 		EmissiveScale,       // float - multiplies the material emissive colour; missing means 1
+		SoftDepth,           // float - depth over which transparent surfaces fade out in front of opaque surfaces; missing or zero means hard
 	};
 
 	// Instance flags
@@ -113,6 +114,7 @@ namespace pr::rdr12
 			case EInstComp::Float2:              { return std::is_same_v<Comp, v2>; }
 			case EInstComp::Float4:              { return std::is_same_v<Comp, v4>; }
 			case EInstComp::EmissiveScale:       { return std::is_same_v<Comp, float>; }
+			case EInstComp::SoftDepth:           { return std::is_same_v<Comp, float>; }
 			default: { throw std::runtime_error("Unknown instance component type"); }
 		}
 	}

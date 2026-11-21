@@ -49,6 +49,7 @@ namespace pr::rdr12::ldraw
 		x(uint32_t    ,m_dither      ,EInstComp::DitherWord        )/*      4 bytes, align 4 */\
 		x(float       ,m_env         ,EInstComp::EnvMapReflectivity)/*      4 bytes, align 4 */\
 		x(float       ,m_emissive    ,EInstComp::EmissiveScale     )/*      4 bytes, align 4 */\
+		x(float       ,m_soft_depth  ,EInstComp::SoftDepth         )/*      4 bytes, align 4 */\
 		x(EInstFlag   ,m_iflags      ,EInstComp::Flags             )/*      4 bytes, align 4 */\
 		x(SKOverride  ,m_sko         ,EInstComp::SortkeyOverride   )/*      8 bytes, align 4 */
 		PR_RDR12_INSTANCE_MEMBERS(RdrInstance , PR_RDR_INST);
@@ -265,7 +266,7 @@ namespace pr::rdr12::ldraw
 		void NuggetDetailNormals(Texture2D* tex, Sampler* sam, char const* name, int index);
 
 		// Set the GPU-written draw arguments of a model nugget and its dependents, or remove them when 'buffer' is null (see NuggetDrawArgs).
-		void NuggetDrawArgs(ID3D12Resource* buffer, int64_t offset, char const* name, int index);
+		void NuggetDrawArgs(ID3D12Resource* buffer, int64_t offset, ID3D12Resource* bounds, int capacity, char const* name, int index);
 
 		// Set the normal map of this object's instance material override, or remove it when 'tex' is null. Only this object is changed;
 		// the shared model and other instances of it keep their materials. When the object has no override yet, the override starts as a PBR
@@ -298,6 +299,12 @@ namespace pr::rdr12::ldraw
 		// One (the default) keeps the authored emission and zero turns it off. Shared models and materials are unchanged.
 		float EmissiveScale(char const* name = nullptr) const;
 		void EmissiveScale(float scale, char const* name = nullptr);
+
+		// Get/Set the instance-owned soft depth of this object or child objects matching 'name' (see Apply). Transparent fragments fade out
+		// linearly over this view depth in front of the opaque scene, so they do not show hard lines where they cut through it. Zero (the default)
+		// keeps hard intersections. The depth is in world units and must not be negative.
+		float SoftDepth(char const* name = nullptr) const;
+		void SoftDepth(float depth, char const* name = nullptr);
 
 		// Get/Set the reflectivity of this object or child objects matching 'name' (see Apply)
 		float Reflectivity(char const* name = nullptr) const;

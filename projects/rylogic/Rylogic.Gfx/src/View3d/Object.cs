@@ -883,6 +883,24 @@ namespace Rylogic.Gfx
 				View3D_ObjectEmissiveScaleSet(Handle, scale, name);
 			}
 
+			/// <summary>Return the soft depth of the first selected object, or zero when no object matches.</summary>
+			public float SoftDepthGet(string? name = null)
+			{
+				// Read the instance-owned depth through the DLL boundary.
+				return View3D_ObjectSoftDepthGet(Handle, name);
+			}
+
+			/// <summary>
+			/// Set the view depth, in world units, over which transparent fragments of the selected objects fade to zero alpha as they
+			/// approach the opaque scene behind them. Zero (the default) keeps hard intersections. Applies to the stock transparent
+			/// pixel shaders and to procedural families built with the stock entry-point macros. 'depth' must be non-negative.
+			/// Name follows ColourSet.</summary>
+			public void SoftDepthSet(float depth, string? name = null)
+			{
+				// Apply the depth to the selected instance scope.
+				View3D_ObjectSoftDepthSet(Handle, depth, name);
+			}
+
 			/// <summary>
 			/// Get/Set the screen-door dither word of stock-shader draws of this object (or child objects matching 'name'; see ColourSet).
 			/// Zero (the default) draws every pixel. Build words with 'Population.DitherWord' to cross-fade this object with a population instance.</summary>

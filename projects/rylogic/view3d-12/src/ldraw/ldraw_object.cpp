@@ -152,6 +152,7 @@ namespace pr::rdr12::ldraw
 		m_i2w = m4x4::Identity();
 		m_colour = m_base_colour;
 		m_emissive = 1.0f;
+		m_soft_depth = 0.0f;
 		PR_EXPAND(PR_DBG, g_ldr_object_tracker.add(this));
 	}
 	LdrObject::~LdrObject()
@@ -911,7 +912,7 @@ namespace pr::rdr12::ldraw
 	}
 
 	// Set the GPU-written draw arguments of a model nugget and its dependents, or remove them when 'buffer' is null.
-	void LdrObject::NuggetDrawArgs(ID3D12Resource* buffer, int64_t offset, char const* name, int index)
+	void LdrObject::NuggetDrawArgs(ID3D12Resource* buffer, int64_t offset, ID3D12Resource* bounds, int capacity, char const* name, int index)
 	{
 		// Apply to the model nugget, as the other nugget setters do.
 		Apply([=](LdrObject* obj)
@@ -927,7 +928,9 @@ namespace pr::rdr12::ldraw
 				throw std::runtime_error("nugget index out of range");
 
 			// Dependent nuggets draw the same geometry in other steps, so they share the argument record.
-			auto args = rdr12::NuggetDrawArgs{ .m_buffer = D3DPtr<ID3D12Resource>(buffer, true), .m_offset = buffer != nullptr ? offset : 0 };
+			auto args = buffer != nullptr
+				? rdr12::NuggetDrawArgs{ .m_buffer = D3DPtr<ID3D12Resource>(buffer, true), .m_offset = offset, .m_bounds = D3DPtr<ID3D12Resource>(bounds, true), .m_capacity = capacity }
+				: rdr12::NuggetDrawArgs{};
 			nug->Dependents([&](Nugget& n)
 			{
 				// Each nugget keeps its own buffer reference.
@@ -1123,6 +1126,29 @@ namespace pr::rdr12::ldraw
 		{
 			// Store the scale on the instance so it reaches the shader constants of every nugget drawn for it.
 			obj->m_emissive = scale;
+			return true;
+		}, name);
+	}
+
+	// Return the soft depth of the first selected object.
+	float LdrObject::SoftDepth(char const* name) const
+	{
+		// A missing selection reports the hard intersections of a new object.
+		auto obj = Child(name);
+		return obj ? obj->m_soft_depth : 0.0f;
+	}
+
+	// Set the instance-owned depth over which transparent fragments fade out in front of the opaque scene.
+	void LdrObject::SoftDepth(float depth, char const* name)
+	{
+		// The fade divides by the depth, so a negative depth is a caller error rather than a disabled fade.
+		assert(depth >= 0.0f);
+
+		// Each selected instance owns its depth, even when models are shared.
+		Apply([&](LdrObject* obj)
+		{
+			// Store the depth on the instance so it reaches the shader constants of every nugget drawn for it.
+			obj->m_soft_depth = depth;
 			return true;
 		}, name);
 	}

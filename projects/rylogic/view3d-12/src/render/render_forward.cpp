@@ -184,6 +184,7 @@ namespace pr::rdr12
 		, m_default_sam(rdr().store().StockSampler(EStockSampler::LinearClamp))
 		, m_sky_histories()
 		, m_reflection_plane(std::make_unique<ReflectionPlane>(scene.d3d()))
+		, m_instance_culler(scene.rdr())
 	{
 		// Create the default PSO description
 		m_default_pipe_state = D3D12_GRAPHICS_PIPELINE_STATE_DESC {
@@ -391,6 +392,7 @@ namespace pr::rdr12
 		// reflection's mirror view, so the mirror camera is set up first.
 		PrepareMirror();
 		CullPopulations();
+		CullInstances(boundaries[ESortGroup::Alpha]);
 
 		// Bind the descriptor heaps
 		auto des_heaps = { wnd().m_heap_view.get(), wnd().m_heap_samp.get() };
@@ -1093,6 +1095,30 @@ namespace pr::rdr12
 			m_mirror_populations = PopulationSet{};
 	}
 
+	// Cull the instances of the drawlist's nuggets that have GPU-written draw arguments
+	void RenderForward::CullInstances(int alpha_start)
+	{
+		// Release the view buffers of elements that are no longer drawn, then record the culls on the opaque command list ahead of all draws.
+		m_instance_culler.BeginFrame();
+		auto drawlist = m_drawlist.lock();
+		auto pix_cull = pix::EventScope<ID3D12GraphicsCommandList>(m_cmd_list.get(), 0xFF5AC8A0, "View3D::InstanceCull");
+
+		// The camera view draws every element. The mirror view draws only the opaque elements.
+		auto const& rp = *m_reflection_plane;
+		auto const cam_w2s = CameraTransforms(scn().m_cam).m_w2s;
+		for (int i = 0, iend = isize(*drawlist); i != iend; ++i)
+		{
+			// Only nuggets with GPU-written draw arguments are culled on the GPU
+			auto const& dle = (*drawlist)[i];
+			if (dle.m_nugget->m_draw_args.m_buffer == nullptr)
+				continue;
+
+			m_instance_culler.Cull(m_cmd_list, m_upload_buffer, *dle.m_instance, *dle.m_nugget, 0, cam_w2s);
+			if (rp.m_active && i < alpha_start)
+				m_instance_culler.Cull(m_cmd_list, m_upload_buffer, *dle.m_instance, *dle.m_nugget, 1, rp.m_mirror_w2s);
+		}
+	}
+
 	// Classify the scene's populations for 'view' into 'set', and build its draws
 	void RenderForward::CullPopulations(PopulationSet& set, PopulationViewDesc const& view)
 	{
@@ -1321,13 +1347,27 @@ namespace pr::rdr12
 				cmd_list.SetGraphicsRoot32BitConstants(shaders::fwd::ERootParam::PopulationDraw, draw);
 			}
 
+			// Nuggets with GPU-written draw arguments draw the view's culled instances. The vertex shader reads their indices from the visible list.
+			// The view buffer was left in the draw state on the opaque list, but other command lists start from its common default state.
+			auto* instance_view = static_cast<ID3D12Resource*>(nullptr);
+			if (nugget.m_draw_args.m_buffer != nullptr)
+			{
+				instance_view = m_instance_culler.Find(instance, nugget, m_mirrored ? 1 : 0);
+				assert(instance_view != nullptr && "CullInstances did not cull this element for this view");
+
+				BarrierBatch barriers(cmd_list);
+				barriers.Transition(instance_view, InstanceCuller::DrawState);
+				barriers.Commit();
+				cmd_list.SetGraphicsRootShaderResourceView(shaders::fwd::ERootParam::PopulationView, GpuAddress(instance_view, InstanceCuller::ListOffset));
+			}
+
 			// Draw the nugget.
-			DrawNugget(cmd_list, nugget, desc, pipe_state_bound, bound_pipe_state, population);
+			DrawNugget(cmd_list, nugget, desc, pipe_state_bound, bound_pipe_state, population, instance_view);
 		}
 	}
 
 	// Draw a single nugget
-	void RenderForward::DrawNugget(GfxCmdList& cmd_list, Nugget const& nugget, PipeStateDesc& desc, bool& pipe_state_bound, PipeStateDesc& bound_pipe_state, PopulationDrawRef const* population)
+	void RenderForward::DrawNugget(GfxCmdList& cmd_list, Nugget const& nugget, PipeStateDesc& desc, bool& pipe_state_bound, PipeStateDesc& bound_pipe_state, PopulationDrawRef const* population, ID3D12Resource* instance_view)
 	{
 		auto set_pipe_state = [&]
 		{
@@ -1341,19 +1381,17 @@ namespace pr::rdr12
 		};
 
 		// Ordinary draws draw one instance. Population draws take their instance counts from the classification's argument records,
-		// and nuggets with GPU-written draw arguments take theirs from the nugget's argument record.
-		// The command list holds a reference to the argument buffer until the draw completes, which needs a non-const pointer.
-		auto* draw_args = const_cast<ID3D12Resource*>(nugget.m_draw_args.m_buffer.get());
+		// and nuggets with GPU-written draw arguments take theirs from the culled argument record at the start of the view buffer.
 		auto& counts = wnd().m_draw_counts;
 		auto draw_indexed = [&]
 		{
 			// Keep indexed draws at base-vertex zero because optional model vertex streams use SV_VertexID to read buffers parallel to the primary vertex buffer.
 			counts.m_forward += 1;
-			counts.m_forward_indirect += population != nullptr || draw_args != nullptr ? 1 : 0;
+			counts.m_forward_indirect += population != nullptr || instance_view != nullptr ? 1 : 0;
 			if (population != nullptr)
 				cmd_list.ExecuteIndirect(rdr().DrawSignature(true), 1, population->m_lists->m_scratch, s_cast<UINT64>(population->m_draw->m_args_indexed));
-			else if (draw_args != nullptr)
-				cmd_list.ExecuteIndirect(rdr().DrawSignature(true), 1, draw_args, s_cast<UINT64>(nugget.m_draw_args.m_offset));
+			else if (instance_view != nullptr)
+				cmd_list.ExecuteIndirect(rdr().DrawSignature(true), 1, instance_view, 0);
 			else
 				cmd_list.DrawIndexedInstanced(s_cast<size_t>(nugget.m_irange.size()), 1U, s_cast<size_t>(nugget.m_irange.m_beg), 0, 0U);
 		};
@@ -1361,11 +1399,11 @@ namespace pr::rdr12
 		{
 			// Draw the nugget's vertex range without indices.
 			counts.m_forward += 1;
-			counts.m_forward_indirect += population != nullptr || draw_args != nullptr ? 1 : 0;
+			counts.m_forward_indirect += population != nullptr || instance_view != nullptr ? 1 : 0;
 			if (population != nullptr)
 				cmd_list.ExecuteIndirect(rdr().DrawSignature(false), 1, population->m_lists->m_scratch, s_cast<UINT64>(population->m_draw->m_args_vertex));
-			else if (draw_args != nullptr)
-				cmd_list.ExecuteIndirect(rdr().DrawSignature(false), 1, draw_args, s_cast<UINT64>(nugget.m_draw_args.m_offset));
+			else if (instance_view != nullptr)
+				cmd_list.ExecuteIndirect(rdr().DrawSignature(false), 1, instance_view, 0);
 			else
 				cmd_list.DrawInstanced(s_cast<size_t>(nugget.m_vrange.size()), 1U, s_cast<size_t>(nugget.m_vrange.m_beg), 0U);
 		};

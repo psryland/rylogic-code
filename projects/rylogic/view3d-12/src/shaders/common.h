@@ -280,6 +280,15 @@ namespace pr::rdr12
 		cb.dither = dither != nullptr ? *dither : 0U;
 	}
 
+	// Set the soft depth of a constants buffer. Instances without one keep hard intersections with the opaque scene.
+	template <typename TCBuf> requires (requires(TCBuf cb) { cb.soft_depth; })
+	void SetSoftDepth(TCBuf& cb, BaseInstance const& inst)
+	{
+		// Zero disables the fade in the shader.
+		auto depth = inst.find<float>(EInstComp::SoftDepth);
+		cb.soft_depth = depth != nullptr ? *depth : 0.0f;
+	}
+
 	// Set screen space, per instance constants
 	template <typename TCBuf> requires (requires(TCBuf cb) { cb.screen_dim; cb.size; cb.depth; })
 	void SetScreenSpace(TCBuf& cb, BaseInstance const& inst, Scene const& scene, v2 size, bool depth)
