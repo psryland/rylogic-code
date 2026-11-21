@@ -113,6 +113,10 @@ odr inline float ParticleRandom(uint seed, uint index)
 }
 
 #ifdef __cplusplus
+	static_assert(sizeof(ParticleEmitterHeader) == 32);
+	static_assert(sizeof(ParticleEmitterRuntime) == 16);
+	static_assert(sizeof(ParticleTickConstants) == 32);
+	static_assert(sizeof(ParticleSpawn) == 16);
 }
 #endif
 #endif

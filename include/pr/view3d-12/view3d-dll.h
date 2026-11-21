@@ -1334,7 +1334,9 @@ namespace pr
 		};
 		static_assert(sizeof(AtmosphereStats) == 24);
 
-		// The simulation shaders of a particle type. See pr/game-systems/particles/particle_kernels.hlsli.
+		// The simulation shaders of a particle type. See pr/game-systems/particles/particle_kernels.hlsli. The bytecode must be a compiled compute shader
+		// built on particle_kernels.hlsli, so it matches the system's root signature. Other bytecode is a caller error: the D3D12 debug layer reports it,
+		// and otherwise type creation fails with an error naming the kernel.
 		struct ParticleSimShaders
 		{
 			ShaderByteCode m_emit;      // Compute shader with the entry point 'ParticleEmitCS'.

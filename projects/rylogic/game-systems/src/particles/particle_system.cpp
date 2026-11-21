@@ -67,6 +67,12 @@ namespace pr::game_systems::particles
 		constexpr int MaxTypes = 256;
 		constexpr size_t MaxTypeConstantsSize = D3D12_REQ_CONSTANT_BUFFER_ELEMENT_COUNT * 16;
 
+		// The kernels write the indirect argument records as words at these indices, so they must match D3D12's layouts.
+		static_assert(ParticleArgsDispatchX == offsetof(D3D12_DISPATCH_ARGUMENTS, ThreadGroupCountX) / 4 && sizeof(D3D12_DISPATCH_ARGUMENTS) <= ParticleArgsCount * 4);
+		static_assert(ParticleDrawIndexCount == offsetof(D3D12_DRAW_INDEXED_ARGUMENTS, IndexCountPerInstance) / 4);
+		static_assert(ParticleDrawInstanceCount == offsetof(D3D12_DRAW_INDEXED_ARGUMENTS, InstanceCount) / 4);
+		static_assert(sizeof(D3D12_DRAW_INDEXED_ARGUMENTS) == ParticleDrawArgsCount * 4);
+
 		// Emitter ids pack the slot generation, the type, and the emitter slot. Generation zero is never used, so zero is never a valid id.
 		constexpr int EmitterSlotBits = 24;
 		constexpr int EmitterTypeShift = EmitterSlotBits;
@@ -111,6 +117,20 @@ namespace pr::game_systems::particles
 		std::span<uint8_t const> Bytecode(pr::view3d::ShaderByteCode const& code)
 		{
 			return std::span<uint8_t const>(static_cast<uint8_t const*>(code.m_bytecode), code.m_size);
+		}
+
+		// Create a compute pipeline for a caller-supplied kernel, naming the kernel if D3D12 rejects it (e.g. it is not a compute shader, or does not fit 'sig').
+		D3DPtr<ID3D12PipelineState> CreateKernel(ID3D12Device* device, ID3D12RootSignature* sig, pr::view3d::ShaderByteCode const& code, std::string const& name)
+		{
+			// Rethrow with the kernel's name, which the device's own error lacks.
+			try
+			{
+				return ComputePSO(sig, Bytecode(code)).Create(device, name.c_str());
+			}
+			catch (std::exception const& ex)
+			{
+				throw std::invalid_argument(std::format("Particle kernel '{}' is invalid: {}", name, ex.what()));
+			}
 		}
 
 		// Copy 'data' into a new constant-buffer allocation of the upload buffer.
@@ -350,8 +370,8 @@ namespace pr::game_systems::particles
 			type->m_max_emitters = options.m_max_emitters;
 			type->m_params_stride = options.m_params_stride;
 			type->m_constants.assign(static_cast<std::byte const*>(options.m_constants), static_cast<std::byte const*>(options.m_constants) + options.m_constants_size);
-			type->m_emit = ComputePSO(m_sig.get(), Bytecode(shaders.m_emit)).Create(m_rdr.d3d(), (type_name + ":Emit").c_str());
-			type->m_update = ComputePSO(m_sig.get(), Bytecode(shaders.m_update)).Create(m_rdr.d3d(), (type_name + ":Update").c_str());
+			type->m_emit = CreateKernel(m_rdr.d3d(), m_sig.get(), shaders.m_emit, type_name + ":Emit");
+			type->m_update = CreateKernel(m_rdr.d3d(), m_sig.get(), shaders.m_update, type_name + ":Update");
 			type->m_emitter_headers.assign(options.m_max_emitters, ParticleEmitterHeader{});
 			type->m_emitter_params.assign(static_cast<size_t>(options.m_max_emitters) * options.m_params_stride, std::byte{});
 			type->m_in_use.assign(options.m_max_emitters, uint8_t{});
@@ -735,7 +755,7 @@ namespace pr::game_systems::particles
 			};
 			auto forward = pr::view3d::ShaderPtr(View3D_ShaderCreate(shader_options));
 			if (forward == nullptr)
-				throw std::runtime_error("Failed to create the particle vertex shader");
+				throw std::invalid_argument(std::format("Particle batch '{}' has an invalid vertex shader", name));
 
 			// Particles are seen from both sides and cast no shadows. The blend mode chooses how they combine with the scene.
 			auto nflags = pr::view3d::ENuggetFlag::ShadowCastExclude;

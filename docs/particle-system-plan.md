@@ -590,3 +590,20 @@ The following are planned engineering proofs, not unresolved product requirement
   textured cards, and checks the texture, the alpha cutout, the card extent, one draw per batch, and the vertex-data validation. The particle demo
   draws falling leaves the same way: a two-sided leaf card with a generated alpha texture. Stock leaf and tumbling-debris simulations belong to the
   Milestone 4 catalogue.
+- **Layouts.** Every structure shared by C++ and HLSL is declared once, in an `.hlsli` that both compile (`pr/hlsl/interop.hlsli`), with a C++
+  `static_assert` of its size beside it, so the two cannot drift. The core asserts that the kernels' indirect-argument word indices match D3D12's
+  `D3D12_DISPATCH_ARGUMENTS` and `D3D12_DRAW_INDEXED_ARGUMENTS`. There is no managed mirror yet; the C# layouts and their size checks arrive with the
+  `Rylogic.Gfx` wrapper in Petri integration.
+- **Shader errors.** Shaders are compiled at build time, so a custom shader's compile errors are build errors. Bytecode that is not a matching shader
+  (wrong stage, or not built on `particle_kernels.hlsli`) is a caller error, not a validated input: the D3D12 debug layer reports it at type or batch
+  creation, and otherwise the creation fails with an error naming the kernel (`<type>:Emit`/`<type>:Update`) or the batch. It is never deferred to the
+  first step or draw. No test feeds invalid bytecode, because the debug layer correctly breaks on it.
+- **Bounds review.** Every in-tree `ParticleBounds` is conservative: sprites and markers use their exact radius; chips use half a cube diagonal, which
+  holds because chip width and thickness are fractions of the length; mesh cards have vertices within 0.71 of the record scale, inside the chip bound.
+
+## Milestone 2 status
+
+Complete. Done: explicit render batches with shared records; custom render records
+and vertex shaders (chips); View3D `AlphaWeighted` transparency (Milestone 1 close-out) and per-object soft depth; per-view GPU instance culling with
+indirect counts; opaque/cutout batches; shared small-mesh prototypes with a batch texture (leaves); layout, shader-error and bounds checks.
+`View3d12_StereoRender` fails on `main` too; it is a ray-traced stereo reflection issue unrelated to particles.
