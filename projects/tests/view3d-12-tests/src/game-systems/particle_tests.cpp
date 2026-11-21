@@ -7,6 +7,7 @@
 #include "../view3d-12/forward.h"
 #include "../view3d-12/render_test_support.h"
 #include "pr/game-systems/particles/particle_sprite.hlsli"
+#include "pr/game-systems/particles/particle_stepped_sprite.hlsli"
 #include "pr/game-systems/particles/particle_mesh.hlsli"
 #include "shaders/hlsl/particle_marker.hlsli"
 #include "shaders/hlsl/particle_chip.hlsli"
@@ -200,6 +201,70 @@ namespace render_tests
 			// Emitters survive a reset.
 			Require(View3D_ParticleSystemReset(m_system) != FALSE, "Particle reset failed");
 			m_fixture.CheckErrors();
+		}
+
+		// Add a stock stepped sprite type of 'capacity' particles, drawn by 'batch'.
+		int SteppedTypeCreate(int batch, int capacity, int max_emitters = 16)
+		{
+			// Stepped sprites share the sprite record and constants, so they draw with the sprite batch.
+			auto sim = api::ParticleSimShaders{};
+			auto draw = api::ParticleDrawShaders{};
+			Require(View3D_ParticleSteppedSpriteShaders(&sim, &draw) != FALSE, "Particle stepped sprite shaders unavailable");
+			auto constants = ParticleSpriteConstants{};
+			return TypeCreate(api::ParticleTypeOptions
+			{
+				.m_struct_size = sizeof(api::ParticleTypeOptions),
+				.m_version = api::ParticleTypeOptions::CurrentVersion,
+				.m_shaders = sim,
+				.m_batch = batch,
+				.m_capacity = capacity,
+				.m_max_emitters = max_emitters,
+				.m_state_stride = sizeof(pr::game_systems::particles::ParticleSteppedSpriteState),
+				.m_record_stride = sizeof(pr::game_systems::particles::ParticleSpriteRecord),
+				.m_params_stride = sizeof(pr::game_systems::particles::ParticleSteppedSpriteEmitter),
+				.m_constants = &constants,
+				.m_constants_size = sizeof(constants),
+			}, "TestSteppedSprites");
+		}
+
+		// Create an emitter of red stepped sprites of 'type' at world (x, 0), with velocity 'vx' along x, acceleration 'ax' along x, and 'drag'.
+		// Its particles have collision 'radius' and bounce off 'collision_set'.
+		uint64_t SteppedEmitter(int type, float x, float vx, int collision_set, float radius = 1.0f, float ax = 0.0f, float drag = 0.0f)
+		{
+			// Birth positions and velocities are exact, so every particle of the emitter follows the same path.
+			auto params = pr::game_systems::particles::ParticleSteppedSpriteEmitter{};
+			params.position = { x, 0.0f, -ParticleDepth, 0.0f };
+			params.velocity = { vx, 0.0f, 0.0f, 0.0f };
+			params.accel = { ax, 0.0f, 0.0f, drag };
+			params.lifetime = { 100.0f, 100.0f };
+			params.size = { 8.0f, 8.0f };
+			params.colour0 = 0xFFFF0000U;
+			params.colour1 = 0xFFFF0000U;
+			params.radius = radius;
+			params.collision_set = collision_set;
+			return EmitterCreate(type, &params, sizeof(params), 0.0f, 1);
+		}
+
+		// Set the environment's gravity and uniform wind along x, and its collision budget.
+		void Environment(float gravity_x, float wind_x, int collision_iterations = 4)
+		{
+			// The tests move particles along x only, so the image shows their positions.
+			auto env = api::ParticleEnvironment
+			{
+				.m_gravity = { gravity_x, 0, 0, 0 },
+				.m_wind = { wind_x, 0, 0, 0 },
+				.m_collision_iterations = collision_iterations,
+			};
+			Require(View3D_ParticleEnvironmentSet(m_system, env) != FALSE, "Particle environment set failed");
+		}
+
+		// Create a collision set of 'planes', returning its index.
+		int CollisionSet(std::initializer_list<api::ParticlePlane> planes)
+		{
+			// An empty set is valid.
+			auto set = -1;
+			Require(View3D_ParticleCollisionSetCreate(m_system, planes.begin(), static_cast<int>(planes.size()), &set) != FALSE, "Particle collision set create failed");
+			return set;
 		}
 
 		// Read the pool usage of 'type' after the last step.
@@ -898,6 +963,175 @@ namespace render_tests
 		fixture.CheckErrors();
 		fixture.CheckDebugLayer();
 	}
+
+	// Stepped particles bounce off collision planes, with counted contacts, overlaps and exhausted budgets.
+	void ParticleCollisionTests()
+	{
+		auto fixture = Fixture(1);
+		{
+			auto particles = SpriteParticles(fixture, 16, 4, api::EParticleBlend::Sorted, 80);
+			auto type = particles.SteppedTypeCreate(particles.m_batch, 64);
+
+			// A wall at x = 0 that keeps particles in x <= 0. Particles of radius 1 touch it at x = -1.
+			auto wall = particles.CollisionSet({ api::ParticlePlane{ .m_plane = { -1, 0, 0, 0 }, .m_restitution = 1.0f, .m_damping = 0.0f } });
+
+			// A particle moving at 10 m/s from x = -30 reaches the wall after 2.9 s and returns 11 m in the remaining 1.1 s, whatever the tick length.
+			auto bouncer = particles.SteppedEmitter(type, -30.0f, 10.0f, wall);
+			for (auto ticks : { 1, 80 })
+			{
+				// Born at the end of the birth step, then moved for 4 s in 'ticks' equal ticks.
+				particles.Reset();
+				particles.Burst(bouncer, 1);
+				particles.Step(BirthStep);
+				for (auto i = 0; i != ticks; ++i)
+					particles.Step(4.0 / ticks);
+
+				auto image = fixture.Image();
+				auto stats = particles.Stats(type);
+				Require(RedAt(image, -12.0f) > 0.25f, "The particle did not bounce off the wall");
+				Require(RedAt(image, -1.0f) < 0.01f, "The particle stuck to the wall");
+				Require(stats.m_contacts == 1 && stats.m_overlaps == 0 && stats.m_exhausted == 0, "The bounce was not counted once");
+			}
+
+			// Restitution scales the normal speed after a contact, so half restitution returns only 5.5 m.
+			api::ParticlePlane half = { .m_plane = { -1, 0, 0, 0 }, .m_restitution = 0.5f, .m_damping = 0.0f };
+			Require(View3D_ParticleCollisionSetUpdate(particles.m_system, wall, &half, 1) != FALSE, "Particle collision set update failed");
+			particles.Reset();
+			particles.Burst(bouncer, 1);
+			particles.Step(BirthStep);
+			particles.Step(4.0);
+			Require(RedAt(fixture.Image(), -6.5f) > 0.25f, "Restitution did not scale the bounce");
+			Require(View3D_ParticleEmitterDelete(particles.m_system, bouncer) != FALSE, "Particle emitter delete failed");
+
+			// A particle resting on the wall and moving away from it neither overlaps nor contacts it.
+			particles.Reset();
+			particles.Burst(particles.SteppedEmitter(type, -1.0f, -10.0f, wall), 1);
+			particles.Step(BirthStep);
+			particles.Step(2.0);
+			auto stats = particles.Stats(type);
+			Require(RedAt(fixture.Image(), -21.0f) > 0.25f, "The particle moving away from the wall did not move freely");
+			Require(stats.m_contacts == 0 && stats.m_overlaps == 0, "A particle moving away from the wall was collided");
+
+			// A particle born inside the wall's allowed distance is pushed out to touch it, and counted as an overlap.
+			particles.Reset();
+			particles.Burst(particles.SteppedEmitter(type, -0.5f, 0.0f, wall, 4.0f), 1);
+			particles.Step(BirthStep);
+			stats = particles.Stats(type);
+			Require(RedAt(fixture.Image(), -4.0f) > 0.25f, "The overlapping particle was not pushed out of the wall");
+			Require(stats.m_overlaps == 1 && stats.m_contacts == 0, "The initial overlap was not counted");
+
+			// A channel between walls at x = 0 and x = -4 leaves particle centres the range [-3, -1].
+			auto channel = particles.CollisionSet(
+			{
+				api::ParticlePlane{ .m_plane = { -1, 0, 0, 0 }, .m_restitution = 1.0f, .m_damping = 0.0f },
+				api::ParticlePlane{ .m_plane = { 1, 0, 0, -4 }, .m_restitution = 1.0f, .m_damping = 0.0f },
+			});
+			auto rattler = particles.SteppedEmitter(type, -2.0f, 100.0f, channel);
+
+			// A particle crossing the channel 50 times in one tick makes 50 contacts within a large budget, ending 1 m past its last contact.
+			particles.Environment(0.0f, 0.0f, 64);
+			particles.Reset();
+			particles.Burst(rattler, 1);
+			particles.Step(BirthStep);
+			particles.Step(1.0);
+			stats = particles.Stats(type);
+			Require(stats.m_contacts == 50 && stats.m_exhausted == 0, "Multiple contacts in one tick were not all resolved");
+			Require(RedAt(fixture.Image(), -2.0f) > 0.25f, "The particle left the channel");
+
+			// A small budget stops the particle at its last contact for the rest of the tick, and counts the exhausted budget.
+			particles.Environment(0.0f, 0.0f, 4);
+			particles.Reset();
+			particles.Burst(rattler, 1);
+			particles.Step(BirthStep);
+			particles.Step(1.0);
+			stats = particles.Stats(type);
+			Require(stats.m_contacts == 4 && stats.m_exhausted == 1, "The exhausted collision budget was not counted");
+			Require(RedAt(fixture.Image(), -3.0f) > 0.25f, "The particle did not stop at its last contact");
+
+			// A deleted set has no planes, so its particles pass through where the wall was.
+			Require(View3D_ParticleCollisionSetDelete(particles.m_system, wall) != FALSE, "Particle collision set delete failed");
+			particles.Reset();
+			particles.Burst(particles.SteppedEmitter(type, -30.0f, 10.0f, wall), 1);
+			particles.Step(BirthStep);
+			particles.Step(4.0);
+			Require(RedAt(fixture.Image(), 10.0f) > 0.25f, "A deleted collision set still collided");
+			Require(particles.Stats(type).m_contacts == 0, "A deleted collision set counted contacts");
+
+			// Return true if the result 'ok' is a failure, clearing the error it reported.
+			auto rejected = [&](BOOL ok)
+			{
+				// Failures are reported as errors, which the fixture collects.
+				fixture.m_errors.clear();
+				return ok == FALSE;
+			};
+			api::ParticlePlane skewed = { .m_plane = { 1, 1, 0, 0 }, .m_restitution = 1.0f, .m_damping = 0.0f };
+			api::ParticlePlane bouncy = { .m_plane = { 1, 0, 0, 0 }, .m_restitution = 1.5f, .m_damping = 0.0f };
+			auto set = -1;
+			Require(rejected(View3D_ParticleCollisionSetCreate(particles.m_system, &skewed, 1, &set)), "A plane without a unit normal was accepted");
+			Require(rejected(View3D_ParticleCollisionSetCreate(particles.m_system, &bouncy, 1, &set)), "A restitution above one was accepted");
+			Require(rejected(View3D_ParticleCollisionSetDelete(particles.m_system, wall)), "A collision set was deleted twice");
+			Require(rejected(View3D_ParticleEnvironmentSet(particles.m_system, api::ParticleEnvironment{ .m_collision_iterations = -1 })), "A negative collision budget was accepted");
+
+			// Deleted indices are reused by the next set.
+			Require(particles.CollisionSet({}) == wall, "A deleted collision set index was not reused");
+		}
+		fixture.CheckErrors();
+		fixture.CheckDebugLayer();
+	}
+
+	// Gravity, wind and drag are integrated exactly, so stepped particles reach the same place at any tick rate.
+	void ParticleEnvironmentTests()
+	{
+		auto fixture = Fixture(1);
+		{
+			auto particles = SpriteParticles(fixture, 16, 4, api::EParticleBlend::Sorted, 80);
+			auto type = particles.SteppedTypeCreate(particles.m_batch, 64);
+
+			// With gravity 2, wind 5 and drag 0.5 along x, a particle at rest at x = -30 reaches
+			//   x = -30 + 5t - 5(1 - e^(-kt))/k + 2(t - (1 - e^(-kt))/k)/k = -9.56 after t = 4 s.
+			particles.Environment(2.0f, 5.0f);
+			auto emitter = particles.SteppedEmitter(type, -30.0f, 0.0f, -1, 1.0f, 0.0f, 0.5f);
+			auto images = std::vector<std::vector<unsigned char>>{};
+			for (auto ticks : { 1, 80 })
+			{
+				// Born at the end of the birth step, then moved for 4 s in 'ticks' equal ticks.
+				particles.Reset();
+				particles.Burst(emitter, 1);
+				particles.Step(BirthStep);
+				for (auto i = 0; i != ticks; ++i)
+					particles.Step(4.0 / ticks);
+
+				images.push_back(fixture.Image());
+				Require(RedAt(images.back(), -9.56f) > 0.25f, "The particle did not follow the exact motion");
+			}
+			Require(ImageDifference(images[0], images[1]) == 0, "The tick rate changed the particle's position");
+			Require(View3D_ParticleEmitterDelete(particles.m_system, emitter) != FALSE, "Particle emitter delete failed");
+
+			// A wind grid of 25 m columns blows at 0 m/s in the left column (centre x = -25) and 20 m/s in the right one (centre x = 0).
+			// Strong drag makes particles move with the wind, which is sampled at the start of each tick and clamped beyond the outer centres.
+			particles.Environment(0.0f, 0.0f);
+			auto wind = std::array<api::Vec2, 4>{ api::Vec2{ 0, 0 }, api::Vec2{ 20, 0 }, api::Vec2{ 0, 0 }, api::Vec2{ 20, 0 } };
+			Require(View3D_ParticleWindGridSet(particles.m_system, { -37.5f, -25.0f }, 25.0f, 2, 2, wind.data()) != FALSE, "Particle wind grid set failed");
+			particles.Reset();
+			particles.Burst(particles.SteppedEmitter(type, -12.5f, 0.0f, -1, 1.0f, 0.0f, 100.0f), 1);
+			particles.Burst(particles.SteppedEmitter(type, -40.0f, 0.0f, -1, 1.0f, 0.0f, 100.0f), 1);
+			particles.Step(BirthStep);
+			particles.Step(1.0);
+			auto image = fixture.Image();
+			Require(RedAt(image, -2.6f) > 0.25f, "The wind grid was not interpolated between column centres");
+			Require(RedAt(image, -12.5f) < 0.01f, "The particle in the interpolated wind did not move");
+			Require(RedAt(image, -40.0f) > 0.25f, "The particle in still air beyond the grid moved");
+
+			// Clearing the grid leaves still air, where drag stops the moving particle almost at once.
+			Require(View3D_ParticleWindGridSet(particles.m_system, { 0, 0 }, 0.0f, 0, 0, nullptr) != FALSE, "Particle wind grid clear failed");
+			particles.Step(1.0);
+			image = fixture.Image();
+			Require(RedAt(image, -2.5f) > 0.25f, "The particle kept moving in still air");
+			Require(RedAt(image, -40.0f) > 0.25f, "The particle at rest moved in still air");
+		}
+		fixture.CheckErrors();
+		fixture.CheckDebugLayer();
+	}
 }
 
 namespace pr::unittests::game_systems
@@ -934,6 +1168,14 @@ namespace pr::unittests::game_systems
 	PRUnitTest(GameSystems_ParticleMesh, Extended | Serial)
 	{
 		render_tests::ParticleMeshTests();
+	}
+	PRUnitTest(GameSystems_ParticleCollision, Extended | Serial)
+	{
+		render_tests::ParticleCollisionTests();
+	}
+	PRUnitTest(GameSystems_ParticleEnvironment, Extended | Serial)
+	{
+		render_tests::ParticleEnvironmentTests();
 	}
 	PRUnitTest(GameSystems_ParticleCost, Stress | Serial)
 	{
