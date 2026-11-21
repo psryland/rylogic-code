@@ -278,6 +278,130 @@ namespace render_tests
 		fixture.CheckDebugLayer();
 	}
 
+	// Measure how the GPU cost of tiny sprite particles grows with the live count, at 1920x1080 with 4x MSAA in a perspective view.
+	// Each frame is stepped by a fixed 1/60 s, rendered and then waited for, so the GPU work of consecutive frames does not overlap. The step is recorded
+	// on the same queue as the frame, so the wait covers it. The simulation cost is the frame time of frames that step without drawing the particles,
+	// less that of frames that neither step nor draw. The draw cost is the frame time of frames that step and draw, less that of frames that only step.
+	// Batches of the three kinds alternate so that GPU clock changes affect each equally, and medians reject occasional slow frames.
+	void ParticleCostTests()
+	{
+		constexpr int Width = 1920;
+		constexpr int Height = 1080;
+		constexpr int GridSide = 8;
+		constexpr int EmitterCount = GridSide * GridSide;
+		constexpr float MeanLifetime = 2.0f;
+		constexpr double FrameStep = 1.0 / 60.0;
+		constexpr int Capacity = (1 << 20) + (1 << 17);
+
+		// A perspective view of a 40 m square from 45 m away, so the particle cloud covers much of the screen.
+		std::cout << std::format("Particle cost at {}x{}, MSAA 4, weighted transparency", Width, Height) << std::endl;
+		auto fixture = Fixture(4);
+		View3D_WindowBackBufferSizeSet(fixture.m_window, SIZE{ Width, Height }, FALSE);
+		View3D_WindowViewportSet(fixture.m_window, api::Viewport{ 0, 0, Width, Height, 0, 1, Width, Height });
+		View3D_CameraOrthographicSet(fixture.m_window, FALSE);
+		View3D_CameraFovSet(fixture.m_window, api::Vec2{ 1.6f, 0.9f });
+		View3D_CameraClipPlanesSet(fixture.m_window, 0.1f, 200, api::EClipPlanes::Both);
+		View3D_CameraPositionSet(fixture.m_window, api::Vec4{ 0, -45, 20, 1 }, api::Vec4{ 0, 0, 5, 1 }, api::Vec4{ 0, 0, 1, 0 });
+		{
+			// One sprite type for every emitter, with the blend mode that smoke and other soft sprites use.
+			auto particles = SpriteParticles(fixture, Capacity, EmitterCount);
+			View3D_ObjectNuggetFlagsSet(particles.m_object, api::ENuggetFlag::AlphaWeighted, TRUE, nullptr, 0);
+
+			// Tiny sparks thrown up from a grid of emitters over a 40 m square and pulled back down.
+			auto emitters = std::vector<std::pair<uint64_t, ParticleSpriteEmitter>>{};
+			for (auto j = 0; j != GridSide; ++j)
+			{
+				for (auto i = 0; i != GridSide; ++i)
+				{
+					// Emission starts when 'set_live' gives the emitters a rate.
+					auto params = ParticleSpriteEmitter{};
+					params.position = { -20.0f + 40.0f * i / (GridSide - 1), -20.0f + 40.0f * j / (GridSide - 1), 0.1f, 0.5f };
+					params.velocity = { 0.0f, 0.0f, 6.0f, 2.0f };
+					params.accel = { 0.0f, 0.0f, -5.0f, 0.0f };
+					params.lifetime = { MeanLifetime - 0.5f, MeanLifetime + 0.5f };
+					params.size = { 0.06f, 0.02f };
+					params.colour0 = 0xFFFFD040U;
+					params.colour1 = 0x80FF4000U;
+
+					auto settings = api::ParticleEmitter{ .m_rate = 0.0f, .m_seed = static_cast<uint32_t>(emitters.size() + 1), .m_active = TRUE };
+					auto id = uint64_t{};
+					Require(View3D_ParticleEmitterCreate(particles.m_system, particles.m_type, settings, &params, sizeof(params), &id) != FALSE, "Particle emitter creation failed");
+					emitters.emplace_back(id, params);
+				}
+			}
+
+			// Set every emitter's rate so that the pool holds about 'live' particles once births and deaths balance.
+			auto set_live = [&](int live)
+			{
+				// The live count of a continuous emitter is its rate times the mean lifetime.
+				auto seed = uint32_t{ 1 };
+				for (auto const& [id, params] : emitters)
+				{
+					auto settings = api::ParticleEmitter{ .m_rate = live / (EmitterCount * MeanLifetime), .m_seed = seed++, .m_active = TRUE };
+					Require(View3D_ParticleEmitterUpdate(particles.m_system, id, settings, &params, sizeof(params)) != FALSE, "Particle emitter update failed");
+				}
+			};
+
+			// Render 'count' frames, waiting for each one, and return the frame times in milliseconds.
+			auto frame_times = [&](int count, bool step, bool draw)
+			{
+				// Removing the particles' object from the window removes only their draw, so the batch kinds differ by exactly one cost.
+				if (draw)
+					View3D_WindowAddObject(fixture.m_window, particles.m_object);
+				else
+					View3D_WindowRemoveObject(fixture.m_window, particles.m_object);
+
+				auto times = std::vector<double>{};
+				for (auto i = 0; i != count; ++i)
+				{
+					// Time the CPU recording plus the GPU execution of the step and the frame.
+					auto t0 = std::chrono::steady_clock::now();
+					if (step)
+						particles.Step(FrameStep);
+
+					View3D_WindowRender(fixture.m_window);
+					View3D_WindowGSyncWait(fixture.m_window);
+					auto t1 = std::chrono::steady_clock::now();
+					times.push_back(std::chrono::duration<double, std::milli>(t1 - t0).count());
+				}
+				return times;
+			};
+			auto median = [](std::vector<double> times)
+			{
+				std::ranges::sort(times);
+				return times[times.size() / 2];
+			};
+
+			// Measure each live count.
+			std::cout << std::format("  {:>8} {:>10} {:>10} {:>10}", "live", "frame ms", "sim ms", "draw ms") << std::endl;
+			for (auto live : { 0, 1 << 10, 1 << 12, 1 << 14, 1 << 16, 1 << 18, 1 << 20 })
+			{
+				// Start from an empty pool, and step until births and deaths balance, which takes the longest lifetime.
+				particles.Reset();
+				set_live(live);
+				frame_times(static_cast<int>((MeanLifetime + 0.5) / FrameStep) + 30, true, true);
+
+				// Alternate batches of frames that neither step nor draw, that only step, and that step and draw.
+				auto empty = std::vector<double>{};
+				auto sim = std::vector<double>{};
+				auto full = std::vector<double>{};
+				for (auto round = 0; round != 10; ++round)
+				{
+					std::ranges::copy(frame_times(20, false, false), std::back_inserter(empty));
+					std::ranges::copy(frame_times(20, true, false), std::back_inserter(sim));
+					std::ranges::copy(frame_times(20, true, true), std::back_inserter(full));
+				}
+
+				// Every request must fit in the pool, or the live count would not be the one asked for.
+				auto stats = particles.Stats();
+				Require(stats.m_dropped == 0, "The cost pool dropped particles");
+				std::cout << std::format("  {:>8} {:>10.3f} {:>10.3f} {:>10.3f}", stats.m_live, median(full), median(sim) - median(empty), median(full) - median(sim)) << std::endl;
+			}
+		}
+		fixture.CheckErrors();
+		fixture.CheckDebugLayer();
+	}
+
 	// Requests beyond the pool's capacity are dropped and counted.
 	void ParticleCapacityTests()
 	{
@@ -322,5 +446,9 @@ namespace pr::unittests::game_systems
 	PRUnitTest(GameSystems_ParticleDrawCount, Extended | Serial)
 	{
 		render_tests::ParticleDrawCountTests();
+	}
+	PRUnitTest(GameSystems_ParticleCost, Stress | Serial)
+	{
+		render_tests::ParticleCostTests();
 	}
 }

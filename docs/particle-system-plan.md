@@ -504,5 +504,21 @@ The following are planned engineering proofs, not unresolved product requirement
   `GameSystems_ParticleRender`, `GameSystems_ParticleTimeStep` and `GameSystems_ParticleCapacity` (rendering, pause invariance, reset, step-rate
   invariance of images and continuous emission, lifetimes, freeing and drop counts; debug layer clean); the interactive `particles` demo (sparks,
   smoke, fire, bursts, a stress grid of up to 1024 emitters, time scale with pause and slow motion, live pool statistics).
-- Outstanding exit items: an initial scaling curve (live count against GPU time, Release build, exclusive load lease, needs a GPU-timer harness), and a
-  direct draw-call count check (one object and one nugget per type implies one indirect draw per pass, but it is not yet measured).
+- Draw count (`GameSystems_ParticleDrawCount`): `View3D_WindowDrawStats` counts the forward draws actually recorded per frame. One type draws with
+  exactly one indirect draw whether it has 1 or 256 emitters, and a second type adds exactly one more.
+- Initial scaling curve (`GameSystems_ParticleCost`, a `Stress` test): tiny sprites (about 0.06 to 0.02 m) from 64 emitters, weighted transparency,
+  1920x1080 with 4x MSAA, Release build with the D3D12 debug layer, RTX 3080 Ti, exclusive load lease. Each figure is a median frame-time difference
+  (two runs agreed to within about 0.05 ms at 64k and above; small counts are within noise). Sim is the step's GPU work, which is mostly fixed overhead
+  until about 256k live. Draw cost grows roughly linearly above 64k and is dominated by rasterising and blending, so larger sprites cost more.
+
+  | Live particles | Sim ms | Draw ms |
+  |---:|---:|---:|
+  | 0 | 0.14 to 0.19 | 0.07 to 0.10 |
+  | 16k | 0.23 to 0.25 | 0.15 |
+  | 64k | 0.25 to 0.30 | 0.24 to 0.29 |
+  | 256k | 0.26 to 0.31 | 0.71 to 0.72 |
+  | 1M | 0.47 to 0.50 | 2.24 to 2.28 |
+
+  Budgets are set from measurements of the production effects, not from this synthetic case.
+
+  Rerun with `view3d-12-tests.exe -flags:Stress GameSystems_ParticleCost` from a Release build, under an exclusive load lease.
