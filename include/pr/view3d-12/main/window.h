@@ -64,6 +64,13 @@ namespace pr::rdr12
 		using GfxCmdList = ::pr::compute::GfxCmdList;
 		using OpenXRPtr = std::unique_ptr<openxr::OpenXR>;
 
+		// The nugget draws recorded by the forward passes of one frame, summed over all of its views and scenes. Full-screen composites are not counted.
+		struct DrawCounts
+		{
+			int64_t m_forward;          // All forward nugget draw commands, direct and indirect.
+			int64_t m_forward_indirect; // The forward draws whose arguments are read from a GPU buffer.
+		};
+
 		GpuSync                      m_gsync;            // GPU fence for frames
 		Handle                       m_frame_ready;      // Auto-reset event signalled when the next NewFrame's back buffer is released by the GPU. See FrameReadyEvent
 		BackBuffers                  m_swap_bb;          // Back buffer render targets from the swap chain.
@@ -84,6 +91,7 @@ namespace pr::rdr12
 		DiagState                    m_diag;             // Diagnostic variables
 		int64_t                      m_frame_number;     // The number of times 'RenderFrame' has been called.
 		double                       m_frame_wait_s;     // Host seconds the latest NewFrame spent blocked waiting for its back buffer. See FrameWaitSeconds
+		DrawCounts                   m_draw_counts;      // The draws recorded since the latest NewFrame
 		UINT                         m_vsync;            // Present SyncInterval value
 		float                        m_dither_amount;    // Output dither noise amplitude in 8-bit sRGB steps. Zero disables dithering. See render/output_dithering.md.
 		bool                         m_idle;             // True while the window is occluded
