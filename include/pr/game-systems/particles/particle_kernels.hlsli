@@ -24,10 +24,12 @@
 //     space of the batch's object. The renderer culls each view's draws with these spheres, so a sphere that is too small makes particles vanish
 //     near the edges of the view.
 //
-// Particles never read emitters or other particles after they are born, so every particle updates independently.
+// Particles never read emitters or other particles after they are born, so every particle updates independently. Types that use gravity, wind or
+// collision planes include particle_environment.hlsli before defining their functions.
 #ifndef PR_GAME_SYSTEMS_PARTICLE_KERNELS_HLSLI
 #define PR_GAME_SYSTEMS_PARTICLE_KERNELS_HLSLI
 #include "pr/game-systems/particles/particles.hlsli"
+#include "pr/game-systems/particles/particle_environment.hlsli"
 
 ConstantBuffer<ParticleTickConstants> g_tick : register(b0);
 ConstantBuffer<TypeConstants> g_type : register(b1);
@@ -41,6 +43,19 @@ RWStructuredBuffer<uint> g_draw_args : register(u7);
 StructuredBuffer<ParticleEmitterHeader> g_headers : register(t0);
 StructuredBuffer<EmitterParams> g_params : register(t1);
 RWStructuredBuffer<float4> g_bounds : register(u8);
+
+// Add the collision counts of the wave's threads to the type's counters, with one atomic per counter per wave.
+void ParticleFlushCollisionCounts()
+{
+	// Most waves make no contacts, so they write nothing.
+	uint3 total = WaveActiveSum(s_collision_counts);
+	if (WaveIsFirstLane() && any(total != 0))
+	{
+		InterlockedAdd(g_counters[ParticleCounterContacts], total.x);
+		InterlockedAdd(g_counters[ParticleCounterOverlaps], total.y);
+		InterlockedAdd(g_counters[ParticleCounterExhausted], total.z);
+	}
+}
 
 // Append the live particle in 'slot' to the written live list, and add its render record and bounds to the batch.
 void ParticleKeep(uint slot, ParticleState state)
@@ -83,6 +98,7 @@ void ParticleUpdateCS(uint3 dtid : SV_DispatchThreadID)
 		InterlockedAdd(g_counters[ParticleCounterFree], 1u, index);
 		g_free[index] = slot;
 	}
+	ParticleFlushCollisionCounts();
 }
 
 groupshared uint gs_base;
@@ -167,6 +183,7 @@ void ParticleEmitCS(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
 		g_states[slot] = state;
 		ParticleKeep(slot, state);
 	}
+	ParticleFlushCollisionCounts();
 }
 
 #endif

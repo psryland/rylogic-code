@@ -98,6 +98,29 @@ float3 ParticleRandomInBall(float3 u)
 	return float3(r * cosine, r * sine, z) * pow(u.z, 1.0f / 3.0f);
 }
 
+// Make the record that the sprite vertex shader draws for a sprite at 'position' and 'age'. Size and colour blend from birth to death over
+// 'lifetime', alpha fades in and out by the type's constants, and the rotation is fixed per particle by 'seed'.
+ParticleSpriteRecord ParticleSpriteMakeRecord(float3 position, float age, float lifetime, uint seed, uint colour0, uint colour1, float size0, float size1, ParticleSpriteConstants c)
+{
+	// Blend size and colour over the life.
+	float t = saturate(age / lifetime);
+	float size = lerp(size0, size1, t);
+	float4 colour = lerp(ParticleUnpackColour(colour0), ParticleUnpackColour(colour1), t);
+
+	// Fade in after birth and out before death.
+	float fade_in = c.fade_in > 0.0f ? saturate(t / c.fade_in) : 1.0f;
+	float fade_out = c.fade_out > 0.0f ? saturate((1.0f - t) / c.fade_out) : 1.0f;
+	colour.a *= fade_in * fade_out;
+
+	ParticleSpriteRecord record;
+	record.pos_size = float4(position, size);
+	record.colour = ParticlePackColour(colour);
+	record.angle = 6.283185307179586f * ParticleRandom(seed, 7);
+	record.pad0 = 0;
+	record.pad1 = 0;
+	return record;
+}
+
 #endif
 
 #ifdef __cplusplus

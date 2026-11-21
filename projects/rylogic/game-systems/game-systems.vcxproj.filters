@@ -76,6 +76,15 @@
     <None Include="$(RylogicRoot)include\pr\game-systems\particles\particle_mesh.hlsli">
       <Filter>pr\particles</Filter>
     </None>
+    <None Include="$(RylogicRoot)include\pr\game-systems\particles\particle_environment.hlsli">
+      <Filter>pr\particles</Filter>
+    </None>
+    <None Include="$(RylogicRoot)include\pr\game-systems\particles\particle_stepped_sprite.hlsli">
+      <Filter>pr\particles</Filter>
+    </None>
+    <ShaderBuild Include="src\shaders\hlsl\particles\particle_stepped_sprite_cs.hlsl">
+      <Filter>src\shaders</Filter>
+    </ShaderBuild>
     <ShaderBuild Include="src\shaders\hlsl\particles\particle_mesh_vs.hlsl">
       <Filter>src\shaders</Filter>
     </ShaderBuild>

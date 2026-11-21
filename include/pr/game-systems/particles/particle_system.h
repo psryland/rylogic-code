@@ -36,6 +36,9 @@ namespace pr::game_systems::particles
 		// ParticleMeshVertex array as 'm_vertex_data', its triangle list as 'm_indices', and their counts. The data is static.
 		static pr::view3d::ParticleDrawShaders MeshDrawShaders();
 
+		// The simulation shaders of the stock stepped sprite type (see particle_stepped_sprite.hlsli). It draws with the stock sprite batch. The data is static.
+		static pr::view3d::ParticleSimShaders SteppedSpriteSimShaders();
+
 		// Validate 'options' and add a particle batch, returning its index. Its View3D object is returned in 'out_object'.
 		virtual int BatchCreate(pr::view3d::ParticleBatchOptions const& options, char const* name, pr::view3d::Object& out_object) = 0;
 
@@ -62,5 +65,21 @@ namespace pr::game_systems::particles
 
 		// Read the pool usage of 'type'. Waits for the GPU.
 		virtual pr::view3d::ParticleStats Stats(int type) = 0;
+
+		// Set the gravity, uniform wind and contact budget of the environment, from the next step. See particle_environment.hlsli.
+		virtual void EnvironmentSet(pr::view3d::ParticleEnvironment const& environment) = 0;
+
+		// Set the wind grid, from the next step: 'cells_x' by 'cells_y' columns of horizontal wind, row-major, with the minimum corner at 'origin' in
+		// the XY plane and square cells of side 'cell_size'. Zero columns removes the grid.
+		virtual void WindGridSet(v2 origin, float cell_size, int cells_x, int cells_y, std::span<v2 const> wind) = 0;
+
+		// Add a collision set of planes, returning its index. Indices of deleted sets are reused, so emitters must stop naming a set before it is deleted.
+		virtual int CollisionSetCreate(std::span<pr::view3d::ParticlePlane const> planes) = 0;
+
+		// Replace the planes of a collision set, from the next step.
+		virtual void CollisionSetUpdate(int set, std::span<pr::view3d::ParticlePlane const> planes) = 0;
+
+		// Remove a collision set. Particles that still name it collide with nothing.
+		virtual void CollisionSetDelete(int set) = 0;
 	};
 }

@@ -35,7 +35,10 @@ static const uint ParticleCounterTaken = 3;     // Slots requested from the free
 static const uint ParticleCounterRequested = 4; // Cumulative particles that emitters asked for.
 static const uint ParticleCounterAdmitted = 5;  // Cumulative particles that were created.
 static const uint ParticleCounterDropped = 6;   // Cumulative particles not created because the pool was full.
-static const uint ParticleCounterCount = 8;
+static const uint ParticleCounterContacts = 7;  // Cumulative plane contacts resolved. See ParticleCollidePlanes.
+static const uint ParticleCounterOverlaps = 8;  // Cumulative particles pushed out of planes that they started inside.
+static const uint ParticleCounterExhausted = 9; // Cumulative particles stopped because their contact budget was spent.
+static const uint ParticleCounterCount = 12;
 
 // Indices into a pool's args buffer, a D3D12_DISPATCH_ARGUMENTS record for the pool's update pass.
 static const uint ParticleArgsDispatchX = 0;
