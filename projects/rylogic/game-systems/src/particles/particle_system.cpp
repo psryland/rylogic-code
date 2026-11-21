@@ -54,6 +54,7 @@ namespace pr::game_systems::particles
 			RootDrawArgs = 9,  // u7
 			RootHeaders = 10,  // t0
 			RootParams = 11,   // t1
+			RootBounds = 12,   // u8
 		};
 
 		// Limits of the type and batch options. The capacity is bounded so that the reset dispatch fits in one dimension of thread groups.
@@ -129,9 +130,10 @@ namespace pr::game_systems::particles
 		int m_record_stride;
 		int64_t m_pool_capacity; // Sum of the capacities of the batch's types, which must not exceed 'm_capacity'.
 
-		// The GPU buffers (see particles.hlsli). Both are read by the draw outside a step.
+		// The GPU buffers (see particles.hlsli). All are read by the draw outside a step.
 		D3DPtr<ID3D12Resource> m_records;
 		D3DPtr<ID3D12Resource> m_draw_args;
+		D3DPtr<ID3D12Resource> m_bounds;
 	};
 
 	// One particle type: its pool of GPU buffers, its kernels, and the CPU copy of its emitter slots.
@@ -217,6 +219,7 @@ namespace pr::game_systems::particles
 				.UAV(hlsl::EUAVReg::u7)
 				.SRV(hlsl::ESRVReg::t0)
 				.SRV(hlsl::ESRVReg::t1)
+				.UAV(hlsl::EUAVReg::u8)
 				.Create(m_rdr.d3d(), "Particles:Sig");
 			m_reset = ComputePSO(m_sig.get(), compiled::particle_reset_cs).Create(m_rdr.d3d(), "Particles:Reset");
 			m_finalize = ComputePSO(m_sig.get(), compiled::particle_finalize_cs).Create(m_rdr.d3d(), "Particles:Finalize");
@@ -237,6 +240,7 @@ namespace pr::game_systems::particles
 				// The batches' objects keep their own references, so they can keep drawing the last step's records.
 				m_rdr.DeferRelease(batch->m_records);
 				m_rdr.DeferRelease(batch->m_draw_args);
+				m_rdr.DeferRelease(batch->m_bounds);
 			}
 			m_rdr.DeferRelease(m_reset);
 			m_rdr.DeferRelease(m_finalize);
@@ -265,7 +269,7 @@ namespace pr::game_systems::particles
 			if (std::any_of(shaders.m_indices, shaders.m_indices + shaders.m_index_count, [&](uint32_t i) { return i >= static_cast<uint32_t>(shaders.m_vertex_count); }))
 				throw std::invalid_argument("Particle indices must be less than the vertex count");
 
-			// Create the records and the draw arguments. They rest in the states that the draw reads them in. The instance count starts at
+			// Create the records, the draw arguments, and the record bounds. They rest in the states that the draw and the renderer's cull read them in. The instance count starts at
 			// zero and is zeroed again at the start of every step and reset, before the batch's types add their records.
 			auto batch_name = std::string(name != nullptr ? name : "ParticleBatch");
 			auto batch = std::make_unique<ParticleBatch>();
@@ -276,7 +280,8 @@ namespace pr::game_systems::particles
 			auto const draw_args = std::array<uint32_t, ParticleDrawArgsCount>{ static_cast<uint32_t>(shaders.m_index_count), 0, 0, 0, 0 };
 			auto const none = std::span<std::byte const>{};
 			batch->m_records = m_factory.CreateResource(ResDesc::Buf(options.m_capacity, options.m_record_stride, none, 4).usage(EUsage::UnorderedAccess).def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE), batch_name + ":Records");
-			batch->m_draw_args = m_factory.CreateResource(ResDesc::Buf<uint32_t>(ParticleDrawArgsCount, std::span<uint32_t const>(draw_args)).usage(EUsage::UnorderedAccess).def_state(D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT), batch_name + ":DrawArgs");
+			batch->m_draw_args = m_factory.CreateResource(ResDesc::Buf<uint32_t>(ParticleDrawArgsCount, std::span<uint32_t const>(draw_args)).usage(EUsage::UnorderedAccess).def_state(D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE), batch_name + ":DrawArgs");
+			batch->m_bounds = m_factory.CreateResource(ResDesc::Buf(options.m_capacity, sizeof(v4), none, 16).usage(EUsage::UnorderedAccess).def_state(D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE), batch_name + ":Bounds");
 			m_factory.FlushToGpu(EGpuFlush::Async);
 
 			// Create the batch's object: one instance per record, drawn by one indirect draw whose instance count the GPU writes.
@@ -570,6 +575,7 @@ namespace pr::game_systems::particles
 			cmd_list.SetComputeRootUnorderedAccessView(RootDrawArgs, type.m_batch->m_draw_args);
 			cmd_list.SetComputeRootShaderResourceView(RootHeaders, type.m_headers);
 			cmd_list.SetComputeRootShaderResourceView(RootParams, type.m_params);
+			cmd_list.SetComputeRootUnorderedAccessView(RootBounds, type.m_batch->m_bounds);
 		}
 
 		// Zero every batch's record count and make its buffers writable by the kernels.
@@ -587,6 +593,7 @@ namespace pr::game_systems::particles
 				BarrierBatch(cmd_list)
 					.Transition(batch->m_draw_args.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
 					.Transition(batch->m_records.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
+					.Transition(batch->m_bounds.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
 					.Commit();
 			}
 		}
@@ -599,8 +606,9 @@ namespace pr::game_systems::particles
 			for (auto& batch : m_batches)
 			{
 				BarrierBatch(cmd_list)
-					.Transition(batch->m_draw_args.get(), D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT)
+					.Transition(batch->m_draw_args.get(), D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE)
 					.Transition(batch->m_records.get(), D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE)
+					.Transition(batch->m_bounds.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE)
 					.Commit();
 			}
 		}
@@ -766,9 +774,9 @@ namespace pr::game_systems::particles
 
 			try
 			{
-				// The object keeps its own references to the records and the draw arguments.
+				// The object keeps its own references to the records, the draw arguments, and the record bounds that the renderer culls with.
 				View3D_ObjectProceduralBufferSet(object, 0, batch.m_records.get());
-				View3D_ObjectNuggetDrawArgsSet(object, batch.m_draw_args.get(), 0, 0);
+				View3D_ObjectNuggetDrawArgsSet(object, batch.m_draw_args.get(), 0, batch.m_bounds.get(), static_cast<int>(batch.m_capacity), 0);
 			}
 			catch (...)
 			{

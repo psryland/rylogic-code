@@ -39,4 +39,11 @@ ParticleSpriteRecord ParticleProject(ParticleMarkerState state, ParticleMarkerCo
 	return record;
 }
 
+// Bound a marker by a sphere of the sprite's radius.
+float4 ParticleBounds(ParticleMarkerState state, ParticleMarkerConstants c)
+{
+	// Markers are sprites of the type's size.
+	return float4(state.position, 0.5f * c.size);
+}
+
 #include "pr/game-systems/particles/particle_kernels.hlsli"

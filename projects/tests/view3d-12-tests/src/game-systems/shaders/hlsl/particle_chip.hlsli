@@ -65,8 +65,8 @@ struct ParticleChipRecord
 // The constants of a chip batch, seen by the chip vertex shader.
 struct ParticleChipDrawConstants
 {
-	float width;      // Chip width as a fraction of its length.
-	float thickness;  // Chip thickness as a fraction of its length.
+	float width;      // Chip width as a fraction of its length, in [0, 1]. The chip's bounds assume it is no larger than its length.
+	float thickness;  // Chip thickness as a fraction of its length, in [0, 1].
 	float pad0;
 	float pad1;
 };

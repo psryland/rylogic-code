@@ -554,5 +554,14 @@ namespace pr::rdr12
 		ByteCode const population_count_cs(compiled::population_count_cs);
 		ByteCode const population_prefix_cs(compiled::population_prefix_cs);
 		ByteCode const population_scatter_cs(compiled::population_scatter_cs);
+
+		// Per-view instance culling of nuggets drawn with GPU-written draw arguments
+		namespace compiled
+		{
+			#include PR_RDR_SHADER_COMPILED_DIR(instance_reset_cs.h)
+			#include PR_RDR_SHADER_COMPILED_DIR(instance_cull_cs.h)
+		}
+		ByteCode const instance_reset_cs(compiled::instance_reset_cs);
+		ByteCode const instance_cull_cs(compiled::instance_cull_cs);
 	}
 }

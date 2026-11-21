@@ -5066,18 +5066,21 @@ VIEW3D_API void __stdcall View3D_ObjectNuggetDetailNormalsSet(view3d::Object obj
 }
 
 // Set or remove the GPU-written draw arguments of an object's nugget.
-VIEW3D_API void __stdcall View3D_ObjectNuggetDrawArgsSet(view3d::Object object, void* buffer, int64_t offset, int index)
+VIEW3D_API void __stdcall View3D_ObjectNuggetDrawArgsSet(view3d::Object object, void* buffer, int64_t offset, void* bounds, int capacity, int index)
 {
-	// The record must lie within the buffer; its contents are the caller's.
+	// The record and the instance bounds must lie within their buffers; their contents are the caller's.
 	try
 	{
 		Validate(object);
 		auto* res = static_cast<ID3D12Resource*>(buffer);
+		auto* bnd = static_cast<ID3D12Resource*>(bounds);
 		if (res != nullptr && (offset < 0 || offset % 4 != 0 || s_cast<uint64_t>(offset) + sizeof(D3D12_DRAW_INDEXED_ARGUMENTS) > res->GetDesc().Width))
 			throw std::invalid_argument("Draw arguments must be a 4-byte aligned record within the buffer");
+		if (res != nullptr && (bnd == nullptr || capacity < 1 || capacity > NuggetDrawArgs::MaxCapacity || s_cast<uint64_t>(capacity) * sizeof(v4) > bnd->GetDesc().Width))
+			throw std::invalid_argument("Draw arguments need a capacity in [1, 65535*64] and a bounds buffer of at least one float4 per instance");
 
 		DllLockGuard;
-		object->NuggetDrawArgs(res, offset, nullptr, index);
+		object->NuggetDrawArgs(res, offset, res != nullptr ? bnd : nullptr, res != nullptr ? capacity : 0, nullptr, index);
 	}
 	CatchAndReport(View3D_ObjectNuggetDrawArgsSet, ,);
 }

@@ -56,4 +56,12 @@ ParticleChipRecord ParticleProject(ParticleChipState state, ParticleChipConstant
 	return record;
 }
 
+// Bound a chip by the sphere around a cube of its length. Chip width and thickness are fractions of the length, so the box fits inside.
+float4 ParticleBounds(ParticleChipState state, ParticleChipConstants c)
+{
+	// Half the diagonal of a cube of the chip's length.
+	ParticleChipRecord record = ParticleProject(state, c);
+	return float4(record.pos_size.xyz, 0.8660254f * record.pos_size.w);
+}
+
 #include "pr/game-systems/particles/particle_kernels.hlsli"

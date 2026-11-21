@@ -19,6 +19,10 @@
 //     The result must depend only on the inputs, so particles behave the same at any tick rate and in slow motion.
 //   ParticleRecord ParticleProject(ParticleState state, TypeConstants c)
 //     Return the render record of a live particle.
+//   float4 ParticleBounds(ParticleState state, TypeConstants c)
+//     Return a sphere that contains everything the batch's vertex shader draws for a live particle: its centre (xyz) and radius (w), in the
+//     space of the batch's object. The renderer culls each view's draws with these spheres, so a sphere that is too small makes particles vanish
+//     near the edges of the view.
 //
 // Particles never read emitters or other particles after they are born, so every particle updates independently.
 #ifndef PR_GAME_SYSTEMS_PARTICLE_KERNELS_HLSLI
@@ -36,8 +40,9 @@ RWStructuredBuffer<ParticleEmitterRuntime> g_runtime : register(u5);
 RWStructuredBuffer<uint> g_draw_args : register(u7);
 StructuredBuffer<ParticleEmitterHeader> g_headers : register(t0);
 StructuredBuffer<EmitterParams> g_params : register(t1);
+RWStructuredBuffer<float4> g_bounds : register(u8);
 
-// Append the live particle in 'slot' to the written live list, and add its render record to the batch.
+// Append the live particle in 'slot' to the written live list, and add its render record and bounds to the batch.
 void ParticleKeep(uint slot, ParticleState state)
 {
 	// The written list is the one not read this tick.
@@ -50,6 +55,7 @@ void ParticleKeep(uint slot, ParticleState state)
 	uint record;
 	InterlockedAdd(g_draw_args[ParticleDrawInstanceCount], 1u, record);
 	g_records[record] = ParticleProject(state, g_type);
+	g_bounds[record] = ParticleBounds(state, g_type);
 }
 
 // Advance each particle in the read live list, keeping the survivors and returning the slots of the dead to the free stack.

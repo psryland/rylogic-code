@@ -2588,9 +2588,13 @@ extern "C"
 
 	// Draw nugget 'index' of 'object' with one indirect draw whose arguments the GPU writes at 'offset' bytes into 'buffer' (an ID3D12Resource),
 	// or restore ordinary draws when 'buffer' is null. The record is a D3D12_DRAW_INDEXED_ARGUMENTS for nuggets with indices, otherwise a
-	// D3D12_DRAW_ARGUMENTS. The caller writes it and keeps the buffer in the INDIRECT_ARGUMENT state whenever the object is drawn. Such nuggets are
-	// drawn only by the forward render steps: they cast no shadows and are not ray cast. The object keeps a reference to the buffer.
-	VIEW3D_API void __stdcall View3D_ObjectNuggetDrawArgsSet(pr::view3d::Object object, void* buffer, int64_t offset, int index);
+	// D3D12_DRAW_ARGUMENTS. The caller writes it and keeps the buffer in the INDIRECT_ARGUMENT | NON_PIXEL_SHADER_RESOURCE state whenever the object
+	// is drawn. 'bounds' (an ID3D12Resource) holds one float4 per instance index in [0, capacity): the object-space centre and radius of a sphere
+	// containing that instance. The caller keeps it in the NON_PIXEL_SHADER_RESOURCE state whenever the object is drawn. 'capacity' is in
+	// [1, 65535*64], and the record's instance count must not exceed it. Each view draws only the instances whose spheres it can see, as an unordered compacted list (see
+	// pr/view3d-12/shaders/indirect_instances.hlsli). Such nuggets are drawn only by the forward render steps: they cast no shadows and are not ray
+	// cast. The object keeps references to both buffers.
+	VIEW3D_API void __stdcall View3D_ObjectNuggetDrawArgsSet(pr::view3d::Object object, void* buffer, int64_t offset, void* bounds, int capacity, int index);
 
 	// Replace the detail-normal layers of every nugget of 'object' (not its children) that has detail normals. Layers are shared by the
 	// material, so this is cheap enough to call every frame. 'count' must be in [0, 4]. 'base_slope_variance' (non-negative) is the mean square

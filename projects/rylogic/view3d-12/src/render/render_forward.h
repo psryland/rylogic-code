@@ -8,6 +8,7 @@
 #include "pr/view3d-12/population/population.h"
 #include "pr/view3d-12/shaders/shader_forward.h"
 #include "pr/view3d-12/utility/pipe_state.h"
+#include "view3d-12/src/render/instance_culler.h"
 
 namespace pr::rdr12
 {
@@ -67,6 +68,7 @@ namespace pr::rdr12
 		std::unique_ptr<ReflectionPlane> m_reflection_plane;
 		PopulationSet m_populations;        // This frame's populations classified for the camera
 		PopulationSet m_mirror_populations; // This frame's populations classified for the reflection's mirror camera
+		InstanceCuller m_instance_culler;   // Culls the instances of nuggets with GPU-written draw arguments for the camera and the mirror camera
 		bool m_mirrored = false;            // True while drawing through a mirror camera, which reverses the winding of every triangle
 	public:
 
@@ -123,6 +125,10 @@ namespace pr::rdr12
 		// Classify the scene's populations for 'view' into 'set', and build its draws
 		void CullPopulations(PopulationSet& set, PopulationViewDesc const& view);
 
+		// Cull the instances of the drawlist's nuggets that have GPU-written draw arguments, for the camera and the mirror camera, recording the compute
+		// work into the opaque command list. 'alpha_start' is the drawlist position of the first alpha element, because the mirror view draws only opaques.
+		void CullInstances(int alpha_start);
+
 		// Draw the opaque drawlist elements 'opaques' and the populations in 'pops' into the opaque targets, merged in sort group order.
 		// Within one sort group, the drawlist elements are drawn before the populations. Populations whose prototype bounding radius is less
 		// than 'min_population_radius' are not drawn.
@@ -137,7 +143,8 @@ namespace pr::rdr12
 		void DrawNuggets(Frame& frame, GfxCmdList& cmd_list, PipeStateDesc const& default_pipe_state, std::span<DrawListElement const> drawlist, int first_index, ESubPass sub_pass, std::span<PopulationDrawRef const> populations = {});
 
 		// Draw a single nugget. 'population' is null for an ordinary draw, otherwise the nugget is drawn indirectly for each classified population instance.
+		// 'instance_view' is the view buffer of a nugget with GPU-written draw arguments (see InstanceCuller), otherwise null.
 		// 'bound_pipe_state' is the state bound to 'cmd_list' while 'pipe_state_bound' is true. Both are updated when the bound state changes.
-		void DrawNugget(GfxCmdList& cmd_list, Nugget const& nugget, PipeStateDesc& desc, bool& pipe_state_bound, PipeStateDesc& bound_pipe_state, PopulationDrawRef const* population);
+		void DrawNugget(GfxCmdList& cmd_list, Nugget const& nugget, PipeStateDesc& desc, bool& pipe_state_bound, PipeStateDesc& bound_pipe_state, PopulationDrawRef const* population, ID3D12Resource* instance_view);
 	};
 }

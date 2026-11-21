@@ -372,6 +372,36 @@ namespace render_tests
 		fixture.CheckDebugLayer();
 	}
 
+	// The renderer culls each particle by its bounds, so particles whose sprites reach into the view are drawn and the rest are skipped.
+	void ParticleCullTests()
+	{
+		auto fixture = Fixture(1);
+		{
+			// A sprite in the view, a sprite whose centre is just left of the view but whose edge reaches into it, and many far outside the view.
+			auto particles = SpriteParticles(fixture, 1024, 128);
+			particles.Burst(particles.Emitter(0.0f), 1);
+			particles.Burst(particles.Emitter(-52.0f), 1);
+			for (auto i = 0; i != 64; ++i)
+				particles.Burst(particles.Emitter(200.0f + 4.0f * i, 0.0f, 0.0f, 100.0f, static_cast<uint32_t>(i + 2)), 4);
+
+			particles.Step(BirthStep);
+			Require(particles.Stats().m_live == 2 + 64 * 4, "Every burst particle should be live");
+
+			// The visible sprite is drawn, and so is the visible part of the sprite whose centre is outside the view.
+			auto image = fixture.Image();
+			Require(RedAt(image, 0.0f) > 0.25f, "The sprite in the view is not drawn");
+			Require(RegionRed(image, 0, 2, ImageSize / 2 - 1, ImageSize / 2 + 2) > 0.02f, "A sprite reaching into the view from outside it was culled");
+			Require(RedAt(image, 25.0f) < 0.01f, "Pixels outside every sprite should be background");
+
+			// Moving the camera onto the far sprites draws them. The camera keeps its orientation and moves along x only.
+			auto moved = api::Mat4x4{ {1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}, {248, 0, 0, 1} };
+			View3D_CameraToWorldSet(fixture.m_window, moved);
+			Require(RedAt(fixture.Image(), 0.0f) > 0.25f, "Sprites outside the first view are not drawn when the camera moves to them");
+		}
+		fixture.CheckErrors();
+		fixture.CheckDebugLayer();
+	}
+
 	// Types with different states, emitter parameters, constants and kernels share a batch when they write the same render record.
 	void ParticleBatchTests()
 	{
@@ -662,8 +692,16 @@ namespace render_tests
 				return times[times.size() / 2];
 			};
 
+			// Point the camera at, or away from, the particle cloud. Off-screen particles cost only their vertex work, which is what culling would save.
+			auto look = [&](bool at_cloud)
+			{
+				// Turning around keeps the camera in place, so only the visibility of the particles changes.
+				auto target = at_cloud ? api::Vec4{ 0, 0, 5, 1 } : api::Vec4{ 0, -90, 35, 1 };
+				View3D_CameraPositionSet(fixture.m_window, api::Vec4{ 0, -45, 20, 1 }, target, api::Vec4{ 0, 0, 1, 0 });
+			};
+
 			// Measure each live count.
-			std::cout << std::format("  {:>8} {:>10} {:>10} {:>10}", "live", "frame ms", "sim ms", "draw ms") << std::endl;
+			std::cout << std::format("  {:>8} {:>10} {:>10} {:>10} {:>14}", "live", "frame ms", "sim ms", "draw ms", "off-screen ms") << std::endl;
 			for (auto live : { 0, 1 << 10, 1 << 12, 1 << 14, 1 << 16, 1 << 18, 1 << 20 })
 			{
 				// Start from an empty pool, and step until births and deaths balance, which takes the longest lifetime.
@@ -675,17 +713,21 @@ namespace render_tests
 				auto empty = std::vector<double>{};
 				auto sim = std::vector<double>{};
 				auto full = std::vector<double>{};
+				auto away = std::vector<double>{};
 				for (auto round = 0; round != 10; ++round)
 				{
 					std::ranges::copy(frame_times(20, false, false), std::back_inserter(empty));
 					std::ranges::copy(frame_times(20, true, false), std::back_inserter(sim));
 					std::ranges::copy(frame_times(20, true, true), std::back_inserter(full));
+					look(false);
+					std::ranges::copy(frame_times(20, true, true), std::back_inserter(away));
+					look(true);
 				}
 
 				// Every request must fit in the pool, or the live count would not be the one asked for.
 				auto stats = particles.Stats();
 				Require(stats.m_dropped == 0, "The cost pool dropped particles");
-				std::cout << std::format("  {:>8} {:>10.3f} {:>10.3f} {:>10.3f}", stats.m_live, median(full), median(sim) - median(empty), median(full) - median(sim)) << std::endl;
+				std::cout << std::format("  {:>8} {:>10.3f} {:>10.3f} {:>10.3f} {:>14.3f}", stats.m_live, median(full), median(sim) - median(empty), median(full) - median(sim), median(away) - median(sim)) << std::endl;
 			}
 		}
 		fixture.CheckErrors();
@@ -736,6 +778,10 @@ namespace pr::unittests::game_systems
 	PRUnitTest(GameSystems_ParticleDrawCount, Extended | Serial)
 	{
 		render_tests::ParticleDrawCountTests();
+	}
+	PRUnitTest(GameSystems_ParticleCull, Extended | Serial)
+	{
+		render_tests::ParticleCullTests();
 	}
 	PRUnitTest(GameSystems_ParticleBatch, Extended | Serial)
 	{

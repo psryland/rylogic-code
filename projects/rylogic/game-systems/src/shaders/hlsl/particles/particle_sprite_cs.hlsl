@@ -62,4 +62,13 @@ ParticleSpriteRecord ParticleProject(ParticleSpriteState state, ParticleSpriteCo
 	return record;
 }
 
+// Bound a sprite by a sphere of its radius at its position. The radius is in world units and the cull scales it by the object's largest axis scale,
+// so the sphere contains the sprite when the batch's object is unscaled or enlarged.
+float4 ParticleBounds(ParticleSpriteState state, ParticleSpriteConstants c)
+{
+	// The record holds the position and size that the vertex shader draws.
+	ParticleSpriteRecord record = ParticleProject(state, c);
+	return float4(record.pos_size.xyz, 0.5f * record.pos_size.w);
+}
+
 #include "pr/game-systems/particles/particle_kernels.hlsli"

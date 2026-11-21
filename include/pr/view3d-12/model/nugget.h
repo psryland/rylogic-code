@@ -104,12 +104,23 @@ namespace pr::rdr12
 	// A GPU-written argument record for one indirect draw of a nugget.
 	// The record is a D3D12_DRAW_INDEXED_ARGUMENTS for nuggets with an index range, otherwise a D3D12_DRAW_ARGUMENTS (see Renderer::DrawSignature).
 	// The owner writes the record, including its instance count, and keeps 'm_buffer' in a state that includes D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT
-	// whenever the nugget is drawn. Only the forward render steps draw these nuggets: they cast no shadows and are not ray cast, because those steps
-	// use the instance index for their own views or need geometry known on the CPU.
+	// and D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE whenever the nugget is drawn. Only the forward render steps draw these nuggets: they cast no
+	// shadows and are not ray cast, because those steps use the instance index for their own views or need geometry known on the CPU.
+	//
+	// The renderer culls the instances against each view before drawing. 'm_bounds' holds one float4 per instance index in [0, m_capacity): the
+	// object-space centre (xyz) and radius (w) of a sphere that contains everything the instance draws. The owner keeps 'm_bounds' in a state that
+	// includes D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE whenever the nugget is drawn. The instance count of the record must not exceed
+	// 'm_capacity'. The drawn instances are a compacted, unordered subset, so the vertex shader reads the original index of each instance from the
+	// list described in 'pr/view3d-12/shaders/indirect_instances.hlsli' instead of using SV_InstanceID directly.
 	struct NuggetDrawArgs
 	{
+		// The largest capacity. The renderer culls 64 instances per thread group, in one dimension of thread groups.
+		inline static constexpr int MaxCapacity = 65535 * 64;
+
 		D3DPtr<ID3D12Resource> m_buffer;
 		int64_t m_offset = 0;
+		D3DPtr<ID3D12Resource> m_bounds;
+		int m_capacity = 0;
 	};
 
 	// Nugget initialisation data
@@ -225,9 +236,9 @@ namespace pr::rdr12
 		}
 
 		// Draw this nugget with GPU-written arguments (see NuggetDrawArgs)
-		NuggetDesc& draw_args(D3DPtr<ID3D12Resource> buffer, int64_t offset)
+		NuggetDesc& draw_args(D3DPtr<ID3D12Resource> buffer, int64_t offset, D3DPtr<ID3D12Resource> bounds, int capacity)
 		{
-			m_draw_args = NuggetDrawArgs{ .m_buffer = buffer, .m_offset = offset };
+			m_draw_args = NuggetDrawArgs{ .m_buffer = buffer, .m_offset = offset, .m_bounds = bounds, .m_capacity = capacity };
 			return *this;
 		}
 
