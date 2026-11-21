@@ -1141,6 +1141,25 @@ VIEW3D_API BOOL __stdcall View3D_WindowPipelineStats(view3d::Window window, view
 	CatchAndReport(View3D_WindowPipelineStats, window, FALSE);
 }
 
+// Get the counts of the draws recorded by the window's latest frame
+VIEW3D_API BOOL __stdcall View3D_WindowDrawStats(view3d::Window window, view3d::DrawStats& stats)
+{
+	try
+	{
+		// The counts are written while a frame is recorded, so read them under the DLL lock.
+		Validate(window);
+
+		DllLockGuard;
+		auto const& counts = window->m_wnd.m_draw_counts;
+		stats = view3d::DrawStats{
+			.m_forward = counts.m_forward,
+			.m_forward_indirect = counts.m_forward_indirect,
+		};
+		return TRUE;
+	}
+	CatchAndReport(View3D_WindowDrawStats, window, FALSE);
+}
+
 // Wait for any previous frames to complete rendering within the GPU
 VIEW3D_API void __stdcall View3D_WindowGSyncWait(view3d::Window window)
 {

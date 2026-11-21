@@ -236,6 +236,48 @@ namespace render_tests
 		fixture.CheckDebugLayer();
 	}
 
+	// A type draws all of its emitters' particles with one indirect draw, so the draw count depends on the number of types, not emitters.
+	void ParticleDrawCountTests()
+	{
+		auto fixture = Fixture(1);
+		{
+			// Read the draw counts of a newly rendered frame.
+			auto draw_stats = [&]
+			{
+				// Rendering the image records a frame, which resets and fills the window's counts.
+				fixture.Image();
+				auto stats = api::DrawStats{};
+				Require(View3D_WindowDrawStats(fixture.m_window, stats) != FALSE, "Draw stats failed");
+				return stats;
+			};
+
+			// One emitter of one type.
+			auto sparks = SpriteParticles(fixture, 4096, 256);
+			sparks.Burst(sparks.Emitter(-40.0f), 4);
+			sparks.Step(BirthStep);
+			auto one = draw_stats();
+			Require(one.m_forward_indirect == 1, "One particle type should be one indirect draw");
+
+			// Many more emitters of the same type add particles but no draws.
+			for (auto i = 1; i != 256; ++i)
+				sparks.Burst(sparks.Emitter(-40.0f + 0.3f * i, 0.0f, 0.0f, 100.0f, static_cast<uint32_t>(i + 1)), 4);
+
+			sparks.Step(BirthStep);
+			Require(sparks.Stats().m_live == 256 * 4, "Every emitter's particles should be live");
+			auto many = draw_stats();
+			Require(many.m_forward == one.m_forward && many.m_forward_indirect == one.m_forward_indirect, "More emitters changed the draw count");
+
+			// A second type is one more draw.
+			auto smoke = SpriteParticles(fixture, 64);
+			smoke.Burst(smoke.Emitter(20.0f), 4);
+			smoke.Step(BirthStep);
+			auto two = draw_stats();
+			Require(two.m_forward == one.m_forward + 1 && two.m_forward_indirect == 2, "A second type should add one indirect draw");
+		}
+		fixture.CheckErrors();
+		fixture.CheckDebugLayer();
+	}
+
 	// Requests beyond the pool's capacity are dropped and counted.
 	void ParticleCapacityTests()
 	{
@@ -276,5 +318,9 @@ namespace pr::unittests::game_systems
 	PRUnitTest(GameSystems_ParticleCapacity, Extended | Serial)
 	{
 		render_tests::ParticleCapacityTests();
+	}
+	PRUnitTest(GameSystems_ParticleDrawCount, Extended | Serial)
+	{
+		render_tests::ParticleDrawCountTests();
 	}
 }

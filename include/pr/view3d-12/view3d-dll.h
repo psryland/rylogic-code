@@ -854,6 +854,13 @@ namespace pr
 			int64_t m_count;          // The number of cached pipelines.
 		};
 
+		// The nugget draws recorded by the forward passes of a window's latest frame, summed over its views and scenes. See View3D_WindowDrawStats.
+		struct DrawStats
+		{
+			int64_t m_forward;          // All forward nugget draw commands, direct and indirect.
+			int64_t m_forward_indirect; // The forward draws whose arguments are read from a GPU buffer (populations and GPU-written draw arguments).
+		};
+
 		// Diagnostics of a population. See View3D_PopulationStats.
 		struct PopulationStats
 		{
@@ -1775,6 +1782,9 @@ extern "C"
 
 	// Get the counters of the pipeline state cache of the window's renderer, shared by all windows of the renderer
 	VIEW3D_API BOOL __stdcall View3D_WindowPipelineStats(pr::view3d::Window window, pr::view3d::PipelineStats& stats);
+
+	// Get the counts of the draws recorded by the window's latest frame
+	VIEW3D_API BOOL __stdcall View3D_WindowDrawStats(pr::view3d::Window window, pr::view3d::DrawStats& stats);
 
 	// Wait for any previous frames to complete rendering within the GPU
 	VIEW3D_API void __stdcall View3D_WindowGSyncWait(pr::view3d::Window window);

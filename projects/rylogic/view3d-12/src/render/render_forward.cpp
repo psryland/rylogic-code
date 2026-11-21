@@ -1344,9 +1344,12 @@ namespace pr::rdr12
 		// and nuggets with GPU-written draw arguments take theirs from the nugget's argument record.
 		// The command list holds a reference to the argument buffer until the draw completes, which needs a non-const pointer.
 		auto* draw_args = const_cast<ID3D12Resource*>(nugget.m_draw_args.m_buffer.get());
+		auto& counts = wnd().m_draw_counts;
 		auto draw_indexed = [&]
 		{
 			// Keep indexed draws at base-vertex zero because optional model vertex streams use SV_VertexID to read buffers parallel to the primary vertex buffer.
+			counts.m_forward += 1;
+			counts.m_forward_indirect += population != nullptr || draw_args != nullptr ? 1 : 0;
 			if (population != nullptr)
 				cmd_list.ExecuteIndirect(rdr().DrawSignature(true), 1, population->m_lists->m_scratch, s_cast<UINT64>(population->m_draw->m_args_indexed));
 			else if (draw_args != nullptr)
@@ -1357,6 +1360,8 @@ namespace pr::rdr12
 		auto draw_vertices = [&]
 		{
 			// Draw the nugget's vertex range without indices.
+			counts.m_forward += 1;
+			counts.m_forward_indirect += population != nullptr || draw_args != nullptr ? 1 : 0;
 			if (population != nullptr)
 				cmd_list.ExecuteIndirect(rdr().DrawSignature(false), 1, population->m_lists->m_scratch, s_cast<UINT64>(population->m_draw->m_args_vertex));
 			else if (draw_args != nullptr)

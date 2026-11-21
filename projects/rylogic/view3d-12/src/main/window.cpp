@@ -87,6 +87,7 @@ namespace pr::rdr12
 		, m_diag(*this)
 		, m_frame_number()
 		, m_frame_wait_s()
+		, m_draw_counts()
 		, m_vsync(settings.m_vsync)
 		, m_dither_amount(0.0f)
 		, m_idle(false)
@@ -623,6 +624,7 @@ namespace pr::rdr12
 	Frame& Window::NewFrame()
 	{
 		m_frame_output = nullptr;
+		m_draw_counts = {};
 		++m_frame_number;
 
 		// The swap chain buffer that this frame is output to
