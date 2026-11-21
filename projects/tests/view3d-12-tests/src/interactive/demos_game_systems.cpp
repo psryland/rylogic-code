@@ -15,6 +15,7 @@
 #include "pr/gui/wingui.h"
 #include "pr/view3d-12/view3d-dll.h"
 #include "pr/game-systems/particles/particle_sprite.hlsli"
+#include "pr/game-systems/particles/particle_stepped_sprite.hlsli"
 #include "pr/game-systems/particles/particle_mesh.hlsli"
 #include "../game-systems/shaders/hlsl/particle_chip.hlsli"
 #include "demo.h"
@@ -53,6 +54,8 @@ namespace view3d_test
 			static constexpr float GridRate = 100.0f;
 			static constexpr int ChipCapacity = 4096;
 			static constexpr int LeafCapacity = 1024;
+			static constexpr int SteppedCapacity = 1 << 14;
+			static constexpr float WallX = 20.0f;
 
 			// One continuous effect: its emitter id, its parameters, and its rate before the rate scale.
 			struct Effect
@@ -71,10 +74,13 @@ namespace view3d_test
 			uint64_t m_burst;
 			int m_chip_type;
 			uint64_t m_chips;
+			int m_stepped_type;
+			uint64_t m_stepped_sparks;
 			pr::gui::Label* m_stats_label;
 			double m_stats_timer;
 			float m_time_scale;
 			float m_rate_scale;
+			float m_wind;
 
 			explicit ParticlesDemo(DemoContext const& ctx)
 				: m_ctx(ctx)
@@ -86,13 +92,17 @@ namespace view3d_test
 				, m_burst()
 				, m_chip_type(-1)
 				, m_chips()
+				, m_stepped_type(-1)
+				, m_stepped_sparks()
 				, m_stats_label()
 				, m_stats_timer()
 				, m_time_scale(1.0f)
 				, m_rate_scale(1.0f)
+				, m_wind(2.0f)
 			{
-				// A floor for reference, viewed from the side.
+				// A floor for reference, viewed from the side, and a wall that stepped sparks bounce off.
 				m_scene.Add("*Plane floor FF404850 { *Data {60 60} *AxisId {+3} }");
+				m_scene.Add(std::format("*Box wall FF607080 {{ *Data {{0.4 24 6}} *o2w {{*pos {{{} 0 3}}}} }}", WallX + 0.2f).c_str());
 				View3D_CameraPositionSet(ctx.m_window, { 0, -28, 9, 1 }, { 0, 0, 4, 1 }, { 0, 0, 1, 0 });
 
 				// One sprite type for every effect, drawn by one batch. The fade keeps births and deaths soft.
@@ -111,7 +121,7 @@ namespace view3d_test
 					.m_struct_size = sizeof(api::ParticleBatchOptions),
 					.m_version = api::ParticleBatchOptions::CurrentVersion,
 					.m_shaders = draw,
-					.m_capacity = Capacity,
+					.m_capacity = Capacity + SteppedCapacity,
 					.m_record_stride = sizeof(pr::game_systems::particles::ParticleSpriteRecord),
 					.m_constants = nullptr,
 					.m_constants_size = 0,
@@ -164,9 +174,12 @@ namespace view3d_test
 				// Leaves: textured cards tumbling down from a canopy, drawn by the stock mesh batch.
 				CreateLeaves();
 
+				// Stepped sprites: sparks that bounce off the floor and wall, and snow carried by the wind. They share the sprite batch.
+				CreateStepped(batch);
+
 				// Demo controls.
 				auto& ui = ctx.m_controls;
-				ui.AddLabel(L"Sprites are one particle type in one batch, drawn with one draw call. Wood chips are a custom type with their own record and vertex shader, in a second, opaque batch. Leaves reuse the chip simulation, drawn as textured cards by the stock mesh batch. Particle state lives on the GPU.");
+				ui.AddLabel(L"Sprites are one particle type in one batch, drawn with one draw call. Wood chips are a custom type with their own record and vertex shader, in a second, opaque batch. Leaves reuse the chip simulation, drawn as textured cards by the stock mesh batch. Stepped sprites (bouncing sparks and snow) share the sprite batch, and move through the environment's gravity and wind, bouncing off its planes. Particle state lives on the GPU.");
 				ui.AddSlider(L"Time scale (0 = pause)", 0, 2, m_time_scale, [this](float v)
 				{
 					m_time_scale = v;
@@ -189,15 +202,28 @@ namespace view3d_test
 				{
 					View3D_ParticleEmitterBurst(m_system, m_chips, 60);
 				});
+				ui.AddButton(L"Burst 500 bouncing sparks", [this]
+				{
+					View3D_ParticleEmitterBurst(m_system, m_stepped_sparks, 500);
+				});
 				ui.AddSlider(L"Stress grid side", 0, MaxGridSide, 0, [this](float v)
 				{
 					SetGridSide(static_cast<int>(std::lround(v)));
 				}, MaxGridSide);
+				ui.AddSlider(L"Wind (m/s along x)", -10, 10, m_wind, [this](float v)
+				{
+					m_wind = v;
+					SetEnvironment();
+				}, 40);
+				ui.AddCheckBox(L"Gusty wind grid", false, [this](bool on)
+				{
+					SetWindGrid(on);
+				});
 				ui.AddButton(L"Reset", [this]
 				{
 					View3D_ParticleSystemReset(m_system);
 				});
-				m_stats_label = ui.AddLabel(L"\n\n\n\n");
+				m_stats_label = ui.AddLabel(L"\n\n\n\n\n");
 			}
 			~ParticlesDemo()
 			{
@@ -436,6 +462,116 @@ namespace view3d_test
 				m_effects.push_back(Effect{ .m_id = Create(rate * m_rate_scale, params), .m_params = params, .m_rate = rate });
 			}
 
+			// Add the stepped sprite type to the sprite 'batch', with bouncing sparks and wind-blown snow.
+			void CreateStepped(int batch)
+			{
+				// Stepped sprites write the sprite record, so they share the sprite batch and its single draw call.
+				using namespace pr::game_systems::particles;
+				auto sim = api::ParticleSimShaders{};
+				auto draw = api::ParticleDrawShaders{};
+				if (!View3D_ParticleSteppedSpriteShaders(&sim, &draw))
+					throw std::runtime_error("Particle stepped sprite shaders unavailable");
+
+				auto constants = ParticleSpriteConstants{};
+				auto options = api::ParticleTypeOptions
+				{
+					.m_struct_size = sizeof(api::ParticleTypeOptions),
+					.m_version = api::ParticleTypeOptions::CurrentVersion,
+					.m_shaders = sim,
+					.m_batch = batch,
+					.m_capacity = SteppedCapacity,
+					.m_max_emitters = 4,
+					.m_state_stride = sizeof(ParticleSteppedSpriteState),
+					.m_record_stride = sizeof(ParticleSpriteRecord),
+					.m_params_stride = sizeof(ParticleSteppedSpriteEmitter),
+					.m_constants = &constants,
+					.m_constants_size = sizeof(constants),
+				};
+				if (!View3D_ParticleTypeCreate(m_system, options, "DemoStepped", &m_stepped_type))
+					throw std::runtime_error("Particle stepped type creation failed");
+
+				// The floor, and the face of the wall, keep particles in z >= 0 and x <= WallX.
+				auto planes = std::array<api::ParticlePlane, 2>
+				{{
+					{ .m_plane = { 0, 0, +1, 0 }, .m_restitution = 0.45f, .m_damping = 0.15f },
+					{ .m_plane = { -1, 0, 0, -WallX }, .m_restitution = 0.6f, .m_damping = 0.1f },
+				}};
+				auto collision_set = -1;
+				if (!View3D_ParticleCollisionSetCreate(m_system, planes.data(), static_cast<int>(planes.size()), &collision_set))
+					throw std::runtime_error("Particle collision set creation failed");
+
+				SetEnvironment();
+
+				// Sparks: thrown towards the wall, falling under gravity and bouncing off the wall and the floor. No drag, so the wind does not move them.
+				auto sparks = ParticleSteppedSpriteEmitter
+				{
+					.position = { 14.0f, -4.0f, 3.0f, 0.1f },
+					.velocity = { 6.0f, 0.0f, 5.0f, 2.5f },
+					.accel = { 0.0f, 0.0f, 0.0f, 0.0f },
+					.lifetime = { 2.5f, 4.0f },
+					.size = { 0.15f, 0.05f },
+					.colour0 = 0xFFFFF0A0,
+					.colour1 = 0x40FF4000,
+					.radius = 0.05f,
+					.collision_set = collision_set,
+				};
+				auto spark_settings = api::ParticleEmitter{ .m_rate = 120.0f, .m_seed = 13, .m_active = TRUE };
+				if (!View3D_ParticleEmitterCreate(m_system, m_stepped_type, spark_settings, &sparks, sizeof(sparks), &m_stepped_sparks))
+					throw std::runtime_error("Particle spark emitter creation failed");
+
+				// Snow: an upward acceleration cancels most of gravity, and strong drag pulls the flakes to the wind's speed, so they drift with it.
+				// Flakes stop dead on the floor and lie there until they die.
+				auto snow = ParticleSteppedSpriteEmitter
+				{
+					.position = { -6.0f, 6.0f, 16.0f, 12.0f },
+					.velocity = { 0.0f, 0.0f, -1.0f, 0.3f },
+					.accel = { 0.0f, 0.0f, 8.8f, 1.0f },
+					.lifetime = { 16.0f, 20.0f },
+					.size = { 0.12f, 0.12f },
+					.colour0 = 0xFFFFFFFF,
+					.colour1 = 0x60FFFFFF,
+					.radius = 0.06f,
+					.collision_set = collision_set,
+				};
+				auto snow_settings = api::ParticleEmitter{ .m_rate = 250.0f, .m_seed = 17, .m_active = TRUE };
+				auto snow_id = uint64_t{};
+				if (!View3D_ParticleEmitterCreate(m_system, m_stepped_type, snow_settings, &snow, sizeof(snow), &snow_id))
+					throw std::runtime_error("Particle snow emitter creation failed");
+			}
+
+			// Set gravity and the uniform wind for the stepped particles.
+			void SetEnvironment()
+			{
+				// Four contacts per step is enough for a particle in the corner between the floor and the wall.
+				auto environment = api::ParticleEnvironment
+				{
+					.m_gravity = { 0, 0, -9.8f, 0 },
+					.m_wind = { m_wind, 0, 0, 0 },
+					.m_collision_iterations = 4,
+				};
+				View3D_ParticleEnvironmentSet(m_system, environment);
+			}
+
+			// Add or remove a gusty wind grid over the scene. Its wind adds to the uniform wind.
+			void SetWindGrid(bool on)
+			{
+				// A 4 x 4 grid of 15 m cells over the floor, with gusts that cross the scene in alternating directions.
+				if (!on)
+				{
+					View3D_ParticleWindGridSet(m_system, { 0, 0 }, 1.0f, 0, 0, nullptr);
+					return;
+				}
+
+				auto wind = std::array<api::Vec2, 16>{};
+				for (auto j = 0; j != 4; ++j)
+				{
+					// Each row blows the opposite way along y to its neighbours, and the middle columns blow harder along x.
+					for (auto i = 0; i != 4; ++i)
+						wind[j * 4 + i] = { (i == 1 || i == 2) ? 4.0f : -2.0f, (j % 2) ? 5.0f : -5.0f };
+				}
+				View3D_ParticleWindGridSet(m_system, { -30.0f, -30.0f }, 15.0f, 4, 4, wind.data());
+			}
+
 			// Show a square grid of 'side' x 'side' small emitters above the floor.
 			void SetGridSide(int side)
 			{
@@ -470,12 +606,14 @@ namespace view3d_test
 
 				m_stats_timer = 0;
 				auto stats = api::ParticleStats{};
-				if (!View3D_ParticleStats(m_system, m_type, &stats))
+				auto stepped = api::ParticleStats{};
+				if (!View3D_ParticleStats(m_system, m_type, &stats) || !View3D_ParticleStats(m_system, m_stepped_type, &stepped))
 					return;
 
 				m_stats_label->Text(std::format(
-					L"Live: {} of {}\nFree: {}\nEmitters: {}\nRequested: {}, dropped: {}",
-					stats.m_live, Capacity, stats.m_free, m_effects.size() + 1 + m_grid.size(), stats.m_requested, stats.m_dropped).c_str());
+					L"Live: {} of {}\nFree: {}\nEmitters: {}\nRequested: {}, dropped: {}\nStepped live: {} of {}, contacts: {}, overlaps: {}, exhausted: {}",
+					stats.m_live, Capacity, stats.m_free, m_effects.size() + 1 + m_grid.size(), stats.m_requested, stats.m_dropped,
+					stepped.m_live, SteppedCapacity, stepped.m_contacts, stepped.m_overlaps, stepped.m_exhausted).c_str());
 			}
 		};
 	}
