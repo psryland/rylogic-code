@@ -284,6 +284,7 @@ namespace pr::game_systems::particles
 				.m_params = &params,
 				.m_rate = rate,
 				.m_burst = burst,
+				.m_collision_set_offset = static_cast<int>(offsetof(ParticleSteppedSpriteEmitter, collision_set)),
 			};
 		}
 
@@ -303,6 +304,7 @@ namespace pr::game_systems::particles
 				.m_params = &params,
 				.m_rate = rate,
 				.m_burst = burst,
+				.m_collision_set_offset = static_cast<int>(offsetof(ParticleDebrisEmitter, collision_set)),
 			};
 		}
 	}
