@@ -1088,8 +1088,8 @@ namespace view3d_test
 				// Crest foam over deep water, so the foam drawn on the surface matches where spray and froth are born.
 				auto foam = api::OceanFoam
 				{
-					.m_shore_foam_depth_m = 1, .m_edge_softness = 0.1, .m_crest_strength = 1, .m_crest_threshold = 0.5, .m_tile_m = 4, .m_bump_m = 0.01,
-					.m_radius_m = 100, .m_fade_m = 10, .m_lip_height_m = 0.5, .m_lip_strength = 0, .m_crest_range = 0.5, .m_trail_time_s = 4, .m_crest_depth_m = 1, .m_churn_mps = 0.1,
+					.m_shore_foam_depth_m = 1, .m_edge_softness = 0.1, 					.m_crest_strength = 1, .m_crest_threshold = 1.0, .m_tile_m = 4, .m_bump_m = 0.01,
+										.m_radius_m = 100, .m_fade_m = 10, .m_lip_height_m = 0.5, .m_lip_strength = 0, .m_crest_range = 0.6, .m_trail_time_s = 2, .m_crest_depth_m = 1, .m_churn_mps = 0.1,
 				};
 				View3D_OceanSetFoam(m_ocean, foam);
 				View3D_OceanSetEffects(m_ocean, TRUE, TRUE);
