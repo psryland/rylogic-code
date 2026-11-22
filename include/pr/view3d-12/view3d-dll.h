@@ -1462,6 +1462,8 @@ namespace pr
 			Birds = 7,      // A distant flock of birds circling, flapping and gliding. Birds.
 			WoodChips = 8,  // A burst of tumbling wood chips, such as from chopping a tree. Debris.
 			Marker = 9,     // Pulses of an expanding ring, such as a beacon. Markers.
+			Spray = 10,     // Droplets thrown up from breaking wave crests. Needs a bound water surface. Spray.
+			Froth = 11,     // Foam patches that form on breaking wave crests and ride the waves. Needs a bound water surface. Froth.
 		};
 
 		// A ready-made particle effect: the settings of one batch, one type and its emitters. Every pointer refers to static data.
@@ -2374,6 +2376,11 @@ extern "C"
 
 	// Remove a collision set. Particles that still name it collide with nothing.
 	VIEW3D_API BOOL __stdcall View3D_ParticleCollisionSetDelete(pr::view3d::ParticleSystem system, int set);
+
+	// Bind the water surface that particle types such as spray and froth sample (see pr/game-systems/particles/particle_water.hlsli), from the next step.
+	// 'object' must be the View3D object of 'ocean'. Both must outlive the binding, and View3D_OceanUpdate must be called before each step so particles
+	// see the frame being drawn. A null 'ocean' removes the binding, and 'object' is then ignored.
+	VIEW3D_API BOOL __stdcall View3D_ParticleWaterSet(pr::view3d::ParticleSystem system, pr::view3d::Ocean ocean, pr::view3d::Object object);
 
 	// Add a particle batch to 'system', returning its index in 'out_batch' and its View3D object in 'out_object'. The options' data is copied.
 	// Delete the object with View3D_ObjectDelete. An object that outlives its system keeps drawing the particles of the system's last step.

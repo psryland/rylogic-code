@@ -3418,6 +3418,17 @@ VIEW3D_API BOOL __stdcall View3D_ParticleCollisionSetDelete(view3d::ParticleSyst
 	}
 	CatchAndReport(View3D_ParticleCollisionSetDelete, , FALSE);
 }
+VIEW3D_API BOOL __stdcall View3D_ParticleWaterSet(view3d::ParticleSystem system, view3d::Ocean ocean, view3d::Object object)
+{
+	try
+	{
+		// A null ocean removes the binding, so it is passed through rather than required.
+		DllLockGuard;
+		RequireParticles(system).WaterSet(ocean, object);
+		return TRUE;
+	}
+	CatchAndReport(View3D_ParticleWaterSet, , FALSE);
+}
 
 // Atmospheres ******************************
 namespace pr::view3d::atmosphere_abi

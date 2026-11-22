@@ -11,6 +11,8 @@
 #include "pr/game-systems/particles/particle_debris.hlsli"
 #include "pr/game-systems/particles/particle_bird.hlsli"
 #include "pr/game-systems/particles/particle_marker.hlsli"
+#include "pr/game-systems/particles/particle_spray.hlsli"
+#include "pr/game-systems/particles/particle_froth.hlsli"
 
 namespace pr::game_systems::particles
 {
@@ -468,6 +470,75 @@ namespace pr::game_systems::particles
 					.m_constants_size = sizeof(constants),
 					.m_params = &params,
 					.m_rate = 1.2f,
+					.m_burst = 0,
+				};
+			}
+			case EParticlePreset::Spray:
+			{
+				// Fine droplets leap from breaking crests, streak a little, carry downwind, and fade as they fall back. Many births find no crest, so
+				// the rate is the number of tries per second; the spray seen depends on how rough the sea is.
+				static ParticleSpriteConstants const constants = {
+					.key_count = 3,
+					.flicker = 0.0f,
+					.flicker_rate = 0.0f,
+					.streak = 0.02f,
+					.keys = { { 0.0f, 0.6f, 0x00FFFFFF }, { 0.1f, 1.0f, 0xFFFFFFFF }, { 1.0f, 1.4f, 0x00FFFFFF } },
+				};
+				static ParticleSprayEmitter const params = {
+					.area = { 0.0f, 0.0f, 0.0f, 60.0f },
+					.launch = { 3.0f, 1.5f, 0.6f, 0.5f },
+					.lifetime = { 1.0f, 2.0f },
+					.size = { 0.08f, 0.2f },
+					.colour0 = 0xE0F4F8FF,
+					.colour1 = 0x80E0E8F0,
+					.foam_threshold = 0.3f,
+					.candidates = 8,
+					.gravity = 1.0f,
+				};
+				return ParticlePreset{
+					.m_sim = ParticleSystem::SpraySimShaders(),
+					.m_draw = ParticleSystem::SpriteDrawShaders(),
+					.m_blend = EParticleBlend::Weighted,
+					.m_record_stride = sizeof(ParticleSpriteRecord),
+					.m_state_stride = sizeof(ParticleSteppedSpriteState),
+					.m_params_stride = sizeof(ParticleSprayEmitter),
+					.m_constants = &constants,
+					.m_constants_size = sizeof(constants),
+					.m_params = &params,
+					.m_rate = 2000.0f,
+					.m_burst = 0,
+				};
+			}
+			case EParticlePreset::Froth:
+			{
+				// Patches form on breaking crests, spread, and fade as they drift slowly downwind on the waves.
+				static ParticleFrothConstants const constants = {
+					.fade_in = 0.5f,
+					.fade_out = 2.0f,
+				};
+				static ParticleFrothEmitter const params = {
+					.area = { 0.0f, 0.0f, 0.0f, 60.0f },
+					.lifetime = { 4.0f, 8.0f },
+					.size = { 0.8f, 2.5f },
+					.colour0 = 0xD0F8FAFF,
+					.colour1 = 0x90E8EEF4,
+					.foam_threshold = 0.3f,
+					.candidates = 8,
+					.drift = 0.03f,
+					.spread = 0.2f,
+					.lift = 0.05f,
+				};
+				return ParticlePreset{
+					.m_sim = ParticleSystem::FrothSimShaders(),
+					.m_draw = ParticleSystem::FlatSpriteDrawShaders(),
+					.m_blend = EParticleBlend::Weighted,
+					.m_record_stride = sizeof(ParticleMeshRecord),
+					.m_state_stride = sizeof(ParticleFrothState),
+					.m_params_stride = sizeof(ParticleFrothEmitter),
+					.m_constants = &constants,
+					.m_constants_size = sizeof(constants),
+					.m_params = &params,
+					.m_rate = 300.0f,
 					.m_burst = 0,
 				};
 			}

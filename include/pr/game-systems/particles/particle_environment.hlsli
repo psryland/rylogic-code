@@ -31,7 +31,7 @@ struct ParticleEnvironmentConstants
 	uint collision_set_count;     // Number of entries in the collision set table.
 	float2 wind_origin;           // The minimum corner of the wind grid, in the XY plane.
 	float wind_cell_size;         // The side length of a wind grid cell.
-	uint pad0;
+	uint water;                   // Non-zero when a water surface is bound (see particle_water.hlsli).
 	uint2 wind_cells;             // The wind grid's columns in x and y. Zero when there is no grid.
 	uint pad1;
 	uint pad2;

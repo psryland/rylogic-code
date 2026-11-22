@@ -10,6 +10,8 @@
 #include "pr/game-systems/particles/particle_environment.hlsli"
 #include "pr/game-systems/particles/particle_stepped_sprite.hlsli"
 #include "pr/game-systems/particles/particle_bird.hlsli"
+#include "pr/game-systems/ocean/ocean_surface.h"
+#include "pr/game-systems/ocean/ocean_surface.hlsli"
 
 #ifdef NDEBUG
 #define PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(file) PR_STRINGISE(game-systems/src/shaders/hlsl/compiled/release/##file)
@@ -49,6 +51,11 @@ namespace pr::game_systems::particles
 		#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(particle_bird_vs.h)
 		#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(particle_marker_emit_cs.h)
 		#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(particle_marker_update_cs.h)
+		#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(particle_spray_emit_cs.h)
+		#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(particle_spray_update_cs.h)
+		#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(particle_froth_emit_cs.h)
+		#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(particle_froth_update_cs.h)
+		#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(particle_flat_sprite_vs.h)
 	}
 
 	namespace
@@ -73,6 +80,8 @@ namespace pr::game_systems::particles
 			RootPlanes = 14,      // t2
 			RootSets = 15,        // t3
 			RootWind = 16,        // t4
+			RootOcean = 17,       // b3
+			RootOceanBuffer = 18, // t5
 		};
 
 		// Limits of the environment. Normals must be unit length because the collision distances are measured along them.
@@ -267,6 +276,14 @@ namespace pr::game_systems::particles
 		int64_t m_set_ranges_capacity;
 		int64_t m_wind_capacity;
 
+		// The bound water surface. Its constants are copied at each step, and its procedural buffer is shared, so particles sample the frame being drawn.
+		// A one-element dummy buffer and zeroed constants stand in when there is no water.
+		ocean::OceanSurface const* m_ocean;
+		pr::view3d::Object m_ocean_object;
+		ocean::OceanConstants m_ocean_constants;
+		D3DPtr<ID3D12Resource> m_ocean_buffer;
+		D3DPtr<ID3D12Resource> m_water_dummy;
+
 	public:
 
 		ParticleSystemImpl(Renderer& rdr, char const* name)
@@ -291,6 +308,11 @@ namespace pr::game_systems::particles
 			, m_planes_capacity()
 			, m_set_ranges_capacity()
 			, m_wind_capacity()
+			, m_ocean()
+			, m_ocean_object()
+			, m_ocean_constants()
+			, m_ocean_buffer()
+			, m_water_dummy()
 		{
 			// Every particle kernel shares one signature of root views, so the step binds each pool once per type.
 			m_sig = RootSig(ERootSigFlags::ComputeOnly)
@@ -311,6 +333,8 @@ namespace pr::game_systems::particles
 				.SRV(hlsl::ESRVReg::t2)
 				.SRV(hlsl::ESRVReg::t3)
 				.SRV(hlsl::ESRVReg::t4)
+				.CBuf(hlsl::ECBufReg::b3)
+				.SRV(hlsl::ESRVReg::t5)
 				.Create(m_rdr.d3d(), "Particles:Sig");
 			m_reset = ComputePSO(m_sig.get(), compiled::particle_reset_cs).Create(m_rdr.d3d(), "Particles:Reset");
 			m_finalize = ComputePSO(m_sig.get(), compiled::particle_finalize_cs).Create(m_rdr.d3d(), "Particles:Finalize");
@@ -319,6 +343,7 @@ namespace pr::game_systems::particles
 			m_planes = CreateEnvironmentBuffer(1, sizeof(ParticleCollisionPlane), {}, "Particles:Planes");
 			m_set_ranges = CreateEnvironmentBuffer(1, sizeof(uint32_t) * 2, {}, "Particles:CollisionSets");
 			m_wind = CreateEnvironmentBuffer(1, sizeof(v2), {}, "Particles:Wind");
+			m_water_dummy = CreateEnvironmentBuffer(1, sizeof(uint32_t), {}, "Particles:WaterDummy");
 			m_planes_capacity = 1;
 			m_set_ranges_capacity = 1;
 			m_wind_capacity = 1;
@@ -349,6 +374,8 @@ namespace pr::game_systems::particles
 			m_rdr.DeferRelease(m_planes);
 			m_rdr.DeferRelease(m_set_ranges);
 			m_rdr.DeferRelease(m_wind);
+			m_rdr.DeferRelease(m_water_dummy);
+			m_rdr.DeferRelease(m_ocean_buffer);
 			m_rdr.DeferRelease(m_sig);
 		}
 
@@ -556,6 +583,7 @@ namespace pr::game_systems::particles
 				auto& cmd_list = m_factory.CmdList();
 				auto pix = pix::EventScope<ID3D12GraphicsCommandList>(cmd_list.get(), 0xFFFFA040, "Particles::Step");
 				UploadEnvironment();
+				UpdateWater();
 				BeginBatches();
 				for (auto& type : m_types)
 					RecordTick(*type, static_cast<float>(dt));
@@ -713,6 +741,25 @@ namespace pr::game_systems::particles
 			m_sets_dirty = true;
 		}
 
+		// Bind the water surface that types sample, or remove it when 'ocean' is null.
+		void WaterSet(ocean::OceanSurface const* ocean, pr::view3d::Object object) override
+		{
+			// A surface needs its object, which holds the buffer that the samples read.
+			if (ocean != nullptr && object == nullptr)
+				throw std::invalid_argument("A particle water surface requires its View3D object");
+
+			// Removing the water binds the dummy buffer and zeroed constants from the next step.
+			m_ocean = ocean;
+			m_ocean_object = ocean != nullptr ? object : nullptr;
+			m_env.water = ocean != nullptr ? 1u : 0u;
+			if (ocean == nullptr)
+			{
+				m_ocean_constants = {};
+				m_rdr.DeferRelease(m_ocean_buffer);
+				m_ocean_buffer = nullptr;
+			}
+		}
+
 	private:
 
 		// Return the planes of the live collision set 'set'.
@@ -808,6 +855,26 @@ namespace pr::game_systems::particles
 			}
 		}
 
+		// Copy the bound water surface's constants for this step, and share its current procedural buffer.
+		void UpdateWater()
+		{
+			// Without water, the dummy buffer and zeroed constants are bound and the environment says there is no water.
+			if (m_ocean == nullptr)
+				return;
+
+			// The constants describe the frame last passed to the ocean's Update. The buffer rests in a shader-readable state, so it needs no barrier.
+			// The ocean may replace its buffer, so it is fetched each step. The old one may still be read by the last step.
+			m_ocean_constants = m_ocean->Constants();
+			auto* buffer = static_cast<ID3D12Resource*>(View3D_ObjectProceduralBufferGet(m_ocean_object, 0));
+			if (buffer == nullptr)
+				throw std::logic_error("The particle water surface's object has no procedural buffer");
+			if (buffer != m_ocean_buffer.get())
+			{
+				m_rdr.DeferRelease(m_ocean_buffer);
+				m_ocean_buffer = D3DPtr<ID3D12Resource>(buffer, true);
+			}
+		}
+
 		// Return the type at 'type_index'.
 		ParticleType& Type(int type_index)
 		{
@@ -874,6 +941,8 @@ namespace pr::game_systems::particles
 			cmd_list.SetComputeRootShaderResourceView(RootPlanes, m_planes);
 			cmd_list.SetComputeRootShaderResourceView(RootSets, m_set_ranges);
 			cmd_list.SetComputeRootShaderResourceView(RootWind, m_wind);
+			cmd_list.SetComputeRootConstantBufferView(RootOcean, UploadConstants(upload, &m_ocean_constants, sizeof(m_ocean_constants)));
+			cmd_list.SetComputeRootShaderResourceView(RootOceanBuffer, m_ocean_buffer != nullptr ? m_ocean_buffer : m_water_dummy);
 		}
 
 		// Zero every batch's record count and make its buffers writable by the kernels.
@@ -1181,6 +1250,38 @@ namespace pr::game_systems::particles
 		return pr::view3d::ParticleSimShaders{
 			.m_emit = { compiled::particle_marker_emit_cs, sizeof(compiled::particle_marker_emit_cs) },
 			.m_update = { compiled::particle_marker_update_cs, sizeof(compiled::particle_marker_update_cs) },
+		};
+	}
+
+	// The simulation shaders of the stock spray type.
+	pr::view3d::ParticleSimShaders ParticleSystem::SpraySimShaders()
+	{
+		return pr::view3d::ParticleSimShaders{
+			.m_emit = { compiled::particle_spray_emit_cs, sizeof(compiled::particle_spray_emit_cs) },
+			.m_update = { compiled::particle_spray_update_cs, sizeof(compiled::particle_spray_update_cs) },
+		};
+	}
+
+	// The simulation shaders of the stock froth type.
+	pr::view3d::ParticleSimShaders ParticleSystem::FrothSimShaders()
+	{
+		return pr::view3d::ParticleSimShaders{
+			.m_emit = { compiled::particle_froth_emit_cs, sizeof(compiled::particle_froth_emit_cs) },
+			.m_update = { compiled::particle_froth_update_cs, sizeof(compiled::particle_froth_update_cs) },
+		};
+	}
+
+	// The draw shaders of a batch of stock flat sprite records. The disc is procedural and shares the sprite index list.
+	pr::view3d::ParticleDrawShaders ParticleSystem::FlatSpriteDrawShaders()
+	{
+		return pr::view3d::ParticleDrawShaders{
+			.m_vertex = { compiled::particle_flat_sprite_vs, sizeof(compiled::particle_flat_sprite_vs) },
+			.m_indices = SpriteIndices.data(),
+			.m_index_count = static_cast<int>(SpriteIndices.size()),
+			.m_vertex_count = static_cast<int>(ParticleSpriteVertexCount),
+			.m_geom = pr::view3d::EGeom::Vert | pr::view3d::EGeom::Colr | pr::view3d::EGeom::Norm,
+			.m_vertex_data = nullptr,
+			.m_vertex_stride = 0,
 		};
 	}
 }

@@ -678,3 +678,32 @@ collision with per-emitter sets and a contact budget, collision diagnostics, the
 ## Milestone 4 status
 
 Complete, pending Paul's visual check of the `particle_presets` gallery. Ocean spray and froth follow in Milestone 5.
+
+## Milestone 5 implementation decisions
+
+- **Bind the drawn surface, not a field copy.** `View3D_ParticleWaterSet(system, ocean)` binds one ocean surface (or none) to a particle system.
+  Kernels that include `pr/game-systems/particles/particle_water.hlsli` see the ocean's constants at b3 and its procedural buffer at t5, and
+  `ParticleSampleWater` mirrors the ocean vertex shader, so particles meet exactly the waves that are drawn, at the ocean's wave time. The
+  environment's `water` flag says whether a surface is bound; without one the water is far below everything and has no foam. Nothing is read back
+  to the CPU. The ocean's model space must be the particles' space, and `View3D_OceanUpdate` must run before the particle step in each frame.
+- **Crest foam is the emission field.** Crest foam is analytic (wave crest steepness faded by depth), so it is available right after the ocean
+  update with no extra pass. Spray and froth births try random points in the emitter's disc of sea and use the first where the foam reaches the
+  emitter's threshold; a birth that finds none makes no particle (zero size, immediate death), so calm seas make nothing and rough seas emit along
+  breaking crests. The continuous surface foam drawn by the ocean is unchanged; particles add sparse detail on top of it, and their cost is bounded
+  by the emitter rate.
+- **Spray** is a stepped sprite type (stepped sprite state and the stock sprite batch). Droplets launch along the surface normal, are carried by
+  the wind, fall under gravity and die when they fall back into the water.
+- **Froth** is a stepped type writing `ParticleMeshRecords`, drawn by a new stock **flat sprite** vertex shader as soft discs lying on the surface.
+  Patches drift with a fraction of the wind, follow the waves just above them, grow and fade over their life, and die when the water is removed.
+- **Presets.** `EParticlePreset` gains `Spray` and `Froth`. Their emitter parameters start with `float4 area` (xy centre, w radius) rather than a
+  position, because they emit over an area of sea.
+- **Shared HLSL fix.** `OceanWaveSampleZero` and `OceanCrestSteepness` in `ocean_surface.hlsli` were missing `odr`, which caused duplicate symbols
+  once a second C++ file included the header.
+- **No separate shader getters.** The presets already return the spray, froth and flat sprite shaders, so no `View3D_Particle*Shaders` calls were added.
+- **Proof.** `GameSystems_ParticleWater` builds both presets over a test ocean and checks: no births without water; births on a rough sea; spray
+  dies within seconds; froth lives on while the water is bound and dies when it is cleared; a calm sea gives no births; and binding an invalid
+  ocean is reported. The `ocean_spray` demo in `view3d-12-tests` shows spray and froth on a wind-driven sea, with time scale and wind controls.
+
+## Milestone 5 status
+
+Complete, pending Paul's visual check of the `ocean_spray` demo.

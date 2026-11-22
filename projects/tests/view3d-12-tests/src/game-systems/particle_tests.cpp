@@ -10,6 +10,9 @@
 #include "pr/game-systems/particles/particle_stepped_sprite.hlsli"
 #include "pr/game-systems/particles/particle_mesh.hlsli"
 #include "pr/game-systems/particles/particle_debris.hlsli"
+#include "pr/game-systems/particles/particle_spray.hlsli"
+#include "pr/game-systems/particles/particle_froth.hlsli"
+#include "pr/physics/terrain/water/water_field_types.hlsli"
 #include "shaders/hlsl/particle_marker.hlsli"
 #include "shaders/hlsl/particle_chip.hlsli"
 
@@ -1251,6 +1254,8 @@ namespace render_tests
 			}
 			case api::EParticlePreset::Birds:
 			case api::EParticlePreset::Marker:
+			case api::EParticlePreset::Spray:
+			case api::EParticlePreset::Froth:
 			{
 				break;
 			}
@@ -1344,8 +1349,190 @@ namespace render_tests
 
 			// An unknown preset is reported as an error.
 			auto settings = api::ParticlePreset{};
-			Require(View3D_ParticlePresetGet(static_cast<EParticlePreset>(10), &settings) == FALSE, "An unknown preset was accepted");
+			Require(View3D_ParticlePresetGet(static_cast<EParticlePreset>(12), &settings) == FALSE, "An unknown preset was accepted");
 			Require(!fixture.m_errors.empty(), "An unknown preset reported no error");
+			fixture.m_errors.clear();
+		}
+		fixture.CheckErrors();
+		fixture.CheckDebugLayer();
+	}
+
+	// Own an ocean of one wind-sea band of three wave trains travelling roughly along +x, over deep water, and its View3D object.
+	// The object is not drawn; particles only sample it.
+	struct TestOcean
+	{
+		Fixture& m_fixture;
+		api::Ocean m_ocean = nullptr;
+		api::Object m_object = nullptr;
+		double m_time = 10.0;
+
+		// The wind blowing over every node; zero for a calm sea.
+		static std::array<float, 8> Winds(float wind_x)
+		{
+			// Four nodes of one level each.
+			return { wind_x, 0.0f, wind_x, 0.0f, wind_x, 0.0f, wind_x, 0.0f };
+		}
+
+		// Create the ocean with a wind of 'wind_x' m/s along x.
+		TestOcean(Fixture& fixture, float wind_x)
+			: m_fixture(fixture)
+		{
+			// Three Gerstner trains in band 0, with amplitude and sharpness bounds that the table's rows stay within.
+			using namespace pr::physics::terrain::water::shared;
+			auto element = [](float angle, float wavelength, float phase)
+			{
+				auto e = WaterFieldElement{};
+				e.info = { WaterFieldElementGerstnerWave, 1, 0, 0 };
+				e.position = { std::cos(angle), std::sin(angle), phase, 0.0f };
+				e.wave = { 1.0f, wavelength, std::sqrt(9.81f * wavelength / 6.2831853f), 0.0f };
+				e.timing = { 0.6f, 0.0f, 0.0f, 0.0f };
+				return e;
+			};
+			auto const elements = std::array<WaterFieldElement, 3>{ element(0.0f, 12.0f, 0.0f), element(0.35f, 9.0f, 1.3f), element(-0.3f, 7.0f, 2.9f) };
+
+			// No waves in still air, and steep, sharp crests downwind at 20 m/s.
+			auto const table = std::array<float, 8>{ 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 2.0f, 0.6f, 3.0f };
+			auto const winds = Winds(wind_x);
+			auto const depths = std::array<float, 4>{ -200.0f, -200.0f, -200.0f, -200.0f };
+			auto detail = std::vector<uint32_t>(api::OceanDetailMapSize * api::OceanDetailMapSize);
+			Require(View3D_OceanDetailMapBake(detail.data(), static_cast<int>(detail.size())) != FALSE, "Ocean detail map bake failed");
+
+			auto options = api::OceanOptions
+			{
+				.m_wind_sea_grid = { .m_origin_x_m = -500, .m_origin_y_m = -500, .m_cell_m = 1000, .m_speed_step_mps = 20, .m_width = 2, .m_height = 2, .m_band_count = 1, .m_speed_count = 2, .m_level_count = 1 },
+				.m_wind_sea = { .m_elements = elements.data(), .m_table = table.data(), .m_winds = winds.data(), .m_element_count = static_cast<int32_t>(elements.size()) },
+				.m_bathymetry_heights = depths.data(),
+				.m_bathymetry_origin_x_m = -500,
+				.m_bathymetry_origin_y_m = -500,
+				.m_bathymetry_cell_m = 1000,
+				.m_bathymetry_width = 2,
+				.m_bathymetry_height = 2,
+				.m_vertices_per_side = 129,
+				.m_radius_m = 400,
+				.m_half_height_m = 20,
+				.m_floor_height_m = -200,
+				.m_detail_map = detail.data(),
+			};
+			m_ocean = View3D_OceanCreate(options, "TestOcean", &m_object);
+			m_fixture.CheckErrors();
+			Require(m_ocean != nullptr && m_object != nullptr, "Ocean creation failed");
+			m_fixture.m_objects.push_back(m_object);
+
+			// Foam starts on crests a little steeper than a single train's, so only crests where trains meet foam.
+			auto foam = api::OceanFoam
+			{
+				.m_shore_foam_depth_m = 1, .m_edge_softness = 0.1, .m_crest_strength = 1, .m_crest_threshold = 0.5, .m_tile_m = 4, .m_bump_m = 0.01,
+				.m_radius_m = 100, .m_fade_m = 10, .m_lip_height_m = 0.5, .m_lip_strength = 0, .m_crest_range = 0.5, .m_trail_time_s = 4, .m_crest_depth_m = 1, .m_churn_mps = 0.1,
+			};
+			Require(View3D_OceanSetFoam(m_ocean, foam) != FALSE, "Ocean foam set failed");
+			Update(0.0);
+		}
+		~TestOcean()
+		{
+			// The fixture deletes the object.
+			View3D_OceanDestroy(m_ocean);
+		}
+
+		// Advance the wave clock by 'dt' and set the ocean's frame, with the camera above the origin.
+		void Update(double dt)
+		{
+			// Particles sample the frame set here, so it is set before each particle step.
+			m_time += dt;
+			auto frame = api::OceanFrame
+			{
+				.m_camera_x_m = 0, .m_camera_y_m = 0, .m_camera_z_m = 30, .m_wave_time_s = m_time, .m_level_m = 0, .m_wave_radius_m = 300,
+				.m_min_spacing_m = 0.25, .m_warp_power = 2, .m_breaking_ratio = 0.8, .m_shore_sharpness = 0, .m_colour_argb = 0xFF204060, .m_depth_effects = 1,
+			};
+			Require(View3D_OceanUpdate(m_ocean, m_object, frame) != FALSE, "Ocean update failed");
+			m_fixture.CheckErrors();
+		}
+
+		// Blow a wind of 'wind_x' m/s along x over the whole sea, from the next update.
+		void Wind(float wind_x)
+		{
+			// The elements and table are kept.
+			auto const winds = Winds(wind_x);
+			auto wind_sea = api::OceanWindSea{ .m_elements = nullptr, .m_table = nullptr, .m_winds = winds.data(), .m_element_count = 0 };
+			Require(View3D_OceanSetWindSea(m_ocean, m_object, wind_sea) != FALSE, "Ocean wind set failed");
+		}
+	};
+
+	// Spray and froth are born only on breaking crests of a bound water surface. Spray droplets die when they fall back into the water, and
+	// froth rides the water for its whole life, but dies when the water is removed.
+	void ParticleWaterTests()
+	{
+		auto fixture = Fixture(1);
+		{
+			// The ocean outlives the particle system, which samples it.
+			auto ocean = TestOcean(fixture, 20.0f);
+			auto particles = SpriteParticles(fixture, 16);
+			auto env = api::ParticleEnvironment{ .m_gravity = { 0, 0, -9.8f, 0 }, .m_wind = { 5, 0, 0, 0 }, .m_collision_iterations = 4 };
+			Require(View3D_ParticleEnvironmentSet(particles.m_system, env) != FALSE, "Particle environment set failed");
+
+			// Step the ocean and then the particles, as a game frame does.
+			auto step = [&](double dt, int count)
+			{
+				for (auto i = 0; i != count; ++i)
+				{
+					ocean.Update(dt);
+					particles.Step(dt);
+				}
+			};
+
+			// Emitters over the sea near the camera, born only by bursts, with lifetimes long enough that only the water ends them.
+			using namespace pr::game_systems::particles;
+			auto spray = PresetCreate(particles, api::EParticlePreset::Spray, 4096);
+			auto spray_params = *static_cast<ParticleSprayEmitter const*>(spray.m_settings.m_params);
+			spray_params.area = { 0.0f, 0.0f, 0.0f, 15.0f };
+			spray_params.lifetime = { 100.0f, 100.0f };
+			auto spray_emitter = particles.EmitterCreate(spray.m_type, &spray_params, sizeof(spray_params), 0.0f, 1);
+			auto froth = PresetCreate(particles, api::EParticlePreset::Froth, 4096);
+			auto froth_params = *static_cast<ParticleFrothEmitter const*>(froth.m_settings.m_params);
+			froth_params.area = { 0.0f, 0.0f, 0.0f, 15.0f };
+			froth_params.lifetime = { 100.0f, 100.0f };
+			auto froth_emitter = particles.EmitterCreate(froth.m_type, &froth_params, sizeof(froth_params), 0.0f, 2);
+
+			// Burst both effects, and return how many of each survive their first tick: those born on a crest.
+			auto burst = [&]
+			{
+				// A failed birth lives for its birth step only.
+				particles.Burst(spray_emitter, 1000);
+				particles.Burst(froth_emitter, 1000);
+				step(BirthStep, 1);
+				step(0.05, 1);
+				return std::pair{ particles.Stats(spray.m_type).m_live, particles.Stats(froth.m_type).m_live };
+			};
+
+			// Without water, nothing is born.
+			auto [dry_spray, dry_froth] = burst();
+			Require(dry_spray == 0 && dry_froth == 0, "Spray or froth was born without water");
+
+			// On a rough sea, some births find a breaking crest, but not every point is a crest.
+			Require(View3D_ParticleWaterSet(particles.m_system, ocean.m_ocean, ocean.m_object) != FALSE, "Particle water set failed");
+			auto [rough_spray, rough_froth] = burst();
+			Require(rough_spray > 20 && rough_spray < 1000, std::format("Spray was not born on crests only ({} of 1000)", rough_spray).c_str());
+			Require(rough_froth > 20 && rough_froth < 1000, std::format("Froth was not born on crests only ({} of 1000)", rough_froth).c_str());
+			Require(!fixture.Image().empty(), "Spray and froth were not drawn");
+
+			// Spray falls back into the water within a few seconds and dies there. Froth rides the waves for its whole life.
+			step(0.05, 80);
+			Require(particles.Stats(spray.m_type).m_live == 0, "Spray did not die in the water");
+			Require(particles.Stats(froth.m_type).m_live == rough_froth, "Froth did not live on the water");
+
+			// Removing the water ends the froth.
+			Require(View3D_ParticleWaterSet(particles.m_system, nullptr, nullptr) != FALSE, "Particle water clear failed");
+			step(0.05, 1);
+			Require(particles.Stats(froth.m_type).m_live == 0, "Froth outlived the water");
+
+			// A calm sea has no breaking crests.
+			ocean.Wind(0.0f);
+			Require(View3D_ParticleWaterSet(particles.m_system, ocean.m_ocean, ocean.m_object) != FALSE, "Particle water set failed");
+			auto [calm_spray, calm_froth] = burst();
+			Require(calm_spray == 0 && calm_froth == 0, "Spray or froth was born on a calm sea");
+
+			// An ocean without its object is a caller error.
+			Require(View3D_ParticleWaterSet(particles.m_system, ocean.m_ocean, nullptr) == FALSE, "An ocean without its object was accepted");
+			Require(!fixture.m_errors.empty(), "An ocean without its object reported no error");
 			fixture.m_errors.clear();
 		}
 		fixture.CheckErrors();
@@ -1403,6 +1590,10 @@ namespace pr::unittests::game_systems
 	PRUnitTest(GameSystems_ParticlePresets, Extended | Serial)
 	{
 		render_tests::ParticlePresetTests();
+	}
+	PRUnitTest(GameSystems_ParticleWater, Extended | Serial)
+	{
+		render_tests::ParticleWaterTests();
 	}
 	PRUnitTest(GameSystems_ParticleCost, Stress | Serial)
 	{

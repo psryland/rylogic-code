@@ -21,6 +21,7 @@
 #include "pr/game-systems/particles/particle_stepped_sprite.hlsli"
 #include "pr/game-systems/particles/particle_mesh.hlsli"
 #include "pr/game-systems/particles/particle_debris.hlsli"
+#include "pr/physics/terrain/water/water_field_types.hlsli"
 #include "../game-systems/shaders/hlsl/particle_chip.hlsli"
 #include "demo.h"
 #include "controls_panel.h"
@@ -949,6 +950,263 @@ namespace view3d_test
 				}
 			}
 		};
+
+		// Spray and froth on a wind-driven ocean. Both presets are born only on breaking crests, which they find by sampling the ocean that the
+		// system's water binding names, so they follow the waves without any CPU readback. The ocean is updated before each particle step.
+		struct OceanSprayDemo :IDemo
+		{
+			static constexpr int Capacity = 1 << 15;
+			static constexpr float MaxWind = 20.0f;
+
+			DemoContext m_ctx;
+			demo::SceneObjects m_scene;
+			api::Ocean m_ocean;
+			api::Object m_ocean_object;
+			api::ParticleSystem m_system;
+			int m_spray_type;
+			int m_froth_type;
+			pr::gui::Label* m_stats_label;
+			double m_stats_timer;
+			double m_wave_time;
+			float m_time_scale;
+			float m_wind;
+
+			explicit OceanSprayDemo(DemoContext const& ctx)
+				: m_ctx(ctx)
+				, m_scene(ctx.m_window)
+				, m_ocean()
+				, m_ocean_object()
+				, m_system()
+				, m_spray_type(-1)
+				, m_froth_type(-1)
+				, m_stats_label()
+				, m_stats_timer()
+				, m_wave_time(100.0)
+				, m_time_scale(1.0f)
+				, m_wind(14.0f)
+			{
+				// Look across the sea from a few metres above it, downwind.
+				View3D_CameraPositionSet(ctx.m_window, { -40, -40, 12, 1 }, { 0, 0, 0, 1 }, { 0, 0, 1, 0 });
+				CreateOcean();
+
+				// The particles share the ocean's space, and sample its waves through the water binding.
+				m_system = View3D_ParticleSystemCreate("DemoOceanSpray");
+				if (m_system == nullptr)
+					throw std::runtime_error("Particle system creation failed");
+				if (!View3D_ParticleWaterSet(m_system, m_ocean, m_ocean_object))
+					throw std::runtime_error("Particle water set failed");
+
+				SetEnvironment();
+				m_spray_type = CreateEffect(api::EParticlePreset::Spray, 0.5f);
+				m_froth_type = CreateEffect(api::EParticlePreset::Froth, 0.0f);
+
+				// Demo controls.
+				auto& ui = ctx.m_controls;
+				ui.AddLabel(L"Ocean spray and froth, each created only from its preset (View3D_ParticlePresetGet). Both are born only on breaking crests, found on the GPU by sampling the ocean bound with View3D_ParticleWaterSet. Spray dies when it falls back into the sea; froth rides the waves.");
+				ui.AddSlider(L"Time scale (0 = pause)", 0, 2, m_time_scale, [this](float v)
+				{
+					m_time_scale = v;
+				}, 200);
+				ui.AddSlider(L"Wind (m/s along x)", 0, MaxWind, m_wind, [this](float v)
+				{
+					m_wind = v;
+					SetWind();
+					SetEnvironment();
+				}, 40);
+				ui.AddButton(L"Reset", [this]
+				{
+					View3D_ParticleSystemReset(m_system);
+				});
+				m_stats_label = ui.AddLabel(L"\n\n");
+			}
+			~OceanSprayDemo()
+			{
+				// The particle system samples the ocean, so it goes first. The scene deletes both objects afterwards.
+				View3D_ParticleSystemDestroy(m_system);
+				View3D_OceanDestroy(m_ocean);
+			}
+
+			// The wind blowing over every node of the ocean's 2 x 2 wind grid.
+			std::array<float, 8> Winds() const
+			{
+				// One level per node.
+				return { m_wind, 0.0f, m_wind, 0.0f, m_wind, 0.0f, m_wind, 0.0f };
+			}
+
+			// Create a deep ocean of one wind-sea band of wave trains travelling roughly along +x, which grow with the wind up to 'MaxWind'.
+			void CreateOcean()
+			{
+				// Gerstner trains spread about the wind direction, longest first.
+				using namespace pr::physics::terrain::water::shared;
+				struct Train { float angle, wavelength, phase; };
+				constexpr Train trains[] = { {0.0f, 40.0f, 0.0f}, {0.3f, 27.0f, 1.3f}, {-0.35f, 19.0f, 2.9f}, {0.6f, 13.0f, 4.1f}, {-0.5f, 9.0f, 5.3f}, {0.15f, 6.0f, 0.7f} };
+				constexpr auto exponent = 2.0f;
+				auto elements = std::vector<WaterFieldElement>{};
+				auto alignment = 0.0f;
+				for (auto const& train : trains)
+				{
+					// The amplitude and sharpness are bounds; the table scales them with the wind.
+					auto e = WaterFieldElement{};
+					e.info = { WaterFieldElementGerstnerWave, 1, 0, 0 };
+					e.position = { std::cos(train.angle), std::sin(train.angle), train.phase, 0.0f };
+					e.wave = { 1.0f, train.wavelength, std::sqrt(9.81f * train.wavelength / 6.2831853f), 0.0f };
+					e.timing = { 0.7f, 0.0f, 0.0f, 0.0f };
+					elements.push_back(e);
+					alignment += std::pow(std::cos(train.angle / 2.0f), 4.0f * exponent);
+				}
+
+				// Flat water in still air, and steep, sharp crests at the strongest wind.
+				auto const table = std::array<float, 8>{ 0.0f, 0.0f, 0.0f, 0.0f, 1.2f, exponent, 0.7f, alignment };
+				auto const winds = Winds();
+				auto const depths = std::array<float, 4>{ -200.0f, -200.0f, -200.0f, -200.0f };
+				auto detail = std::vector<uint32_t>(api::OceanDetailMapSize * api::OceanDetailMapSize);
+				if (!View3D_OceanDetailMapBake(detail.data(), static_cast<int>(detail.size())))
+					throw std::runtime_error("Ocean detail map bake failed");
+
+				auto options = api::OceanOptions
+				{
+					.m_wind_sea_grid = { .m_origin_x_m = -500, .m_origin_y_m = -500, .m_cell_m = 1000, .m_speed_step_mps = MaxWind, .m_width = 2, .m_height = 2, .m_band_count = 1, .m_speed_count = 2, .m_level_count = 1 },
+					.m_wind_sea = { .m_elements = elements.data(), .m_table = table.data(), .m_winds = winds.data(), .m_element_count = static_cast<int32_t>(elements.size()) },
+					.m_bathymetry_heights = depths.data(),
+					.m_bathymetry_origin_x_m = -500,
+					.m_bathymetry_origin_y_m = -500,
+					.m_bathymetry_cell_m = 1000,
+					.m_bathymetry_width = 2,
+					.m_bathymetry_height = 2,
+					.m_vertices_per_side = 513,
+					.m_radius_m = 450,
+					.m_half_height_m = 20,
+					.m_floor_height_m = -200,
+					.m_detail_map = detail.data(),
+				};
+				m_ocean = View3D_OceanCreate(options, "DemoOcean", &m_ocean_object);
+				if (m_ocean == nullptr)
+					throw std::runtime_error("Ocean creation failed");
+
+				m_scene.Add(m_ocean_object);
+
+				// Crest foam over deep water, so the foam drawn on the surface matches where spray and froth are born.
+				auto foam = api::OceanFoam
+				{
+					.m_shore_foam_depth_m = 1, .m_edge_softness = 0.1, .m_crest_strength = 1, .m_crest_threshold = 0.5, .m_tile_m = 4, .m_bump_m = 0.01,
+					.m_radius_m = 100, .m_fade_m = 10, .m_lip_height_m = 0.5, .m_lip_strength = 0, .m_crest_range = 0.5, .m_trail_time_s = 4, .m_crest_depth_m = 1, .m_churn_mps = 0.1,
+				};
+				View3D_OceanSetFoam(m_ocean, foam);
+				View3D_OceanSetEffects(m_ocean, TRUE, TRUE);
+			}
+
+			// Create the batch, type and continuous emitter of 'preset' over the sea in view, and return the type. A positive 'soft_depth'
+			// fades the batch's sprites where they meet the water.
+			int CreateEffect(api::EParticlePreset preset, float soft_depth)
+			{
+				// The preset supplies every setting. Only the emitter's area changes.
+				auto settings = api::ParticlePreset{};
+				if (!View3D_ParticlePresetGet(preset, &settings))
+					throw std::runtime_error("Particle preset unavailable");
+
+				auto batch_options = api::ParticleBatchOptions
+				{
+					.m_struct_size = sizeof(api::ParticleBatchOptions),
+					.m_version = api::ParticleBatchOptions::CurrentVersion,
+					.m_shaders = settings.m_draw,
+					.m_capacity = Capacity,
+					.m_record_stride = settings.m_record_stride,
+					.m_constants = nullptr,
+					.m_constants_size = 0,
+					.m_blend = settings.m_blend,
+					.m_bbox = api::BBox{ {0, 0, 0, 1}, {100, 100, 20, 0} },
+				};
+				auto batch = -1;
+				auto object = api::Object{};
+				if (!View3D_ParticleBatchCreate(m_system, batch_options, "OceanBatch", &batch, &object))
+					throw std::runtime_error("Particle batch creation failed");
+
+				m_scene.Add(object);
+				if (soft_depth > 0.0f)
+					View3D_ObjectSoftDepthSet(object, soft_depth, nullptr);
+
+				auto type_options = api::ParticleTypeOptions
+				{
+					.m_struct_size = sizeof(api::ParticleTypeOptions),
+					.m_version = api::ParticleTypeOptions::CurrentVersion,
+					.m_shaders = settings.m_sim,
+					.m_batch = batch,
+					.m_capacity = Capacity,
+					.m_max_emitters = 4,
+					.m_state_stride = settings.m_state_stride,
+					.m_record_stride = settings.m_record_stride,
+					.m_params_stride = settings.m_params_stride,
+					.m_constants = settings.m_constants,
+					.m_constants_size = settings.m_constants_size,
+				};
+				auto type = -1;
+				if (!View3D_ParticleTypeCreate(m_system, type_options, "OceanType", &type))
+					throw std::runtime_error("Particle type creation failed");
+
+				// Both emitters' parameters start with the disc of sea that they search for crests.
+				auto params = std::vector<uint8_t>(static_cast<size_t>(settings.m_params_stride));
+				std::memcpy(params.data(), settings.m_params, params.size());
+				*reinterpret_cast<pr::hlsl::float4*>(params.data()) = { 0.0f, 0.0f, 0.0f, 50.0f };
+
+				auto emitter = api::ParticleEmitter{ .m_rate = settings.m_rate, .m_seed = static_cast<uint32_t>(type + 1), .m_active = TRUE };
+				auto id = uint64_t{};
+				if (!View3D_ParticleEmitterCreate(m_system, type, emitter, params.data(), params.size(), &id))
+					throw std::runtime_error("Particle emitter creation failed");
+
+				return type;
+			}
+
+			// Blow the wind over the whole sea. The waves follow it from the next update.
+			void SetWind()
+			{
+				// The elements and table are kept.
+				auto const winds = Winds();
+				auto wind_sea = api::OceanWindSea{ .m_elements = nullptr, .m_table = nullptr, .m_winds = winds.data(), .m_element_count = 0 };
+				View3D_OceanSetWindSea(m_ocean, m_ocean_object, wind_sea);
+			}
+
+			// Set gravity, and the same wind that drives the waves, which carries spray and drifts froth.
+			void SetEnvironment()
+			{
+				// Spray and froth do not collide with planes.
+				auto environment = api::ParticleEnvironment
+				{
+					.m_gravity = { 0, 0, -9.8f, 0 },
+					.m_wind = { m_wind, 0, 0, 0 },
+					.m_collision_iterations = 0,
+				};
+				View3D_ParticleEnvironmentSet(m_system, environment);
+			}
+
+			// Advance the waves and then the particles, which sample the waves' new frame, and refresh the statistics twice a second.
+			void Step(double dt) override
+			{
+				// Long frames are clamped so that a stall does not emit a flood of particles. The waves and particles share one clock.
+				auto const step = std::min(dt, 0.1) * m_time_scale;
+				m_wave_time += step;
+				auto const c2w = View3D_CameraToWorldGet(m_ctx.m_window);
+				auto frame = api::OceanFrame
+				{
+					.m_camera_x_m = c2w.w.x, .m_camera_y_m = c2w.w.y, .m_camera_z_m = c2w.w.z, .m_wave_time_s = m_wave_time, .m_level_m = 0, .m_wave_radius_m = 300,
+					.m_min_spacing_m = 0.1, .m_warp_power = 2, .m_breaking_ratio = 0.8, .m_shore_sharpness = 0, .m_colour_argb = 0xE0103848, .m_depth_effects = 1,
+				};
+				View3D_OceanUpdate(m_ocean, m_ocean_object, frame);
+				View3D_ParticleSystemStep(m_system, step);
+
+				// Reading the statistics waits for the GPU, so it is throttled.
+				m_stats_timer += dt;
+				if (m_stats_timer < 0.5)
+					return;
+
+				m_stats_timer = 0;
+				auto spray = api::ParticleStats{};
+				auto froth = api::ParticleStats{};
+				if (!View3D_ParticleStats(m_system, m_spray_type, &spray) || !View3D_ParticleStats(m_system, m_froth_type, &froth))
+					return;
+
+				m_stats_label->Text(std::format(L"Spray: live {}\nFroth: live {}", spray.m_live, froth.m_live).c_str());
+			}
+		};
 	}
 
 	// Demo factories
@@ -959,5 +1217,9 @@ namespace view3d_test
 	std::unique_ptr<IDemo> CreateParticlePresetsDemo(DemoContext const& ctx)
 	{
 		return std::make_unique<ParticlePresetsDemo>(ctx);
+	}
+	std::unique_ptr<IDemo> CreateOceanSprayDemo(DemoContext const& ctx)
+	{
+		return std::make_unique<OceanSprayDemo>(ctx);
 	}
 }
