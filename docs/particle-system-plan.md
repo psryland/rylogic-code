@@ -607,3 +607,43 @@ Complete. Done: explicit render batches with shared records; custom render recor
 and vertex shaders (chips); View3D `AlphaWeighted` transparency (Milestone 1 close-out) and per-object soft depth; per-view GPU instance culling with
 indirect counts; opaque/cutout batches; shared small-mesh prototypes with a batch texture (leaves); layout, shader-error and bounds checks.
 `View3d12_StereoRender` fails on `main` too; it is a ray-traced stereo reflection issue unrelated to particles.
+
+## Milestone 3 implementation decisions
+
+- **One environment per particle system.** `View3D_ParticleEnvironmentSet` sets gravity, a uniform wind and the contact budget
+  (`m_collision_iterations`, in [0, 64], default 4), in the space of the particles' positions. Every kernel sees it at b2
+  (`pr/game-systems/particles/particle_environment.hlsli`). The default is no gravity and no wind, so analytic types are unaffected. Callers that
+  move particles in several spaces use several systems.
+- **Stepped types integrate exactly.** `ParticleIntegrate` solves `dv/dt = accel + drag * (wind - v)` in closed form for a tick of any length, so
+  free flight does not depend on how simulated time is divided into ticks. Only contacts depend slightly on the tick length, because a tick's motion
+  is tested as a straight segment. Drag is a rate towards the local wind, so one parameter gives both air resistance and wind response; a
+  particle with no drag ignores the wind.
+- **Wind grid.** `View3D_ParticleWindGridSet` uploads a 2D grid of horizontal wind velocities (row-major `Vec2`, origin, square cell size), sampled
+  at each particle's position, interpolated between column centres and clamped at the edges, and added to the uniform wind. It has no height
+  variation or vertical wind. The caller owns its contents and refreshes it from its own climate or atmosphere system; this replaces the planned
+  "field leases" and atmosphere/water field contracts, which were more machinery than a copied grid needs. Water fields arrive with spray
+  (Milestone 5).
+- **Static collision planes in sets.** `View3D_ParticleCollisionSetCreate/Update/Delete` manage sets of `ParticlePlane` (unit normal and offset,
+  restitution and tangential damping, both in [0, 1]). Particles are kept in `dot(n, p) >= d`, with their centres `radius` from the surface. Each
+  stepped emitter names one set (or -1), copied into its particles' state, so different effects collide with different surfaces in one dispatch.
+  Deleted indices are reused, so emitters must stop naming a set before it is deleted. Particles never query physics.
+- **Swept contacts with a budget.** `ParticleCollidePlanes` first pushes a particle out of any plane it starts inside (an overlap), then repeatedly
+  moves it to the earliest plane its remaining motion crosses, reflecting the motion and velocity, until no plane is crossed. When the budget is
+  spent the particle stops at its last contact for the rest of the tick, so it never passes through a plane. A small position-scaled tolerance
+  stops resting particles being counted as overlaps.
+- **Collision diagnostics.** `ParticleStats` gained per-type `m_contacts`, `m_overlaps` and `m_exhausted`, accumulated on the GPU once per wave and
+  cleared by `Reset`. A high exhausted count means the budget is too small for the geometry, for example in a narrow channel.
+- **Stock stepped sprite.** `View3D_ParticleSteppedSpriteShaders` returns the stock stepped sprite simulation
+  (`particle_stepped_sprite.hlsli`, 80-byte emitter and state). It writes the sprite record, so it shares a sprite batch and its draw. Its emitter
+  adds a per-emitter acceleration and drag, so for example snowflakes can cancel most of gravity and drift with the wind.
+- **Proof.** `GameSystems_ParticleCollision` checks a wall bounce with 1 and 80 ticks per span, restitution, a particle resting on and moving away
+  from a plane, initial overlap, 50 contacts in a channel, budget exhaustion, set deletion and reuse, and validation.
+  `GameSystems_ParticleEnvironment` checks gravity, wind and drag against the closed form, identical images for 1 and 80 ticks, grid
+  interpolation and clamping, and clearing the grid. Kernels take no camera input, so camera independence holds by construction and has no test.
+  The particle demo adds sparks that bounce off the floor and a wall, and snow carried by an adjustable wind and an optional gusty grid, with the
+  collision counts in its statistics.
+
+## Milestone 3 status
+
+Complete, pending Paul's visual check of the demo. Done: environment gravity and uniform wind, exact drag integration, wind grid, swept static-plane
+collision with per-emitter sets and a contact budget, collision diagnostics, the stock stepped sprite type, fixtures and the demo.
