@@ -3,7 +3,7 @@
 //  Copyright (c) Rylogic Ltd 2026
 //************************************
 // Lets particle kernels sample a bound ocean surface (see pr/game-systems/ocean/ocean_surface.h): the height and normal of the drawn waves, and the
-// crest foam on them. A particle system binds at most one surface with ParticleSystem::WaterSet. Without one, the water is far below everything and has no foam.
+// breaking crests on them. A particle system binds at most one surface with ParticleSystem::WaterSet. Without one, the water is far below everything and nothing breaks.
 //
 // The samples use the surface's constants from its last Update and its procedural buffer, so particles see exactly the waves that are drawn, at the
 // ocean's wave time. Positions are in the model space of the ocean's View3D object, which must be the space of the particles' positions.
@@ -28,7 +28,9 @@ struct ParticleWaterSample
 {
 	float height;     // Height of the drawn surface. Far below everything when there is no water.
 	float3 normal;    // Unit normal of the drawn surface.
-	float foam;       // Crest foam amount in [0, 1]: where waves are breaking. See OceanCrestFoam.
+	float breaking;   // How far the waves here are breaking: the crest foam amount (see OceanCrestFoam) before it is limited to the crest strength.
+	                  // It equals the crest foam where that is below its full amount, and keeps rising above it towards the tops of the steepest
+	                  // crests, so thresholds above the crest strength select only the ridges of breaking waves. Zero or less where nothing breaks.
 };
 
 // Return the drawn water surface at the horizontal position 'xy'. Positions beyond the ocean's domain take the surface at the domain edge, where it ends.
@@ -38,7 +40,7 @@ ParticleWaterSample ParticleSampleWater(float2 xy)
 	ParticleWaterSample result;
 	result.height = -3.0e38f;
 	result.normal = float3(0.0f, 0.0f, 1.0f);
-	result.foam = 0.0f;
+	result.breaking = 0.0f;
 	if (g_environment.water == 0)
 		return result;
 
@@ -53,11 +55,12 @@ ParticleWaterSample ParticleSampleWater(float2 xy)
 	float warp_power = OceanWarpPower(g_ocean.mesh.y, g_ocean.camera_time.z - g_ocean.level_radii.x, g_ocean.level_radii.z);
 	float spacing = OceanSpacingAtDistance(distance, central_extent, g_ocean.level_radii.z, warp_power, half_cells);
 
-	// The surface's height and normal, and the foam that the water pixel shaders put on its breaking crests.
+	// The surface's height and normal. The breaking amount follows OceanCrestFoam without its limit: the crest steepness grows from mid height to
+	// the crest's top, so the unlimited amount keeps rising to the ridge after the drawn foam has reached its full amount.
 	OceanWaveSample water = OceanSample(xy, distance, spacing);
 	result.height = g_ocean.level_radii.x + water.surface.displacement_foam.z;
 	result.normal = normalize(float3(water.surface.normal_delta.xy, 1.0f));
-	result.foam = OceanCrestFoam(water.crest_steepness, water.crest_depth_fade);
+	result.breaking = g_ocean.foam_crest.x * water.crest_depth_fade * (water.crest_steepness - g_ocean.foam_crest.y) / g_ocean.foam_crest.z;
 	return result;
 }
 
@@ -65,7 +68,7 @@ ParticleWaterSample ParticleSampleWater(float2 xy)
 static const uint ParticleCrestCandidateMax = 32;
 
 // Search for a breaking crest in the disc of radius 'radius' around 'centre'. Tries up to 'candidates' random points, chosen by 'seed' with random
-// indices from 'first_index', and returns true with the first point whose crest foam reaches 'threshold', in 'xy' and 'water'. Returns false when no
+// indices from 'first_index', and returns true with the first point whose breaking amount reaches 'threshold', in 'xy' and 'water'. Returns false when no
 // point does, such as on a calm sea or with no water. 'candidates' is clamped to [1, ParticleCrestCandidateMax].
 bool ParticleFindCrest(float2 centre, float radius, uint candidates, float threshold, uint seed, uint first_index, out float2 xy, out ParticleWaterSample water)
 {
@@ -78,7 +81,7 @@ bool ParticleFindCrest(float2 centre, float radius, uint candidates, float thres
 		float a = 6.283185307179586f * ParticleRandom(seed, first_index + 2 * i + 1);
 		xy = centre + r * float2(cos(a), sin(a));
 		water = ParticleSampleWater(xy);
-		if (water.foam >= threshold)
+		if (water.breaking >= threshold)
 			return true;
 	}
 	return false;

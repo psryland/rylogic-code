@@ -1483,6 +1483,9 @@ namespace pr
 			void const* m_params;        // The emitter parameters of the effect, at the origin.
 			float m_rate;                // Suggested emitter rate (particles per second). Zero for effects that are bursts.
 			int m_burst;                 // Suggested burst size. Zero for continuous effects.
+			uint32_t const* m_texels;    // The batch's texture, or null for none. Square, 'm_texture_size' texels a side, row by row from the top, in
+			                             // DXGI_FORMAT_R8G8B8A8_UNORM (red in the lowest byte) with straight alpha. Create it with View3D_TextureCreate.
+			int m_texture_size;          // Texels per side of 'm_texels'.
 		};
 
 		struct WindowOptions

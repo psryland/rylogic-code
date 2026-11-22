@@ -162,6 +162,82 @@ namespace pr::game_systems::particles
 			return mesh;
 		}
 
+		// Texels per side of the froth texture.
+		constexpr int FrothTextureSize = 64;
+
+		// Return the stock froth texture: a white clump of foam with a lumpy outline. Walls between packed bubbles are dense and the bubbles
+		// between them are thinner, so the clump reads as foam rather than as a smooth puff. Texels are R8G8B8A8 with straight alpha.
+		std::vector<uint32_t> const& FrothTexels()
+		{
+			static auto const texels = []
+			{
+				// A fixed hash gives every run the same texture. Returns a value in [0, 1) for each integer pair and seed.
+				auto const random = [](int x, int y, uint32_t seed)
+				{
+					// Mix the inputs into one well-scrambled value.
+					auto hash = static_cast<uint32_t>(x) * 0x8da6b343U ^ static_cast<uint32_t>(y) * 0xd8163841U ^ seed * 0xcb1ab31fU;
+					hash = (hash ^ (hash >> 16)) * 0x7feb352dU;
+					hash = (hash ^ (hash >> 15)) * 0x846ca68bU;
+					hash ^= hash >> 16;
+					return static_cast<float>(hash) / 4294967296.0f;
+				};
+
+				// Each texel's bubble wall closeness comes from one random point per cell of a grid: positions near the border between their two
+				// nearest points lie on a wall. The gap between the nearest and second-nearest distances is zero on a wall.
+				constexpr auto n = FrothTextureSize;
+				constexpr auto cells = 7;
+				auto result = std::vector<uint32_t>(static_cast<size_t>(n) * n);
+				for (auto y = 0; y != n; ++y)
+				{
+					// Each row of texels.
+					for (auto x = 0; x != n; ++x)
+					{
+						// Points stay inside their own cell, so the 3x3 cells around the texel contain its two nearest points.
+						auto const u = (x + 0.5f) / n;
+						auto const v = (y + 0.5f) / n;
+						auto const gx = u * cells;
+						auto const gy = v * cells;
+						auto const cx = static_cast<int>(std::floor(gx));
+						auto const cy = static_cast<int>(std::floor(gy));
+						auto nearest = 1.0e9f;
+						auto second = 1.0e9f;
+						for (auto dy = -1; dy != 2; ++dy)
+						{
+							// Each row of neighbouring cells.
+							for (auto dx = -1; dx != 2; ++dx)
+							{
+								// Keep the two smallest distances.
+								auto const px = cx + dx + 0.1f + 0.8f * random(cx + dx, cy + dy, 1);
+								auto const py = cy + dy + 0.1f + 0.8f * random(cx + dx, cy + dy, 2);
+								auto const distance = std::hypot(gx - px, gy - py);
+								second = std::min(second, std::max(nearest, distance));
+								nearest = std::min(nearest, distance);
+							}
+						}
+						auto const wall = std::exp(-(second - nearest) / 0.12f);
+
+						// The clump's outline is a circle with lumps, fading over its outer part. Distances are in half texture widths.
+						auto const ox = 2.0f * u - 1.0f;
+						auto const oy = 2.0f * v - 1.0f;
+						auto const r = std::hypot(ox, oy);
+						auto const a = std::atan2(oy, ox);
+						auto const edge = 0.85f + 0.1f * std::sin(3.0f * a + 1.3f) + 0.05f * std::sin(5.0f * a + 0.4f);
+						auto const t = std::clamp((r - 0.5f * edge) / (0.5f * edge), 0.0f, 1.0f);
+						auto const mask = 1.0f - t * t * (3.0f - 2.0f * t);
+
+						// Walls are opaque and white; bubble middles are thinner and slightly grey.
+						auto const alpha = mask * (0.4f + 0.6f * wall);
+						auto const grey = 0.85f + 0.15f * wall;
+						auto const c = static_cast<uint32_t>(std::lround(grey * 255.0f));
+						auto const al = static_cast<uint32_t>(std::lround(alpha * 255.0f));
+						result[static_cast<size_t>(y) * n + x] = (al << 24) | (c << 16) | (c << 8) | c;
+					}
+				}
+				return result;
+			}();
+			return texels;
+		}
+
 		// A preset of the stepped sprite type, drawn by the stock sprite batch.
 		ParticlePreset SteppedSprite(ParticleSpriteConstants const& constants, ParticleSteppedSpriteEmitter const& params, EParticleBlend blend, float rate, int burst)
 		{
@@ -491,7 +567,7 @@ namespace pr::game_systems::particles
 					.size = { 0.08f, 0.2f },
 					.colour0 = 0xE0F4F8FF,
 					.colour1 = 0x80E0E8F0,
-					.foam_threshold = 0.3f,
+					.breaking_threshold = 0.3f,
 					.candidates = 8,
 					.gravity = 1.0f,
 				};
@@ -511,28 +587,31 @@ namespace pr::game_systems::particles
 			}
 			case EParticlePreset::Froth:
 			{
-				// Soft puffs swell up on breaking crests like smoke, ride the waves as they drift slowly downwind, and fade away soon after the crest passes.
+				// Clumps of foam swell up along the ridges of breaking crests, ride the waves as they drift slowly downwind, and fade away soon after the
+				// ridge passes. The threshold is above the crest foam's full amount, so froth forms only near the tops of the crests, and the high rate
+				// packs the ridges densely. The foam texture gives each clump the look of packed bubbles.
 				static ParticleSpriteConstants const constants = {
 					.key_count = 3,
 					.flicker = 0.0f,
 					.flicker_rate = 0.0f,
 					.streak = 0.0f,
-					.keys = { { 0.0f, 0.4f, 0x00FFFFFF }, { 0.15f, 0.9f, 0xFFFFFFFF }, { 1.0f, 1.3f, 0x00FFFFFF } },
+					.keys = { { 0.0f, 0.5f, 0x00FFFFFF }, { 0.1f, 0.9f, 0xFFFFFFFF }, { 1.0f, 1.3f, 0x00FFFFFF } },
 				};
 				static ParticleFrothEmitter const params = {
 					.area = { 0.0f, 0.0f, 0.0f, 60.0f },
-					.lifetime = { 2.0f, 4.0f },
-					.size = { 1.0f, 3.0f },
-					.colour0 = 0xA0F4F8FA,
-					.colour1 = 0x60E4EAF0,
-					.foam_threshold = 0.5f,
-					.candidates = 8,
+					.lifetime = { 1.5f, 3.0f },
+					.size = { 0.8f, 2.0f },
+					.colour0 = 0xF0F8FAFC,
+					.colour1 = 0xA0E8EEF2,
+					.breaking_threshold = 1.1f,
+					.candidates = 16,
 					.drift = 0.05f,
-					.spread = 0.3f,
-					.lift = 0.2f,
-					.rise = 0.15f,
-					.linger = 0.4f,
+					.spread = 0.2f,
+					.lift = 0.15f,
+					.rise = 0.1f,
+					.linger = 0.3f,
 				};
+				auto const& texels = FrothTexels();
 				return ParticlePreset{
 					.m_sim = ParticleSystem::FrothSimShaders(),
 					.m_draw = ParticleSystem::SpriteDrawShaders(),
@@ -543,8 +622,10 @@ namespace pr::game_systems::particles
 					.m_constants = &constants,
 					.m_constants_size = sizeof(constants),
 					.m_params = &params,
-					.m_rate = 300.0f,
+					.m_rate = 4000.0f,
 					.m_burst = 0,
+					.m_texels = texels.data(),
+					.m_texture_size = FrothTextureSize,
 				};
 			}
 			default:

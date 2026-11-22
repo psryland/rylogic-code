@@ -1183,7 +1183,7 @@ namespace pr::game_systems::particles
 		};
 	}
 
-	// The draw shaders of a batch of stock sprite records.
+	// The draw shaders of a batch of stock sprite records. Sprites carry texture coordinates, so a batch with a texture draws it on each sprite.
 	pr::view3d::ParticleDrawShaders ParticleSystem::SpriteDrawShaders()
 	{
 		return pr::view3d::ParticleDrawShaders{
@@ -1191,7 +1191,7 @@ namespace pr::game_systems::particles
 			.m_indices = SpriteIndices.data(),
 			.m_index_count = static_cast<int>(SpriteIndices.size()),
 			.m_vertex_count = static_cast<int>(ParticleSpriteVertexCount),
-			.m_geom = pr::view3d::EGeom::Vert | pr::view3d::EGeom::Colr,
+			.m_geom = pr::view3d::EGeom::Vert | pr::view3d::EGeom::Colr | pr::view3d::EGeom::Tex0,
 			.m_vertex_data = nullptr,
 			.m_vertex_stride = 0,
 		};

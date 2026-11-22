@@ -48,6 +48,29 @@ namespace view3d_test
 			#endif
 		}
 
+		// Create the texture of a preset that has one, or return null for a preset without one. The batch keeps its own reference.
+		api::TexturePtr PresetTexture(api::ParticlePreset const& settings, char const* name)
+		{
+			// A full mip chain keeps small, distant sprites from shimmering.
+			if (settings.m_texels == nullptr)
+				return api::TexturePtr{};
+
+			auto const size = settings.m_texture_size;
+			auto texture_options = api::TextureOptions{};
+			texture_options.m_format = DXGI_FORMAT_R8G8B8A8_UNORM;
+			texture_options.m_resource_state = D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE;
+			texture_options.m_mips = 0;
+			texture_options.m_multisamp = { 1, 0 };
+			texture_options.m_t2s = { {1,0,0,0}, {0,1,0,0}, {0,0,1,0}, {0,0,0,1} };
+			texture_options.m_has_alpha = TRUE;
+			texture_options.m_dbg_name = name;
+			auto texture = api::TexturePtr(View3D_TextureCreate(size, size, settings.m_texels, static_cast<size_t>(size) * size * sizeof(uint32_t), texture_options));
+			if (texture == nullptr)
+				throw std::runtime_error("Particle preset texture creation failed");
+
+			return texture;
+		}
+
 		// Sprite particle effects that all share one particle type, so every sprite draws in one draw call. Wood chips are a caller-defined
 		// type with its own render record and vertex shader, drawn opaque by a second batch. The time scale shows that particles are exact in
 		// slow motion and stop completely when paused. The stress grid adds many emitters to fill the pool.
@@ -782,6 +805,7 @@ namespace view3d_test
 					throw std::runtime_error("Particle preset unavailable");
 
 				// Bounds cover the effect's place, including birds circling wide of the flock's centre.
+				auto const texture = PresetTexture(settings, "PresetTexture");
 				auto batch_options = api::ParticleBatchOptions
 				{
 					.m_struct_size = sizeof(api::ParticleBatchOptions),
@@ -793,6 +817,8 @@ namespace view3d_test
 					.m_constants_size = 0,
 					.m_blend = settings.m_blend,
 					.m_bbox = api::BBox{ {pos.x, pos.y, 15, 1}, {40, 40, 25, 0} },
+					.m_texture = texture.get(),
+					.m_sampler = texture != nullptr ? View3D_SamplerCreateStock(api::EStockSampler::LinearClamp) : nullptr,
 				};
 				auto batch = -1;
 				auto object = api::Object{};
@@ -1104,6 +1130,7 @@ namespace view3d_test
 				if (!View3D_ParticlePresetGet(preset, &settings))
 					throw std::runtime_error("Particle preset unavailable");
 
+				auto const texture = PresetTexture(settings, "OceanPresetTexture");
 				auto batch_options = api::ParticleBatchOptions
 				{
 					.m_struct_size = sizeof(api::ParticleBatchOptions),
@@ -1115,6 +1142,8 @@ namespace view3d_test
 					.m_constants_size = 0,
 					.m_blend = settings.m_blend,
 					.m_bbox = api::BBox{ {0, 0, 0, 1}, {100, 100, 20, 0} },
+					.m_texture = texture.get(),
+					.m_sampler = texture != nullptr ? View3D_SamplerCreateStock(api::EStockSampler::LinearClamp) : nullptr,
 				};
 				auto batch = -1;
 				auto object = api::Object{};

@@ -3,7 +3,7 @@
 //  Copyright (c) Rylogic Ltd 2026
 //************************************
 // The stock spray particle type: droplets thrown up from the breaking crests of a bound water surface (see particle_water.hlsli). Each birth tries
-// random points over the emitter's disc of sea and rises from the first point where the crest foam reaches the emitter's threshold. A birth that finds
+// random points over the emitter's disc of sea and rises from the first point where the breaking amount reaches the emitter's threshold. A birth that finds
 // no breaking crest makes no droplet, so calm seas throw no spray and rough seas throw spray along their crests. Droplets launch along the surface
 // normal, are carried by the wind, fall under gravity, and die when they fall back into the water.
 //
@@ -31,7 +31,7 @@ struct ParticleSprayEmitter
 	float2 size;           // Diameter (m) at birth (x) and at death (y).
 	uint colour0;          // Colour at birth.
 	uint colour1;          // Colour at death.
-	float foam_threshold;  // Crest foam amount (see ParticleSampleWater) that a point must reach to throw spray. (0, 1].
+	float breaking_threshold;  // Breaking amount (see ParticleSampleWater) that a point must reach to throw spray. Positive.
 	uint candidates;       // Random points tried per birth. [1, 32] (see ParticleFindCrest). More finds the crests of calmer seas, at more cost.
 	float gravity;         // Scale of the environment's gravity.
 	uint pad0;

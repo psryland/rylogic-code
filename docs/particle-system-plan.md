@@ -686,11 +686,12 @@ Complete, pending Paul's visual check of the `particle_presets` gallery. Ocean s
   `ParticleSampleWater` mirrors the ocean vertex shader, so particles meet exactly the waves that are drawn, at the ocean's wave time. The
   environment's `water` flag says whether a surface is bound; without one the water is far below everything and has no foam. Nothing is read back
   to the CPU. The ocean's model space must be the particles' space, and `View3D_OceanUpdate` must run before the particle step in each frame.
-- **Crest foam is the emission field.** Crest foam is analytic (wave crest steepness faded by depth), so it is available right after the ocean
-  update with no extra pass. Spray and froth births try random points in the emitter's disc of sea and use the first where the foam reaches the
-  emitter's threshold; a birth that finds none makes no particle (zero size, immediate death), so calm seas make nothing and rough seas emit along
-  breaking crests. The continuous surface foam drawn by the ocean is unchanged; particles add sparse detail on top of it, and their cost is bounded
-  by the emitter rate.
+- **Breaking is the emission field.** Crest foam is analytic (wave crest steepness faded by depth), so it is available right after the ocean
+  update with no extra pass. Particles sample `breaking`: the crest foam before it is limited to the ocean's crest strength, so it keeps rising
+  towards the tops of the ridges. Spray and froth births try random points in the emitter's disc of sea and use the first where `breaking` reaches
+  the emitter's `breaking_threshold`; a birth that finds none makes no particle (zero size, immediate death), so calm seas make nothing and rough
+  seas emit along breaking crests. A threshold above the crest strength confines births to ridge tops, where the drawn foam is already full. The
+  continuous surface foam drawn by the ocean is unchanged; particles add detail on top of it, and their cost is bounded by the emitter rate.
 - **Spray** is a stepped sprite type (stepped sprite state and the stock sprite batch). Droplets launch along the surface normal, are carried by
   the wind, fall under gravity and die when they fall back into the water.
 - **Froth** is a stepped type writing sprite records, drawn by the stock sprite batch with weighted blending: camera-facing puffs that swell up on
@@ -698,9 +699,15 @@ Complete, pending Paul's visual check of the `particle_presets` gallery. Ocean s
   wind, grows and fades by the shared sprite curve, and dies when the water is removed. Surface-aligned discs were tried first and looked like
   flat patches rather than foam, so they and their flat sprite vertex shader were removed.
 - **Froth stays on crests.** Crests travel at the waves' phase speed, so a puff that stays put soon sits over a trough. Each puff carries a
-  presence in [0, 1] that follows the crest foam under it (foam below half the emitter's threshold counts as none), never rises, and decays over
+  presence in [0, 1] that follows `breaking` under it (below half the emitter's threshold counts as none), never rises, and decays over
   the emitter's `linger` time once the crest has passed. Alpha is scaled by presence, and the puff dies when it has faded. Moving puffs with the
   crests was rejected because several wave trains give no single crest velocity.
+- **Textured sprites.** The stock sprite vertex shader outputs texture coordinates (rotating with the sprite), and its geometry includes `Tex0`,
+  so a batch with a texture multiplies it by the soft disc; batches without one are unchanged. `ParticlePreset` gains optional static
+  `m_texels`/`m_texture_size` (square R8G8B8A8, straight alpha), which the caller turns into a texture with `View3D_TextureCreate` and passes as
+  the batch texture, keeping presets free of GPU resources. The froth preset uses a baked 64² foam clump: packed-bubble walls in a lumpy outline.
+  A texture costs one sample per sprite pixel and no extra draw calls; overdraw dominates the cost. The froth preset emits densely (4000 per
+  second, 16 candidates) with a threshold of 1.1.
 - **Presets.** `EParticlePreset` gains `Spray` and `Froth`. Their emitter parameters start with `float4 area` (xy centre, w radius) rather than a
   position, because they emit over an area of sea.
 - **Shared HLSL fix.** `OceanWaveSampleZero` and `OceanCrestSteepness` in `ocean_surface.hlsli` were missing `odr`, which caused duplicate symbols

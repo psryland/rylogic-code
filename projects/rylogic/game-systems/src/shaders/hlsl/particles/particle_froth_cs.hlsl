@@ -22,9 +22,9 @@ void ParticleFrothMove(inout ParticleFrothState state, float dt)
 
 	// The presence follows the crest under the puff as it falls, and decays exponentially over the linger time once the crest moves on.
 	// Presence never rises, so a puff belongs to the crest that formed it, and a later crest passing under a faded puff does not make it pop back.
-	// Foam below half the threshold counts as no crest, so the low foam that surrounds breaking crests does not keep puffs alive.
-	// The foam is sampled once per tick, so the fade depends only slightly on the tick length.
-	float crest = smoothstep(0.5f * state.threshold, state.threshold, water.foam);
+	// A breaking amount below half the threshold counts as no crest, so the lower faces of breaking crests do not keep puffs alive.
+	// The water is sampled once per tick, so the fade depends only slightly on the tick length.
+	float crest = smoothstep(0.5f * state.threshold, state.threshold, water.breaking);
 	state.presence = min(state.presence, max(crest, state.presence * exp(-dt / state.linger)));
 }
 
@@ -34,7 +34,7 @@ ParticleFrothState ParticleInit(ParticleFrothEmitter params, ParticleSpawn spawn
 	// Random indices below 16 belong to the drift, lifetime and sprite record; the crest search uses those from 16.
 	float2 xy;
 	ParticleWaterSample water;
-	bool found = ParticleFindCrest(params.area.xy, params.area.w, params.candidates, params.foam_threshold, spawn.seed, 16, xy, water);
+	bool found = ParticleFindCrest(params.area.xy, params.area.w, params.candidates, params.breaking_threshold, spawn.seed, 16, xy, water);
 	float spread_r = params.spread * sqrt(ParticleRandom(spawn.seed, 3));
 	float spread_a = 6.283185307179586f * ParticleRandom(spawn.seed, 4);
 	float lifetime = lerp(params.lifetime.x, params.lifetime.y, ParticleRandom(spawn.seed, 6));
@@ -54,7 +54,7 @@ ParticleFrothState ParticleInit(ParticleFrothEmitter params, ParticleSpawn spawn
 	state.seed = spawn.seed;
 	state.presence = 1.0f;
 	state.linger = params.linger;
-	state.threshold = params.foam_threshold;
+	state.threshold = params.breaking_threshold;
 	state.pad0 = 0;
 	state.pad1 = 0;
 	state.pad2 = 0;

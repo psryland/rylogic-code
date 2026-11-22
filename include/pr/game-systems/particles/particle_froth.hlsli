@@ -29,7 +29,8 @@ struct ParticleFrothEmitter
 	float2 size;           // Diameter (m) at birth (x) and at death (y), before the sprite curve.
 	uint colour0;          // Colour at birth.
 	uint colour1;          // Colour at death.
-	float foam_threshold;  // Crest foam amount (see ParticleSampleWater) that a point must reach to form froth, and that counts as a full crest. (0, 1].
+	float breaking_threshold;  // Breaking amount (see ParticleSampleWater) that a point must reach to form froth, and that counts as a full crest. Thresholds
+	                           // above the ocean's crest strength confine froth to the ridges of the breaking crests. Positive.
 	uint candidates;       // Random points tried per birth. [1, 32] (see ParticleFindCrest).
 	float drift;           // Fraction of the wind velocity that puffs drift with.
 	float spread;          // Radius of the disc that the horizontal drift velocities are spread over (m/s).
@@ -55,9 +56,9 @@ struct ParticleFrothState
 	uint colour0;     // Colour at birth.
 	uint colour1;     // Colour at death.
 	uint seed;        // Per-puff random seed.
-	float presence;   // Crest under the puff in [0, 1]: the foam under it relative to the threshold, decaying over 'linger' once the foam falls.
+	float presence;   // Crest under the puff in [0, 1]: the breaking amount under it relative to the threshold, decaying over 'linger' once it falls.
 	float linger;     // Decay time (s) of the presence.
-	float threshold;  // Foam amount that counts as a full crest.
+	float threshold;  // Breaking amount that counts as a full crest.
 	uint pad0;
 	uint pad1;
 	uint pad2;
