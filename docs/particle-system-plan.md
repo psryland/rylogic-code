@@ -647,3 +647,34 @@ indirect counts; opaque/cutout batches; shared small-mesh prototypes with a batc
 
 Complete, pending Paul's visual check of the demo. Done: environment gravity and uniform wind, exact drag integration, wind grid, swept static-plane
 collision with per-emitter sets and a contact budget, collision diagnostics, the stock stepped sprite type, fixtures and the demo.
+
+## Milestone 4 implementation decisions
+
+- **Presets are data, not code paths.** `View3D_ParticlePresetGet(EParticlePreset, ParticlePreset*)` (`particle_presets.h`) returns the shaders,
+  blend, strides, constants and emitter parameters of one batch, one type and its emitters, plus a suggested rate or burst. Every pointer refers to
+  static data, and callers copy and change it. Presets register through the ordinary batch/type/emitter calls, so they add no runtime path.
+  Unknown preset values are reported as errors.
+- **Preset conventions.** Metres, z up, emitters at the origin. Every emitter parameter structure starts with a `float4` whose xyz is the emitter
+  position, so a caller can place any preset without knowing its layout. Presets collide with nothing; callers set the collision set of types
+  that have one (stepped sprites and debris).
+- **Analytic or stepped per effect.** Fire, sparks, smoke, dust, rain and snow are stepped sprites, because they respond to wind or bounce/die on
+  planes. Leaves and wood chips are a new stepped **debris** type (small shared meshes that tumble, flutter, drag towards the wind and settle on
+  planes). Birds and markers are analytic, because they ignore the environment: **birds** draw a procedural flapping bird per instance
+  (`ParticleBirdVertexCount` vertices) circling on seeded paths; **markers** emit expanding ring pulses as sprite records.
+- **Sprite appearance curves.** `ParticleSpriteConstants` holds up to four curve keys (t in [0, 1] of the life, size scale, colour multiplier).
+  Keys are interpolated linearly, keys at an equal t make a step, and no keys means a constant 1. Flicker (amount and rate) is two sine waves with
+  per-particle phases, a function of age alone. Streak stretches a sprite back from its centre along `velocity * streak` seconds, drawn as a soft
+  ellipse whose bounds include the streak; it is stored in the record as half floats. All are shared by the analytic and stepped sprites.
+- **Gravity scale.** Stepped sprite and debris emitters take a scale of the environment's gravity (stepped sprites also accept negative values,
+  which rise), so fire and smoke rise and snow falls slowly in the one environment.
+- **No flipbooks yet.** None of the catalogue needed texture animation; curves, flicker and streaks cover them. Flipbooks and authored appearance
+  assets wait until an application asks for them.
+- **Proof.** `GameSystems_ParticlePresets` builds every preset from its settings alone and uses collision-plane contact counts as sensors: fire and
+  smoke reach a ceiling and never a floor, sparks fall, rain and snow die on a floor, leaves reach only the downwind plane, chips land, the dust and
+  flock bursts live on, and markers emit. `GameSystems_ParticleSpriteCurve` checks a stepped colour curve and a streak against a round sprite. The
+  `particle_presets` demo in `view3d-12-tests` is a gallery of every preset side by side, each in its own batch and type, with time scale, rate,
+  wind and burst controls. One gallery replaces the planned per-effect demos, because each effect is already isolated in its own place and batch.
+
+## Milestone 4 status
+
+Complete, pending Paul's visual check of the `particle_presets` gallery. Ocean spray and froth follow in Milestone 5.

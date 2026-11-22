@@ -34,8 +34,8 @@ ParticleSpriteRecord ParticleProject(ParticleMarkerState state, ParticleMarkerCo
 	record.pos_size = float4(state.position, c.size);
 	record.colour = state.colour;
 	record.angle = 0.0f;
-	record.pad0 = 0;
-	record.pad1 = 0;
+	record.streak_xy = 0;
+	record.streak_z = 0;
 	return record;
 }
 

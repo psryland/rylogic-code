@@ -30,6 +30,7 @@
 #include "pr/game-systems/ocean/ocean_surface.h"
 #include "pr/game-systems/atmosphere/atmosphere.h"
 #include "pr/game-systems/particles/particle_system.h"
+#include "pr/game-systems/particles/particle_presets.h"
 #include "game-systems/src/atmosphere/atmosphere_record.h"
 #include "pr/view3d-12/population/population.h"
 #include "pr/view3d-12/sampler/sampler_desc.h"
@@ -3344,6 +3345,19 @@ VIEW3D_API BOOL __stdcall View3D_ParticleSteppedSpriteShaders(view3d::ParticleSi
 		return TRUE;
 	}
 	CatchAndReport(View3D_ParticleSteppedSpriteShaders, , FALSE);
+}
+VIEW3D_API BOOL __stdcall View3D_ParticlePresetGet(view3d::EParticlePreset preset, view3d::ParticlePreset* out_preset)
+{
+	try
+	{
+		// Presets are static data and need no renderer.
+		if (out_preset == nullptr)
+			throw std::invalid_argument("Particle preset output is required");
+
+		*out_preset = game_systems::particles::ParticlePresetGet(preset);
+		return TRUE;
+	}
+	CatchAndReport(View3D_ParticlePresetGet, , FALSE);
 }
 VIEW3D_API BOOL __stdcall View3D_ParticleEnvironmentSet(view3d::ParticleSystem system, view3d::ParticleEnvironment const& environment)
 {

@@ -44,16 +44,15 @@ ParticleSpriteRecord ParticleProject(ParticleSpriteState state, ParticleSpriteCo
 {
 	// Fly on constant acceleration.
 	float3 position = state.p0 + state.v0 * state.age + 0.5f * state.accel * state.age * state.age;
-	return ParticleSpriteMakeRecord(position, state.age, state.lifetime, state.seed, state.colour0, state.colour1, state.size0, state.size1, c);
+	float3 velocity = state.v0 + state.accel * state.age;
+	return ParticleSpriteMakeRecord(position, velocity, state.age, state.lifetime, state.seed, state.colour0, state.colour1, state.size0, state.size1, c);
 }
 
-// Bound a sprite by a sphere of its radius at its position. The radius is in world units and the cull scales it by the object's largest axis scale,
-// so the sphere contains the sprite when the batch's object is unscaled or enlarged.
+// Bound a sprite by the sphere around its disc and streak. See ParticleSpriteRecordBounds.
 float4 ParticleBounds(ParticleSpriteState state, ParticleSpriteConstants c)
 {
-	// The record holds the position and size that the vertex shader draws.
-	ParticleSpriteRecord record = ParticleProject(state, c);
-	return float4(record.pos_size.xyz, 0.5f * record.pos_size.w);
+	// The record holds the position, size and streak that the vertex shader draws.
+	return ParticleSpriteRecordBounds(ParticleProject(state, c));
 }
 
 #include "pr/game-systems/particles/particle_kernels.hlsli"

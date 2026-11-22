@@ -78,6 +78,7 @@
     <ClInclude Include="$(RylogicRoot)include\pr\game-systems\ocean\ocean_surface.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\game-systems\atmosphere\atmosphere.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\game-systems\particles\particle_system.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\game-systems\particles\particle_presets.h" />
     <ClInclude Include="src\atmosphere\atmosphere_record.h" />
     <ClCompile Include="src\sky\procedural_sky.cpp" />
     <ClCompile Include="src\sky\weather_map.cpp" />
@@ -85,6 +86,7 @@
     <ClCompile Include="src\atmosphere\atmosphere.cpp" />
     <ClCompile Include="src\atmosphere\atmosphere_record.cpp" />
     <ClCompile Include="src\particles\particle_system.cpp" />
+    <ClCompile Include="src\particles\particle_presets.cpp" />
     <None Include="src\shaders\hlsl\sky\procedural_sky_cbuf.hlsli" />
     <None Include="$(RylogicRoot)include\pr\game-systems\ocean\ocean_surface.hlsli" />
     <None Include="$(RylogicRoot)include\pr\game-systems\ocean\ocean_buffer.hlsli" />
@@ -95,6 +97,9 @@
     <None Include="$(RylogicRoot)include\pr\game-systems\particles\particle_mesh.hlsli" />
     <None Include="$(RylogicRoot)include\pr\game-systems\particles\particle_environment.hlsli" />
     <None Include="$(RylogicRoot)include\pr\game-systems\particles\particle_stepped_sprite.hlsli" />
+    <None Include="$(RylogicRoot)include\pr\game-systems\particles\particle_debris.hlsli" />
+    <None Include="$(RylogicRoot)include\pr\game-systems\particles\particle_bird.hlsli" />
+    <None Include="$(RylogicRoot)include\pr\game-systems\particles\particle_marker.hlsli" />
     <ShaderBuild Include="src\shaders\hlsl\sky\procedural_sky.hlsl" VertexEntryPoints="procedural_sky_vs=VSProceduralSky" PixelEntryPoints="procedural_sky_ps=PSProceduralSky" />
     <ShaderBuild Include="src\shaders\hlsl\ocean\ocean_forward_vs.hlsl" VertexEntryPoints="ocean_forward_vs=Main" />
     <ShaderBuild Include="src\shaders\hlsl\ocean\ocean_forward_ps.hlsl" PixelEntryPoints="ocean_forward_ps0=PSWaterOpaque;ocean_forward_ps1=PSWaterOpaqueReflectionAttrs;ocean_forward_ps2=PSWaterAlphaCollect" />
@@ -104,6 +109,10 @@
     <ShaderBuild Include="src\shaders\hlsl\particles\particle_stepped_sprite_cs.hlsl" ComputeEntryPoints="particle_stepped_sprite_emit_cs=ParticleEmitCS;particle_stepped_sprite_update_cs=ParticleUpdateCS" />
     <ShaderBuild Include="src\shaders\hlsl\particles\particle_sprite_vs.hlsl" VertexEntryPoints="particle_sprite_vs=Main" />
     <ShaderBuild Include="src\shaders\hlsl\particles\particle_mesh_vs.hlsl" VertexEntryPoints="particle_mesh_vs=Main" />
+    <ShaderBuild Include="src\shaders\hlsl\particles\particle_debris_cs.hlsl" ComputeEntryPoints="particle_debris_emit_cs=ParticleEmitCS;particle_debris_update_cs=ParticleUpdateCS" />
+    <ShaderBuild Include="src\shaders\hlsl\particles\particle_bird_cs.hlsl" ComputeEntryPoints="particle_bird_emit_cs=ParticleEmitCS;particle_bird_update_cs=ParticleUpdateCS" />
+    <ShaderBuild Include="src\shaders\hlsl\particles\particle_bird_vs.hlsl" VertexEntryPoints="particle_bird_vs=Main" />
+    <ShaderBuild Include="src\shaders\hlsl\particles\particle_marker_cs.hlsl" ComputeEntryPoints="particle_marker_emit_cs=ParticleEmitCS;particle_marker_update_cs=ParticleUpdateCS" />
     <ShaderBuild Include="src\atmosphere\atmosphere.hlsl" ComputeEntryPoints="CSInitialise;CSAdvect;CSVorticity;CSForcesHeat;CSDivergence;CSMgSmooth;CSMgSmallLevels;CSMgResidual;CSMgRestrict;CSMgProlongate;CSNormalisePressure;CSProject;CSInitialiseTracers;CSAdvectTracers">
       <StampDir>$(ProjectDir)src\atmosphere\compiled\$(Configuration)\</StampDir>
     </ShaderBuild>

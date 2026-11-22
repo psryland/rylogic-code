@@ -39,6 +39,18 @@ namespace pr::game_systems::particles
 		// The simulation shaders of the stock stepped sprite type (see particle_stepped_sprite.hlsli). It draws with the stock sprite batch. The data is static.
 		static pr::view3d::ParticleSimShaders SteppedSpriteSimShaders();
 
+		// The simulation shaders of the stock debris type (see particle_debris.hlsli). It draws with the stock mesh batch. The data is static.
+		static pr::view3d::ParticleSimShaders DebrisSimShaders();
+
+		// The simulation shaders of the stock bird type (see particle_bird.hlsli). The data is static.
+		static pr::view3d::ParticleSimShaders BirdSimShaders();
+
+		// The drawing shaders of a batch of stock bird records. The bird is procedural, so the batch has no vertex data. The data is static.
+		static pr::view3d::ParticleDrawShaders BirdDrawShaders();
+
+		// The simulation shaders of the stock marker type (see particle_marker.hlsli). It draws with the stock mesh batch. The data is static.
+		static pr::view3d::ParticleSimShaders MarkerSimShaders();
+
 		// Validate 'options' and add a particle batch, returning its index. Its View3D object is returned in 'out_object'.
 		virtual int BatchCreate(pr::view3d::ParticleBatchOptions const& options, char const* name, pr::view3d::Object& out_object) = 0;
 
