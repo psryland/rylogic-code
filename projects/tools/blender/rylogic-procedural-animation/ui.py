@@ -5,7 +5,7 @@ import math
 import bpy
 from bpy.types import Panel, UIList
 
-from . import operators, pin
+from . import operators, pin, ragdoll
 
 
 class RYLOGIC_UL_rig_chains(UIList):
@@ -210,6 +210,21 @@ class RYLOGIC_PT_rig_range_of_motion(_RigSubPanel, Panel):
 		layout.operator("rylogic_rig.copy_ik_limits", icon="CON_KINEMATIC")
 
 
+class RYLOGIC_PT_rig_ragdoll(_RigSubPanel, Panel):
+	"""Generate the capsules of the ragdoll that replaces the character when it goes limp."""
+
+	bl_label = "Ragdoll"
+	bl_parent_id = "RYLOGIC_PT_rig_skeleton"
+	bl_options = {"DEFAULT_CLOSED"}
+
+	def draw(self, context):
+		# One capsule per selected bone; the capsules themselves are edited as ordinary objects
+		layout = self.layout
+		count = sum(1 for obj in bpy.data.objects if obj.parent == context.active_object and obj.name.startswith(ragdoll.RAGDOLL_PREFIX))
+		layout.label(text=f"{count} capsules. Select the link bones, then:")
+		layout.operator("rylogic_rig.ragdoll_generate", icon="MESH_CAPSULE")
+
+
 class RYLOGIC_PT_rig_contacts(_RigSubPanel, Panel):
 	"""The contact points, with the active contact's details."""
 
@@ -378,6 +393,7 @@ CLASSES = (
 	RYLOGIC_PT_rig_chains,
 	RYLOGIC_PT_rig_body_axis,
 	RYLOGIC_PT_rig_range_of_motion,
+	RYLOGIC_PT_rig_ragdoll,
 	RYLOGIC_PT_rig_contacts,
 	RYLOGIC_PT_rig_locomotion,
 	RYLOGIC_PT_rig_families,
