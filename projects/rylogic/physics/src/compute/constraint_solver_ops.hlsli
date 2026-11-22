@@ -74,6 +74,20 @@ float CoupledPreconditionerComponent(GpuCoupledConstraintPreconditioner precondi
 	return preconditioner.packed[packed_index / 4][packed_index % 4];
 }
 
+// Return the world direction 'd' for which dot(d, w_b - w_a) is the exact rate of change of dot(rotation_vector, axis), where 'rotation_vector' is the
+// world rotation from frame A to frame B (at most pi radians) and 'axis' is a unit axis of frame A. Frame A's axes are only a good approximation for small
+// rotations; for large rotations, turning about one axis also changes the other rotation-vector components.
+float3 ConstraintRotationVectorRateAxis(float3 rotation_vector, float3 axis)
+{
+	// The inverse Jacobian of the rotation vector is I - 1/2[r]x + c[r]x^2; its transpose maps the coordinate's axis onto angular velocity.
+	float angle = length(rotation_vector);
+	float c = angle < 1e-3f
+		? 1.0f / 12.0f + angle * angle / 720.0f
+		: 1.0f / (angle * angle) - 1.0f / (2.0f * angle * tan(0.5f * angle));
+	float3 r_cross_axis = cross(rotation_vector, axis);
+	return axis + 0.5f * r_cross_axis + c * cross(rotation_vector, r_cross_axis);
+}
+
 // Return a stable two-bit row state for warm-start identity and impulse-bound selection.
 uint ConstraintRowState(GpuConstraintAxisDesc axis, float position, out_(float) position_error)
 {

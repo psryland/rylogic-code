@@ -541,6 +541,46 @@ namespace pr::physics::tests
 			ExpectNear(angular_y.m_position, 0.0f);
 		}
 
+		// Angular rows predict the exact change of their rotation-vector coordinates, even far from the identity rotation.
+		PRUnitTestMethod(AngularRowsMeasureExactRateForLargeRotations, Quick)
+		{
+			// A large compound relative rotation makes frame A's axes a poor approximation of the rotation-vector rates
+			auto body_a = RigidBody{};
+			auto body_b = RigidBody{};
+			body_a.SetMassProperties(Inertia{1.0f, 1.0f});
+			body_b.SetMassProperties(Inertia{1.0f, 1.0f});
+			body_a.O2W(m4x4::Transform(Normalise(v4{0.3f, -1.0f, 0.5f, 0.0f}), 0.7f, v4::Origin()));
+			auto const b_rotation = m4x4::Transform(Normalise(v4{-0.5f, 1.0f, 0.7f, 0.0f}), 1.9f, v4::Origin()) * body_a.O2W();
+			body_b.O2W(b_rotation);
+
+			auto desc = MakeD6(BodyRef::Rigid(body_a), BodyRef::Rigid(body_b));
+			for (auto& axis : desc.m_angular)
+			{
+				axis.m_mode = EConstraintAxisMode::Limited;
+				axis.m_limits = Range<float>{-0.1f, +0.1f};
+			}
+			auto constraints = ConstraintSet{};
+			constraints.Add(desc);
+			auto body_ptrs = std::array<RigidBody*, 2>{&body_a, &body_b};
+			auto const compiled = CompileConstraints(constraints, BodyRemap(body_ptrs));
+			PR_EXPECT(compiled.m_rows.size() == 3);
+
+			// Each row's B Jacobian must predict the measured coordinate change when body B turns slightly about each world axis
+			auto const h = 1e-3f;
+			for (auto direction : {v4::XAxis(), v4::YAxis(), v4::ZAxis()})
+			{
+				body_b.O2W(m4x4::Transform(direction, h, v4::Origin()) * b_rotation);
+				auto const turned = CompileConstraints(constraints, BodyRemap(body_ptrs));
+				for (size_t row = 0; row != compiled.m_rows.size(); ++row)
+				{
+					auto const measured = (turned.m_rows[row].m_position - compiled.m_rows[row].m_position) / h;
+					auto const predicted = Dot3(compiled.m_rows[row].m_jacobian_b.ang, direction);
+					PR_EXPECT(std::abs(measured - predicted) < 5e-3f);
+				}
+			}
+			body_b.O2W(b_rotation);
+		}
+
 		// Resolve stable endpoints to each frame's current packed indices after reorder and insertion.
 		PRUnitTestMethod(EndpointRemapSurvivesBodyOrdering, Quick)
 		{

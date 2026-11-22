@@ -6,14 +6,14 @@ import tempfile
 from pathlib import Path
 
 import bpy
-from bpy.props import EnumProperty, StringProperty
+from bpy.props import EnumProperty, FloatProperty, StringProperty
 from bpy.types import Operator
 from bpy_extras import view3d_utils
 from bpy_extras.io_utils import ExportHelper
 from mathutils import Vector
 from mathutils.interpolate import poly_3d_calc
 
-from . import gait_desc, gait_template, limits, props, rig_desc, validate
+from . import gait_desc, gait_template, limits, props, ragdoll, rig_desc, validate
 
 # The result of the most recent validation, shown in the Rig panel
 LAST_REPORT: list[str] = []
@@ -620,6 +620,53 @@ class RYLOGIC_OT_rig_chain_assign(_ArmatureOperator):
 		return {"FINISHED"}
 
 
+class RYLOGIC_OT_ragdoll_generate(_ArmatureOperator):
+	"""Create or replace a ragdoll capsule for each selected bone, sized to the skin it deforms"""
+
+	bl_idname = "rylogic_rig.ragdoll_generate"
+	bl_label = "Generate Ragdoll Capsules"
+	bl_options = {"REGISTER", "UNDO"}
+
+	collection: StringProperty(name="Collection", description="The physics collection that holds the capsules; it must be in the scene")
+	material: StringProperty(name="Material", description="The physics material that the capsules are made of")
+	percentile: FloatProperty(name="Skin Fit", description="The fraction of the covered skin that each capsule's radius encloses", default=0.6, min=0.05, max=1.0, subtype="FACTOR")
+
+	def invoke(self, context, event):
+		# Default to the collection and material of an existing capsule or collision proxy of this armature
+		armature_obj = ActiveArmature(context)
+		for obj in bpy.data.objects:
+			if obj.type == "MESH" and (obj.parent == armature_obj and obj.name.startswith(ragdoll.RAGDOLL_PREFIX) or obj.name.startswith("COL_")) and obj.users_collection:
+				self.collection = self.collection or obj.users_collection[0].name
+				self.material = self.material or str(obj.get("physics_material", ""))
+
+		return context.window_manager.invoke_props_dialog(self)
+
+	def draw(self, context):
+		# The collection is picked from the document's collections
+		layout = self.layout
+		layout.prop_search(self, "collection", bpy.data, "collections")
+		layout.prop(self, "material")
+		layout.prop(self, "percentile")
+
+	def execute(self, context):
+		# Make capsules for the selected bones, in the given collection
+		armature_obj = ActiveArmature(context)
+		bone_names = [bone.name for bone in armature_obj.data.bones if bone.select]
+		collection = bpy.data.collections.get(self.collection)
+		if not bone_names or collection is None or not self.material:
+			self.report({"ERROR"}, "Select bones, and set the collection and material")
+			return {"CANCELLED"}
+
+		try:
+			created = ragdoll.GenerateRagdoll(armature_obj, bone_names, collection, self.material, self.percentile)
+		except ValueError as error:
+			self.report({"ERROR"}, str(error))
+			return {"CANCELLED"}
+
+		self.report({"INFO"}, f"Generated {len(created)} ragdoll capsules")
+		return {"FINISHED"}
+
+
 def _ExportSkinnedGlb(context: bpy.types.Context, armature_obj: bpy.types.Object, path: Path) -> None:
 	"""Export 'armature_obj' and the meshes it deforms as a Z-up skinned GLB, restoring the selection afterwards."""
 	# The export uses the selection, so remember it
@@ -679,6 +726,7 @@ CLASSES = (
 	RYLOGIC_OT_rig_item_add,
 	RYLOGIC_OT_rig_item_remove,
 	RYLOGIC_OT_rig_chain_assign,
+	RYLOGIC_OT_ragdoll_generate,
 	RYLOGIC_AP_preferences,
 )
 

@@ -65,17 +65,24 @@ family, the runtime blends the cycles by speed. Adding a template cycle adds its
 	   validation and export, e.g. while it is unfinished.
 The walking limbs are the LEG chains ending on a SOLE contact and the ARM chains ending on a PALM contact.
 
+A ragdoll replaces the animated character with linked rigid capsules when it goes limp, e.g. when it dies. Under Skeleton > Ragdoll, select the
+'link' bones (e.g. hips, chest, head and the limb bones) and press 'Generate Ragdoll Capsules'. Each link bone gets a capsule object, 'RAG_<bone>',
+parented to the bone in the chosen physics collection. A capsule also covers the bones that continue its bone end-to-end up to the next link, and its
+radius fits the skin that they deform (see 'ragdoll.py'). Edit the capsules as ordinary objects afterwards if needed. Each link joins its nearest
+linked ancestor, within the combined joint limits of the bones between them.
+
 Scripted use, e.g. from an asset exporter:
 	addon = importlib.import_module("rylogic-procedural-animation")
 	addon.register()  # the rig properties are read through registered property groups
 	addon.WriteRig(armature_obj, rig_path)
 	addon.WriteGait(armature_obj, gait_path)
+	addon.GenerateRagdoll(armature_obj, ["hips", "head"], physics_collection, "flesh")
 """
 
 bl_info = {
 	"name": "Rylogic Procedural Animation",
 	"author": "Paul Ryland",
-	"version": (2, 1, 0),
+	"version": (2, 2, 0),
 	"blender": (4, 2, 0),
 	"description": "Author and export rig and gait descriptions for the Rylogic procedural animation system",
 	"location": "Properties > Armature > Rylogic Rig (including Movement Cycles), and Properties > Bone > Rylogic Rig Joint",
@@ -88,7 +95,7 @@ import bpy
 # Dependencies come before the modules that import names from them.
 if "operators" in locals():
 	import importlib
-	for _name in ("limits", "rig_desc", "gait_desc", "gait_template", "validate", "props", "pin", "operators", "ui", "draw"):
+	for _name in ("limits", "rig_desc", "gait_desc", "gait_template", "validate", "props", "pin", "ragdoll", "operators", "ui", "draw"):
 		# A module added since the last load has not been imported yet, and is imported below
 		if _name in locals():
 			importlib.reload(locals()[_name])
@@ -96,10 +103,11 @@ if "operators" in locals():
 from . import draw, operators, pin, props, ui
 from .gait_desc import BuildGaitDesc, ValidateGaitDesc, WriteGaitDesc
 from .operators import WriteGait, WriteRig
+from .ragdoll import GenerateRagdoll
 from .rig_desc import BuildRigDesc, WriteRigDesc
 from .validate import ValidateRigDesc
 
-__all__ = ["BuildGaitDesc", "BuildRigDesc", "ValidateGaitDesc", "ValidateRigDesc", "WriteGait", "WriteGaitDesc", "WriteRig", "WriteRigDesc", "register", "unregister"]
+__all__ = ["BuildGaitDesc", "BuildRigDesc", "GenerateRagdoll", "ValidateGaitDesc", "ValidateRigDesc", "WriteGait", "WriteGaitDesc", "WriteRig", "WriteRigDesc", "register", "unregister"]
 
 
 def register() -> None:

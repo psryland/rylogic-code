@@ -433,11 +433,14 @@ void CSPrepareCoupledConstraints(int3 DTID(dtid))
 		uint state;
 		bool velocity_active;
 		bool position_active;
+
+		// Angular coordinates change along the rotation vector's rate axis, which differs from frame A's axis for large rotations.
+		float3 jacobian_axis = axis_idx < 3u ? axis_ws : ConstraintRotationVectorRateAxis(angular_error, axis_ws);
 		if (!CompileCoupledConstraintRow(
 			slot_idx,
 			axis_idx,
 			desc.axes[axis_idx],
-			axis_ws,
+			jacobian_axis,
 			linear_lever_a,
 			anchor_offset_b,
 			packed_endpoint.body_idx_a,

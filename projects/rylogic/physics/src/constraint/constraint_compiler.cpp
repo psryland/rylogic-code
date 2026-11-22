@@ -54,6 +54,20 @@ namespace pr::physics
 			};
 		}
 
+		// Return the world direction 'd' for which Dot3(d, w_b - w_a) is the exact rate of change of Dot3(rotation_vector, axis), where 'rotation_vector'
+		// is the world rotation from frame A to frame B (at most pi radians) and 'axis' is a unit axis of frame A. Frame A's axes are only a good approximation
+		// for small rotations; for large rotations, turning about one axis also changes the other rotation-vector components. Matches the GPU compiler.
+		v4 RotationVectorRateAxis(v4 rotation_vector, v4 axis)
+		{
+			// The inverse Jacobian of the rotation vector is I - 1/2[r]x + c[r]x^2; its transpose maps the coordinate's axis onto angular velocity.
+			auto const angle = Length(rotation_vector);
+			auto const c = angle < 1e-3f
+				? 1.0f / 12.0f + angle * angle / 720.0f
+				: 1.0f / (angle * angle) - 1.0f / (2.0f * angle * std::tan(0.5f * angle));
+			auto const r_cross_axis = Cross(rotation_vector, axis);
+			return axis + 0.5f * r_cross_axis + c * Cross(rotation_vector, r_cross_axis);
+		}
+
 		// Return the endpoint anchor offset from the centre of mass used by the body's spatial velocity.
 		v4 AnchorOffset(m4x4 const& constraint_to_world, CompiledConstraintEndpoint const& endpoint, BodyRemap const& remap)
 		{
@@ -131,8 +145,10 @@ namespace pr::physics
 				}
 				case EConstraintRowKind::Angular:
 				{
-					jacobian_a = EndpointJacobian(kind, endpoint_a, remap, axis_ws, anchor_offset_a, -1.0f);
-					jacobian_b = EndpointJacobian(kind, endpoint_b, remap, axis_ws, anchor_offset_b, +1.0f);
+					// Angular coordinates change along the rotation vector's rate axis, which differs from frame A's axis for large rotations.
+					auto const jacobian_axis = RotationVectorRateAxis(angular_error_ws, axis_ws);
+					jacobian_a = EndpointJacobian(kind, endpoint_a, remap, jacobian_axis, anchor_offset_a, -1.0f);
+					jacobian_b = EndpointJacobian(kind, endpoint_b, remap, jacobian_axis, anchor_offset_b, +1.0f);
 					position = Dot3(angular_error_ws, axis_ws);
 					break;
 				}

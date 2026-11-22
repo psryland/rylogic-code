@@ -292,7 +292,10 @@ void CSCompileConstraints(int3 DTID(dtid))
 		bool position_active;
 		// Linear coordinates also differentiate the rotation of frame A's axis through the full anchor separation.
 		float3 lever_a = axis_idx < 3u ? anchor_offset_a + linear_error : anchor_offset_a;
-		if (!CompileConstraintRow(slot_idx, axis_idx, desc.axes[axis_idx], axis_ws, lever_a, anchor_offset_b, position, old_state, reset_warm_start, state, velocity_active, position_active))
+
+		// Angular coordinates change along the rotation vector's rate axis, which differs from frame A's axis for large rotations.
+		float3 jacobian_axis = axis_idx < 3u ? axis_ws : ConstraintRotationVectorRateAxis(angular_error, axis_ws);
+		if (!CompileConstraintRow(slot_idx, axis_idx, desc.axes[axis_idx], jacobian_axis, lever_a, anchor_offset_b, position, old_state, reset_warm_start, state, velocity_active, position_active))
 			block.flags |= ConstraintBlockFlags_NumericalFailure;
 
 		if (velocity_active)
