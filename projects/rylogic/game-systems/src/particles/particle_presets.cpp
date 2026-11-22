@@ -165,10 +165,8 @@ namespace pr::game_systems::particles
 		// Texels per side of the froth texture.
 		constexpr int FrothTextureSize = 256;
 
-		// Return the stock froth texture, for drawing with alpha testing: a heap of lit lumps of foam. Its alpha is a dissolve threshold, not an
-		// opacity: the drawn alpha is the texel's alpha times the sprite's alpha, and a pixel shows only while that product is at least one half.
-		// The foam is therefore solid where the sprite is strong, and breaks into lumps and specks as the sprite's alpha falls toward its rim and
-		// as it fades. The lighting assumes the sprite is upright. Texels are R8G8B8A8 with straight alpha.
+		// Return the stock froth texture: a heap of lit lumps of foam. Its alpha is the foam's coverage, solid in the middle of each lump and soft at
+		// its edge, with scattered pin holes. The lighting assumes the sprite is upright. Texels are R8G8B8A8 with straight alpha.
 		std::vector<uint32_t> const& FrothTexels()
 		{
 			static auto const texels = []
@@ -184,8 +182,8 @@ namespace pr::game_systems::particles
 					return static_cast<float>(hash) / 4294967296.0f;
 				};
 
-				// The clump is a heap of round lumps of foam, packed most tightly at its centre. The sprite's alpha falls to zero at its rim, so
-				// alpha testing shows at most the inner half of the sprite, and the lumps lie within that half. Distances are in texture widths.
+				// The clump is a heap of round lumps of foam, packed most tightly at its centre. The sprite's alpha falls to zero at its rim, so the
+				// lumps lie within the inner half of the sprite, where it is strongest. Distances are in texture widths.
 				struct Lump { float u, v, radius; };
 				constexpr auto lump_count = 160;
 				auto lumps = std::vector<Lump>{};
@@ -243,10 +241,10 @@ namespace pr::game_systems::particles
 						auto const grain = 0.9f + 0.1f * random(x, y, 14);
 						auto const grey = std::clamp((0.55f + 0.55f * lit) * crease * grain, 0.0f, 1.0f);
 
-						// The alpha lets the middles of lumps survive more fading than their edges, so a fading clump shrinks into separate lumps,
-						// then into specks. Grain in the alpha makes those edges speckled, and scattered pin holes break up even the densest foam.
-						// Texels outside every lump are never drawn.
-						auto alpha = cover > 0.0f ? (0.5f + 0.5f * std::sqrt(cover)) * (0.88f + 0.12f * random(x, y, 15)) : 0.0f;
+						// Each lump is solid in its middle and soft at its edge, so lumps blend into each other and the water without hard outlines.
+						// Grain in the alpha speckles those edges, and scattered pin holes break up even the densest foam. Texels outside every lump
+						// are empty.
+						auto alpha = std::min(1.0f, 1.6f * std::sqrt(cover)) * (0.85f + 0.15f * random(x, y, 15));
 						if (random(x, y, 16) < 0.04f)
 							alpha *= 0.4f;
 
@@ -609,11 +607,11 @@ namespace pr::game_systems::particles
 			}
 			case EParticlePreset::Froth:
 			{
-				// Clumps of foam swell up along the ridges of breaking crests, ride the waves as they drift slowly downwind, and dissolve soon after the
-				// ridge passes. The threshold is above the crest foam's full amount, so froth forms only near the tops of the crests, and the high rate
-				// packs the ridges densely. Froth is drawn alpha tested, so it is bright and nearly opaque, and the foam texture makes each clump break
-				// into specks as its alpha falls rather than turn translucent (see FrothTexels). Alpha testing shows only about the inner half of each
-				// sprite, so the sizes are about twice the clumps seen.
+				// Clumps of foam swell up along the ridges of breaking crests, ride the waves as they drift slowly downwind, and fade soon after the
+				// ridge passes. The threshold is above the crest foam's full amount, so froth forms only near the tops of the crests. Short lives and a
+				// high rate pack the ridges densely and clear the backs of the waves quickly. Froth uses weighted blending, so clumps have soft edges
+				// and no hard outlines where they fade. The foam texture gives each clump its lumpy shape (see FrothTexels). The sprite's alpha falls to
+				// zero at its rim, so the sizes are about twice the clumps seen.
 				static ParticleSpriteConstants const constants = {
 					.key_count = 4,
 					.flicker = 0.0f,
@@ -623,7 +621,7 @@ namespace pr::game_systems::particles
 				};
 				static ParticleFrothEmitter const params = {
 					.area = { 0.0f, 0.0f, 0.0f, 60.0f },
-					.lifetime = { 1.5f, 3.0f },
+					.lifetime = { 0.7f, 1.4f },
 					.size = { 1.5f, 3.5f },
 					.colour0 = 0xFFFFFFFF,
 					.colour1 = 0xE0F0ECE4,
@@ -633,20 +631,20 @@ namespace pr::game_systems::particles
 					.spread = 0.2f,
 					.lift = 0.2f,
 					.rise = 0.1f,
-					.linger = 0.3f,
+					.linger = 0.15f,
 				};
 				auto const& texels = FrothTexels();
 				return ParticlePreset{
 					.m_sim = ParticleSystem::FrothSimShaders(),
 					.m_draw = ParticleSystem::SpriteDrawShaders(),
-					.m_blend = EParticleBlend::Opaque,
+					.m_blend = EParticleBlend::Weighted,
 					.m_record_stride = sizeof(ParticleSpriteRecord),
 					.m_state_stride = sizeof(ParticleFrothState),
 					.m_params_stride = sizeof(ParticleFrothEmitter),
 					.m_constants = &constants,
 					.m_constants_size = sizeof(constants),
 					.m_params = &params,
-					.m_rate = 4000.0f,
+					.m_rate = 9000.0f,
 					.m_burst = 0,
 					.m_texels = texels.data(),
 					.m_texture_size = FrothTextureSize,
