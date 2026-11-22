@@ -697,13 +697,18 @@ Complete, pending Paul's visual check of the `particle_presets` gallery. Ocean s
   breaking crests a little like smoke. Each puff keeps a height above the wave below it that grows slowly with age, drifts with a fraction of the
   wind, grows and fades by the shared sprite curve, and dies when the water is removed. Surface-aligned discs were tried first and looked like
   flat patches rather than foam, so they and their flat sprite vertex shader were removed.
+- **Froth stays on crests.** Crests travel at the waves' phase speed, so a puff that stays put soon sits over a trough. Each puff carries a
+  presence in [0, 1] that follows the crest foam under it (foam below half the emitter's threshold counts as none), never rises, and decays over
+  the emitter's `linger` time once the crest has passed. Alpha is scaled by presence, and the puff dies when it has faded. Moving puffs with the
+  crests was rejected because several wave trains give no single crest velocity.
 - **Presets.** `EParticlePreset` gains `Spray` and `Froth`. Their emitter parameters start with `float4 area` (xy centre, w radius) rather than a
   position, because they emit over an area of sea.
 - **Shared HLSL fix.** `OceanWaveSampleZero` and `OceanCrestSteepness` in `ocean_surface.hlsli` were missing `odr`, which caused duplicate symbols
   once a second C++ file included the header.
 - **No separate shader getters.** The presets already return the spray and froth shaders, so no `View3D_Particle*Shaders` calls were added.
 - **Proof.** `GameSystems_ParticleWater` builds both presets over a test ocean and checks: no births without water; births on a rough sea; spray
-  dies within seconds; froth lives on while the water is bound and dies when it is cleared; a calm sea gives no births; and binding an invalid
+  dies within seconds; froth with a long linger lives on while the water is bound and dies when it is cleared; froth with the preset's linger
+  fades as the crests pass; a calm sea gives no births; and binding an invalid
   ocean is reported. The `ocean_spray` demo in `view3d-12-tests` shows spray and froth on a wind-driven sea, with time scale and wind controls.
 
 ## Milestone 5 status

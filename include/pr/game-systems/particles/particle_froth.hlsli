@@ -5,7 +5,8 @@
 // The stock froth particle type: soft puffs of foam that form on the breaking crests of a bound water surface (see particle_water.hlsli) and ride it.
 // Births find crests like spray (see particle_spray.hlsli), and a birth that finds no breaking crest makes no froth. Each puff drifts across the
 // surface with a fraction of the wind, stays at a height above the waves below it that grows slowly with its age, and grows and fades over its life
-// by the sprite curve. Froth dies when the water is removed.
+// by the sprite curve. Crests travel with the waves while puffs stay behind, so a puff fades over its emitter's linger time once the crest has left it,
+// and dies when it has faded. Froth therefore shows only on and just behind breaking crests. Froth dies when the water is removed.
 //
 // Froth writes ParticleSpriteRecords and draws with the stock sprite batch, as camera-facing sprites. It moves only in simulated time.
 // Positions are in the space of the type's View3D object, which must be the model space of the bound ocean's object.
@@ -28,12 +29,16 @@ struct ParticleFrothEmitter
 	float2 size;           // Diameter (m) at birth (x) and at death (y), before the sprite curve.
 	uint colour0;          // Colour at birth.
 	uint colour1;          // Colour at death.
-	float foam_threshold;  // Crest foam amount (see ParticleSampleWater) that a point must reach to form froth. (0, 1].
+	float foam_threshold;  // Crest foam amount (see ParticleSampleWater) that a point must reach to form froth, and that counts as a full crest. (0, 1].
 	uint candidates;       // Random points tried per birth. [1, 32] (see ParticleFindCrest).
 	float drift;           // Fraction of the wind velocity that puffs drift with.
 	float spread;          // Radius of the disc that the horizontal drift velocities are spread over (m/s).
 	float lift;            // Height (m) of a puff's centre above the surface at birth.
 	float rise;            // Rate (m/s) at which a puff's height above the surface grows.
+	float linger;          // Time (s) for a puff to fade once the crest under it has passed. Positive.
+	uint pad0;
+	uint pad1;
+	uint pad2;
 };
 
 // The state of one froth puff.
@@ -50,13 +55,17 @@ struct ParticleFrothState
 	uint colour0;     // Colour at birth.
 	uint colour1;     // Colour at death.
 	uint seed;        // Per-puff random seed.
+	float presence;   // Crest under the puff in [0, 1]: the foam under it relative to the threshold, decaying over 'linger' once the foam falls.
+	float linger;     // Decay time (s) of the presence.
+	float threshold;  // Foam amount that counts as a full crest.
 	uint pad0;
 	uint pad1;
+	uint pad2;
 };
 
 #ifdef __cplusplus
-	static_assert(sizeof(ParticleFrothEmitter) == 64);
-	static_assert(sizeof(ParticleFrothState) == 64);
+	static_assert(sizeof(ParticleFrothEmitter) == 80);
+	static_assert(sizeof(ParticleFrothState) == 80);
 }
 #endif
 #endif

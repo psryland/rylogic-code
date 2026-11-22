@@ -1490,14 +1490,22 @@ namespace render_tests
 			auto froth_params = *static_cast<ParticleFrothEmitter const*>(froth.m_settings.m_params);
 			froth_params.area = { 0.0f, 0.0f, 0.0f, 15.0f };
 			froth_params.lifetime = { 100.0f, 100.0f };
+			froth_params.linger = 1e6f;
 			auto froth_emitter = particles.EmitterCreate(froth.m_type, &froth_params, sizeof(froth_params), 0.0f, 2);
 
-			// Burst both effects, and return how many of each survive their first tick: those born on a crest.
+			// Froth with the preset's short linger, which fades once the crests that formed it move on.
+			auto fading = PresetCreate(particles, api::EParticlePreset::Froth, 4096);
+			auto fading_params = froth_params;
+			fading_params.linger = static_cast<ParticleFrothEmitter const*>(fading.m_settings.m_params)->linger;
+			auto fading_emitter = particles.EmitterCreate(fading.m_type, &fading_params, sizeof(fading_params), 0.0f, 3);
+
+			// Burst all effects, and return how many spray and froth particles survive their first tick: those born on a crest.
 			auto burst = [&]
 			{
 				// A failed birth lives for its birth step only.
 				particles.Burst(spray_emitter, 1000);
 				particles.Burst(froth_emitter, 1000);
+				particles.Burst(fading_emitter, 1000);
 				step(BirthStep, 1);
 				step(0.05, 1);
 				return std::pair{ particles.Stats(spray.m_type).m_live, particles.Stats(froth.m_type).m_live };
@@ -1514,10 +1522,14 @@ namespace render_tests
 			Require(rough_froth > 20 && rough_froth < 1000, std::format("Froth was not born on crests only ({} of 1000)", rough_froth).c_str());
 			Require(!fixture.Image().empty(), "Spray and froth were not drawn");
 
-			// Spray falls back into the water within a few seconds and dies there. Froth rides the waves for its whole life.
+			// Spray falls back into the water within a few seconds and dies there. Froth rides the waves for its whole life, unless the crests that
+			// formed it move on, when it fades and dies.
+			auto fading_born = particles.Stats(fading.m_type).m_live;
+			Require(fading_born > 20, std::format("Fading froth was not born on crests ({} of 1000)", fading_born).c_str());
 			step(0.05, 80);
 			Require(particles.Stats(spray.m_type).m_live == 0, "Spray did not die in the water");
 			Require(particles.Stats(froth.m_type).m_live == rough_froth, "Froth did not live on the water");
+			Require(particles.Stats(fading.m_type).m_live < fading_born / 4, std::format("Froth did not fade behind the passing crests ({} of {})", particles.Stats(fading.m_type).m_live, fading_born).c_str());
 
 			// Removing the water ends the froth.
 			Require(View3D_ParticleWaterSet(particles.m_system, nullptr, nullptr) != FALSE, "Particle water clear failed");

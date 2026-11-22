@@ -12,12 +12,20 @@
 #define EmitterParams ParticleFrothEmitter
 #define TypeConstants ParticleSpriteConstants
 
-// Drift a puff through 'dt' seconds and keep it at its height above the water below its new position.
+// Drift a puff through 'dt' seconds, keep it at its height above the water below its new position, and track the crest under it.
 void ParticleFrothMove(inout ParticleFrothState state, float dt)
 {
 	// The drift is horizontal and constant, and the height above the surface is a function of age, so the motion is exact at any tick rate.
 	state.position.xy += state.drift * dt;
-	state.position.z = ParticleSampleWater(state.position.xy).height + state.lift + state.rise * state.age;
+	ParticleWaterSample water = ParticleSampleWater(state.position.xy);
+	state.position.z = water.height + state.lift + state.rise * state.age;
+
+	// The presence follows the crest under the puff as it falls, and decays exponentially over the linger time once the crest moves on.
+	// Presence never rises, so a puff belongs to the crest that formed it, and a later crest passing under a faded puff does not make it pop back.
+	// Foam below half the threshold counts as no crest, so the low foam that surrounds breaking crests does not keep puffs alive.
+	// The foam is sampled once per tick, so the fade depends only slightly on the tick length.
+	float crest = smoothstep(0.5f * state.threshold, state.threshold, water.foam);
+	state.presence = min(state.presence, max(crest, state.presence * exp(-dt / state.linger)));
 }
 
 // Form a puff on a breaking crest within the emitter's disc, and move it through the part of the tick after its birth.
@@ -44,8 +52,12 @@ ParticleFrothState ParticleInit(ParticleFrothEmitter params, ParticleSpawn spawn
 	state.colour0 = params.colour0;
 	state.colour1 = params.colour1;
 	state.seed = spawn.seed;
+	state.presence = 1.0f;
+	state.linger = params.linger;
+	state.threshold = params.foam_threshold;
 	state.pad0 = 0;
 	state.pad1 = 0;
+	state.pad2 = 0;
 
 	// A birth without a crest makes no froth. New particles are always kept for one tick, so it is drawn at zero size, away from the water's
 	// far-below height, and the next update removes it.
@@ -64,7 +76,7 @@ ParticleFrothState ParticleInit(ParticleFrothEmitter params, ParticleSpawn spawn
 	return state;
 }
 
-// Age a puff and move it with the water. Puffs die with the water.
+// Age a puff and move it with the water. Puffs die with the water, and once they have faded behind the crest that formed them.
 bool ParticleUpdate(inout ParticleFrothState state, float dt, ParticleSpriteConstants c)
 {
 	// Puffs at the end of their life, or without water to ride, are removed without moving.
@@ -72,16 +84,22 @@ bool ParticleUpdate(inout ParticleFrothState state, float dt, ParticleSpriteCons
 	if (state.age >= state.lifetime || g_environment.water == 0)
 		return false;
 
+	// Puffs that have faded to almost nothing are removed.
 	ParticleFrothMove(state, dt);
-	return true;
+	return state.presence > 0.02f;
 }
 
 // Evaluate a puff's size and colour at its age.
 ParticleSpriteRecord ParticleProject(ParticleFrothState state, ParticleSpriteConstants c)
 {
 	// The sprite curve shapes the growth and fade. The velocity only matters to a streak, and excludes the waves' motion.
+	// The presence fades the puff where the crest has moved on.
 	float3 velocity = float3(state.drift, state.rise);
-	return ParticleSpriteMakeRecord(state.position, velocity, state.age, state.lifetime, state.seed, state.colour0, state.colour1, state.size0, state.size1, c);
+	ParticleSpriteRecord record = ParticleSpriteMakeRecord(state.position, velocity, state.age, state.lifetime, state.seed, state.colour0, state.colour1, state.size0, state.size1, c);
+	float4 colour = ParticleUnpackColour(record.colour);
+	colour.a *= state.presence;
+	record.colour = ParticlePackColour(colour);
+	return record;
 }
 
 // Bound a puff by the sphere around its sprite. See ParticleSpriteRecordBounds.

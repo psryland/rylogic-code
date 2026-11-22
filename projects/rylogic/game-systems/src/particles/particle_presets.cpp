@@ -511,7 +511,7 @@ namespace pr::game_systems::particles
 			}
 			case EParticlePreset::Froth:
 			{
-				// Soft puffs swell up on breaking crests like smoke, ride the waves as they drift slowly downwind, and fade away.
+				// Soft puffs swell up on breaking crests like smoke, ride the waves as they drift slowly downwind, and fade away soon after the crest passes.
 				static ParticleSpriteConstants const constants = {
 					.key_count = 3,
 					.flicker = 0.0f,
@@ -525,12 +525,13 @@ namespace pr::game_systems::particles
 					.size = { 1.0f, 3.0f },
 					.colour0 = 0xA0F4F8FA,
 					.colour1 = 0x60E4EAF0,
-					.foam_threshold = 0.3f,
+					.foam_threshold = 0.5f,
 					.candidates = 8,
 					.drift = 0.05f,
 					.spread = 0.3f,
 					.lift = 0.2f,
 					.rise = 0.15f,
+					.linger = 0.4f,
 				};
 				return ParticlePreset{
 					.m_sim = ParticleSystem::FrothSimShaders(),
