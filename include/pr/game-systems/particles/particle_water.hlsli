@@ -67,10 +67,18 @@ ParticleWaterSample ParticleSampleWater(float2 xy)
 // The most candidate points that one crest search tries.
 static const uint ParticleCrestCandidateMax = 32;
 
+// Return the breaking amount of 'water', raised on faces that slope down in the horizontal direction of 'lean' and lowered on faces that slope up.
+// A face's horizontal normal points the way it slopes down, so the change is the dot product of that normal with 'lean'. Zero 'lean' gives the plain amount.
+float ParticleWaterBreaking(ParticleWaterSample water, float2 lean)
+{
+	// The horizontal part of the unit normal grows with the steepness of the face.
+	return water.breaking + dot(water.normal.xy, lean);
+}
+
 // Search for a breaking crest in the disc of radius 'radius' around 'centre'. Tries up to 'candidates' random points, chosen by 'seed' with random
-// indices from 'first_index', and returns true with the first point whose breaking amount reaches 'threshold', in 'xy' and 'water'. Returns false when no
-// point does, such as on a calm sea or with no water. 'candidates' is clamped to [1, ParticleCrestCandidateMax].
-bool ParticleFindCrest(float2 centre, float radius, uint candidates, float threshold, uint seed, uint first_index, out float2 xy, out ParticleWaterSample water)
+// indices from 'first_index', and returns true with the first point whose breaking amount, leaned by 'lean' (see ParticleWaterBreaking), reaches
+// 'threshold', in 'xy' and 'water'. Returns false when no point does, such as on a calm sea or with no water. 'candidates' is clamped to [1, ParticleCrestCandidateMax].
+bool ParticleFindCrest(float2 centre, float radius, uint candidates, float threshold, float2 lean, uint seed, uint first_index, out float2 xy, out ParticleWaterSample water)
 {
 	// Points are spread evenly over the disc's area. Each candidate uses two random values.
 	uint count = clamp(candidates, 1u, ParticleCrestCandidateMax);
@@ -81,7 +89,7 @@ bool ParticleFindCrest(float2 centre, float radius, uint candidates, float thres
 		float a = 6.283185307179586f * ParticleRandom(seed, first_index + 2 * i + 1);
 		xy = centre + r * float2(cos(a), sin(a));
 		water = ParticleSampleWater(xy);
-		if (water.breaking >= threshold)
+		if (ParticleWaterBreaking(water, lean) >= threshold)
 			return true;
 	}
 	return false;

@@ -24,7 +24,7 @@ void ParticleFrothMove(inout ParticleFrothState state, float dt)
 	// Presence never rises, so a puff belongs to the crest that formed it, and a later crest passing under a faded puff does not make it pop back.
 	// A breaking amount below half the threshold counts as no crest, so the lower faces of breaking crests do not keep puffs alive.
 	// The water is sampled once per tick, so the fade depends only slightly on the tick length.
-	float crest = smoothstep(0.5f * state.threshold, state.threshold, water.breaking);
+	float crest = smoothstep(0.5f * state.threshold, state.threshold, ParticleWaterBreaking(water, state.lean));
 	state.presence = min(state.presence, max(crest, state.presence * exp(-dt / state.linger)));
 }
 
@@ -32,9 +32,13 @@ void ParticleFrothMove(inout ParticleFrothState state, float dt)
 ParticleFrothState ParticleInit(ParticleFrothEmitter params, ParticleSpawn spawn, ParticleSpriteConstants c)
 {
 	// Random indices below 16 belong to the drift, lifetime and sprite record; the crest search uses those from 16.
+	// The search leans towards faces that slope down along the wind, which are the leading faces of the downwind-travelling crests.
+	float2 wind = ParticleSampleWind(float3(params.area.xy, 0.0f)).xy;
+	float wind_speed = length(wind);
+	float2 lean = wind_speed > 0.0f ? wind * (params.lead / wind_speed) : float2(0.0f, 0.0f);
 	float2 xy;
 	ParticleWaterSample water;
-	bool found = ParticleFindCrest(params.area.xy, params.area.w, params.candidates, params.breaking_threshold, spawn.seed, 16, xy, water);
+	bool found = ParticleFindCrest(params.area.xy, params.area.w, params.candidates, params.breaking_threshold, lean, spawn.seed, 16, xy, water);
 	float spread_r = params.spread * sqrt(ParticleRandom(spawn.seed, 3));
 	float spread_a = 6.283185307179586f * ParticleRandom(spawn.seed, 4);
 	float lifetime = lerp(params.lifetime.x, params.lifetime.y, ParticleRandom(spawn.seed, 6));
@@ -55,9 +59,8 @@ ParticleFrothState ParticleInit(ParticleFrothEmitter params, ParticleSpawn spawn
 	state.presence = 1.0f;
 	state.linger = params.linger;
 	state.threshold = params.breaking_threshold;
+	state.lean = lean;
 	state.pad0 = 0;
-	state.pad1 = 0;
-	state.pad2 = 0;
 
 	// A birth without a crest makes no froth. New particles are always kept for one tick, so it is drawn at zero size, away from the water's
 	// far-below height, and the next update removes it.
@@ -92,7 +95,7 @@ bool ParticleUpdate(inout ParticleFrothState state, float dt, ParticleSpriteCons
 // Evaluate a puff's size and colour at its age.
 ParticleSpriteRecord ParticleProject(ParticleFrothState state, ParticleSpriteConstants c)
 {
-	// The sprite curve shapes the growth and fade. The velocity only matters to a streak, and excludes the waves' motion.
+	// The sprite curve shapes the colour and size. The velocity only matters to a streak, and excludes the waves' motion.
 	// The presence fades the puff where the crest has moved on. Puffs stay nearly upright, so textures lit from above keep their light on top.
 	float3 velocity = float3(state.drift, state.rise);
 	ParticleSpriteRecord record = ParticleSpriteMakeRecord(state.position, velocity, state.age, state.lifetime, state.seed, state.colour0, state.colour1, state.size0, state.size1, c);
@@ -100,6 +103,10 @@ ParticleSpriteRecord ParticleProject(ParticleFrothState state, ParticleSpriteCon
 	colour.a *= state.presence;
 	record.colour = ParticlePackColour(colour);
 	record.angle = 0.6f * (ParticleRandom(state.seed, 7) - 0.5f);
+
+	// Puffs swell from a small start to their full size at mid life and shrink again, along a half sine, so they never stop growing abruptly.
+	float t = saturate(state.age / state.lifetime);
+	record.pos_size.w *= 0.3f + 0.7f * sin(3.141592653589793f * t);
 	return record;
 }
 

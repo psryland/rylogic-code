@@ -29,7 +29,7 @@ ParticleSteppedSpriteState ParticleInit(ParticleSprayEmitter params, ParticleSpa
 	// Random indices below 16 belong to the launch and the sprite record; the crest search uses those from 16.
 	float2 xy;
 	ParticleWaterSample water;
-	bool found = ParticleFindCrest(params.area.xy, params.area.w, params.candidates, params.breaking_threshold, spawn.seed, 16, xy, water);
+	bool found = ParticleFindCrest(params.area.xy, params.area.w, params.candidates, params.breaking_threshold, float2(0.0f, 0.0f), spawn.seed, 16, xy, water);
 	float3 dv = ParticleRandomInBall(float3(ParticleRandom(spawn.seed, 3), ParticleRandom(spawn.seed, 4), ParticleRandom(spawn.seed, 5)));
 	float lifetime = lerp(params.lifetime.x, params.lifetime.y, ParticleRandom(spawn.seed, 6));
 

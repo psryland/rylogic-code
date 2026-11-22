@@ -1022,9 +1022,10 @@ namespace view3d_test
 				if (!View3D_ParticleWaterSet(m_system, m_ocean, m_ocean_object))
 					throw std::runtime_error("Particle water set failed");
 
+				// Froth fades over a short depth into the water as well as the opaque scene, so its clumps blend into the surface they sit on.
 				SetEnvironment();
 				m_spray_type = CreateEffect(api::EParticlePreset::Spray, 0.5f);
-				m_froth_type = CreateEffect(api::EParticlePreset::Froth, 1.0f);
+				m_froth_type = CreateEffect(api::EParticlePreset::Froth, 0.5f);
 
 				// Demo controls.
 				auto& ui = ctx.m_controls;

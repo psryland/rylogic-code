@@ -2746,7 +2746,8 @@ extern "C"
 	VIEW3D_API void __stdcall View3D_ObjectEmissiveScaleSet(pr::view3d::Object object, float scale, char const* name);
 
 	// Get/Set the soft depth of 'object': the view depth, in world units, over which its transparent fragments fade to zero alpha as they
-	// approach the opaque scene behind them, so they do not show hard lines where they cut through opaque surfaces. Zero (the default) keeps
+	// approach the opaque scene behind them, so they do not show hard lines where they cut through opaque surfaces. Weighted transparent
+	// fragments also fade as they approach the nearest sorted transparent surface behind them (such as water). Zero (the default) keeps
 	// hard intersections. Applies to the stock transparent pixel shaders and to procedural families built with the stock entry-point macros.
 	// 'depth' must be non-negative. Name follows LdrObject::Apply; the getter returns the first match, or zero if absent.
 	VIEW3D_API float __stdcall View3D_ObjectSoftDepthGet(pr::view3d::Object object, char const* name);

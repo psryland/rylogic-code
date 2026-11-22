@@ -3,10 +3,11 @@
 //  Copyright (c) Rylogic Ltd 2026
 //************************************
 // The stock froth particle type: soft puffs of foam that form on the breaking crests of a bound water surface (see particle_water.hlsli) and ride it.
-// Births find crests like spray (see particle_spray.hlsli), and a birth that finds no breaking crest makes no froth. Each puff drifts across the
-// surface with a fraction of the wind, stays at a height above the waves below it that grows slowly with its age, and grows and fades over its life
-// by the sprite curve. Crests travel with the waves while puffs stay behind, so a puff fades over its emitter's linger time once the crest has left it,
-// and dies when it has faded. Froth therefore shows only on and just behind breaking crests. Froth dies when the water is removed.
+// Births find crests like spray (see particle_spray.hlsli), leaning towards the leading faces of the crests, and a birth that finds no breaking crest
+// makes no froth. Each puff drifts across the surface with a fraction of the wind, stays at a height above the waves below it that grows slowly with
+// its age, and swells and shrinks along a half sine over its life while the sprite curve shapes its colour and size. Crests travel with the waves while
+// puffs stay behind, so a puff fades over its emitter's linger time once the crest has left it, and dies when it has faded. Froth therefore shows only
+// on and just behind breaking crests. Froth dies when the water is removed.
 //
 // Froth writes ParticleSpriteRecords and draws with the stock sprite batch, as camera-facing sprites. It moves only in simulated time.
 // Positions are in the space of the type's View3D object, which must be the model space of the bound ocean's object.
@@ -26,7 +27,7 @@ struct ParticleFrothEmitter
 {
 	float4 area;           // xy = Centre of the disc of sea that froth forms on. z unused. w = Radius of the disc (m).
 	float2 lifetime;       // Range of puff lifetimes (s). Each puff picks a lifetime uniformly in [x, y]. Positive.
-	float2 size;           // Diameter (m) at birth (x) and at death (y), before the sprite curve.
+	float2 size;           // Diameter (m) at birth (x) and at death (y), before the sprite curve and the half-sine swell over the puff's life.
 	uint colour0;          // Colour at birth.
 	uint colour1;          // Colour at death.
 	float breaking_threshold;  // Breaking amount (see ParticleSampleWater) that a point must reach to form froth, and that counts as a full crest. Thresholds
@@ -37,9 +38,10 @@ struct ParticleFrothEmitter
 	float lift;            // Height (m) of a puff's centre above the surface at birth.
 	float rise;            // Rate (m/s) at which a puff's height above the surface grows.
 	float linger;          // Time (s) for a puff to fade once the crest under it has passed. Positive.
+	float lead;            // Breaking amount added per unit of a face's horizontal normal along the wind (see ParticleWaterBreaking). Waves travel downwind,
+	                       // so a positive lead forms froth earlier on the leading faces of crests and less on their backs. Zero for no lean.
 	uint pad0;
 	uint pad1;
-	uint pad2;
 };
 
 // The state of one froth puff.
@@ -59,9 +61,8 @@ struct ParticleFrothState
 	float presence;   // Crest under the puff in [0, 1]: the breaking amount under it relative to the threshold, decaying over 'linger' once it falls.
 	float linger;     // Decay time (s) of the presence.
 	float threshold;  // Breaking amount that counts as a full crest.
+	float2 lean;      // Lean of the breaking amount (see ParticleWaterBreaking): the emitter's lead along the wind direction at birth.
 	uint pad0;
-	uint pad1;
-	uint pad2;
 };
 
 #ifdef __cplusplus

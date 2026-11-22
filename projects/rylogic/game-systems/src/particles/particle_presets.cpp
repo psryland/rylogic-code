@@ -608,30 +608,32 @@ namespace pr::game_systems::particles
 			case EParticlePreset::Froth:
 			{
 				// Clumps of foam swell up along the ridges of breaking crests, ride the waves as they drift slowly downwind, and fade soon after the
-				// ridge passes. The threshold is above the crest foam's full amount, so froth forms only near the tops of the crests. Short lives and a
-				// high rate pack the ridges densely and clear the backs of the waves quickly. Froth uses weighted blending, so clumps have soft edges
-				// and no hard outlines where they fade. The foam texture gives each clump its lumpy shape (see FrothTexels). The sprite's alpha falls to
-				// zero at its rim, so the sizes are about twice the clumps seen.
+				// ridge passes. The threshold is above the crest foam's full amount, so froth forms only near the tops of the crests, and the lead forms
+				// it earlier on the crests' leading faces. Short lives and a high rate pack the ridges densely and clear the backs of the waves quickly.
+				// Clumps sit low on the water, so the froth forms a thin layer. Froth uses weighted blending, so clumps have soft edges and no hard
+				// outlines where they fade. The foam texture gives each clump its lumpy shape (see FrothTexels). The sprite's alpha falls to zero at its
+				// rim, so the sizes are about twice the clumps seen. The curve only fades the colour, because froth swells and shrinks by its own half sine.
 				static ParticleSpriteConstants const constants = {
 					.key_count = 4,
 					.flicker = 0.0f,
 					.flicker_rate = 0.0f,
 					.streak = 0.0f,
-					.keys = { { 0.0f, 0.6f, 0x00FFFFFF }, { 0.08f, 0.95f, 0xFFFFFFFF }, { 0.4f, 1.1f, 0xFFFFFFFF }, { 1.0f, 1.3f, 0x00FFFFFF } },
+					.keys = { { 0.0f, 1.0f, 0x00FFFFFF }, { 0.08f, 1.0f, 0xFFFFFFFF }, { 0.4f, 1.0f, 0xFFFFFFFF }, { 1.0f, 1.0f, 0x00FFFFFF } },
 				};
 				static ParticleFrothEmitter const params = {
 					.area = { 0.0f, 0.0f, 0.0f, 60.0f },
 					.lifetime = { 0.7f, 1.4f },
-					.size = { 1.5f, 3.5f },
+					.size = { 1.6f, 2.6f },
 					.colour0 = 0xFFFFFFFF,
 					.colour1 = 0xE0F0ECE4,
 					.breaking_threshold = 1.1f,
 					.candidates = 16,
 					.drift = 0.05f,
 					.spread = 0.2f,
-					.lift = 0.2f,
-					.rise = 0.1f,
+					.lift = 0.12f,
+					.rise = 0.02f,
 					.linger = 0.15f,
+					.lead = 1.0f,
 				};
 				auto const& texels = FrothTexels();
 				return ParticlePreset{
@@ -644,7 +646,7 @@ namespace pr::game_systems::particles
 					.m_constants = &constants,
 					.m_constants_size = sizeof(constants),
 					.m_params = &params,
-					.m_rate = 9000.0f,
+					.m_rate = 14000.0f,
 					.m_burst = 0,
 					.m_texels = texels.data(),
 					.m_texture_size = FrothTextureSize,
