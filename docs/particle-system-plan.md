@@ -758,4 +758,4 @@ Complete, pending Paul's visual check of the `particle_presets` gallery. Ocean s
 
 ## Milestone 5 status
 
-Complete, pending Paul's visual check of the `ocean_spray` demo.
+Complete. Paul approved the `ocean_spray` spray and froth look.
