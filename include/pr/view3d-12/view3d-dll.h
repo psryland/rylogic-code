@@ -1463,7 +1463,7 @@ namespace pr
 			WoodChips = 8,  // A burst of tumbling wood chips, such as from chopping a tree. Debris.
 			Marker = 9,     // Pulses of an expanding ring, such as a beacon. Markers.
 			Spray = 10,     // Droplets thrown up from breaking wave crests. Needs a bound water surface. Spray.
-			Froth = 11,     // Foam patches that form on breaking wave crests and ride the waves. Needs a bound water surface. Froth.
+			Froth = 11,     // Foam puffs that swell up on breaking wave crests and ride the waves. Needs a bound water surface. Froth.
 		};
 
 		// A ready-made particle effect: the settings of one batch, one type and its emitters. Every pointer refers to static data.

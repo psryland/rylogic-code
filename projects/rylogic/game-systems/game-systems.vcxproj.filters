@@ -130,9 +130,6 @@
     <ShaderBuild Include="src\shaders\hlsl\particles\particle_froth_cs.hlsl">
       <Filter>src\shaders</Filter>
     </ShaderBuild>
-    <ShaderBuild Include="src\shaders\hlsl\particles\particle_flat_sprite_vs.hlsl">
-      <Filter>src\shaders</Filter>
-    </ShaderBuild>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="pr">

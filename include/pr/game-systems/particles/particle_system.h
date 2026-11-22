@@ -55,13 +55,9 @@ namespace pr::game_systems::particles
 		// (see WaterSet). The data is static.
 		static pr::view3d::ParticleSimShaders SpraySimShaders();
 
-		// The simulation shaders of the stock froth type (see particle_froth.hlsli). It draws with the stock flat sprite batch, and needs a water
+		// The simulation shaders of the stock froth type (see particle_froth.hlsli). 		It draws with the stock sprite batch, and needs a water
 		// surface (see WaterSet). The data is static.
 		static pr::view3d::ParticleSimShaders FrothSimShaders();
-
-		// The drawing shaders of the stock flat sprite batch: soft discs lying in the plane of each record's orientation, drawn from ParticleMeshRecord
-		// records (see particle_mesh.hlsli). The disc is procedural, so the batch has no vertex data. The data is static.
-		static pr::view3d::ParticleDrawShaders FlatSpriteDrawShaders();
 
 		// Validate 'options' and add a particle batch, returning its index. Its View3D object is returned in 'out_object'.
 		virtual int BatchCreate(pr::view3d::ParticleBatchOptions const& options, char const* name, pr::view3d::Object& out_object) = 0;

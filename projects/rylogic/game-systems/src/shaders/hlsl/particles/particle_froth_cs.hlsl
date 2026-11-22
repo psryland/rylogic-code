@@ -4,30 +4,26 @@
 //************************************
 // Emit and update kernels of the stock froth particle type. See particle_froth.hlsli.
 #include "pr/game-systems/particles/particle_froth.hlsli"
-#include "pr/game-systems/particles/particle_sprite.hlsli"
 #include "pr/game-systems/particles/particle_environment.hlsli"
 #include "pr/game-systems/particles/particle_water.hlsli"
 
 #define ParticleState ParticleFrothState
-#define ParticleRecord ParticleMeshRecord
+#define ParticleRecord ParticleSpriteRecord
 #define EmitterParams ParticleFrothEmitter
-#define TypeConstants ParticleFrothConstants
+#define TypeConstants ParticleSpriteConstants
 
-// Drift a patch through 'dt' seconds and lay it on the water below its new position, turned by its fixed random angle.
+// Drift a puff through 'dt' seconds and keep it at its height above the water below its new position.
 void ParticleFrothMove(inout ParticleFrothState state, float dt)
 {
-	// The drift is horizontal and constant, so the motion is exact at any tick rate. The height and tilt follow the waves.
+	// The drift is horizontal and constant, and the height above the surface is a function of age, so the motion is exact at any tick rate.
 	state.position.xy += state.drift * dt;
-	ParticleWaterSample water = ParticleSampleWater(state.position.xy);
-	state.position.z = water.height + state.lift;
-	float4 spin = ParticleQuatAxisAngle(float3(0.0f, 0.0f, 1.0f), 6.283185307179586f * ParticleRandom(state.seed, 7));
-	state.orientation = ParticleQuatMul(ParticleQuatFromZ(water.normal), spin);
+	state.position.z = ParticleSampleWater(state.position.xy).height + state.lift + state.rise * state.age;
 }
 
-// Form a patch on a breaking crest within the emitter's disc, and move it through the part of the tick after its birth.
-ParticleFrothState ParticleInit(ParticleFrothEmitter params, ParticleSpawn spawn, ParticleFrothConstants c)
+// Form a puff on a breaking crest within the emitter's disc, and move it through the part of the tick after its birth.
+ParticleFrothState ParticleInit(ParticleFrothEmitter params, ParticleSpawn spawn, ParticleSpriteConstants c)
 {
-	// Random indices below 16 belong to the drift, lifetime and spin; the crest search uses those from 16.
+	// Random indices below 16 belong to the drift, lifetime and sprite record; the crest search uses those from 16.
 	float2 xy;
 	ParticleWaterSample water;
 	bool found = ParticleFindCrest(params.area.xy, params.area.w, params.candidates, params.foam_threshold, spawn.seed, 16, xy, water);
@@ -35,14 +31,14 @@ ParticleFrothState ParticleInit(ParticleFrothEmitter params, ParticleSpawn spawn
 	float spread_a = 6.283185307179586f * ParticleRandom(spawn.seed, 4);
 	float lifetime = lerp(params.lifetime.x, params.lifetime.y, ParticleRandom(spawn.seed, 6));
 
-	// Patches drift with a fraction of the wind, spread evenly over a disc of velocities.
+	// Puffs drift with a fraction of the wind, spread evenly over a disc of velocities.
 	ParticleFrothState state;
 	state.position = float3(xy, 0.0f);
 	state.age = spawn.age;
 	state.drift = ParticleSampleWind(float3(xy, water.height)).xy * params.drift + spread_r * float2(cos(spread_a), sin(spread_a));
 	state.lifetime = lifetime;
 	state.lift = params.lift;
-	state.orientation = float4(0.0f, 0.0f, 0.0f, 1.0f);
+	state.rise = params.rise;
 	state.size0 = params.size.x;
 	state.size1 = params.size.y;
 	state.colour0 = params.colour0;
@@ -50,7 +46,6 @@ ParticleFrothState ParticleInit(ParticleFrothEmitter params, ParticleSpawn spawn
 	state.seed = spawn.seed;
 	state.pad0 = 0;
 	state.pad1 = 0;
-	state.pad2 = 0;
 
 	// A birth without a crest makes no froth. New particles are always kept for one tick, so it is drawn at zero size, away from the water's
 	// far-below height, and the next update removes it.
@@ -64,15 +59,15 @@ ParticleFrothState ParticleInit(ParticleFrothEmitter params, ParticleSpawn spawn
 		return state;
 	}
 
-	// A patch born part way through the tick has already drifted for 'spawn.age'.
+	// A puff born part way through the tick has already drifted for 'spawn.age'.
 	ParticleFrothMove(state, spawn.age);
 	return state;
 }
 
-// Age a patch and move it with the water. Patches die with the water.
-bool ParticleUpdate(inout ParticleFrothState state, float dt, ParticleFrothConstants c)
+// Age a puff and move it with the water. Puffs die with the water.
+bool ParticleUpdate(inout ParticleFrothState state, float dt, ParticleSpriteConstants c)
 {
-	// Patches at the end of their life, or without water to ride, are removed without moving.
+	// Puffs at the end of their life, or without water to ride, are removed without moving.
 	state.age += dt;
 	if (state.age >= state.lifetime || g_environment.water == 0)
 		return false;
@@ -81,29 +76,19 @@ bool ParticleUpdate(inout ParticleFrothState state, float dt, ParticleFrothConst
 	return true;
 }
 
-// Evaluate a patch's size and colour at its age.
-ParticleMeshRecord ParticleProject(ParticleFrothState state, ParticleFrothConstants c)
+// Evaluate a puff's size and colour at its age.
+ParticleSpriteRecord ParticleProject(ParticleFrothState state, ParticleSpriteConstants c)
 {
-	// Size and colour blend from birth to death, and the alpha fades in and out at the ends of the life.
-	float t = saturate(state.age / state.lifetime);
-	float4 colour = lerp(ParticleUnpackColour(state.colour0), ParticleUnpackColour(state.colour1), t);
-	colour.a *= ParticleMeshScaleRamp(state.age, state.lifetime, c.fade_in, c.fade_out);
-
-	ParticleMeshRecord record;
-	record.pos_size = float4(state.position, lerp(state.size0, state.size1, t));
-	record.orientation = state.orientation;
-	record.colour = ParticlePackColour(colour);
-	record.pad0 = 0;
-	record.pad1 = 0;
-	record.pad2 = 0;
-	return record;
+	// The sprite curve shapes the growth and fade. The velocity only matters to a streak, and excludes the waves' motion.
+	float3 velocity = float3(state.drift, state.rise);
+	return ParticleSpriteMakeRecord(state.position, velocity, state.age, state.lifetime, state.seed, state.colour0, state.colour1, state.size0, state.size1, c);
 }
 
-// Bound a patch by the sphere around its disc.
-float4 ParticleBounds(ParticleFrothState state, ParticleFrothConstants c)
+// Bound a puff by the sphere around its sprite. See ParticleSpriteRecordBounds.
+float4 ParticleBounds(ParticleFrothState state, ParticleSpriteConstants c)
 {
-	// The flat sprite vertex shader draws a disc of the record's diameter around its position.
-	return float4(state.position, 0.5f * ParticleProject(state, c).pos_size.w);
+	// The record holds the position and size that the vertex shader draws.
+	return ParticleSpriteRecordBounds(ParticleProject(state, c));
 }
 
 #include "pr/game-systems/particles/particle_kernels.hlsli"

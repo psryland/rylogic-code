@@ -298,7 +298,7 @@ These are presets/programs over the same runtime, not separate emitter engines.
 | Effect | Representation and evolution | External inputs |
 |---|---|---|
 | Ocean spray | Stepped droplets/cards or streaks; gravity, wind and optional water impact | GPU crest/breaking producer, water-field snapshot |
-| Froth patches | Surface-oriented sprites following the water; age/fade and drift | Water sampling and surface flow; complements existing surface foam |
+| Froth puffs | Camera-facing weighted sprites forming on crests and following the wave height; age/fade and drift | Water sampling; complements existing surface foam |
 | Fire | Animated emissive sprites; seeded flicker/size curves, analytic where sufficient | Emitter transform, authored appearance; no damage logic |
 | Sparks | Small streaks/cards; ballistic motion, stepped for bounces | Gravity and simple collision sets |
 | Smoke | Non-volumetric flipbook/sprites; rise, drag, wind, scale and opacity curves | Wind field and emitter parameters |
@@ -693,13 +693,15 @@ Complete, pending Paul's visual check of the `particle_presets` gallery. Ocean s
   by the emitter rate.
 - **Spray** is a stepped sprite type (stepped sprite state and the stock sprite batch). Droplets launch along the surface normal, are carried by
   the wind, fall under gravity and die when they fall back into the water.
-- **Froth** is a stepped type writing `ParticleMeshRecords`, drawn by a new stock **flat sprite** vertex shader as soft discs lying on the surface.
-  Patches drift with a fraction of the wind, follow the waves just above them, grow and fade over their life, and die when the water is removed.
+- **Froth** is a stepped type writing sprite records, drawn by the stock sprite batch with weighted blending: camera-facing puffs that swell up on
+  breaking crests a little like smoke. Each puff keeps a height above the wave below it that grows slowly with age, drifts with a fraction of the
+  wind, grows and fades by the shared sprite curve, and dies when the water is removed. Surface-aligned discs were tried first and looked like
+  flat patches rather than foam, so they and their flat sprite vertex shader were removed.
 - **Presets.** `EParticlePreset` gains `Spray` and `Froth`. Their emitter parameters start with `float4 area` (xy centre, w radius) rather than a
   position, because they emit over an area of sea.
 - **Shared HLSL fix.** `OceanWaveSampleZero` and `OceanCrestSteepness` in `ocean_surface.hlsli` were missing `odr`, which caused duplicate symbols
   once a second C++ file included the header.
-- **No separate shader getters.** The presets already return the spray, froth and flat sprite shaders, so no `View3D_Particle*Shaders` calls were added.
+- **No separate shader getters.** The presets already return the spray and froth shaders, so no `View3D_Particle*Shaders` calls were added.
 - **Proof.** `GameSystems_ParticleWater` builds both presets over a test ocean and checks: no births without water; births on a rough sea; spray
   dies within seconds; froth lives on while the water is bound and dies when it is cleared; a calm sea gives no births; and binding an invalid
   ocean is reported. The `ocean_spray` demo in `view3d-12-tests` shows spray and froth on a wind-driven sea, with time scale and wind controls.

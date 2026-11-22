@@ -511,28 +511,32 @@ namespace pr::game_systems::particles
 			}
 			case EParticlePreset::Froth:
 			{
-				// Patches form on breaking crests, spread, and fade as they drift slowly downwind on the waves.
-				static ParticleFrothConstants const constants = {
-					.fade_in = 0.5f,
-					.fade_out = 2.0f,
+				// Soft puffs swell up on breaking crests like smoke, ride the waves as they drift slowly downwind, and fade away.
+				static ParticleSpriteConstants const constants = {
+					.key_count = 3,
+					.flicker = 0.0f,
+					.flicker_rate = 0.0f,
+					.streak = 0.0f,
+					.keys = { { 0.0f, 0.4f, 0x00FFFFFF }, { 0.15f, 0.9f, 0xFFFFFFFF }, { 1.0f, 1.3f, 0x00FFFFFF } },
 				};
 				static ParticleFrothEmitter const params = {
 					.area = { 0.0f, 0.0f, 0.0f, 60.0f },
-					.lifetime = { 4.0f, 8.0f },
-					.size = { 0.8f, 2.5f },
-					.colour0 = 0xD0F8FAFF,
-					.colour1 = 0x90E8EEF4,
+					.lifetime = { 2.0f, 4.0f },
+					.size = { 1.0f, 3.0f },
+					.colour0 = 0xA0F4F8FA,
+					.colour1 = 0x60E4EAF0,
 					.foam_threshold = 0.3f,
 					.candidates = 8,
-					.drift = 0.03f,
-					.spread = 0.2f,
-					.lift = 0.05f,
+					.drift = 0.05f,
+					.spread = 0.3f,
+					.lift = 0.2f,
+					.rise = 0.15f,
 				};
 				return ParticlePreset{
 					.m_sim = ParticleSystem::FrothSimShaders(),
-					.m_draw = ParticleSystem::FlatSpriteDrawShaders(),
+					.m_draw = ParticleSystem::SpriteDrawShaders(),
 					.m_blend = EParticleBlend::Weighted,
-					.m_record_stride = sizeof(ParticleMeshRecord),
+					.m_record_stride = sizeof(ParticleSpriteRecord),
 					.m_state_stride = sizeof(ParticleFrothState),
 					.m_params_stride = sizeof(ParticleFrothEmitter),
 					.m_constants = &constants,

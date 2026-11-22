@@ -54,8 +54,7 @@ namespace pr::game_systems::particles
 		#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(particle_spray_emit_cs.h)
 		#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(particle_spray_update_cs.h)
 		#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(particle_froth_emit_cs.h)
-		#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(particle_froth_update_cs.h)
-		#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(particle_flat_sprite_vs.h)
+		#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(particle_froth_update_cs.h)
 	}
 
 	namespace
@@ -1268,20 +1267,6 @@ namespace pr::game_systems::particles
 		return pr::view3d::ParticleSimShaders{
 			.m_emit = { compiled::particle_froth_emit_cs, sizeof(compiled::particle_froth_emit_cs) },
 			.m_update = { compiled::particle_froth_update_cs, sizeof(compiled::particle_froth_update_cs) },
-		};
-	}
-
-	// The draw shaders of a batch of stock flat sprite records. The disc is procedural and shares the sprite index list.
-	pr::view3d::ParticleDrawShaders ParticleSystem::FlatSpriteDrawShaders()
-	{
-		return pr::view3d::ParticleDrawShaders{
-			.m_vertex = { compiled::particle_flat_sprite_vs, sizeof(compiled::particle_flat_sprite_vs) },
-			.m_indices = SpriteIndices.data(),
-			.m_index_count = static_cast<int>(SpriteIndices.size()),
-			.m_vertex_count = static_cast<int>(ParticleSpriteVertexCount),
-			.m_geom = pr::view3d::EGeom::Vert | pr::view3d::EGeom::Colr | pr::view3d::EGeom::Norm,
-			.m_vertex_data = nullptr,
-			.m_vertex_stride = 0,
 		};
 	}
 }
