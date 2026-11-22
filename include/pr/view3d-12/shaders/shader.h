@@ -216,5 +216,7 @@ namespace pr::rdr12
 		extern ByteCode const reflection_plane_project_cs;
 		extern ByteCode const reflection_plane_write_cs;
 		extern ByteCode const reflection_plane_fill_cs;
+		extern ByteCode const reflection_mask_vs;
+		extern ByteCode const reflection_mask_ps;
 	}
 }

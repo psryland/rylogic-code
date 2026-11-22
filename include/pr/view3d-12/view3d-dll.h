@@ -1987,6 +1987,16 @@ extern "C"
 	VIEW3D_API float __stdcall View3D_WindowReflectionMinPopulationRadiusGet(pr::view3d::Window window);
 	VIEW3D_API void __stdcall View3D_WindowReflectionMinPopulationRadiusSet(pr::view3d::Window window, float radius);
 
+	// Get/Set the resolution of the reflection's mirror view as a fraction of the viewport's, in (0,1]. Lower values cost less but blur the
+	// reflection. 1 (the default) draws one mirror pixel per viewport pixel.
+	VIEW3D_API float __stdcall View3D_WindowReflectionResolutionScaleGet(pr::view3d::Window window);
+	VIEW3D_API void __stdcall View3D_WindowReflectionResolutionScaleSet(pr::view3d::Window window, float scale);
+
+	// Get/Set the finest population LOD drawn into the reflection's mirror view. Each prototype uses this LOD or a coarser one, clamped to its
+	// last LOD. 0 (the default) lets the projected size choose any LOD.
+	VIEW3D_API int __stdcall View3D_WindowReflectionMinPopulationLodGet(pr::view3d::Window window);
+	VIEW3D_API void __stdcall View3D_WindowReflectionMinPopulationLodSet(pr::view3d::Window window, int lod);
+
 	// Enable/Disable the depth buffer
 	VIEW3D_API BOOL __stdcall View3D_DepthBufferEnabledGet(pr::view3d::Window window);
 	VIEW3D_API void __stdcall View3D_DepthBufferEnabledSet(pr::view3d::Window window, BOOL enabled);

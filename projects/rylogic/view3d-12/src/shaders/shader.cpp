@@ -534,12 +534,16 @@ namespace pr::rdr12
 			#include PR_RDR_SHADER_COMPILED_DIR(reflection_plane_project_cs.h)
 			#include PR_RDR_SHADER_COMPILED_DIR(reflection_plane_write_cs.h)
 			#include PR_RDR_SHADER_COMPILED_DIR(reflection_plane_fill_cs.h)
+			#include PR_RDR_SHADER_COMPILED_DIR(reflection_mask_vs.h)
+			#include PR_RDR_SHADER_COMPILED_DIR(reflection_mask_ps.h)
 		}
 		ByteCode const mipmap_generator_cs(compiled::mipmap_generator_cs);
 		ByteCode const env_map_distance_cs(compiled::env_map_distance_cs);
 		ByteCode const reflection_plane_project_cs(compiled::reflection_plane_project_cs);
 		ByteCode const reflection_plane_write_cs(compiled::reflection_plane_write_cs);
 		ByteCode const reflection_plane_fill_cs(compiled::reflection_plane_fill_cs);
+		ByteCode const reflection_mask_vs(compiled::reflection_mask_vs);
+		ByteCode const reflection_mask_ps(compiled::reflection_mask_ps);
 		ByteCode const skinning_cs(compiled::skinning_cs);
 
 		// Population visibility, LOD classification, and draw argument generation

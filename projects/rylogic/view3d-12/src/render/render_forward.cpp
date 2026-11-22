@@ -114,6 +114,35 @@ namespace pr::rdr12
 		D3DPtr<ID3D12PipelineState> m_write;
 		D3DPtr<ID3D12PipelineState> m_fill;
 
+		// Root parameters of the mirror view's mask pass
+		enum class EMaskParam { Constants, Depth };
+
+		// The margin, as a fraction of the viewport height, around the pixels that show the plane within which the mirror view is still drawn.
+		// Waves bend the reflected rays, so the reflection is also read a short distance from the pixel that shows it.
+		static constexpr float MaskMarginFraction = 0.01f;
+
+		// Matches 'CBufReflectionMask' in reflection_mask.hlsl
+		struct MaskConstants
+		{
+			m4x4 s2w;
+			v4 plane;
+			v4 cam;
+			v4 ndc_map;
+			v4 load;
+			v4 bounds;
+		};
+
+		// The mask pass's root signature and pipeline state. It writes only the mirror view's depth.
+		D3DPtr<ID3D12RootSignature> m_mask_sig;
+		D3DPtr<ID3D12PipelineState> m_mask;
+
+		// Detects whether the mask leaves any mirror pixel open. 'm_open_test' draws a full-screen triangle that passes the depth test only at
+		// open pixels, inside a binary occlusion query. The query result is resolved into 'm_open_predicate', which predicates the mirror's draws,
+		// so the GPU skips them when no pixel shows the plane, without the CPU waiting for the result.
+		D3DPtr<ID3D12PipelineState> m_open_test;
+		D3DPtr<ID3D12QueryHeap> m_open_query;
+		D3DPtr<ID3D12Resource> m_open_predicate;
+
 		// The winning depth key per pixel, the raw projected reflection, and the gap-filled reflection read by the shaders.
 		// All are the size of the back buffer.
 		Texture2DPtr m_key;
@@ -141,11 +170,16 @@ namespace pr::rdr12
 		// The constants for this frame's shaders.
 		shaders::fwd::ReflectionPlane m_constants;
 
-		explicit ReflectionPlane(ID3D12Device4* device)
+		ReflectionPlane(ID3D12Device4* device, DXGI_FORMAT ds_format, MultiSamp ms)
 			: m_sig()
 			, m_project()
 			, m_write()
 			, m_fill()
+			, m_mask_sig()
+			, m_mask()
+			, m_open_test()
+			, m_open_query()
+			, m_open_predicate()
 			, m_key()
 			, m_raw()
 			, m_final()
@@ -172,6 +206,64 @@ namespace pr::rdr12
 			m_project = ComputePSO(m_sig.get(), shader_code::reflection_plane_project_cs).Create(device, "ReflectionPlaneProjectPSO");
 			m_write = ComputePSO(m_sig.get(), shader_code::reflection_plane_write_cs).Create(device, "ReflectionPlaneWritePSO");
 			m_fill = ComputePSO(m_sig.get(), shader_code::reflection_plane_fill_cs).Create(device, "ReflectionPlaneFillPSO");
+
+			// The mask pass reads the main view's depth and writes the mirror view's depth unconditionally. It matches the mirror depth target's
+			// format and sampling, and has no colour target.
+			m_mask_sig = RootSig(ERootSigFlags::GraphicsOnly)
+				.U32(ECBufReg::b0, sizeof(MaskConstants) / sizeof(uint32_t), D3D12_SHADER_VISIBILITY_PIXEL)
+				.SRV(ESRVReg::t0, 1, D3D12_SHADER_VISIBILITY_PIXEL, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE)
+				.Create(device, "ReflectionMaskSig");
+			auto desc = D3D12_GRAPHICS_PIPELINE_STATE_DESC{
+				.pRootSignature = m_mask_sig.get(),
+				.VS = shader_code::reflection_mask_vs,
+				.PS = shader_code::reflection_mask_ps,
+				.DS = shader_code::none,
+				.HS = shader_code::none,
+				.GS = shader_code::none,
+				.StreamOutput = StreamOutputDesc{},
+				.BlendState = BlendStateDesc{},
+				.SampleMask = UINT_MAX,
+				.RasterizerState = RasterStateDesc{},
+				.DepthStencilState = DepthStateDesc{}.Func(D3D12_COMPARISON_FUNC_ALWAYS),
+				.InputLayout = {},
+				.IBStripCutValue = D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED,
+				.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE,
+				.NumRenderTargets = 0U,
+				.RTVFormats = {},
+				.DSVFormat = ds_format,
+				.SampleDesc = ms,
+				.NodeMask = 0U,
+				.CachedPSO = {},
+				.Flags = D3D12_PIPELINE_STATE_FLAG_NONE,
+			};
+			Check(device->CreateGraphicsPipelineState(&desc, __uuidof(ID3D12PipelineState), (void**)m_mask.address_of()));
+			DebugName(m_mask, "ReflectionMaskPSO");
+
+			// The open test draws the mask's triangle at the nearest depth without writing depth. The mask writes the nearest depth to closed
+			// pixels and open pixels keep the cleared far depth, so with reversed depth only open pixels pass a 'greater' test.
+			desc.PS = shader_code::none;
+			desc.DepthStencilState = DepthStateDesc{}.Func(D3D12_COMPARISON_FUNC_GREATER);
+			desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+			Check(device->CreateGraphicsPipelineState(&desc, __uuidof(ID3D12PipelineState), (void**)m_open_test.address_of()));
+			DebugName(m_open_test, "ReflectionOpenTestPSO");
+
+			// One occlusion query, resolved into a buffer that stays in the predication state between frames
+			auto const qdesc = D3D12_QUERY_HEAP_DESC{ .Type = D3D12_QUERY_HEAP_TYPE_OCCLUSION, .Count = 1, .NodeMask = 0 };
+			Check(device->CreateQueryHeap(&qdesc, __uuidof(ID3D12QueryHeap), (void**)m_open_query.address_of()));
+			DebugName(m_open_query, "ReflectionOpenQuery");
+			auto const heap = D3D12_HEAP_PROPERTIES{ .Type = D3D12_HEAP_TYPE_DEFAULT };
+			auto const bdesc = D3D12_RESOURCE_DESC{
+				.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER,
+				.Width = sizeof(uint64_t),
+				.Height = 1,
+				.DepthOrArraySize = 1,
+				.MipLevels = 1,
+				.SampleDesc = { .Count = 1 },
+				.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
+			};
+			Check(device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &bdesc, D3D12_RESOURCE_STATE_PREDICATION, nullptr, __uuidof(ID3D12Resource), (void**)m_open_predicate.address_of()));
+			DefaultResState(m_open_predicate.get(), D3D12_RESOURCE_STATE_PREDICATION);
+			DebugName(m_open_predicate, "ReflectionOpenPredicate");
 		}
 	};
 
@@ -183,7 +275,7 @@ namespace pr::rdr12
 		, m_default_tex(rdr().store().StockTexture(EStockTexture::White))
 		, m_default_sam(rdr().store().StockSampler(EStockSampler::LinearClamp))
 		, m_sky_histories()
-		, m_reflection_plane(std::make_unique<ReflectionPlane>(scene.d3d()))
+		, m_reflection_plane(std::make_unique<ReflectionPlane>(scene.d3d(), scene.wnd().m_ds_props.Format, scene.wnd().MultiSampling()))
 		, m_instance_culler(scene.rdr())
 	{
 		// Create the default PSO description
@@ -784,13 +876,14 @@ namespace pr::rdr12
 		c2s_obl.z.z = row_z.z;
 		c2s_obl.w.z = row_z.w;
 
-		// Draw the mirror view at the viewport's resolution, so that its pixels map one to one onto the viewport's pixels. A fractional
-		// viewport is covered by rounding up, and the view is scaled to place the viewport's area on that whole number of pixels.
+		// Draw the mirror view at a fraction of the viewport's resolution, so that each mirror pixel covers a fixed block of the viewport's pixels.
+		// A fractional size is covered by rounding up, and the view is scaled to place the viewport's area on that whole number of pixels.
 		auto const& vp = scn().m_viewport;
-		auto const cw = std::max(s_cast<int>(std::ceil(vp.Width)), 1);
-		auto const ch = std::max(s_cast<int>(std::ceil(vp.Height)), 1);
-		auto const sx = vp.Width / cw;
-		auto const sy = vp.Height / ch;
+		auto const scale = scn().m_reflection_resolution_scale;
+		auto const cw = std::max(s_cast<int>(std::ceil(vp.Width * scale)), 1);
+		auto const ch = std::max(s_cast<int>(std::ceil(vp.Height * scale)), 1);
+		auto const sx = vp.Width * scale / cw;
+		auto const sy = vp.Height * scale / ch;
 		auto const remap = m4x4{ v4{ sx, 0, 0, 0 }, v4{ 0, sy, 0, 0 }, v4{ 0, 0, 1, 0 }, v4{ sx - 1.0f, 1.0f - sy, 0, 1 } };
 
 		// The camera seen by the shaders. Element transforms are uploaded for the main camera, so 'clip_remap' replaces the main view's
@@ -847,18 +940,68 @@ namespace pr::rdr12
 		auto const scissor = D3D12_RECT{ 0, 0, rp.m_mirror_size.x, rp.m_mirror_size.y };
 		m_cmd_list.ClearRenderTargetView(rtv, frame.bb_main().rt_clear());
 		m_cmd_list.ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, frame.bb_main().ds_depth(), 0);
-		m_cmd_list.OMSetRenderTargets({ &rtv, 1 }, FALSE, &dsv);
 		m_cmd_list.get()->RSSetViewports(1, &viewport);
 		m_cmd_list.get()->RSSetScissorRects(1, &scissor);
 
+		// Close the mirror view's pixels that no surface on the plane shows, so that the depth test rejects the scene's fragments there. Only the
+		// pixels where water is seen need the reflection, but the scene is drawn from below the plane with nothing hiding it, so drawing all pixels
+		// costs far more than the main view. The main view's opaques are complete, so its depth tells which pixels show the plane.
+		{
+			// The main depth is read as a shader resource while the mask writes the mirror depth
+			auto pix_mask = pix::EventScope<ID3D12GraphicsCommandList>(m_cmd_list.get(), 0xFF5EC8D5, "View3D::ReflectionMask");
+			auto& bb_main = frame.bb_main();
+			auto const& cam = scn().m_cam;
+			auto const& vp = scn().m_viewport;
+			BarrierBatch bb(m_cmd_list);
+			bb.Transition(bb_main.m_depth_stencil.get(), D3D12_RESOURCE_STATE_DEPTH_READ | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+			bb.Commit();
+
+			// Mirror pixels map onto blocks of the viewport's pixels from its top-left corner, as the mirror source does in 'ProjectReflectionPlane'
+			auto const lo = iv2(s_cast<int>(vp.TopLeftX), s_cast<int>(vp.TopLeftY));
+			auto const hi = iv2(s_cast<int>(std::ceil(vp.TopLeftX + vp.Width)) - 1, s_cast<int>(std::ceil(vp.TopLeftY + vp.Height)) - 1);
+			auto const cb = ReflectionPlane::MaskConstants{
+				.s2w = cam.CameraToWorld() * Invert(cam.CameraToScreen()),
+				.plane = scn().m_reflection_plane,
+				.cam = cam.CameraToWorld().pos,
+				.ndc_map = v4(2.0f / vp.Width, -1.0f, -2.0f / vp.Height, 1.0f),
+				.load = v4(vp.TopLeftX, vp.TopLeftY, ReflectionPlane::MaskMarginFraction * vp.Height, 1.0f / scn().m_reflection_resolution_scale),
+				.bounds = v4(s_cast<float>(lo.x), s_cast<float>(lo.y), s_cast<float>(hi.x), s_cast<float>(hi.y)),
+			};
+			using EMaskParam = ReflectionPlane::EMaskParam;
+			m_cmd_list.OMSetRenderTargets({}, FALSE, &dsv);
+			m_cmd_list.SetPipelineState(rp.m_mask.get());
+			m_cmd_list.SetGraphicsRootSignature(rp.m_mask_sig.get());
+			m_cmd_list.SetGraphicsRoot32BitConstants(EMaskParam::Constants, cb);
+			m_cmd_list.SetGraphicsRootDescriptorTable(EMaskParam::Depth, wnd().m_heap_view.Add(bb_main.m_depth_srv));
+			m_cmd_list.IASetPrimitiveTopology(ETopo::TriList);
+			m_cmd_list.DrawInstanced(3, 1, 0, 0);
+
+			// Count whether any mirror sample was left open. The test draw has no pixel shader, so it costs only a depth test per sample.
+			m_cmd_list.SetPipelineState(rp.m_open_test.get());
+			m_cmd_list.get()->BeginQuery(rp.m_open_query.get(), D3D12_QUERY_TYPE_BINARY_OCCLUSION, 0);
+			m_cmd_list.DrawInstanced(3, 1, 0, 0);
+			m_cmd_list.get()->EndQuery(rp.m_open_query.get(), D3D12_QUERY_TYPE_BINARY_OCCLUSION, 0);
+
+			bb.Transition(bb_main.m_depth_stencil.get(), D3D12_RESOURCE_STATE_DEPTH_WRITE);
+			bb.Transition(rp.m_open_predicate.get(), D3D12_RESOURCE_STATE_COPY_DEST);
+			bb.Commit();
+			m_cmd_list.get()->ResolveQueryData(rp.m_open_query.get(), D3D12_QUERY_TYPE_BINARY_OCCLUSION, 0, 1, rp.m_open_predicate.get(), 0);
+			bb.Transition(rp.m_open_predicate.get(), D3D12_RESOURCE_STATE_PREDICATION);
+			bb.Commit();
+		}
+		m_cmd_list.OMSetRenderTargets({ &rtv, 1 }, FALSE, &dsv);
+
 		// Draw everything through the mirror camera. The sky's cloud history belongs to the main view's pixels, so the mirror's sky neither reads
-		// nor writes it. Small populations add little to a reflection, so they are left out.
+		// nor writes it. Small populations add little to a reflection, so they are left out. The draws are predicated on the open test, so when
+		// no mirror pixel is open, e.g. when the plane is out of view or hidden, the GPU skips the whole scene instead of depth-rejecting it.
 		auto sky_history = m_shader.m_sky_history;
 		m_shader.m_sky_history = nullptr;
 		m_shader.m_view = &rp.m_view;
 		m_mirrored = true;
 		BindFrameResources(m_cmd_list);
+		m_cmd_list.get()->SetPredication(rp.m_open_predicate.get(), 0, D3D12_PREDICATION_OP_EQUAL_ZERO);
 		DrawOpaques(frame, m_default_pipe_state, opaques, m_mirror_populations, scn().m_reflection_min_population_radius);
+		m_cmd_list.get()->SetPredication(nullptr, 0, D3D12_PREDICATION_OP_EQUAL_ZERO);
 
 		// Restore the main view for any later draws
 		auto const& vp = scn().m_viewport;
@@ -920,8 +1063,8 @@ namespace pr::rdr12
 		bb.UAV(rp.m_key->m_res.get());
 		bb.Commit();
 
-		// Describe the sources. Both views are read pixel for pixel; the mirror view's pixels map onto the viewport from its top-left corner.
-		// 's2w' maps each source's normalised
+		// Describe the sources. The main view is read pixel for pixel; the mirror view's pixels map onto blocks of the viewport's pixels from its
+		// top-left corner. 's2w' maps each source's normalised
 		// device coordinates to the world position of the surface drawn there. The colour is read through an sRGB view, which converts it to linear
 		// colour. Creating a view does not modify the frame's back buffer, so it is safe to drop the const.
 		struct Source
@@ -947,8 +1090,8 @@ namespace pr::rdr12
 		if (rp.m_active)
 		{
 			sources.push_back(Source{
-				.src0 = v4(2.0f / vp.Width, 0.0f, -1.0f, s_cast<float>(rp.m_mirror_size.x)),
-				.src1 = v4(0.0f, -2.0f / vp.Height, 1.0f, s_cast<float>(rp.m_mirror_size.y)),
+				.src0 = v4(2.0f / (vp.Width * scn().m_reflection_resolution_scale), 0.0f, -1.0f, s_cast<float>(rp.m_mirror_size.x)),
+				.src1 = v4(0.0f, -2.0f / (vp.Height * scn().m_reflection_resolution_scale), 1.0f, s_cast<float>(rp.m_mirror_size.y)),
 				.src2 = v4(0.0f, 0.0f, ReflectionPlane::MirrorKeyScale, 0.0f),
 				.s2w = rp.m_mirror_s2w,
 				.colour = wnd().m_heap_view.Add(rp.m_mirror_colour->m_srv),
@@ -1090,7 +1233,12 @@ namespace pr::rdr12
 		// The mirror view measures draw distances from the mirrored eye, which is as far from each object as the eye's view of its reflection
 		auto const& rp = *m_reflection_plane;
 		if (rp.m_active)
-			CullPopulations(m_mirror_populations, PopulationProjectionView(reinterpret_cast<uint64_t>(this) + 1, rp.m_mirror_w2s, s_cast<float>(rp.m_mirror_size.y), rp.m_mirror_eye));
+		{
+			// The reflection may use coarser LODs than its projected sizes choose, because waves distort the detail
+			auto view = PopulationProjectionView(reinterpret_cast<uint64_t>(this) + 1, rp.m_mirror_w2s, s_cast<float>(rp.m_mirror_size.y), rp.m_mirror_eye);
+			view.m_min_lod = scn().m_reflection_min_population_lod;
+			CullPopulations(m_mirror_populations, view);
+		}
 		else
 			m_mirror_populations = PopulationSet{};
 	}

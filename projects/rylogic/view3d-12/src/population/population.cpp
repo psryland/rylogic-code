@@ -31,7 +31,7 @@ namespace pr::rdr12
 			uint32_t prototype_count;
 			uint32_t header_size;
 			float coverage;
-			uint32_t pad1;
+			uint32_t min_lod;
 		};
 		static_assert(sizeof(CullConstants) == 128, "Must match CullConstants in population_cull.hlsl");
 
@@ -1019,6 +1019,7 @@ namespace pr::rdr12
 		cb.prototype_count = s_cast<uint32_t>(pop.m_prototypes.size());
 		cb.header_size = s_cast<uint32_t>(header_size);
 		cb.coverage = coverage;
+		cb.min_lod = s_cast<uint32_t>(view.m_min_lod);
 
 		// Upload the per-view inputs. Root SRVs need a valid address even when a table is empty.
 		auto upload_table = [&]<typename T>(std::vector<T> const& table)

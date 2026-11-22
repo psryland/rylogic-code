@@ -457,6 +457,16 @@ namespace pr::rdr12
 		float ReflectionMinPopulationRadius() const;
 		void ReflectionMinPopulationRadius(float radius);
 
+		// Get/Set the resolution of the reflection's mirror view as a fraction of the viewport's, in (0,1]. Lower values cost less but blur the
+		// reflection. 1 (the default) draws one mirror pixel per viewport pixel.
+		float ReflectionResolutionScale() const;
+		void ReflectionResolutionScale(float scale);
+
+		// Get/Set the finest population LOD drawn into the reflection's mirror view. Each prototype uses this LOD or a coarser one, clamped to its
+		// last LOD. 0 (the default) lets the projected size choose any LOD.
+		int ReflectionMinPopulationLod() const;
+		void ReflectionMinPopulationLod(int lod);
+
 		// The scale of the distances stored in newly captured environment map cubes, derived from the parallax bounds. 0 means no distances.
 		float EnvMapDistanceScale() const;
 

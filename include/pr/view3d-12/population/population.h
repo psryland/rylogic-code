@@ -422,6 +422,9 @@ namespace pr::rdr12
 
 		// True for orthographic projections.
 		bool m_orthographic;
+
+		// The finest LOD that instances are drawn at. Each prototype uses this LOD or a coarser one, clamped to its last LOD.
+		int m_min_lod = 0;
 	};
 
 	// One indirect draw of a classified population: a (prototype, LOD, nugget) triple.

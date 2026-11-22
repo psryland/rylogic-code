@@ -17,7 +17,8 @@
 //
 // The project and write passes can run more than once, each time with a different source image, before the fill pass runs. Besides the main view,
 // a mirror source adds the true reflection: the scene drawn from the mirror image of the camera, clipped at the plane. It holds the reflections of
-// surfaces that near objects hide in the main view, and of objects beyond the edges of the screen.
+// surfaces that near objects hide in the main view, and of objects beyond the edges of the screen. The mirror view may be drawn at a lower
+// resolution than the viewport. Its mirror images then land on every few target texels, and 'CSReflectionFill' closes the gaps between them.
 //
 // Each reflection texel holds (linear colour, distance). The distance is measured from the camera to the mirrored point, which equals the length
 // of the path from the camera to the plane and on to the reflected object. Final texels with distance 0 have no reflection. Sky pixels are
@@ -81,9 +82,13 @@ bool ReflectionTarget(float2 ndc, float depth, out uint2 target, out uint key, o
 	dist = 0.0f;
 
 	// Unproject the pixel. Pixels where nothing was rendered (the sky) are mirrored as directions, because the sky is infinitely distant.
+	// Pixels at the near plane hold no surface: the mirror view masks the pixels it does not draw with that depth (see reflection_mask.hlsl).
 	float3 n = g_cb.plane.xyz;
 	float4 vp = g_cb.viewport;
 	float4 mirrored;
+	if (depth >= 1.0f)
+		return false;
+
 	if (depth > 0.0f)
 	{
 		// Only points above the plane have a reflection that is seen from above it

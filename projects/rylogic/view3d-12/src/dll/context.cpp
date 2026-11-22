@@ -164,6 +164,7 @@ namespace pr::rdr12
 		, m_sources(m_rdr, *this)
 		, m_inits()
 		, m_vertex_generators()
+		, m_update_factory()
 		, m_mutex()
 		, m_main_thread_id(std::this_thread::get_id())
 		, ReportError()
@@ -175,9 +176,19 @@ namespace pr::rdr12
 		for (auto& wnd : m_windows)
 			delete wnd;
 
-		// Regeneration work is submitted without waiting, so its pipelines and upload memory must outlive it.
-		if (auto& factory = m_vertex_generators.m_factory; factory != nullptr)
+		// Update work is submitted without waiting, so the pipelines and upload memory it uses must outlive it.
+		if (auto& factory = m_update_factory; factory != nullptr)
 			factory->Wait(factory->FlushToGpu(EGpuFlush::DontFlush));
+	}
+
+	// The retained factory for in-place model updates
+	ResourceFactory& Context::UpdateFactory()
+	{
+		// The factory is retained so that its upload memory and command allocators stay alive until the GPU has used them.
+		if (m_update_factory == nullptr)
+			m_update_factory = std::make_unique<ResourceFactory>(m_rdr, EResourceFactoryLifetime::Retained);
+
+		return *m_update_factory;
 	}
 
 	// Report an error handled at the DLL API layer
@@ -608,12 +619,9 @@ namespace pr::rdr12
 
 		// Record into the retained factory and submit without waiting. Graphics queue order makes earlier frames finish reading the
 		// buffer before the dispatch writes it, and later frames draw the new vertices. The factory recycles the constants memory once the GPU passes it.
-		auto& generators = m_vertex_generators;
-		if (generators.m_factory == nullptr)
-			generators.m_factory = std::make_unique<ResourceFactory>(m_rdr, EResourceFactoryLifetime::Retained);
-
-		DispatchVertexGenerator(*generators.m_factory, generators, model->m_vb.get(), model->m_vcount, bytecode, constants, {}, thread_group_size_x);
-		generators.m_factory->FlushToGpu(EGpuFlush::Async);
+		auto& factory = UpdateFactory();
+		DispatchVertexGenerator(factory, m_vertex_generators, model->m_vb.get(), model->m_vcount, bytecode, constants, {}, thread_group_size_x);
+		factory.FlushToGpu(EGpuFlush::Async);
 
 		// Caches keyed on the model revision (e.g. shadow maps) and structures built from the previous vertex contents are now stale.
 		++model->m_revision;
@@ -956,11 +964,20 @@ namespace pr::rdr12
 		object->m_user_data.get<std::unique_ptr<game_systems::ProceduralSky>>()->Blend(std::move(background), weight, world_to_sky, world_to_background);
 	}
 
+	// The inputs to 'EditModel'. 'factory' records the geometry uploads; its owner decides when they are submitted.
+	struct EditModelArgs
+	{
+		view3d::EditObjectCB& edit_cb;
+		ResourceFactory& factory;
+	};
+
 	// Modify an ldr object using a callback to populate the model data.
 	static void __stdcall EditModel(void* ctx, Model* model, Renderer&)
 	{
 		using namespace pr::rdr12;
-		auto& edit_cb = *static_cast<view3d::EditObjectCB*>(ctx);
+		auto& args = *static_cast<EditModelArgs*>(ctx);
+		auto& edit_cb = args.edit_cb;
+		auto& factory = args.factory;
 
 		// Thread local storage for editing dynamic models
 		thread_local static pr::vector<view3d::Vertex>         cache_vbuf;
@@ -1019,8 +1036,6 @@ namespace pr::rdr12
 		// Sanity check results
 		if (new_vcount > isize(vbuf)) throw std::runtime_error("Dynamic model buffer overrun (v-buf)");
 		if (new_icount > isize(ibuf)) throw std::runtime_error("Dynamic model buffer overrun (i-buf)");
-
-		ResourceFactory factory(model->rdr());
 
 		{// Update the model geometry
 			// An empty edit has no upload footprint to map; it only clears the bounds and nuggets.
@@ -1085,7 +1100,10 @@ namespace pr::rdr12
 	}
 	ldraw::LdrObject* Context::ObjectCreateByCallback(char const* name, Colour32 colour, int vcount, int icount, int ncount, view3d::EditObjectCB edit_cb, Guid const& context_id)
 	{
-		auto obj = ldraw::CreateEditCB(m_rdr, ldraw::ELdrObject::Custom, vcount, icount, ncount, { &edit_cb, EditModel }, context_id);
+		// The initial geometry is submitted after the model's own creation work, when this factory goes out of scope.
+		ResourceFactory factory(m_rdr);
+		auto args = EditModelArgs{ edit_cb, factory };
+		auto obj = ldraw::CreateEditCB(m_rdr, ldraw::ELdrObject::Custom, vcount, icount, ncount, { &args, EditModel }, context_id);
 		obj->m_name = name;
 		obj->m_base_colour = colour;
 		m_sources.Add(obj);
@@ -1093,13 +1111,13 @@ namespace pr::rdr12
 	}
 	void Context::ObjectEdit(ldraw::LdrObject* object, view3d::EditObjectCB edit_cb)
 	{
-		// Model mutation requires temporary scene removal, but public object identity includes its
-		// existing window memberships and they must survive both success and failure.
-		auto memberships = DetachObjectFromWindows(m_windows, object);
-		auto restore = Scope<void>{[&] { RestoreObjectToWindows(m_windows, memberships, object); }};
-
-		// Callback to edit the geometry
-		Edit(m_rdr, object, { &edit_cb, EditModel });
+		// The object stays in its windows and the edit is submitted without waiting for the GPU. Graphics queue order makes frames
+		// already submitted finish reading the old geometry before the uploads overwrite it. Replaced nuggets release their GPU
+		// resources through deferred release, and draw lists are rebuilt on every render, so no window holds the old nuggets.
+		auto& factory = UpdateFactory();
+		auto args = EditModelArgs{ edit_cb, factory };
+		Edit(m_rdr, object, { &args, EditModel });
+		factory.FlushToGpu(EGpuFlush::Async);
 	}
 
 	// Update the model in an existing object
