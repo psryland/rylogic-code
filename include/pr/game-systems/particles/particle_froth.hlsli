@@ -35,7 +35,7 @@ struct ParticleFrothEmitter
 	uint candidates;       // Random points tried per birth. [1, 32] (see ParticleFindCrest).
 	float drift;           // Fraction of the wind velocity that puffs drift with.
 	float spread;          // Radius of the disc that the horizontal drift velocities are spread over (m/s).
-	float lift;            // Height (m) of a puff's centre above the surface at birth.
+	float lift;            // Height (m) of a puff's centre above the surface at birth. Negative values sink the puff partly into the surface.
 	float rise;            // Rate (m/s) at which a puff's height above the surface grows.
 	float linger;          // Time (s) for a puff to fade once the crest under it has passed. Positive.
 	float lead;            // Breaking amount added per unit of a face's horizontal normal along the wind (see ParticleWaterBreaking). Waves travel downwind,

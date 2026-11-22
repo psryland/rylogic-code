@@ -608,9 +608,10 @@ namespace pr::game_systems::particles
 			case EParticlePreset::Froth:
 			{
 				// Clumps of foam swell up along the ridges of breaking crests, ride the waves as they drift slowly downwind, and fade soon after the
-				// ridge passes. The threshold is above the crest foam's full amount, so froth forms only near the tops of the crests, and the lead forms
-				// it earlier on the crests' leading faces. Short lives and a high rate pack the ridges densely and clear the backs of the waves quickly.
-				// Clumps sit low on the water, so the froth forms a thin layer. Froth uses weighted blending, so clumps have soft edges and no hard
+				// ridge passes. The steepness of a crest varies along its length, so a threshold on breaking alone gives patchy froth. A strong lead
+				// lets the slope of the crests' leading faces, which is much more even along a crest, decide most of where froth forms, so the leading
+				// edges carry a dense, even band. Short lives and a high rate pack the band densely and clear the backs of the waves quickly.
+				// Clumps sit partly below the water, so they rise out of the wave rather than float on it. Froth uses weighted blending, so clumps have soft edges and no hard
 				// outlines where they fade. The foam texture gives each clump its lumpy shape (see FrothTexels). The sprite's alpha falls to zero at its
 				// rim, so the sizes are about twice the clumps seen. The curve only fades the colour, because froth swells and shrinks by its own half sine.
 				static ParticleSpriteConstants const constants = {
@@ -627,13 +628,13 @@ namespace pr::game_systems::particles
 					.colour0 = 0xFFFFFFFF,
 					.colour1 = 0xE0F0ECE4,
 					.breaking_threshold = 1.1f,
-					.candidates = 16,
+					.candidates = 32,
 					.drift = 0.05f,
 					.spread = 0.2f,
-					.lift = 0.12f,
+					.lift = -0.08f,
 					.rise = 0.02f,
 					.linger = 0.15f,
-					.lead = 1.0f,
+					.lead = 1.8f,
 				};
 				auto const& texels = FrothTexels();
 				return ParticlePreset{
