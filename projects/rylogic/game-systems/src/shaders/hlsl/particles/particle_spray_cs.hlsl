@@ -27,9 +27,15 @@ bool ParticleSprayMove(inout ParticleSteppedSpriteState state, float dt)
 ParticleSteppedSpriteState ParticleInit(ParticleSprayEmitter params, ParticleSpawn spawn, ParticleSpriteConstants c)
 {
 	// Random indices below 16 belong to the launch and the sprite record; the crest search uses those from 16.
+	// With a lead and a front, droplets rise from the same leading foam front as froth, as if the wind tears them off the foam.
+	float2 wind = ParticleSampleWind(float3(params.area.xy, 0.0f)).xy;
+	float2 lean = ParticleAlongWind(wind, params.lead);
 	float2 xy;
 	ParticleWaterSample water;
-	bool found = ParticleFindCrest(params.area.xy, params.area.w, params.candidates, params.breaking_threshold, float2(0.0f, 0.0f), spawn.seed, 16, xy, water);
+	bool found = ParticleFindCrest(params.area.xy, params.area.w, params.candidates, params.breaking_threshold, lean, spawn.seed, 16, xy, water);
+	if (found)
+		ParticleFindCrestFront(xy, water, ParticleAlongWind(wind, params.front), params.breaking_threshold, lean);
+
 	float3 dv = ParticleRandomInBall(float3(ParticleRandom(spawn.seed, 3), ParticleRandom(spawn.seed, 4), ParticleRandom(spawn.seed, 5)));
 	float lifetime = lerp(params.lifetime.x, params.lifetime.y, ParticleRandom(spawn.seed, 6));
 

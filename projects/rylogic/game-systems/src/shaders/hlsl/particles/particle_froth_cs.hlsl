@@ -36,11 +36,15 @@ ParticleFrothState ParticleInit(ParticleFrothEmitter params, ParticleSpawn spawn
 	// Random indices below 16 belong to the drift, lifetime and sprite record; the crest search uses those from 16.
 	// The search leans towards faces that slope down along the wind, which are the leading faces of the downwind-travelling crests.
 	float2 wind = ParticleSampleWind(float3(params.area.xy, 0.0f)).xy;
-	float wind_speed = length(wind);
-	float2 lean = wind_speed > 0.0f ? wind * (params.lead / wind_speed) : float2(0.0f, 0.0f);
+	float2 lean = ParticleAlongWind(wind, params.lead);
 	float2 xy;
 	ParticleWaterSample water;
 	bool found = ParticleFindCrest(params.area.xy, params.area.w, params.candidates, params.breaking_threshold, lean, spawn.seed, 16, xy, water);
+
+	// Puffs form only in a band 'front' deep behind the leading edge of the crest, so the crest gets a sharp foam front.
+	if (found)
+		ParticleFindCrestFront(xy, water, ParticleAlongWind(wind, params.front), params.breaking_threshold, lean);
+
 	float spread_r = params.spread * sqrt(ParticleRandom(spawn.seed, 3));
 	float spread_a = 6.283185307179586f * ParticleRandom(spawn.seed, 4);
 	float lifetime = lerp(params.lifetime.x, params.lifetime.y, ParticleRandom(spawn.seed, 6));

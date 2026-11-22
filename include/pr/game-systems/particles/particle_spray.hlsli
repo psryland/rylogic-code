@@ -3,7 +3,8 @@
 //  Copyright (c) Rylogic Ltd 2026
 //************************************
 // The stock spray particle type: droplets thrown up from the breaking crests of a bound water surface (see particle_water.hlsli). Each birth tries
-// random points over the emitter's disc of sea and rises from the first point where the breaking amount reaches the emitter's threshold. A birth that finds
+// random points over the emitter's disc of sea, finds the first point where the breaking amount, leaned towards the leading faces of the crests,
+// reaches the emitter's threshold, and moves it to the crest's leading edge (see ParticleFindCrestFront). A birth that finds
 // no breaking crest makes no droplet, so calm seas throw no spray and rough seas throw spray along their crests. Droplets launch along the surface
 // normal, are carried by the wind, fall under gravity, and die when they fall back into the water.
 //
@@ -34,9 +35,10 @@ struct ParticleSprayEmitter
 	float breaking_threshold;  // Breaking amount (see ParticleSampleWater) that a point must reach to throw spray. Positive.
 	uint candidates;       // Random points tried per birth. [1, 32] (see ParticleFindCrest). More finds the crests of calmer seas, at more cost.
 	float gravity;         // Scale of the environment's gravity.
+	float lead;            // Lean of the breaking amount towards faces that slope down along the wind (see ParticleFrothEmitter::lead). Zero for no lean.
+	float front;           // Depth (m) of the band behind the leading edge of a breaking crest that droplets rise from (see ParticleFindCrestFront).
+	                       // Zero throws droplets from anywhere on the crest.
 	uint pad0;
-	uint pad1;
-	uint pad2;
 };
 
 #ifdef __cplusplus

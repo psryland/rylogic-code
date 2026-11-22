@@ -692,8 +692,14 @@ Complete, pending Paul's visual check of the `particle_presets` gallery. Ocean s
   the emitter's `breaking_threshold`; a birth that finds none makes no particle (zero size, immediate death), so calm seas make nothing and rough
   seas emit along breaking crests. A threshold above the crest strength confines births to ridge tops, where the drawn foam is already full. The
   continuous surface foam drawn by the ocean is unchanged; particles add detail on top of it, and their cost is bounded by the emitter rate.
+- **Crest fronts.** Both emitters have a `lead`, which leans the breaking amount towards faces that slope down along the wind, and a `front`.
+  After a birth finds a breaking point, `ParticleFindCrestFront` steps it downwind in steps of `front` metres while the next point still breaks,
+  up to 16 steps, and the birth forms at the last point that breaks. The found point is at a random distance from the leading edge, so births
+  land evenly in a band `front` deep along the edge. Without this, puffs appeared one by one across the whole breaking region. With it, each
+  crest has a sharp foam front, and the foam behind it is puffs left behind as the crest moves on. The search costs up to 16 extra water samples per birth.
 - **Spray** is a stepped sprite type (stepped sprite state and the stock sprite batch). Droplets launch along the surface normal, are carried by
-  the wind, fall under gravity and die when they fall back into the water.
+  the wind, fall under gravity and die when they fall back into the water. The spray preset uses the same threshold, lead and front as froth
+  (1.1, 1.8, 0.35 m, 32 candidates), so droplets rise from the foam front, as if the wind tears them off the foam.
 - **Froth** is a stepped type drawn by its own froth batch (`FrothDrawShaders`, `particle_froth_vs.hlsl`) with weighted blending: nearly upright
   camera-facing clumps of foam that swell up on breaking crests. Each puff keeps a low height above the wave below it that grows slowly with
   age, drifts with a fraction of the wind, and dies when the water is removed. Its colour and alpha follow the shared sprite curve, but its size swells from 30% to
@@ -728,7 +734,7 @@ Complete, pending Paul's visual check of the `particle_presets` gallery. Ocean s
   with darkened creases and pin holes. Its alpha is coverage: solid in each lump's middle and soft at its edge. The lumps fill only the central
   half of the texture, so the octagon never cuts them off. Puffs are tilted by at most ±0.3 radians so the baked lighting stays on top. A
   texture costs one sample per sprite pixel and no extra draw calls; overdraw dominates the cost. The froth preset lives briefly (0.7–1.4 s,
-  linger 0.15 s) and emits densely (26000 per second, 32 candidates, sizes 1.6–2.6 m, lift 0 m, rise 0.02 m/s, lead 1.8) with a threshold
+  linger 0.15 s) and emits densely (26000 per second, 32 candidates, sizes 1.6–2.6 m, lift 0 m, rise 0.02 m/s, lead 1.8, front 0.35 m) with a threshold
   of 1.1, so foam is a thin, thick-packed layer along the ridges and leading faces, and clears from the backs of the waves soon after the crest passes.
   Breaking alone varies along a crest and gave patchy froth; the strong lead lets the more even leading-face slope decide most births, giving a
   dense, near-uniform band. With zero lift, only the upper half of each puff shows, so puffs rise out of the wave rather than float on it. A flat

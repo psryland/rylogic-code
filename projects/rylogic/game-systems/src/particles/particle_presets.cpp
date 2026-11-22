@@ -581,8 +581,9 @@ namespace pr::game_systems::particles
 			}
 			case EParticlePreset::Spray:
 			{
-				// Fine droplets leap from breaking crests, streak a little, carry downwind, and fade as they fall back. Many births find no crest, so
-				// the rate is the number of tries per second; the spray seen depends on how rough the sea is.
+				// Fine droplets are torn by the wind from the foam front of breaking crests, streak a little, carry downwind, and fade as they fall
+				// back. The threshold, lead and front match the froth preset, so droplets rise from the same leading edges that froth forms along.
+				// Many births find no crest, so the rate is the number of tries per second; the spray seen depends on how rough the sea is.
 				static ParticleSpriteConstants const constants = {
 					.key_count = 3,
 					.flicker = 0.0f,
@@ -597,9 +598,11 @@ namespace pr::game_systems::particles
 					.size = { 0.08f, 0.2f },
 					.colour0 = 0xE0F4F8FF,
 					.colour1 = 0x80E0E8F0,
-					.breaking_threshold = 0.3f,
-					.candidates = 8,
+					.breaking_threshold = 1.1f,
+					.candidates = 32,
 					.gravity = 1.0f,
+					.lead = 1.8f,
+					.front = 0.35f,
 				};
 				return ParticlePreset{
 					.m_sim = ParticleSystem::SpraySimShaders(),
@@ -620,7 +623,8 @@ namespace pr::game_systems::particles
 				// Clumps of foam swell up along the ridges of breaking crests, ride the waves as they drift slowly downwind, and fade soon after the
 				// ridge passes. The steepness of a crest varies along its length, so a threshold on breaking alone gives patchy froth. A strong lead
 				// lets the slope of the crests' leading faces, which is much more even along a crest, decide most of where froth forms, so the leading
-				// edges carry a dense, even band. Short lives and a high rate pack the band densely and clear the backs of the waves quickly.
+				// edges carry a dense, even band. Births then step downwind to the edge of the crest, so new clumps appear along a tight foam front
+				// rather than one by one across the crest; the foam behind the front is clumps left behind as the crest moves on. Short lives and a high rate pack the band densely and clear the backs of the waves quickly.
 				// Clumps rise out of the wave rather than float on it: the draw cuts each clump off at the water's surface, so only its upper half shows.
 				// Froth uses weighted blending, so clumps have soft edges and no hard outlines where they fade. The foam texture gives each clump its
 				// lumpy shape and outline (see FrothTexels), and fills about half the sprite's width, so the sizes are about twice the clumps seen.
@@ -646,6 +650,7 @@ namespace pr::game_systems::particles
 					.rise = 0.02f,
 					.linger = 0.15f,
 					.lead = 1.8f,
+					.front = 0.35f,
 				};
 				auto const& texels = FrothTexels();
 				return ParticlePreset{

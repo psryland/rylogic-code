@@ -95,5 +95,39 @@ bool ParticleFindCrest(float2 centre, float radius, uint candidates, float thres
 	return false;
 }
 
+// The most steps that ParticleFindCrestFront takes.
+static const uint ParticleCrestFrontSteps = 16;
+
+// Move a breaking point 'xy', with its sample 'water', towards the edge of its crest in steps of 'step', while the next point's breaking amount,
+// leaned by 'lean' (see ParticleWaterBreaking), still reaches 'threshold'. The result is the last point that still reaches it. A point at a random
+// distance from the edge therefore ends up evenly placed within one step of the edge, so points from many births form a band one step deep along it.
+// Crests wider than ParticleCrestFrontSteps steps leave the point further from the edge. Zero 'step' leaves the point where it is.
+void ParticleFindCrestFront(inout float2 xy, inout ParticleWaterSample water, float2 step, float threshold, float2 lean)
+{
+	// Stop at the first point past the edge, keeping the last one inside it.
+	if (all(step == float2(0.0f, 0.0f)))
+		return;
+
+	for (uint i = 0; i != ParticleCrestFrontSteps; ++i)
+	{
+		// A point that no longer reaches the threshold is past the edge.
+		ParticleWaterSample next = ParticleSampleWater(xy + step);
+		if (ParticleWaterBreaking(next, lean) < threshold)
+			break;
+
+		xy += step;
+		water = next;
+	}
+}
+
+// Return the horizontal vector of length 'length' along the wind 'wind', or zero with no wind. Waves travel downwind, so this points towards
+// the leading edges of crests.
+float2 ParticleAlongWind(float2 wind, float length)
+{
+	// Still air has no direction.
+	float speed = sqrt(dot(wind, wind));
+	return speed > 0.0f ? wind * (length / speed) : float2(0.0f, 0.0f);
+}
+
 #endif
 #endif

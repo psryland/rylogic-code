@@ -43,7 +43,8 @@ struct ParticleFrothEmitter
 	float linger;          // Time (s) for a puff to fade once the crest under it has passed. Positive.
 	float lead;            // Breaking amount added per unit of a face's horizontal normal along the wind (see ParticleWaterBreaking). Waves travel downwind,
 	                       // so a positive lead forms froth earlier on the leading faces of crests and less on their backs. Zero for no lean.
-	uint pad0;
+	float front;           // Depth (m) of the band behind the leading edge of a breaking crest that puffs form in (see ParticleFindCrestFront), so the
+	                       // crest gets a sharp foam front. Zero forms puffs anywhere on the crest.
 	uint pad1;
 };
 
