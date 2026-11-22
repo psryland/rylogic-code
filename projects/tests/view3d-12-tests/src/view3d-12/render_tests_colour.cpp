@@ -351,6 +351,14 @@ namespace render_tests
 		fixture.Quad(20, 0x8000FF00);
 		Expect(fixture.Image(), 0.5f, 0.25f, 0);
 
+		// Many overlapping weighted layers keep their average colour. Their summed weights must stay within the half-float accumulation range,
+		// because a saturated sum gives every channel the same value: the red and green layers here would then show yellow instead of half each.
+		fixture.Clear();
+		for (int i = 0; i != 64; ++i)
+			weighted(10.0f + 0.01f * i, (i & 1) ? 0xF000FF00 : 0xF0FF0000);
+
+		Expect(fixture.Image(), 0.5f, 0.5f, 0);
+
 		// Any GPU validation error fails the fixture.
 		fixture.CheckDebugLayer();
 		std::cout << "PASS alpha weighted (" << samples << "x)\n";

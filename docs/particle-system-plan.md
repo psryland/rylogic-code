@@ -718,6 +718,10 @@ Complete, pending Paul's visual check of the `particle_presets` gallery. Ocean s
   the centre's height above the surface. The froth vertex shader pulls each rim vertex below that plane towards the centre until it lies on the
   plane, moving its texture coordinate with it. Only the part above the water is drawn, and the cut edge lies on the water, where soft depth hides it.
   Changing the general soft-depth rule in view3d-12 was rejected, because treating the sorted layer as opaque would hide smoke behind glass.
+- **Dense froth showed saturated white streaks.** The weighted accumulation targets are half float. Weights went up to 3000, so about 22
+  overlapping opaque puffs pushed the sums past 65504. The hardware clamps every channel, so the average became 1 (pure white). view3d-12's
+  weighted pass now uses a maximum weight of 100. Only the ratio between weights matters, so near fragments still dominate far ones (over a
+  smaller range), and about 650 opaque overlaps now fit per pixel. `View3d12_AlphaWeighted` checks 64 overlapping layers.
   The froth octagon has flat alpha, so the texture alone gives each clump its outline. This makes the clumps more opaque and less round. The batch
   needs a texture, and `lift` must not be negative.
 - **Leading edges.** Froth births and presence use `breaking + dot(normal.xy, lean)` (`ParticleWaterBreaking`), where `lean` is the emitter's

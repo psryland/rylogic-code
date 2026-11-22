@@ -760,9 +760,11 @@ PSWeightedOut WeightedAlphaOut(PSIn In, float4 diff)
 	}
 
 	// Weight nearer fragments more strongly, so that near layers dominate far layers in the average. The weight uses the depth
-	// as a fraction of the clip range, so it does not depend on the scene's units. The limits keep the sums within half-float range.
+	// as a fraction of the clip range, so it does not depend on the scene's units. Only the ratio between weights affects the average,
+	// so the scale is kept small: the accumulation targets are half-float, and a sum above 65504 saturates every channel to the same
+	// value, which shows as white. The maximum weight of 100 allows about 650 fully opaque overlaps per pixel before that happens.
 	float t = float(depth) / float(KBufferDepthFar);
-	float w = a * clamp(3e3f * pow(1.0f - t, 3.0f), 1e-2f, 3e3f);
+	float w = a * clamp(1e2f * pow(1.0f - t, 3.0f), 1e-2f, 1e2f);
 	float4 accum = float4(diff.rgb * a, a) * w;
 
 	PSWeightedOut Out = (PSWeightedOut)0;
