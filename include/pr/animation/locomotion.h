@@ -51,7 +51,8 @@
 //       holding a guard in front of the chin. Each punch drives one fist out and back while the torso turns the punching shoulder forward and
 //       leans after the fist, carrying the hips and head with it. Depending on the kind of punch, the knees dip or rise, the chest bends towards
 //       the punching side, and the punching side's foot turns on its ball or steps forward and back. The feet return to their stance after each
-//       punch, so the body stays in place. The punches fade in and out with the family's blend time.
+//       punch, so the body stays in place. The punches fade in and out with the family's blend time. The caller can choose where in the
+//       sequence the punches start, so that bodies which start fighting together do not punch in step.
 //
 // The body's motion comes from outside (for example, a physics simulation); the controller does not move the character's origin.
 // Model space has +Z up. The body's up is the model's +Z axis in world space, so the body may stand on any surface: a slope, a wall, or a ceiling.
@@ -201,6 +202,9 @@ namespace pr::animation
 			, m_action(-1)
 			, m_action_time(0.0f)
 			, m_action_weight(0.0f)
+			, m_action_phase(0.0f)
+			, m_strike()
+			, m_strike_radius(0.0f)
 			, m_gait_speed(0.0f)
 			, m_turn_rate(0.0f)
 			, m_look()
@@ -432,6 +436,25 @@ namespace pr::animation
 			m_request_pending = true;
 		}
 
+		// Set where looping actions (punches) start in their sequence, as 'phase' in [0,1) of the sequence's length. Bodies that start the same action
+		// at the same time with different phases do not move in step. The phase applies each time a looping action starts; one that is already
+		// playing is not changed. Actions that play once (collapse) always start at their beginning.
+		void SetActionPhase(float phase)
+		{
+			pr_assert(phase >= 0 && phase < 1 && "Action phase must be in [0,1)");
+			m_action_phase = phase;
+		}
+
+		// Aim punches at a body whose centre is at 'world_point' and whose surface is 'radius' (>= 0) from that centre, or throw them to their usual
+		// extent if it is empty. Each punch drives the fist forward to the body's surface instead, as far as the arm can reach and never back behind
+		// the guard. A target that moves should be set again every step.
+		void SetStrikeTarget(std::optional<v4> world_point, float radius)
+		{
+			pr_assert(radius >= 0 && "Strike target radius must not be negative");
+			m_strike = world_point;
+			m_strike_radius = radius;
+		}
+
 		// Forget the body's motion history so that the next step starts afresh, as the first step does: every foot plants beneath the body, tails take
 		// the guide's shape, and the smoothed speed, turning, ground height and fall start from rest. Use this when the body has moved without being
 		// stepped, for example after it was not animated for a while. The family, look, breath and grasps are kept.
@@ -622,7 +645,7 @@ namespace pr::animation
 				m_targets[limb.chain].frame = limb.support == 1.0f ? foot : BlendFrame(HangingFrame(limb), foot, limb.support);
 			}
 			StepPunchFeet();
-			AimPunches();
+			AimPunches(world_to_model);
 
 			// Grasping hands move from their usual goals, including any punches, to their grasps
 			for (auto const& reach : m_reaches)
@@ -753,6 +776,9 @@ namespace pr::animation
 		static constexpr float PunchOut = 0.35f;
 		static constexpr float PunchBack = 0.75f;
 
+		// The furthest forward that a fist aimed at a strike target goes, in units of the arm's reach from the shoulder. A straight arm reaches 1.
+		static constexpr float StrikeMaxReach = 1.0f;
+
 		// The fraction of the chest's punch turn that the pelvis also turns
 		static constexpr float PunchPelvisShare = 0.4f;
 
@@ -878,6 +904,9 @@ namespace pr::animation
 		int m_action;               // The action family whose action is playing or fading out, or -1 if none
 		float m_action_time;        // Collapse: the seconds into the collapse. Punches: the seconds into the punch sequence.
 		float m_action_weight;      // In [0,1]. Collapse: how far through the collapse the body is. Punches: how strongly the punches show.
+		float m_action_phase;       // In [0,1). Where a looping action starts in its sequence, as a fraction of the sequence's length, see 'SetActionPhase'
+		std::optional<v4> m_strike; // The world-space centre of the body that punches aim at, or empty for punches to their usual extent, see 'SetStrikeTarget'
+		float m_strike_radius;      // The distance from 'm_strike' to the surface that punches stop at
 		float m_gait_speed;         // The smoothed speed that selects cycles and scales body motion
 		float m_turn_rate;          // The smoothed rate of turning about the body's up direction, in radians per second
 		TargetPath m_look;          // The world-space look point (pos), which moves smoothly to each new point
@@ -2167,12 +2196,18 @@ namespace pr::animation
 		// body stands back up before it does anything else.
 		void StepAction(float dt)
 		{
-			// Start the current family's action when no action is playing
+			// Start the current family's action when no action is playing. A looping action starts at the caller's phase of its sequence.
 			if (m_action < 0 && m_gait.families[m_family].action)
 			{
+				auto const& start = *m_gait.families[m_family].action;
 				m_action = m_family;
-				m_action_time = 0.0f;
 				m_action_weight = 0.0f;
+				switch (start.kind)
+				{
+					case EActionKind::Collapse: { m_action_time = 0.0f; break; }
+					case EActionKind::Punches: { m_action_time = m_action_phase * SequenceDuration(start); break; }
+					default: throw std::runtime_error("Unknown action kind");
+				}
 			}
 			if (m_action < 0)
 				return;
@@ -2379,11 +2414,11 @@ namespace pr::animation
 			auto time = m_action_time;
 			for (auto const& punch : action->punches)
 			{
-				// The fist drives out quickly, then comes back to guard more slowly
+				// The fist accelerates all the way out, so it is at its fastest when it lands, then comes back to guard more slowly
 				if (time < punch.duration || &punch == &action->punches.back())
 				{
 					auto u = Clamp(time / punch.duration, 0.0f, 1.0f);
-					auto extend = u < PunchOut ? Ease(0.0f, PunchOut, u) : 1.0f - Ease(PunchOut, PunchBack, u);
+					auto extend = u < PunchOut ? Sqr(u / PunchOut) : 1.0f - Ease(PunchOut, PunchBack, u);
 					return { &punch, extend };
 				}
 				time -= punch.duration;
@@ -2565,7 +2600,8 @@ namespace pr::animation
 
 		// Aim the hands of a body throwing punches. Both hands hold a guard in front of the chin, and the punching hand drives out to the punch and
 		// back. Offsets are in model axes from each shoulder, in units of the arm's reach, with 'side' being +1 for the left arm and -1 for the right.
-		void AimPunches()
+		// A punch aimed at a strike target reaches forward to the target's surface instead of to its usual extent (see 'SetStrikeTarget').
+		void AimPunches(xform const& world_to_model)
 		{
 			// Arms that are not punching stay on guard
 			auto [punch, extend] = CurrentPunch();
@@ -2604,6 +2640,20 @@ namespace pr::animation
 					dir = mirror(style.dir);
 					pole = mirror(style.pole);
 					strike = extend;
+
+					// Scale the punch's forward (-Y) path so its fist stops at the target's surface ahead of the shoulder. The shoulder moves with the
+					// torso as the punch goes out, so the fist meets the surface when the punch is fully out. A target closer than the guard does not
+					// pull the fist back behind it, and one beyond reach gets a straight arm, allowing for the punch's sideways and upward offset.
+					if (m_strike && end.y < 0)
+					{
+						auto point = world_to_model * *m_strike;
+						auto ahead = (ArmRoot(limb).y - point.y - m_strike_radius) / limb.reach;
+						auto most = std::sqrt(std::max(Sqr(StrikeMaxReach) - Sqr(end.x) - Sqr(end.z), 0.0f));
+						auto forward = Clamp(ahead, std::min(-GuardFist().y, most), most);
+						auto scale = forward / -end.y;
+						ctrl.y *= scale;
+						end.y *= scale;
+					}
 				}
 
 				// Follow the curved path from the guard to the punch's extent, turning the fingers from the guard direction to the punch direction
@@ -4318,6 +4368,76 @@ namespace pr::animation::tests
 			PR_EXPECT(foot_start.y - foot_lo > 0.15f * leg.reach);
 			PR_EXPECT(FEqlAbsolute(loco.pose().model[foot].pos, foot_start, 0.02f));
 			PR_EXPECT(FEqlAbsolute(loco.pose().model[hand].pos, start, 0.02f));
+		}
+		PRUnitTestMethod(PunchesStartAtPhase, Quick)
+		{
+			// Two bodies that start punching together are out of step when their action phases differ, and in step when they match
+			auto rig = TestRig();
+			auto gait = TestActionGait();
+			auto fight = FamilyIndex(gait, "fist-fight");
+			auto ground = TestGround();
+			auto dt = 1.0f / 60;
+			auto body = BodyState{ .gravity = v4(0, 0, -9.8f, 0) };
+			auto hand = rig.BoneIndex("hand.L");
+			auto a = Locomotion(rig, gait);
+			auto b = Locomotion(rig, gait);
+			auto c = Locomotion(rig, gait);
+			b.SetActionPhase(0.5f);
+			for (auto* loco : { &a, &b, &c })
+			{
+				// Each body fights for the same time
+				loco->RequestFamily(fight, 0.5f);
+				for (int i = 0; i != 90; ++i)
+					loco->Step(dt, body, ground);
+			}
+
+			// Over part of the sequence, the out-of-step hand is somewhere else at least once, while the in-step hand always matches
+			auto apart = 0.0f;
+			auto together = 0.0f;
+			for (int i = 0; i != 72; ++i)
+			{
+				a.Step(dt, body, ground);
+				b.Step(dt, body, ground);
+				c.Step(dt, body, ground);
+				apart = std::max(apart, Length(a.pose().model[hand].pos - b.pose().model[hand].pos));
+				together = std::max(together, Length(a.pose().model[hand].pos - c.pose().model[hand].pos));
+			}
+			PR_EXPECT(apart > 0.1f * a.limbs()[1].reach);
+			PR_EXPECT(together < 1e-4f);
+		}
+		PRUnitTestMethod(PunchesReachStrikeTarget, Quick)
+		{
+			// Punches aimed at a near body stop short of their usual extent, and punches aimed at a far body reach further on average, up to a straight arm
+			auto rig = TestRig();
+			auto gait = TestActionGait();
+			auto fight = FamilyIndex(gait, "fist-fight");
+			auto ground = TestGround();
+			auto dt = 1.0f / 60;
+			auto body = BodyState{ .gravity = v4(0, 0, -9.8f, 0) };
+			auto hand = rig.BoneIndex("hand.L");
+			auto reach = Locomotion(rig, gait).limbs()[1].reach;
+			auto extent = [&](std::optional<v4> target)
+			{
+				// The most forward (-Y) position, and the mean position, of the left hand over one pass of the sequence
+				auto loco = Locomotion(rig, gait);
+				loco.SetStrikeTarget(target, 0.1f * reach);
+				loco.RequestFamily(fight, 0.5f);
+				auto lo = std::numeric_limits<float>::max();
+				auto sum = 0.0f;
+				for (int i = 0; i != 288; ++i)
+				{
+					loco.Step(dt, body, ground);
+					lo = std::min(lo, loco.pose().model[hand].pos.y);
+					sum += loco.pose().model[hand].pos.y;
+				}
+				return std::pair{ lo, sum / 288 };
+			};
+			auto usual = extent(std::nullopt);
+			auto close = extent(v4(0, -0.7f * reach, 1, 1));
+			auto distant = extent(v4(0, -5.0f * reach, 1, 1));
+			PR_EXPECT(close.first > usual.first + 0.1f * reach);
+			PR_EXPECT(distant.first < usual.first + 0.01f * reach);
+			PR_EXPECT(distant.second < usual.second - 0.01f * reach);
 		}
 		PRUnitTestMethod(GraspsOverrulePunches, Quick)
 		{
