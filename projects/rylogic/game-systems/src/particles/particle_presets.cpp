@@ -163,10 +163,12 @@ namespace pr::game_systems::particles
 		}
 
 		// Texels per side of the froth texture.
-		constexpr int FrothTextureSize = 64;
+		constexpr int FrothTextureSize = 256;
 
-		// Return the stock froth texture: a white clump of foam with a lumpy outline. Walls between packed bubbles are dense and the bubbles
-		// between them are thinner, so the clump reads as foam rather than as a smooth puff. Texels are R8G8B8A8 with straight alpha.
+		// Return the stock froth texture, for drawing with alpha testing: a heap of lit lumps of foam. Its alpha is a dissolve threshold, not an
+		// opacity: the drawn alpha is the texel's alpha times the sprite's alpha, and a pixel shows only while that product is at least one half.
+		// The foam is therefore solid where the sprite is strong, and breaks into lumps and specks as the sprite's alpha falls toward its rim and
+		// as it fades. The lighting assumes the sprite is upright. Texels are R8G8B8A8 with straight alpha.
 		std::vector<uint32_t> const& FrothTexels()
 		{
 			static auto const texels = []
@@ -182,52 +184,72 @@ namespace pr::game_systems::particles
 					return static_cast<float>(hash) / 4294967296.0f;
 				};
 
-				// Each texel's bubble wall closeness comes from one random point per cell of a grid: positions near the border between their two
-				// nearest points lie on a wall. The gap between the nearest and second-nearest distances is zero on a wall.
+				// The clump is a heap of round lumps of foam, packed most tightly at its centre. The sprite's alpha falls to zero at its rim, so
+				// alpha testing shows at most the inner half of the sprite, and the lumps lie within that half. Distances are in texture widths.
+				struct Lump { float u, v, radius; };
+				constexpr auto lump_count = 160;
+				auto lumps = std::vector<Lump>{};
+				for (auto i = 0; i != lump_count; ++i)
+				{
+					// Lumps near the centre are larger, so the clump is a dome of foam with smaller lumps around its edge.
+					auto const r = 0.22f * std::sqrt(random(i, 0, 11));
+					auto const a = 6.2831853f * random(i, 0, 12);
+					auto const radius = std::lerp(0.05f, 0.015f, r / 0.22f) * (0.6f + 0.8f * random(i, 0, 13));
+					lumps.push_back({ 0.5f + r * std::cos(a), 0.5f + r * std::sin(a), radius });
+				}
+
+				// Light comes from above and in front, so each lump has a bright top and a shaded underside. Texture v increases down the sprite.
+				auto const lx = -0.35f;
+				auto const ly = -0.75f;
+				auto const lz = 0.56f;
+
 				constexpr auto n = FrothTextureSize;
-				constexpr auto cells = 7;
 				auto result = std::vector<uint32_t>(static_cast<size_t>(n) * n);
 				for (auto y = 0; y != n; ++y)
 				{
 					// Each row of texels.
 					for (auto x = 0; x != n; ++x)
 					{
-						// Points stay inside their own cell, so the 3x3 cells around the texel contain its two nearest points.
+						// Find the lump whose surface is nearest the viewer. Each lump is a half sphere, so its height is largest at its middle.
 						auto const u = (x + 0.5f) / n;
 						auto const v = (y + 0.5f) / n;
-						auto const gx = u * cells;
-						auto const gy = v * cells;
-						auto const cx = static_cast<int>(std::floor(gx));
-						auto const cy = static_cast<int>(std::floor(gy));
-						auto nearest = 1.0e9f;
-						auto second = 1.0e9f;
-						for (auto dy = -1; dy != 2; ++dy)
+						auto height = 0.0f;
+						auto cover = 0.0f;
+						auto nx = 0.0f;
+						auto ny = 0.0f;
+						for (auto const& lump : lumps)
 						{
-							// Each row of neighbouring cells.
-							for (auto dx = -1; dx != 2; ++dx)
-							{
-								// Keep the two smallest distances.
-								auto const px = cx + dx + 0.1f + 0.8f * random(cx + dx, cy + dy, 1);
-								auto const py = cy + dy + 0.1f + 0.8f * random(cx + dx, cy + dy, 2);
-								auto const distance = std::hypot(gx - px, gy - py);
-								second = std::min(second, std::max(nearest, distance));
-								nearest = std::min(nearest, distance);
-							}
+							// Keep the lump with the highest surface over this texel.
+							auto const dx = (u - lump.u) / lump.radius;
+							auto const dy = (v - lump.v) / lump.radius;
+							auto const d2 = dx * dx + dy * dy;
+							if (d2 >= 1.0f)
+								continue;
+
+							auto const h = std::sqrt(1.0f - d2);
+							if (h * lump.radius <= height)
+								continue;
+
+							height = h * lump.radius;
+							cover = h;
+							nx = dx;
+							ny = dy;
 						}
-						auto const wall = std::exp(-(second - nearest) / 0.12f);
 
-						// The clump's outline is a circle with lumps, fading over its outer part. Distances are in half texture widths.
-						auto const ox = 2.0f * u - 1.0f;
-						auto const oy = 2.0f * v - 1.0f;
-						auto const r = std::hypot(ox, oy);
-						auto const a = std::atan2(oy, ox);
-						auto const edge = 0.85f + 0.1f * std::sin(3.0f * a + 1.3f) + 0.05f * std::sin(5.0f * a + 0.4f);
-						auto const t = std::clamp((r - 0.5f * edge) / (0.5f * edge), 0.0f, 1.0f);
-						auto const mask = 1.0f - t * t * (3.0f - 2.0f * t);
+						// Shade the lump's surface by its slope to the light, and darken the creases between lumps, where the surface is steep.
+						auto const nz = cover;
+						auto const lit = std::max(0.0f, nx * lx + ny * ly + nz * lz);
+						auto const crease = 0.6f + 0.4f * std::sqrt(cover);
+						auto const grain = 0.9f + 0.1f * random(x, y, 14);
+						auto const grey = std::clamp((0.55f + 0.55f * lit) * crease * grain, 0.0f, 1.0f);
 
-						// Walls are opaque and white; bubble middles are thinner and slightly grey.
-						auto const alpha = mask * (0.4f + 0.6f * wall);
-						auto const grey = 0.85f + 0.15f * wall;
+						// The alpha lets the middles of lumps survive more fading than their edges, so a fading clump shrinks into separate lumps,
+						// then into specks. Grain in the alpha makes those edges speckled, and scattered pin holes break up even the densest foam.
+						// Texels outside every lump are never drawn.
+						auto alpha = cover > 0.0f ? (0.5f + 0.5f * std::sqrt(cover)) * (0.88f + 0.12f * random(x, y, 15)) : 0.0f;
+						if (random(x, y, 16) < 0.04f)
+							alpha *= 0.4f;
+
 						auto const c = static_cast<uint32_t>(std::lround(grey * 255.0f));
 						auto const al = static_cast<uint32_t>(std::lround(alpha * 255.0f));
 						result[static_cast<size_t>(y) * n + x] = (al << 24) | (c << 16) | (c << 8) | c;
@@ -587,27 +609,29 @@ namespace pr::game_systems::particles
 			}
 			case EParticlePreset::Froth:
 			{
-				// Clumps of foam swell up along the ridges of breaking crests, ride the waves as they drift slowly downwind, and fade away soon after the
+				// Clumps of foam swell up along the ridges of breaking crests, ride the waves as they drift slowly downwind, and dissolve soon after the
 				// ridge passes. The threshold is above the crest foam's full amount, so froth forms only near the tops of the crests, and the high rate
-				// packs the ridges densely. The foam texture gives each clump the look of packed bubbles.
+				// packs the ridges densely. Froth is drawn alpha tested, so it is bright and nearly opaque, and the foam texture makes each clump break
+				// into specks as its alpha falls rather than turn translucent (see FrothTexels). Alpha testing shows only about the inner half of each
+				// sprite, so the sizes are about twice the clumps seen.
 				static ParticleSpriteConstants const constants = {
-					.key_count = 3,
+					.key_count = 4,
 					.flicker = 0.0f,
 					.flicker_rate = 0.0f,
 					.streak = 0.0f,
-					.keys = { { 0.0f, 0.5f, 0x00FFFFFF }, { 0.1f, 0.9f, 0xFFFFFFFF }, { 1.0f, 1.3f, 0x00FFFFFF } },
+					.keys = { { 0.0f, 0.6f, 0x00FFFFFF }, { 0.08f, 0.95f, 0xFFFFFFFF }, { 0.4f, 1.1f, 0xFFFFFFFF }, { 1.0f, 1.3f, 0x00FFFFFF } },
 				};
 				static ParticleFrothEmitter const params = {
 					.area = { 0.0f, 0.0f, 0.0f, 60.0f },
 					.lifetime = { 1.5f, 3.0f },
-					.size = { 0.8f, 2.0f },
-					.colour0 = 0xF0F8FAFC,
-					.colour1 = 0xA0E8EEF2,
+					.size = { 1.5f, 3.5f },
+					.colour0 = 0xFFFFFFFF,
+					.colour1 = 0xE0F0ECE4,
 					.breaking_threshold = 1.1f,
 					.candidates = 16,
 					.drift = 0.05f,
 					.spread = 0.2f,
-					.lift = 0.15f,
+					.lift = 0.2f,
 					.rise = 0.1f,
 					.linger = 0.3f,
 				};
@@ -615,7 +639,7 @@ namespace pr::game_systems::particles
 				return ParticlePreset{
 					.m_sim = ParticleSystem::FrothSimShaders(),
 					.m_draw = ParticleSystem::SpriteDrawShaders(),
-					.m_blend = EParticleBlend::Weighted,
+					.m_blend = EParticleBlend::Opaque,
 					.m_record_stride = sizeof(ParticleSpriteRecord),
 					.m_state_stride = sizeof(ParticleFrothState),
 					.m_params_stride = sizeof(ParticleFrothEmitter),

@@ -93,12 +93,13 @@ bool ParticleUpdate(inout ParticleFrothState state, float dt, ParticleSpriteCons
 ParticleSpriteRecord ParticleProject(ParticleFrothState state, ParticleSpriteConstants c)
 {
 	// The sprite curve shapes the growth and fade. The velocity only matters to a streak, and excludes the waves' motion.
-	// The presence fades the puff where the crest has moved on.
+	// The presence fades the puff where the crest has moved on. Puffs stay nearly upright, so textures lit from above keep their light on top.
 	float3 velocity = float3(state.drift, state.rise);
 	ParticleSpriteRecord record = ParticleSpriteMakeRecord(state.position, velocity, state.age, state.lifetime, state.seed, state.colour0, state.colour1, state.size0, state.size1, c);
 	float4 colour = ParticleUnpackColour(record.colour);
 	colour.a *= state.presence;
 	record.colour = ParticlePackColour(colour);
+	record.angle = 0.6f * (ParticleRandom(state.seed, 7) - 0.5f);
 	return record;
 }
 

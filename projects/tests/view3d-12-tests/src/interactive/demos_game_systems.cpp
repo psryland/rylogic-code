@@ -1024,7 +1024,9 @@ namespace view3d_test
 
 				SetEnvironment();
 				m_spray_type = CreateEffect(api::EParticlePreset::Spray, 0.5f);
-				m_froth_type = CreateEffect(api::EParticlePreset::Froth, 1.0f);
+
+				// Froth is alpha tested, which has no soft depth, so its clumps cut into the water like real foam lying on it.
+				m_froth_type = CreateEffect(api::EParticlePreset::Froth, 0.0f);
 
 				// Demo controls.
 				auto& ui = ctx.m_controls;
