@@ -182,8 +182,8 @@ namespace pr::game_systems::particles
 					return static_cast<float>(hash) / 4294967296.0f;
 				};
 
-				// The clump is a heap of round lumps of foam, packed most tightly at its centre. The sprite's alpha falls to zero at its rim, so the
-				// lumps lie within the inner half of the sprite, where it is strongest. Distances are in texture widths.
+				// The clump is a heap of round lumps of foam, packed most tightly at its centre. The lumps lie within the inner half of the texture, so the
+				// sprite's octagon never cuts them off. Distances are in texture widths.
 				struct Lump { float u, v, radius; };
 				constexpr auto lump_count = 160;
 				auto lumps = std::vector<Lump>{};
@@ -235,10 +235,13 @@ namespace pr::game_systems::particles
 						}
 
 						// A flat layer of foam lies under the lumps and fills the gaps between them, so neighbouring clumps merge into continuous foam.
-						// It is solid within the heap and soft at its edge. Where no lump covers it, the layer faces the viewer and is shaded like a shallow crease.
+						// It is solid within the heap and soft at its edge, and its edge wanders in and out around the heap so the clump is not round.
+						// Where no lump covers it, the layer faces the viewer and is shaded like a shallow crease.
 						auto const ru = u - 0.5f;
 						auto const rv = v - 0.5f;
-						auto const base = std::clamp((0.3f - std::sqrt(ru * ru + rv * rv)) / 0.06f, 0.0f, 1.0f);
+						auto const theta = std::atan2(rv, ru);
+						auto const edge = 0.25f + 0.035f * std::sin(3.0f * theta + 1.3f) + 0.025f * std::sin(5.0f * theta + 4.1f) + 0.015f * std::sin(9.0f * theta + 2.2f);
+						auto const base = std::clamp((edge - std::sqrt(ru * ru + rv * rv)) / 0.05f, 0.0f, 1.0f);
 						auto const on_lump = cover > 0.0f;
 
 						// Shade the lump's surface by its slope to the light, and darken the creases between lumps, where the surface is steep.
@@ -251,9 +254,9 @@ namespace pr::game_systems::particles
 						// Each lump is solid in its middle and soft at its edge, so lumps blend into each other and the water without hard outlines.
 						// Grain in the alpha speckles those edges, and scattered pin holes break up even the densest foam. Texels outside the heap
 						// are empty.
-						auto alpha = std::max(std::min(1.0f, 1.6f * std::sqrt(cover)), base) * (0.85f + 0.15f * random(x, y, 15));
-						if (random(x, y, 16) < 0.04f)
-							alpha *= 0.4f;
+						auto alpha = std::max(std::min(1.0f, 2.5f * std::sqrt(cover)), base) * (0.92f + 0.08f * random(x, y, 15));
+						if (random(x, y, 16) < 0.02f)
+							alpha *= 0.5f;
 
 						auto const c = static_cast<uint32_t>(std::lround(grey * 255.0f));
 						auto const al = static_cast<uint32_t>(std::lround(alpha * 255.0f));
@@ -618,9 +621,10 @@ namespace pr::game_systems::particles
 				// ridge passes. The steepness of a crest varies along its length, so a threshold on breaking alone gives patchy froth. A strong lead
 				// lets the slope of the crests' leading faces, which is much more even along a crest, decide most of where froth forms, so the leading
 				// edges carry a dense, even band. Short lives and a high rate pack the band densely and clear the backs of the waves quickly.
-				// Clumps sit partly below the water, so they rise out of the wave rather than float on it. Froth uses weighted blending, so clumps have soft edges and no hard
-				// outlines where they fade. The foam texture gives each clump its lumpy shape (see FrothTexels). The sprite's alpha falls to zero at its
-				// rim, so the sizes are about twice the clumps seen. The curve only fades the colour, because froth swells and shrinks by its own half sine.
+				// Clumps rise out of the wave rather than float on it: the draw cuts each clump off at the water's surface, so only its upper half shows.
+				// Froth uses weighted blending, so clumps have soft edges and no hard outlines where they fade. The foam texture gives each clump its
+				// lumpy shape and outline (see FrothTexels), and fills about half the sprite's width, so the sizes are about twice the clumps seen.
+				// The curve only fades the colour, because froth swells and shrinks by its own half sine.
 				static ParticleSpriteConstants const constants = {
 					.key_count = 4,
 					.flicker = 0.0f,
@@ -638,7 +642,7 @@ namespace pr::game_systems::particles
 					.candidates = 32,
 					.drift = 0.05f,
 					.spread = 0.2f,
-					.lift = -0.08f,
+					.lift = 0.0f,
 					.rise = 0.02f,
 					.linger = 0.15f,
 					.lead = 1.8f,
@@ -646,9 +650,9 @@ namespace pr::game_systems::particles
 				auto const& texels = FrothTexels();
 				return ParticlePreset{
 					.m_sim = ParticleSystem::FrothSimShaders(),
-					.m_draw = ParticleSystem::SpriteDrawShaders(),
+					.m_draw = ParticleSystem::FrothDrawShaders(),
 					.m_blend = EParticleBlend::Weighted,
-					.m_record_stride = sizeof(ParticleSpriteRecord),
+					.m_record_stride = sizeof(ParticleFrothRecord),
 					.m_state_stride = sizeof(ParticleFrothState),
 					.m_params_stride = sizeof(ParticleFrothEmitter),
 					.m_constants = &constants,

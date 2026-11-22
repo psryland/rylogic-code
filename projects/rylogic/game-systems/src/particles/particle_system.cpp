@@ -54,7 +54,8 @@ namespace pr::game_systems::particles
 		#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(particle_spray_emit_cs.h)
 		#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(particle_spray_update_cs.h)
 		#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(particle_froth_emit_cs.h)
-		#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(particle_froth_update_cs.h)
+		#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(particle_froth_update_cs.h)
+		#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(particle_froth_vs.h)
 	}
 
 	namespace
@@ -1267,6 +1268,20 @@ namespace pr::game_systems::particles
 		return pr::view3d::ParticleSimShaders{
 			.m_emit = { compiled::particle_froth_emit_cs, sizeof(compiled::particle_froth_emit_cs) },
 			.m_update = { compiled::particle_froth_update_cs, sizeof(compiled::particle_froth_update_cs) },
+		};
+	}
+
+	// The draw shaders of a batch of stock froth records. They share the sprite's octagon.
+	pr::view3d::ParticleDrawShaders ParticleSystem::FrothDrawShaders()
+	{
+		return pr::view3d::ParticleDrawShaders{
+			.m_vertex = { compiled::particle_froth_vs, sizeof(compiled::particle_froth_vs) },
+			.m_indices = SpriteIndices.data(),
+			.m_index_count = static_cast<int>(SpriteIndices.size()),
+			.m_vertex_count = static_cast<int>(ParticleSpriteVertexCount),
+			.m_geom = pr::view3d::EGeom::Vert | pr::view3d::EGeom::Colr | pr::view3d::EGeom::Tex0,
+			.m_vertex_data = nullptr,
+			.m_vertex_stride = 0,
 		};
 	}
 }

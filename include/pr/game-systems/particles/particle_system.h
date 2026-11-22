@@ -55,9 +55,13 @@ namespace pr::game_systems::particles
 		// (see WaterSet). The data is static.
 		static pr::view3d::ParticleSimShaders SpraySimShaders();
 
-		// The simulation shaders of the stock froth type (see particle_froth.hlsli). 		It draws with the stock sprite batch, and needs a water
-		// surface (see WaterSet). The data is static.
+		// The simulation shaders of the stock froth type (see particle_froth.hlsli). It draws with the froth batch (see FrothDrawShaders), and needs a
+		// water surface (see WaterSet). The data is static.
 		static pr::view3d::ParticleSimShaders FrothSimShaders();
+
+		// The drawing shaders of a batch of stock froth records: sprites cut off at the water's surface. The batch needs a texture, which gives
+		// each puff its outline. The data is static.
+		static pr::view3d::ParticleDrawShaders FrothDrawShaders();
 
 		// Validate 'options' and add a particle batch, returning its index. Its View3D object is returned in 'out_object'.
 		virtual int BatchCreate(pr::view3d::ParticleBatchOptions const& options, char const* name, pr::view3d::Object& out_object) = 0;

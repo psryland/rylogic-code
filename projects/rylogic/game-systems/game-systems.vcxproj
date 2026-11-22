@@ -118,6 +118,7 @@
     <None Include="$(RylogicRoot)include\pr\game-systems\particles\particle_froth.hlsli" />
     <ShaderBuild Include="src\shaders\hlsl\particles\particle_spray_cs.hlsl" ComputeEntryPoints="particle_spray_emit_cs=ParticleEmitCS;particle_spray_update_cs=ParticleUpdateCS" />
     <ShaderBuild Include="src\shaders\hlsl\particles\particle_froth_cs.hlsl" ComputeEntryPoints="particle_froth_emit_cs=ParticleEmitCS;particle_froth_update_cs=ParticleUpdateCS" />
+    <ShaderBuild Include="src\shaders\hlsl\particles\particle_froth_vs.hlsl" VertexEntryPoints="particle_froth_vs=Main" />
     <ShaderBuild Include="src\atmosphere\atmosphere.hlsl" ComputeEntryPoints="CSInitialise;CSAdvect;CSVorticity;CSForcesHeat;CSDivergence;CSMgSmooth;CSMgSmallLevels;CSMgResidual;CSMgRestrict;CSMgProlongate;CSNormalisePressure;CSProject;CSInitialiseTracers;CSAdvectTracers">
       <StampDir>$(ProjectDir)src\atmosphere\compiled\$(Configuration)\</StampDir>
     </ShaderBuild>

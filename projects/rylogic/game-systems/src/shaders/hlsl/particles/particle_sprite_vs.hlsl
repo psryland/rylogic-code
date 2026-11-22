@@ -30,20 +30,12 @@ View3DForwardVertexOut Main(uint vertex_id : SV_VertexID, uint instance_id : SV_
 	uint4 colour_angle_streak = g_records.Load4(offset + 16);
 	float4 colour = ParticleUnpackColour(colour_angle_streak.x);
 
-	// Rim vertices sit on a circle of the sprite's radius in the camera's view plane, turned by the sprite's angle. The texture turns with the sprite:
-	// its unit square fits around the rim, with the centre vertex at the texture's centre and v down the screen.
+	// Rim vertices sit on a circle of the sprite's radius in the camera's view plane, turned by the sprite's angle, and are transparent.
 	float radius = 0.5f * pos_size.w;
-	float2 offset_cs = float2(0.0f, 0.0f);
-	float2 uv = float2(0.5f, 0.5f);
-	if (vertex_id < ParticleSpriteRimCount)
-	{
-		float sine;
-		float cosine;
-		sincos(asfloat(colour_angle_streak.y) + 6.283185307179586f * float(vertex_id) / float(ParticleSpriteRimCount), sine, cosine);
-		offset_cs = radius * float2(cosine, sine);
-		uv = float2(0.5f + 0.5f * cosine, 0.5f - 0.5f * sine);
+	float2 offset_cs;
+	float2 uv;
+	if (ParticleSpriteVertex(vertex_id, asfloat(colour_angle_streak.y), radius, offset_cs, uv))
 		colour.a = 0.0f;
-	}
 
 	// A streak stretches the disc along the streak's direction on screen, so the sprite spans from its centre back to its tail. Rim points are pushed
 	// out along the streak in proportion to how far they already lie along it, which keeps the outline smooth. The streak is in the object's space.

@@ -8,17 +8,19 @@
 #include "pr/game-systems/particles/particle_water.hlsli"
 
 #define ParticleState ParticleFrothState
-#define ParticleRecord ParticleSpriteRecord
+#define ParticleRecord ParticleFrothRecord
 #define EmitterParams ParticleFrothEmitter
 #define TypeConstants ParticleSpriteConstants
 
-// Drift a puff through 'dt' seconds, keep it at its height above the water below its new position, and track the crest under it.
+// Drift a puff through 'dt' seconds, keep it at its height above the water below its new position, and track the crest and surface under it.
 void ParticleFrothMove(inout ParticleFrothState state, float dt)
 {
 	// The drift is horizontal and constant, and the height above the surface is a function of age, so the motion is exact at any tick rate.
+	// The surface normal under the puff is kept for the draw, which cuts the puff off at the surface.
 	state.position.xy += state.drift * dt;
 	ParticleWaterSample water = ParticleSampleWater(state.position.xy);
 	state.position.z = water.height + state.lift + state.rise * state.age;
+	state.normal_xy = ParticleFrothPackNormal(water.normal);
 
 	// The presence follows the crest under the puff as it falls, and decays exponentially over the linger time once the crest moves on.
 	// Presence never rises, so a puff belongs to the crest that formed it, and a later crest passing under a faded puff does not make it pop back.
@@ -60,7 +62,7 @@ ParticleFrothState ParticleInit(ParticleFrothEmitter params, ParticleSpawn spawn
 	state.linger = params.linger;
 	state.threshold = params.breaking_threshold;
 	state.lean = lean;
-	state.pad0 = 0;
+	state.normal_xy = ParticleFrothPackNormal(water.normal);
 
 	// A birth without a crest makes no froth. New particles are always kept for one tick, so it is drawn at zero size, away from the water's
 	// far-below height, and the next update removes it.
@@ -92,29 +94,31 @@ bool ParticleUpdate(inout ParticleFrothState state, float dt, ParticleSpriteCons
 	return state.presence > 0.02f;
 }
 
-// Evaluate a puff's size and colour at its age.
-ParticleSpriteRecord ParticleProject(ParticleFrothState state, ParticleSpriteConstants c)
+// Evaluate a puff's size, colour and the surface it is cut off at, at its age.
+ParticleFrothRecord ParticleProject(ParticleFrothState state, ParticleSpriteConstants c)
 {
-	// The sprite curve shapes the colour and size. The velocity only matters to a streak, and excludes the waves' motion.
+	// The sprite curve shapes the colour and size. Froth never streaks, so the velocity is unused.
 	// The presence fades the puff where the crest has moved on. Puffs stay nearly upright, so textures lit from above keep their light on top.
-	float3 velocity = float3(state.drift, state.rise);
-	ParticleSpriteRecord record = ParticleSpriteMakeRecord(state.position, velocity, state.age, state.lifetime, state.seed, state.colour0, state.colour1, state.size0, state.size1, c);
-	float4 colour = ParticleUnpackColour(record.colour);
+	ParticleSpriteRecord sprite = ParticleSpriteMakeRecord(state.position, float3(0.0f, 0.0f, 0.0f), state.age, state.lifetime, state.seed, state.colour0, state.colour1, state.size0, state.size1, c);
+	float4 colour = ParticleUnpackColour(sprite.colour);
 	colour.a *= state.presence;
-	record.colour = ParticlePackColour(colour);
-	record.angle = 0.6f * (ParticleRandom(state.seed, 7) - 0.5f);
 
 	// Puffs swell from a small start to their full size at mid life and shrink again, along a half sine, so they never stop growing abruptly.
 	float t = saturate(state.age / state.lifetime);
-	record.pos_size.w *= 0.3f + 0.7f * sin(3.141592653589793f * t);
+	ParticleFrothRecord record;
+	record.pos_size = float4(sprite.pos_size.xyz, sprite.pos_size.w * (0.3f + 0.7f * sin(3.141592653589793f * t)));
+	record.colour = ParticlePackColour(colour);
+	record.angle = 0.6f * (ParticleRandom(state.seed, 7) - 0.5f);
+	record.normal_xy = state.normal_xy;
+	record.height = state.lift + state.rise * state.age;
 	return record;
 }
 
-// Bound a puff by the sphere around its sprite. See ParticleSpriteRecordBounds.
+// Bound a puff by the sphere around its sprite. See ParticleFrothRecordBounds.
 float4 ParticleBounds(ParticleFrothState state, ParticleSpriteConstants c)
 {
 	// The record holds the position and size that the vertex shader draws.
-	return ParticleSpriteRecordBounds(ParticleProject(state, c));
+	return ParticleFrothRecordBounds(ParticleProject(state, c));
 }
 
 #include "pr/game-systems/particles/particle_kernels.hlsli"
