@@ -719,10 +719,13 @@ Complete, pending Paul's visual check of the `particle_presets` gallery. Ocean s
   with darkened creases and pin holes. Its alpha is coverage: solid in each lump's middle and soft at its edge. The lumps fill only the central
   half of the texture, where the sprite's alpha is strongest. Puffs are tilted by at most ±0.3 radians so the baked lighting stays on top. A
   texture costs one sample per sprite pixel and no extra draw calls; overdraw dominates the cost. The froth preset lives briefly (0.7–1.4 s,
-  linger 0.15 s) and emits densely (14000 per second, 32 candidates, sizes 1.6–2.6 m, lift −0.08 m, rise 0.02 m/s, lead 1.8) with a threshold
+  linger 0.15 s) and emits densely (26000 per second, 32 candidates, sizes 1.6–2.6 m, lift −0.08 m, rise 0.02 m/s, lead 1.8) with a threshold
   of 1.1, so foam is a thin, thick-packed layer along the ridges and leading faces, and clears from the backs of the waves soon after the crest passes.
   Breaking alone varies along a crest and gave patchy froth; the strong lead lets the more even leading-face slope decide most births, giving a
-  dense, near-uniform band. The negative lift sinks puffs partly into the wave so they rise out of it rather than float on it.
+  dense, near-uniform band. The negative lift sinks puffs partly into the wave so they rise out of it rather than float on it. A flat layer of foam under each clump's
+  lumps fills the gaps between them, and the colour holds until 60% of a puff's life, so overlapping clumps read as continuous foam. The `ocean_spray`
+  demo keeps its emitters' disc 40 m ahead of the camera, so the waves in view always have spray and froth; the particle system itself stays
+  camera-independent.
   The `ocean_spray` demo gives froth a soft depth of 0.5 m.
 - **Presets.** `EParticlePreset` gains `Spray` and `Froth`. Their emitter parameters start with `float4 area` (xy centre, w radius) rather than a
   position, because they emit over an area of sea.

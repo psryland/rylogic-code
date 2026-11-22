@@ -981,7 +981,7 @@ namespace view3d_test
 		// system's water binding names, so they follow the waves without any CPU readback. The ocean is updated before each particle step.
 		struct OceanSprayDemo :IDemo
 		{
-			static constexpr int Capacity = 1 << 15;
+			static constexpr int Capacity = 1 << 16;
 			static constexpr float MaxWind = 20.0f;
 
 			DemoContext m_ctx;
@@ -989,8 +989,22 @@ namespace view3d_test
 			api::Ocean m_ocean;
 			api::Object m_ocean_object;
 			api::ParticleSystem m_system;
-			int m_spray_type;
-			int m_froth_type;
+			// A preset's particle type and its one emitter. The settings and parameters are kept so the emitter's area can be moved.
+			struct Effect
+			{
+				int m_type = -1;
+				uint64_t m_emitter = 0;
+				api::ParticleEmitter m_settings = {};
+				std::vector<uint8_t> m_params;
+			};
+
+			// Emitters search a disc of sea this far (m) in front of the camera, with this radius (m).
+			static constexpr float EmitAhead = 40.0f;
+			static constexpr float EmitRadius = 50.0f;
+
+			Effect m_spray;
+			Effect m_froth;
+			pr::v2 m_emit_centre;
 			pr::gui::Label* m_stats_label;
 			double m_stats_timer;
 			double m_wave_time;
@@ -1003,8 +1017,9 @@ namespace view3d_test
 				, m_ocean()
 				, m_ocean_object()
 				, m_system()
-				, m_spray_type(-1)
-				, m_froth_type(-1)
+				, m_spray()
+				, m_froth()
+				, m_emit_centre()
 				, m_stats_label()
 				, m_stats_timer()
 				, m_wave_time(100.0)
@@ -1024,8 +1039,9 @@ namespace view3d_test
 
 				// Froth fades over a short depth into the water as well as the opaque scene, so its clumps blend into the surface they sit on.
 				SetEnvironment();
-				m_spray_type = CreateEffect(api::EParticlePreset::Spray, 0.5f);
-				m_froth_type = CreateEffect(api::EParticlePreset::Froth, 0.5f);
+				m_spray = CreateEffect(api::EParticlePreset::Spray, 0.5f);
+				m_froth = CreateEffect(api::EParticlePreset::Froth, 0.5f);
+				MoveEmitters(View3D_CameraToWorldGet(ctx.m_window), true);
 
 				// Demo controls.
 				auto& ui = ctx.m_controls;
@@ -1122,9 +1138,9 @@ namespace view3d_test
 				View3D_OceanSetEffects(m_ocean, TRUE, TRUE);
 			}
 
-			// Create the batch, type and continuous emitter of 'preset' over the sea in view, and return the type. A positive 'soft_depth'
-			// fades the batch's sprites where they meet the water.
-			int CreateEffect(api::EParticlePreset preset, float soft_depth)
+			// Create the batch, type and continuous emitter of 'preset', and return them. The emitter's area is placed by MoveEmitters. A positive
+			// 'soft_depth' fades the batch's sprites where they meet the water.
+			Effect CreateEffect(api::EParticlePreset preset, float soft_depth)
 			{
 				// The preset supplies every setting. Only the emitter's area changes.
 				auto settings = api::ParticlePreset{};
@@ -1142,7 +1158,7 @@ namespace view3d_test
 					.m_constants = nullptr,
 					.m_constants_size = 0,
 					.m_blend = settings.m_blend,
-					.m_bbox = api::BBox{ {0, 0, 0, 1}, {100, 100, 20, 0} },
+					.m_bbox = api::BBox{ {0, 0, 0, 1}, {2000, 2000, 50, 0} }, // Covers all the sea the roaming camera is likely to visit.
 					.m_texture = texture.get(),
 					.m_sampler = texture != nullptr ? View3D_SamplerCreateStock(api::EStockSampler::LinearClamp) : nullptr,
 				};
@@ -1174,16 +1190,40 @@ namespace view3d_test
 					throw std::runtime_error("Particle type creation failed");
 
 				// Both emitters' parameters start with the disc of sea that they search for crests.
-				auto params = std::vector<uint8_t>(static_cast<size_t>(settings.m_params_stride));
-				std::memcpy(params.data(), settings.m_params, params.size());
-				*reinterpret_cast<pr::hlsl::float4*>(params.data()) = { 0.0f, 0.0f, 0.0f, 50.0f };
+				auto effect = Effect{ .m_type = type };
+				effect.m_params.resize(static_cast<size_t>(settings.m_params_stride));
+				std::memcpy(effect.m_params.data(), settings.m_params, effect.m_params.size());
+				*reinterpret_cast<pr::hlsl::float4*>(effect.m_params.data()) = { 0.0f, 0.0f, 0.0f, EmitRadius };
 
-				auto emitter = api::ParticleEmitter{ .m_rate = settings.m_rate, .m_seed = static_cast<uint32_t>(type + 1), .m_active = TRUE };
-				auto id = uint64_t{};
-				if (!View3D_ParticleEmitterCreate(m_system, type, emitter, params.data(), params.size(), &id))
+				effect.m_settings = api::ParticleEmitter{ .m_rate = settings.m_rate, .m_seed = static_cast<uint32_t>(type + 1), .m_active = TRUE };
+				if (!View3D_ParticleEmitterCreate(m_system, type, effect.m_settings, effect.m_params.data(), effect.m_params.size(), &effect.m_emitter))
 					throw std::runtime_error("Particle emitter creation failed");
 
-				return type;
+				return effect;
+			}
+
+			// Keep the emitters' disc on the sea in front of the camera, so the waves in view have spray and froth wherever the camera goes. Which
+			// sea has particles is the demo's choice; the particle system itself does not depend on the camera. The emitters are only updated
+			// once the disc has moved a few metres, to avoid needless uploads.
+			void MoveEmitters(pr::view3d::Mat4x4 const& c2w, bool force)
+			{
+				// Project the view direction onto the sea. Looking straight down puts the disc under the camera.
+				auto forward = pr::v2{ -c2w.z.x, -c2w.z.y };
+				auto const len = pr::Length(forward);
+				forward = len > 0.01f ? forward / len : pr::v2{};
+				auto const centre = pr::v2{ c2w.w.x, c2w.w.y } + forward * EmitAhead;
+				if (!force && pr::Length(centre - m_emit_centre) < 2.0f)
+					return;
+
+				// Update both emitters' area. The other settings are unchanged.
+				m_emit_centre = centre;
+				for (auto* effect : { &m_spray, &m_froth })
+				{
+					// The area is the first member of both presets' parameters.
+					*reinterpret_cast<pr::hlsl::float4*>(effect->m_params.data()) = { centre.x, centre.y, 0.0f, EmitRadius };
+					if (!View3D_ParticleEmitterUpdate(m_system, effect->m_emitter, effect->m_settings, effect->m_params.data(), effect->m_params.size()))
+						throw std::runtime_error("Particle emitter update failed");
+				}
 			}
 
 			// Blow the wind over the whole sea. The waves follow it from the next update.
@@ -1221,6 +1261,7 @@ namespace view3d_test
 					.m_min_spacing_m = 0.1, .m_warp_power = 2, .m_breaking_ratio = 0.8, .m_shore_sharpness = 0, .m_colour_argb = 0xE0103848, .m_depth_effects = 1,
 				};
 				View3D_OceanUpdate(m_ocean, m_ocean_object, frame);
+				MoveEmitters(c2w, false);
 				View3D_ParticleSystemStep(m_system, step);
 
 				// Reading the statistics waits for the GPU, so it is throttled.
@@ -1231,7 +1272,7 @@ namespace view3d_test
 				m_stats_timer = 0;
 				auto spray = api::ParticleStats{};
 				auto froth = api::ParticleStats{};
-				if (!View3D_ParticleStats(m_system, m_spray_type, &spray) || !View3D_ParticleStats(m_system, m_froth_type, &froth))
+				if (!View3D_ParticleStats(m_system, m_spray.m_type, &spray) || !View3D_ParticleStats(m_system, m_froth.m_type, &froth))
 					return;
 
 				m_stats_label->Text(std::format(L"Spray: live {}\nFroth: live {}", spray.m_live, froth.m_live).c_str());

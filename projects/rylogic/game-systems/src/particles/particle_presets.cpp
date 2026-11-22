@@ -234,17 +234,24 @@ namespace pr::game_systems::particles
 							ny = dy;
 						}
 
+						// A flat layer of foam lies under the lumps and fills the gaps between them, so neighbouring clumps merge into continuous foam.
+						// It is solid within the heap and soft at its edge. Where no lump covers it, the layer faces the viewer and is shaded like a shallow crease.
+						auto const ru = u - 0.5f;
+						auto const rv = v - 0.5f;
+						auto const base = std::clamp((0.3f - std::sqrt(ru * ru + rv * rv)) / 0.06f, 0.0f, 1.0f);
+						auto const on_lump = cover > 0.0f;
+
 						// Shade the lump's surface by its slope to the light, and darken the creases between lumps, where the surface is steep.
-						auto const nz = cover;
+						auto const nz = on_lump ? cover : 1.0f;
 						auto const lit = std::max(0.0f, nx * lx + ny * ly + nz * lz);
-						auto const crease = 0.6f + 0.4f * std::sqrt(cover);
+						auto const crease = on_lump ? 0.6f + 0.4f * std::sqrt(cover) : 0.8f;
 						auto const grain = 0.9f + 0.1f * random(x, y, 14);
 						auto const grey = std::clamp((0.55f + 0.55f * lit) * crease * grain, 0.0f, 1.0f);
 
 						// Each lump is solid in its middle and soft at its edge, so lumps blend into each other and the water without hard outlines.
-						// Grain in the alpha speckles those edges, and scattered pin holes break up even the densest foam. Texels outside every lump
+						// Grain in the alpha speckles those edges, and scattered pin holes break up even the densest foam. Texels outside the heap
 						// are empty.
-						auto alpha = std::min(1.0f, 1.6f * std::sqrt(cover)) * (0.85f + 0.15f * random(x, y, 15));
+						auto alpha = std::max(std::min(1.0f, 1.6f * std::sqrt(cover)), base) * (0.85f + 0.15f * random(x, y, 15));
 						if (random(x, y, 16) < 0.04f)
 							alpha *= 0.4f;
 
@@ -619,7 +626,7 @@ namespace pr::game_systems::particles
 					.flicker = 0.0f,
 					.flicker_rate = 0.0f,
 					.streak = 0.0f,
-					.keys = { { 0.0f, 1.0f, 0x00FFFFFF }, { 0.08f, 1.0f, 0xFFFFFFFF }, { 0.4f, 1.0f, 0xFFFFFFFF }, { 1.0f, 1.0f, 0x00FFFFFF } },
+					.keys = { { 0.0f, 1.0f, 0x00FFFFFF }, { 0.08f, 1.0f, 0xFFFFFFFF }, { 0.6f, 1.0f, 0xFFFFFFFF }, { 1.0f, 1.0f, 0x00FFFFFF } },
 				};
 				static ParticleFrothEmitter const params = {
 					.area = { 0.0f, 0.0f, 0.0f, 60.0f },
@@ -647,7 +654,7 @@ namespace pr::game_systems::particles
 					.m_constants = &constants,
 					.m_constants_size = sizeof(constants),
 					.m_params = &params,
-					.m_rate = 14000.0f,
+					.m_rate = 26000.0f,
 					.m_burst = 0,
 					.m_texels = texels.data(),
 					.m_texture_size = FrothTextureSize,
