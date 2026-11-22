@@ -169,6 +169,25 @@ ParticleSpriteRecord ParticleSpriteMakeRecord(float3 position, float3 velocity, 
 	return record;
 }
 
+// Return the position of the sprite vertex 'vertex_id' relative to the sprite's centre, in the camera's view plane, and its texture coordinates.
+// Rim vertices sit on a circle of 'radius', turned by 'angle'. The texture's unit square fits around the rim, with the centre vertex at the texture's
+// centre and v down the screen, so the texture turns with the sprite. Returns true for rim vertices and false for the centre vertex.
+bool ParticleSpriteVertex(uint vertex_id, float angle, float radius, out float2 offset_cs, out float2 uv)
+{
+	// The centre vertex is the last logical vertex.
+	offset_cs = float2(0.0f, 0.0f);
+	uv = float2(0.5f, 0.5f);
+	if (vertex_id >= ParticleSpriteRimCount)
+		return false;
+
+	float sine;
+	float cosine;
+	sincos(angle + 6.283185307179586f * float(vertex_id) / float(ParticleSpriteRimCount), sine, cosine);
+	offset_cs = radius * float2(cosine, sine);
+	uv = float2(0.5f + 0.5f * cosine, 0.5f - 0.5f * sine);
+	return true;
+}
+
 // Return the streak of 'record': the displacement from the tail of the sprite to its centre.
 float3 ParticleSpriteStreak(ParticleSpriteRecord record)
 {

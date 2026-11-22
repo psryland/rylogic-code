@@ -280,7 +280,7 @@ struct OceanWaveSample
 };
 
 // Return a flat wave sample with no crests.
-OceanWaveSample OceanWaveSampleZero()
+odr OceanWaveSample OceanWaveSampleZero()
 {
 	// Flat water has no crests.
 	OceanWaveSample result;
@@ -294,7 +294,7 @@ OceanWaveSample OceanWaveSampleZero()
 // face, rising from 0 at mid height to its full value at the crest, and 0 below mid height. The steepest face of a crest with sharpness r is
 // steeper than that of a sine wave of the same height, and becomes very steep as r nears one (see WaterFieldWaveProfile), so sharp crests score
 // far higher than rolling waves of the same height.
-float OceanCrestSteepness(WaterFieldElement element, float height)
+odr float OceanCrestSteepness(WaterFieldElement element, float height)
 {
 	// Flat elements have no crest.
 	float r = element.timing.x;

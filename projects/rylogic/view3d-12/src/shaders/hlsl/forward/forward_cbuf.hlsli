@@ -49,7 +49,8 @@ struct ElementConstants
 	float emissive_scale; // Per-instance multiplier of the material emissive colour
 
 	// Soft intersections
-	float soft_depth; // View depth over which transparent fragments fade out in front of the opaque scene. Zero means hard intersections
+	float soft_depth; // View depth over which transparent fragments fade out in front of the opaque scene, and weighted fragments also in front
+	                  // of the nearest sorted transparent layer. Zero means hard intersections
 };
 
 // Constants used for radial fading.

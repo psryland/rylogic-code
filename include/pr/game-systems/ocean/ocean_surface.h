@@ -49,5 +49,9 @@ namespace pr::game_systems::ocean
 		// Return the height (m) of the drawn surface at the world position 'x_m', 'y_m' in the last frame passed to Update.
 		// Positions beyond the domain radius take the height at the domain edge, where the surface ends.
 		virtual double Height(double x_m, double y_m) const = 0;
+
+		// Return the constants of the last frame passed to Update (see ocean_surface.hlsli). With the object's procedural buffer, they let other
+		// GPU work sample the drawn surface as the ocean shaders do (see ocean_buffer.hlsli). Throws if Update has not been called.
+		virtual OceanConstants const& Constants() const = 0;
 	};
 }

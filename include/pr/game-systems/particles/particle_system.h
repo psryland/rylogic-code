@@ -51,6 +51,18 @@ namespace pr::game_systems::particles
 		// The simulation shaders of the stock marker type (see particle_marker.hlsli). It draws with the stock mesh batch. The data is static.
 		static pr::view3d::ParticleSimShaders MarkerSimShaders();
 
+		// The simulation shaders of the stock spray type (see particle_spray.hlsli). It draws with the stock sprite batch, and needs a water surface
+		// (see WaterSet). The data is static.
+		static pr::view3d::ParticleSimShaders SpraySimShaders();
+
+		// The simulation shaders of the stock froth type (see particle_froth.hlsli). It draws with the froth batch (see FrothDrawShaders), and needs a
+		// water surface (see WaterSet). The data is static.
+		static pr::view3d::ParticleSimShaders FrothSimShaders();
+
+		// The drawing shaders of a batch of stock froth records: sprites cut off at the water's surface. The batch needs a texture, which gives
+		// each puff its outline. The data is static.
+		static pr::view3d::ParticleDrawShaders FrothDrawShaders();
+
 		// Validate 'options' and add a particle batch, returning its index. Its View3D object is returned in 'out_object'.
 		virtual int BatchCreate(pr::view3d::ParticleBatchOptions const& options, char const* name, pr::view3d::Object& out_object) = 0;
 
@@ -93,5 +105,9 @@ namespace pr::game_systems::particles
 
 		// Remove a collision set. Particles that still name it collide with nothing.
 		virtual void CollisionSetDelete(int set) = 0;
+
+		// Bind the water surface that types sample (see particle_water.hlsli), from the next step, or remove it when 'ocean' is null. 'object' must be
+		// the View3D object of 'ocean'. Both must outlive the binding, and the ocean must be updated before each step, so particles see the frame being drawn.
+		virtual void WaterSet(ocean::OceanSurface const* ocean, pr::view3d::Object object) = 0;
 	};
 }

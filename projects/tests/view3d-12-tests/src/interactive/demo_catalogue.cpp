@@ -22,9 +22,10 @@ namespace view3d_test
 	std::unique_ptr<IDemo> CreatePopulationFieldDemo(DemoContext const& ctx);
 	std::unique_ptr<IDemo> CreateParticlesDemo(DemoContext const& ctx);
 	std::unique_ptr<IDemo> CreateParticlePresetsDemo(DemoContext const& ctx);
+	std::unique_ptr<IDemo> CreateOceanSprayDemo(DemoContext const& ctx);
 
 	// All demos, in menu order
-	static std::array<DemoInfo, 12> const s_catalogue =
+	static std::array<DemoInfo, 13> const s_catalogue =
 	{{
 		{L"Scene", "audio_box", L"Spatial Audio", L"A tone plays from the rotating box. O toggles occlusion. E/R/T/Space change the step mode.", &CreateAudioBoxDemo},
 		{L"Scene", "ui_gallery", L"UI Gallery", L"The view3d UI controls. The slider changes the size of the box.", &CreateUiGalleryDemo},
@@ -38,6 +39,7 @@ namespace view3d_test
 		{L"Procedural", "population_field", L"Population Field", L"65536 instances culled and LOD-selected on the GPU. The density slider changes the block live counts. The panel shows the population diagnostics.", &CreatePopulationFieldDemo},
 		{L"Game Systems", "particles", L"Particles", L"GPU-resident sprite particles in one draw call. Change the time scale for slow motion or pause, burst an explosion, or add a grid of emitters to fill the pool.", &CreateParticlesDemo},
 		{L"Game Systems", "particle_presets", L"Particle Presets", L"The stock particle effects side by side: fire, sparks, smoke, dust, rain, snow, leaves, wood chips, a beacon marker and birds, each built only from its preset.", &CreateParticlePresetsDemo},
+		{L"Game Systems", "ocean_spray", L"Ocean Spray", L"Spray and froth born on the breaking crests of a wind-driven ocean, found on the GPU by sampling the waves.", &CreateOceanSprayDemo},
 	}};
 
 	// All demos, in menu order

@@ -515,6 +515,16 @@ namespace pr::game_systems::ocean
 			return static_cast<double>(c.level_radii.x) + sample.surface.displacement_foam.z;
 		}
 
+		// Return the constants of the last frame passed to Update.
+		OceanConstants const& Constants() const override
+		{
+			// Before the first frame the constants do not describe a drawn surface.
+			if (!m_has_frame)
+				throw std::logic_error("Water surface has no frame to sample");
+
+			return m_constants;
+		}
+
 		// Build the shared index list for surfaces with 'vertices_per_side' vertices per side, so creating them later does not. Any thread may call this.
 		static void PrepareLattice(int32_t vertices_per_side)
 		{

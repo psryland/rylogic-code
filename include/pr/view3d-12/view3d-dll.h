@@ -1462,6 +1462,8 @@ namespace pr
 			Birds = 7,      // A distant flock of birds circling, flapping and gliding. Birds.
 			WoodChips = 8,  // A burst of tumbling wood chips, such as from chopping a tree. Debris.
 			Marker = 9,     // Pulses of an expanding ring, such as a beacon. Markers.
+			Spray = 10,     // Droplets thrown up from breaking wave crests. Needs a bound water surface. Spray.
+			Froth = 11,     // Foam puffs that swell up on breaking wave crests and ride the waves. Needs a bound water surface. Froth.
 		};
 
 		// A ready-made particle effect: the settings of one batch, one type and its emitters. Every pointer refers to static data.
@@ -1481,6 +1483,9 @@ namespace pr
 			void const* m_params;        // The emitter parameters of the effect, at the origin.
 			float m_rate;                // Suggested emitter rate (particles per second). Zero for effects that are bursts.
 			int m_burst;                 // Suggested burst size. Zero for continuous effects.
+			uint32_t const* m_texels;    // The batch's texture, or null for none. Square, 'm_texture_size' texels a side, row by row from the top, in
+			                             // DXGI_FORMAT_R8G8B8A8_UNORM (red in the lowest byte) with straight alpha. Create it with View3D_TextureCreate.
+			int m_texture_size;          // Texels per side of 'm_texels'.
 		};
 
 		struct WindowOptions
@@ -2375,6 +2380,11 @@ extern "C"
 	// Remove a collision set. Particles that still name it collide with nothing.
 	VIEW3D_API BOOL __stdcall View3D_ParticleCollisionSetDelete(pr::view3d::ParticleSystem system, int set);
 
+	// Bind the water surface that particle types such as spray and froth sample (see pr/game-systems/particles/particle_water.hlsli), from the next step.
+	// 'object' must be the View3D object of 'ocean'. Both must outlive the binding, and View3D_OceanUpdate must be called before each step so particles
+	// see the frame being drawn. A null 'ocean' removes the binding, and 'object' is then ignored.
+	VIEW3D_API BOOL __stdcall View3D_ParticleWaterSet(pr::view3d::ParticleSystem system, pr::view3d::Ocean ocean, pr::view3d::Object object);
+
 	// Add a particle batch to 'system', returning its index in 'out_batch' and its View3D object in 'out_object'. The options' data is copied.
 	// Delete the object with View3D_ObjectDelete. An object that outlives its system keeps drawing the particles of the system's last step.
 	VIEW3D_API BOOL __stdcall View3D_ParticleBatchCreate(pr::view3d::ParticleSystem system, pr::view3d::ParticleBatchOptions const& options, char const* name, int* out_batch, pr::view3d::Object* out_object);
@@ -2736,7 +2746,8 @@ extern "C"
 	VIEW3D_API void __stdcall View3D_ObjectEmissiveScaleSet(pr::view3d::Object object, float scale, char const* name);
 
 	// Get/Set the soft depth of 'object': the view depth, in world units, over which its transparent fragments fade to zero alpha as they
-	// approach the opaque scene behind them, so they do not show hard lines where they cut through opaque surfaces. Zero (the default) keeps
+	// approach the opaque scene behind them, so they do not show hard lines where they cut through opaque surfaces. Weighted transparent
+	// fragments also fade as they approach the nearest sorted transparent surface behind them (such as water). Zero (the default) keeps
 	// hard intersections. Applies to the stock transparent pixel shaders and to procedural families built with the stock entry-point macros.
 	// 'depth' must be non-negative. Name follows LdrObject::Apply; the getter returns the first match, or zero if absent.
 	VIEW3D_API float __stdcall View3D_ObjectSoftDepthGet(pr::view3d::Object object, char const* name);

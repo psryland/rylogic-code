@@ -49,6 +49,7 @@ namespace pr::game_systems
 	namespace ocean
 	{
 		struct OceanSurface;
+		struct OceanConstants;
 	}
 
 	// Atmosphere

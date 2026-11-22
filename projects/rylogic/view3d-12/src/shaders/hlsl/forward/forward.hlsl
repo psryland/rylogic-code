@@ -744,15 +744,27 @@ PSWeightedOut WeightedAlphaOut(PSIn In, float4 diff)
 	float2 near_far = ClipPlanes(g_frame.cam.c2s);
 	uint depth = PackDepth24(view_z, near_far);
 
-	// Weight nearer fragments more strongly, so that near layers dominate far layers in the average. The weight uses the depth
-	// as a fraction of the clip range, so it does not depend on the scene's units. The limits keep the sums within half-float range.
-	float t = float(depth) / float(KBufferDepthFar);
-	float a = saturate(diff.a);
-	float w = a * clamp(3e3f * pow(1.0f - t, 3.0f), 1e-2f, 3e3f);
-
 	// Assign the fragment to the group in front of, or behind, the nearest collected layer. An empty K-buffer has a far depth,
 	// so every weighted fragment is then in front. Fragments between collected layers are composited behind all of them.
-	bool in_front = depth < DepthOf(g_alpha_depth_collected[pix].x);
+	uint layer_depth = DepthOf(g_alpha_depth_collected[pix].x);
+	bool in_front = depth < layer_depth;
+
+	// A fragment in front of a collected layer switches groups where it crosses that layer, which would show a hard line where it cuts through
+	// a transparent surface. With a soft depth, the fragment fades out as its view depth nears the layer's, as it does near opaque surfaces.
+	float a = saturate(diff.a);
+	if (in_front && layer_depth != KBufferDepthFar && g_nugget.soft_depth > 0.0f)
+	{
+		// Packed depths are linear in view depth across the clip range. The low bits of a layer's depth break ties between layers.
+		float layer_z = lerp(near_far.x, near_far.y, float(layer_depth & ~KBufferTieMask) / float(KBufferDepthFar));
+		a *= saturate((layer_z - view_z) / g_nugget.soft_depth);
+	}
+
+	// Weight nearer fragments more strongly, so that near layers dominate far layers in the average. The weight uses the depth
+	// as a fraction of the clip range, so it does not depend on the scene's units. Only the ratio between weights affects the average,
+	// so the scale is kept small: the accumulation targets are half-float, and a sum above 65504 saturates every channel to the same
+	// value, which shows as white. The maximum weight of 100 allows about 650 fully opaque overlaps per pixel before that happens.
+	float t = float(depth) / float(KBufferDepthFar);
+	float w = a * clamp(1e2f * pow(1.0f - t, 3.0f), 1e-2f, 1e2f);
 	float4 accum = float4(diff.rgb * a, a) * w;
 
 	PSWeightedOut Out = (PSWeightedOut)0;

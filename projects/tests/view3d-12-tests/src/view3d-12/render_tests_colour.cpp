@@ -351,12 +351,21 @@ namespace render_tests
 		fixture.Quad(20, 0x8000FF00);
 		Expect(fixture.Image(), 0.5f, 0.25f, 0);
 
+		// Many overlapping weighted layers keep their average colour. Their summed weights must stay within the half-float accumulation range,
+		// because a saturated sum gives every channel the same value: the red and green layers here would then show yellow instead of half each.
+		fixture.Clear();
+		for (int i = 0; i != 64; ++i)
+			weighted(10.0f + 0.01f * i, (i & 1) ? 0xF000FF00 : 0xF0FF0000);
+
+		Expect(fixture.Image(), 0.5f, 0.5f, 0);
+
 		// Any GPU validation error fails the fixture.
 		fixture.CheckDebugLayer();
 		std::cout << "PASS alpha weighted (" << samples << "x)\n";
 	}
 
-	// Check that a soft depth fades transparent fragments linearly in view depth as they approach the opaque surface behind them, in both alpha passes.
+	// Check that a soft depth fades transparent fragments linearly in view depth as they approach the opaque surface behind them, in both alpha passes,
+	// and that weighted fragments also fade as they approach a sorted transparent layer.
 	void SoftDepthTests(int samples)
 	{
 		// A half-transparent red quad two units in front of an opaque blue quad. Hard intersections give red = blue = 0.5.
@@ -385,6 +394,15 @@ namespace render_tests
 			Expect(fixture.Image(), 0.5f, 0, 0.5f);
 		}
 
+		// A weighted fragment also fades as it approaches the nearest sorted transparent layer behind it. Two units in front of a half-transparent
+		// green layer with a soft depth of four halves its alpha: red = 0.25, and green = 0.5 * 0.75 = 0.375.
+		fixture.Clear();
+		fixture.Quad(20, 0x8000FF00);
+		auto foam = fixture.Quad(18, 0x80FF0000);
+		View3D_ObjectNuggetFlagsSet(foam, api::ENuggetFlag::AlphaWeighted, TRUE, nullptr, 0);
+		View3D_ObjectSoftDepthSet(foam, 4.0f, nullptr);
+		Expect(fixture.Image(), 0.25f, 0.375f, 0);
+
 		// An empty pixel behind the fragment is the far plane (100), so a quad at 90 with a soft depth of 20 also fades to half.
 		fixture.Clear();
 		auto distant = fixture.Quad(90, 0x80FF0000);
@@ -394,7 +412,7 @@ namespace render_tests
 		// Any DLL or GPU validation error fails the fixture.
 		fixture.CheckErrors();
 		fixture.CheckDebugLayer();
-		std::cout << "PASS soft depth sorted/weighted/far plane (" << samples << "x)\n";
+		std::cout << "PASS soft depth sorted/weighted/sorted layer/far plane (" << samples << "x)\n";
 	}
 }
 
