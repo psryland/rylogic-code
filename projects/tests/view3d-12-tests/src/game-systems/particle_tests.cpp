@@ -9,6 +9,7 @@
 #include "pr/game-systems/particles/particle_sprite.hlsli"
 #include "pr/game-systems/particles/particle_stepped_sprite.hlsli"
 #include "pr/game-systems/particles/particle_mesh.hlsli"
+#include "pr/game-systems/particles/particle_debris.hlsli"
 #include "shaders/hlsl/particle_marker.hlsli"
 #include "shaders/hlsl/particle_chip.hlsli"
 
@@ -121,14 +122,14 @@ namespace render_tests
 			return batch;
 		}
 
-		// Add a stock sprite type of 'capacity' particles, drawn by 'batch'.
-		int SpriteTypeCreate(int batch, int capacity, int max_emitters)
+		// Add a stock sprite type of 'capacity' particles with 'constants', drawn by 'batch'. The default constants have no curve, flicker or
+		// streak, so a sprite's centre has its full colour for its whole life.
+		int SpriteTypeCreate(int batch, int capacity, int max_emitters, ParticleSpriteConstants const& constants = {})
 		{
-			// No fading, so a sprite's centre has its full colour for its whole life.
+			// The stock sprite simulation shaders.
 			auto sim = api::ParticleSimShaders{};
 			auto draw = api::ParticleDrawShaders{};
 			Require(View3D_ParticleSpriteShaders(&sim, &draw) != FALSE, "Particle sprite shaders unavailable");
-			auto constants = ParticleSpriteConstants{};
 			return TypeCreate(api::ParticleTypeOptions
 			{
 				.m_struct_size = sizeof(api::ParticleTypeOptions),
@@ -242,6 +243,7 @@ namespace render_tests
 			params.colour1 = 0xFFFF0000U;
 			params.radius = radius;
 			params.collision_set = collision_set;
+			params.gravity = 1.0f;
 			return EmitterCreate(type, &params, sizeof(params), 0.0f, 1);
 		}
 
@@ -1132,6 +1134,223 @@ namespace render_tests
 		fixture.CheckErrors();
 		fixture.CheckDebugLayer();
 	}
+
+	// The sprite curve sets colour by age, and the streak stretches a sprite back along its velocity.
+	void ParticleSpriteCurveTests()
+	{
+		auto fixture = Fixture(1);
+		{
+			// The batch has room for the default sprite type and the two types below.
+			auto particles = SpriteParticles(fixture, 16, 64, api::EParticleBlend::Sorted, 24);
+
+			// Create an emitter of red sprites of 'type' at world (x, 0) moving at 'vx', living 10 s.
+			auto emitter = [&](int type, float x, float vx)
+			{
+				// Small sprites, so the streak is clearly longer than the sprite.
+				auto params = ParticleSpriteEmitter{};
+				params.position = { x, 0.0f, -ParticleDepth, 0.0f };
+				params.velocity = { vx, 0.0f, 0.0f, 0.0f };
+				params.lifetime = { 10.0f, 10.0f };
+				params.size = { 4.0f, 4.0f };
+				params.colour0 = 0xFFFF0000U;
+				params.colour1 = 0xFFFF0000U;
+				return particles.EmitterCreate(type, &params, sizeof(params), 0.0f, 1);
+			};
+
+			// Keys at equal 't' make a step, so the sprite is red for the first half of its life and black after.
+			auto curve = ParticleSpriteConstants{ .key_count = 3 };
+			curve.keys[0] = { .t = 0.0f, .size = 1.0f, .colour = 0xFFFFFFFFU };
+			curve.keys[1] = { .t = 0.5f, .size = 1.0f, .colour = 0xFFFFFFFFU };
+			curve.keys[2] = { .t = 0.5f, .size = 1.0f, .colour = 0xFF000000U };
+			auto curved = particles.SpriteTypeCreate(particles.m_batch, 4, 4, curve);
+			particles.Burst(emitter(curved, -20.0f, 0.0f), 1);
+			particles.Step(BirthStep);
+			particles.Step(3.0);
+			Require(RedAt(fixture.Image(), -20.0f) > 0.25f, "The sprite was not its full colour before the step in its curve");
+			particles.Step(4.0);
+			Require(RedAt(fixture.Image(), -20.0f) < 0.01f, "The sprite was not black after the step in its curve");
+
+			// A sprite moving at 10 m/s with a 1 s streak spans 10 m behind its centre, as a soft ellipse that is most opaque halfway along the streak.
+			// After 2 s its centre is at x = 20, so it covers x = 8 to 22 with its most opaque point at x = 15. A round sprite covers only its centre.
+			particles.Reset();
+			auto streaked = particles.SpriteTypeCreate(particles.m_batch, 4, 4, ParticleSpriteConstants{ .streak = 1.0f });
+			particles.Burst(emitter(streaked, 0.0f, 10.0f), 1);
+			particles.Burst(emitter(particles.m_type, -30.0f, 10.0f), 1);
+			particles.Step(BirthStep);
+			particles.Step(2.0);
+			auto image = fixture.Image();
+			Require(RedAt(image, 17.0f) > 0.25f && RedAt(image, 13.0f) > 0.25f, "The streaked sprite was not stretched behind its centre");
+			Require(RedAt(image, 24.0f) < 0.01f, "The streaked sprite was stretched ahead of its centre");
+			Require(RedAt(image, -10.0f) > 0.25f && RedAt(image, -16.0f) < 0.01f, "The round sprite was stretched");
+		}
+		fixture.CheckErrors();
+		fixture.CheckDebugLayer();
+	}
+
+	// A stock effect built only from its preset, in its own batch and type.
+	struct PresetEffect
+	{
+		api::EParticlePreset m_preset;
+		api::ParticlePreset m_settings;
+		int m_type;
+	};
+
+	// Create the batch and type of 'preset' in 'particles'.
+	static PresetEffect PresetCreate(SpriteParticles& particles, api::EParticlePreset preset, int capacity)
+	{
+		// The preset supplies every setting of the batch and the type.
+		auto settings = api::ParticlePreset{};
+		Require(View3D_ParticlePresetGet(preset, &settings) != FALSE, "Particle preset unavailable");
+		auto object = api::Object{};
+		auto batch = particles.BatchCreate(settings.m_draw, settings.m_record_stride, nullptr, 0, capacity, settings.m_blend, object);
+		auto type = particles.TypeCreate(api::ParticleTypeOptions
+		{
+			.m_struct_size = sizeof(api::ParticleTypeOptions),
+			.m_version = api::ParticleTypeOptions::CurrentVersion,
+			.m_shaders = settings.m_sim,
+			.m_batch = batch,
+			.m_capacity = capacity,
+			.m_max_emitters = 4,
+			.m_state_stride = settings.m_state_stride,
+			.m_record_stride = settings.m_record_stride,
+			.m_params_stride = settings.m_params_stride,
+			.m_constants = settings.m_constants,
+			.m_constants_size = settings.m_constants_size,
+		}, "PresetType");
+		return PresetEffect{ .m_preset = preset, .m_settings = settings, .m_type = type };
+	}
+
+	// Create an emitter of 'effect' at the origin with the preset's rate, that collides with 'collision_set'. A positive 'spread' replaces the
+	// preset's spread of births.
+	static uint64_t PresetEmitter(SpriteParticles& particles, PresetEffect const& effect, int collision_set, float spread = -1.0f)
+	{
+		// Every emitter parameter structure starts with its position. Stepped sprites and debris also have a collision set.
+		using namespace pr::game_systems::particles;
+		auto params = std::vector<uint8_t>(static_cast<size_t>(effect.m_settings.m_params_stride));
+		std::memcpy(params.data(), effect.m_settings.m_params, params.size());
+		if (spread >= 0.0f)
+			reinterpret_cast<pr::hlsl::float4*>(params.data())->w = spread;
+
+		switch (effect.m_preset)
+		{
+			case api::EParticlePreset::Fire:
+			case api::EParticlePreset::Sparks:
+			case api::EParticlePreset::Smoke:
+			case api::EParticlePreset::Dust:
+			case api::EParticlePreset::Rain:
+			case api::EParticlePreset::Snow:
+			{
+				reinterpret_cast<ParticleSteppedSpriteEmitter*>(params.data())->collision_set = collision_set;
+				break;
+			}
+			case api::EParticlePreset::Leaves:
+			case api::EParticlePreset::WoodChips:
+			{
+				reinterpret_cast<ParticleDebrisEmitter*>(params.data())->collision_set = collision_set;
+				break;
+			}
+			case api::EParticlePreset::Birds:
+			case api::EParticlePreset::Marker:
+			{
+				break;
+			}
+			default:
+			{
+				throw std::invalid_argument("Unknown particle preset");
+			}
+		}
+		return particles.EmitterCreate(effect.m_type, params.data(), params.size(), effect.m_settings.m_rate, 1);
+	}
+
+	// Every stock effect runs and draws from its preset alone, and moves the way its effect should. Collision planes act as sensors: a plane
+	// counts the contacts of particles that reach it, so its contact count shows which way the particles went.
+	void ParticlePresetTests()
+	{
+		auto fixture = Fixture(1);
+		{
+			auto particles = SpriteParticles(fixture, 16);
+			using EParticlePreset = api::EParticlePreset;
+
+			// Gravity down and a wind of 5 m/s along +x.
+			auto env = api::ParticleEnvironment{ .m_gravity = { 0, 0, -9.8f, 0 }, .m_wind = { 5, 0, 0, 0 }, .m_collision_iterations = 4 };
+			Require(View3D_ParticleEnvironmentSet(particles.m_system, env) != FALSE, "Particle environment set failed");
+
+			// Return a sensor plane that keeps particles on the side of 'normal' at 'distance' from the origin.
+			auto sensor = [&](float nx, float nz, float distance)
+			{
+				// No bounce, so a particle that reaches the plane stays on it.
+				return particles.CollisionSet({ api::ParticlePlane{ .m_plane = { nx, 0, nz, -distance }, .m_restitution = 0.0f, .m_damping = 0.0f } });
+			};
+
+			// One effect and emitter, colliding with 'collision_set'.
+			struct Case
+			{
+				PresetEffect m_effect;
+				uint64_t m_emitter;
+			};
+			auto create = [&](EParticlePreset preset, int collision_set, float spread = -1.0f)
+			{
+				// Each case has its own type, so its statistics are its own.
+				auto effect = PresetCreate(particles, preset, 4096);
+				auto emitter = PresetEmitter(particles, effect, collision_set, spread);
+				if (effect.m_settings.m_burst != 0)
+					particles.Burst(emitter, static_cast<uint32_t>(effect.m_settings.m_burst));
+
+				return Case{ effect, emitter };
+			};
+
+			// Fire and smoke rise to a ceiling and never reach a floor. Sparks are thrown up and fall back below where they started.
+			auto fire_up = create(EParticlePreset::Fire, sensor(0, -1, 0.4f));
+			auto fire_down = create(EParticlePreset::Fire, sensor(0, +1, 0.4f));
+			auto smoke_up = create(EParticlePreset::Smoke, sensor(0, -1, 0.8f));
+			auto smoke_down = create(EParticlePreset::Smoke, sensor(0, +1, 0.8f));
+			auto sparks = create(EParticlePreset::Sparks, sensor(0, +1, 0.5f));
+
+			// Rain and snow fall onto a floor close below their emitters and die there, so far fewer are alive than their lifetimes allow.
+			auto rain = create(EParticlePreset::Rain, sensor(0, +1, 2.0f), 0.5f);
+			auto snow = create(EParticlePreset::Snow, sensor(0, +1, 1.0f), 0.5f);
+
+			// Leaves blow downwind and not upwind. Wood chips fly up and land on the floor.
+			auto leaves_downwind = create(EParticlePreset::Leaves, sensor(-1, 0, 1.5f));
+			auto leaves_upwind = create(EParticlePreset::Leaves, sensor(+1, 0, 1.5f));
+			auto chips = create(EParticlePreset::WoodChips, sensor(0, +1, 0.3f));
+
+			// Dust, birds and markers collide with nothing.
+			auto dust = create(EParticlePreset::Dust, -1);
+			auto birds = create(EParticlePreset::Birds, -1);
+			auto marker = create(EParticlePreset::Marker, -1);
+
+			// Run for 3 s at 20 ticks per second, then draw every effect.
+			particles.Step(BirthStep);
+			for (auto i = 0; i != 60; ++i)
+				particles.Step(0.05);
+
+			Require(!fixture.Image().empty(), "The effects were not drawn");
+			auto stats = [&](Case const& c)
+			{
+				// Statistics of the case's type.
+				return particles.Stats(c.m_effect.m_type);
+			};
+			Require(stats(fire_up).m_contacts > 0 && stats(fire_down).m_contacts == 0, "Fire did not rise");
+			Require(stats(smoke_up).m_contacts > 0 && stats(smoke_down).m_contacts == 0, "Smoke did not rise");
+			Require(stats(sparks).m_contacts > 0, "Sparks did not fall");
+			Require(stats(rain).m_contacts > 0 && stats(rain).m_live < 500, "Rain did not die where it landed");
+			Require(stats(snow).m_contacts > 0 && stats(snow).m_live < 1000, "Snow did not die where it landed");
+			Require(stats(leaves_downwind).m_contacts > 0 && stats(leaves_upwind).m_contacts == 0, "Leaves did not blow downwind");
+			Require(stats(chips).m_contacts > 0, "Wood chips did not land");
+			Require(stats(dust).m_live == static_cast<uint32_t>(dust.m_effect.m_settings.m_burst), "The dust burst did not live on");
+			Require(stats(birds).m_live == static_cast<uint32_t>(birds.m_effect.m_settings.m_burst), "The flock did not live on");
+			Require(stats(marker).m_live > 0, "The marker emitted no pulses");
+
+			// An unknown preset is reported as an error.
+			auto settings = api::ParticlePreset{};
+			Require(View3D_ParticlePresetGet(static_cast<EParticlePreset>(10), &settings) == FALSE, "An unknown preset was accepted");
+			Require(!fixture.m_errors.empty(), "An unknown preset reported no error");
+			fixture.m_errors.clear();
+		}
+		fixture.CheckErrors();
+		fixture.CheckDebugLayer();
+	}
 }
 
 namespace pr::unittests::game_systems
@@ -1176,6 +1395,14 @@ namespace pr::unittests::game_systems
 	PRUnitTest(GameSystems_ParticleEnvironment, Extended | Serial)
 	{
 		render_tests::ParticleEnvironmentTests();
+	}
+	PRUnitTest(GameSystems_ParticleSpriteCurve, Extended | Serial)
+	{
+		render_tests::ParticleSpriteCurveTests();
+	}
+	PRUnitTest(GameSystems_ParticlePresets, Extended | Serial)
+	{
+		render_tests::ParticlePresetTests();
 	}
 	PRUnitTest(GameSystems_ParticleCost, Stress | Serial)
 	{

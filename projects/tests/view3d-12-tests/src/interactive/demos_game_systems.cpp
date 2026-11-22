@@ -7,8 +7,11 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <format>
+#include <ranges>
 #include <stdexcept>
+#include <string>
 #include <vector>
 #include "pr/common/flags_enum.h"
 #include "pr/hlsl/interop.h"
@@ -17,6 +20,7 @@
 #include "pr/game-systems/particles/particle_sprite.hlsli"
 #include "pr/game-systems/particles/particle_stepped_sprite.hlsli"
 #include "pr/game-systems/particles/particle_mesh.hlsli"
+#include "pr/game-systems/particles/particle_debris.hlsli"
 #include "../game-systems/shaders/hlsl/particle_chip.hlsli"
 #include "demo.h"
 #include "controls_panel.h"
@@ -138,7 +142,12 @@ namespace view3d_test
 				// Fade sprites out where they cut through the ground, so smoke and dust show no hard intersection lines.
 				View3D_ObjectSoftDepthSet(object, 1.0f, nullptr);
 
-				auto constants = ParticleSpriteConstants{ .fade_in = 0.05f, .fade_out = 0.3f };
+				// Sprites fade in over the first 5% of their lives and out over the last 30%.
+				auto constants = ParticleSpriteConstants
+				{
+					.key_count = 4,
+					.keys = { { 0.0f, 1.0f, 0x00FFFFFF }, { 0.05f, 1.0f, 0xFFFFFFFF }, { 0.7f, 1.0f, 0xFFFFFFFF }, { 1.0f, 1.0f, 0x00FFFFFF } },
+				};
 				auto options = api::ParticleTypeOptions
 				{
 					.m_struct_size = sizeof(api::ParticleTypeOptions),
@@ -514,6 +523,7 @@ namespace view3d_test
 					.colour1 = 0x40FF4000,
 					.radius = 0.05f,
 					.collision_set = collision_set,
+					.gravity = 1.0f,
 				};
 				auto spark_settings = api::ParticleEmitter{ .m_rate = 120.0f, .m_seed = 13, .m_active = TRUE };
 				if (!View3D_ParticleEmitterCreate(m_system, m_stepped_type, spark_settings, &sparks, sizeof(sparks), &m_stepped_sparks))
@@ -532,6 +542,7 @@ namespace view3d_test
 					.colour1 = 0x60FFFFFF,
 					.radius = 0.06f,
 					.collision_set = collision_set,
+					.gravity = 1.0f,
 				};
 				auto snow_settings = api::ParticleEmitter{ .m_rate = 250.0f, .m_seed = 17, .m_active = TRUE };
 				auto snow_id = uint64_t{};
@@ -616,11 +627,337 @@ namespace view3d_test
 					stepped.m_live, SteppedCapacity, stepped.m_contacts, stepped.m_overlaps, stepped.m_exhausted).c_str());
 			}
 		};
+
+		// A gallery of the stock particle effects, in a row along x. Each effect has its own batch and type, built only from its preset.
+		struct ParticlePresetsDemo :IDemo
+		{
+			static constexpr int Capacity = 8192;
+			static constexpr float Spacing = 8.0f;
+
+			// One effect of the gallery: its preset, its type, its emitter, and the emitter's parameters.
+			struct Effect
+			{
+				api::EParticlePreset m_preset;
+				api::ParticlePreset m_settings;
+				int m_type;
+				uint64_t m_emitter;
+				std::vector<uint8_t> m_params;
+			};
+
+			DemoContext m_ctx;
+			demo::SceneObjects m_scene;
+			api::ParticleSystem m_system;
+			std::vector<Effect> m_effects;
+			pr::gui::Label* m_stats_label;
+			double m_stats_timer;
+			float m_time_scale;
+			float m_rate_scale;
+			float m_wind;
+
+			explicit ParticlePresetsDemo(DemoContext const& ctx)
+				: m_ctx(ctx)
+				, m_scene(ctx.m_window)
+				, m_system()
+				, m_effects()
+				, m_stats_label()
+				, m_stats_timer()
+				, m_time_scale(1.0f)
+				, m_rate_scale(1.0f)
+				, m_wind(2.0f)
+			{
+				// A floor for reference, viewed from the side, with a post under each effect.
+				m_scene.Add("*Plane floor FF404850 { *Data {100 60} *AxisId {+3} }");
+				View3D_CameraPositionSet(ctx.m_window, { 0, -40, 10, 1 }, { 0, 0, 5, 1 }, { 0, 0, 1, 0 });
+
+				m_system = View3D_ParticleSystemCreate("DemoPresets");
+				if (m_system == nullptr)
+					throw std::runtime_error("Particle system creation failed");
+
+				// The floor keeps particles in z >= 0. Presets collide with nothing until given a collision set.
+				auto floor = api::ParticlePlane{ .m_plane = { 0, 0, +1, 0 }, .m_restitution = 0.3f, .m_damping = 0.3f };
+				auto collision_set = -1;
+				if (!View3D_ParticleCollisionSetCreate(m_system, &floor, 1, &collision_set))
+					throw std::runtime_error("Particle collision set creation failed");
+
+				SetEnvironment();
+
+				// The effects, left to right. Rain and snow fall over a smaller area than their presets so they stay in their own place.
+				constexpr api::EParticlePreset presets[] =
+				{
+					api::EParticlePreset::Fire, api::EParticlePreset::Sparks, api::EParticlePreset::Smoke, api::EParticlePreset::Dust, api::EParticlePreset::Rain,
+					api::EParticlePreset::Snow, api::EParticlePreset::Leaves, api::EParticlePreset::WoodChips, api::EParticlePreset::Marker, api::EParticlePreset::Birds,
+				};
+				for (auto preset : presets)
+				{
+					// Each effect sits above its own place on the floor.
+					auto x = (static_cast<float>(m_effects.size()) - 4.5f) * Spacing;
+					auto pos = api::Vec4{ x, 0.0f, 0.1f, 0.0f };
+					switch (preset)
+					{
+						case api::EParticlePreset::Rain:
+						case api::EParticlePreset::Snow:
+						{
+							pos = { x, 0.0f, 12.0f, 3.0f };
+							break;
+						}
+						case api::EParticlePreset::Leaves:
+						{
+							pos = { x, 0.0f, 8.0f, 1.0f };
+							break;
+						}
+						case api::EParticlePreset::Marker:
+						{
+							pos = { x, 0.0f, 0.5f, 0.0f };
+							break;
+						}
+						case api::EParticlePreset::Birds:
+						{
+							pos = { x, 10.0f, 20.0f, 5.0f };
+							break;
+						}
+						default:
+						{
+							pos.w = -1.0f;
+							break;
+						}
+					}
+					m_effects.push_back(CreateEffect(preset, pos, collision_set));
+				}
+
+				// Demo controls.
+				auto& ui = ctx.m_controls;
+				ui.AddLabel(L"The stock particle effects, left to right: fire, sparks, smoke, dust, rain, snow, leaves, wood chips, a beacon marker, and a flock of birds. Each is created only from its preset (View3D_ParticlePresetGet), with its position set and a floor to land on.");
+				ui.AddSlider(L"Time scale (0 = pause)", 0, 2, m_time_scale, [this](float v)
+				{
+					m_time_scale = v;
+				}, 200);
+				ui.AddSlider(L"Effect rate scale", 0, 4, m_rate_scale, [this](float v)
+				{
+					m_rate_scale = v;
+					for (auto const& effect : m_effects)
+						UpdateRate(effect);
+				}, 40);
+				ui.AddSlider(L"Wind (m/s along x)", -10, 10, m_wind, [this](float v)
+				{
+					m_wind = v;
+					SetEnvironment();
+				}, 40);
+				ui.AddButton(L"Burst all", [this]
+				{
+					for (auto const& effect : m_effects)
+						Burst(effect);
+				});
+				ui.AddButton(L"Burst sparks", [this]
+				{
+					Burst(Find(api::EParticlePreset::Sparks));
+				});
+				ui.AddButton(L"Burst dust", [this]
+				{
+					Burst(Find(api::EParticlePreset::Dust));
+				});
+				ui.AddButton(L"Chop (wood chips)", [this]
+				{
+					Burst(Find(api::EParticlePreset::WoodChips));
+				});
+				ui.AddButton(L"Reset", [this]
+				{
+					View3D_ParticleSystemReset(m_system);
+				});
+				m_stats_label = ui.AddLabel(L"\n\n\n\n\n\n\n\n\n\n");
+			}
+			~ParticlePresetsDemo()
+			{
+				// The batches' objects stay in the scene until the scene is destroyed, and keep their own references to the particle buffers.
+				View3D_ParticleSystemDestroy(m_system);
+			}
+
+			// Create the batch, type and emitter of 'preset' at 'pos'. A negative 'pos.w' keeps the preset's spread of births.
+			Effect CreateEffect(api::EParticlePreset preset, api::Vec4 pos, int collision_set)
+			{
+				// The preset supplies every setting. Only the emitter's position and collision set change.
+				using namespace pr::game_systems::particles;
+				auto settings = api::ParticlePreset{};
+				if (!View3D_ParticlePresetGet(preset, &settings))
+					throw std::runtime_error("Particle preset unavailable");
+
+				// Bounds cover the effect's place, including birds circling wide of the flock's centre.
+				auto batch_options = api::ParticleBatchOptions
+				{
+					.m_struct_size = sizeof(api::ParticleBatchOptions),
+					.m_version = api::ParticleBatchOptions::CurrentVersion,
+					.m_shaders = settings.m_draw,
+					.m_capacity = Capacity,
+					.m_record_stride = settings.m_record_stride,
+					.m_constants = nullptr,
+					.m_constants_size = 0,
+					.m_blend = settings.m_blend,
+					.m_bbox = api::BBox{ {pos.x, pos.y, 15, 1}, {40, 40, 25, 0} },
+				};
+				auto batch = -1;
+				auto object = api::Object{};
+				if (!View3D_ParticleBatchCreate(m_system, batch_options, "PresetBatch", &batch, &object))
+					throw std::runtime_error("Particle batch creation failed");
+
+				m_scene.Add(object);
+				if (settings.m_blend == api::EParticleBlend::Weighted)
+					View3D_ObjectSoftDepthSet(object, 1.0f, nullptr);
+
+				auto type_options = api::ParticleTypeOptions
+				{
+					.m_struct_size = sizeof(api::ParticleTypeOptions),
+					.m_version = api::ParticleTypeOptions::CurrentVersion,
+					.m_shaders = settings.m_sim,
+					.m_batch = batch,
+					.m_capacity = Capacity,
+					.m_max_emitters = 4,
+					.m_state_stride = settings.m_state_stride,
+					.m_record_stride = settings.m_record_stride,
+					.m_params_stride = settings.m_params_stride,
+					.m_constants = settings.m_constants,
+					.m_constants_size = settings.m_constants_size,
+				};
+				auto type = -1;
+				if (!View3D_ParticleTypeCreate(m_system, type_options, "PresetType", &type))
+					throw std::runtime_error("Particle type creation failed");
+
+				// Every emitter parameter structure starts with its position. Stepped sprites and debris also have a collision set.
+				auto params = std::vector<uint8_t>(static_cast<size_t>(settings.m_params_stride));
+				std::memcpy(params.data(), settings.m_params, params.size());
+				auto& position = *reinterpret_cast<pr::hlsl::float4*>(params.data());
+				position = { pos.x, pos.y, pos.z, pos.w >= 0.0f ? pos.w : position.w };
+				switch (preset)
+				{
+					case api::EParticlePreset::Fire:
+					case api::EParticlePreset::Sparks:
+					case api::EParticlePreset::Smoke:
+					case api::EParticlePreset::Dust:
+					case api::EParticlePreset::Rain:
+					case api::EParticlePreset::Snow:
+					{
+						reinterpret_cast<ParticleSteppedSpriteEmitter*>(params.data())->collision_set = collision_set;
+						break;
+					}
+					case api::EParticlePreset::Leaves:
+					case api::EParticlePreset::WoodChips:
+					{
+						reinterpret_cast<ParticleDebrisEmitter*>(params.data())->collision_set = collision_set;
+						break;
+					}
+					case api::EParticlePreset::Birds:
+					case api::EParticlePreset::Marker:
+					{
+						break;
+					}
+					default:
+					{
+						throw std::invalid_argument("Unknown particle preset");
+					}
+				}
+
+				auto effect = Effect{ .m_preset = preset, .m_settings = settings, .m_type = type, .m_emitter = 0, .m_params = std::move(params) };
+				auto emitter = api::ParticleEmitter{ .m_rate = settings.m_rate * m_rate_scale, .m_seed = static_cast<uint32_t>(m_effects.size() + 1), .m_active = TRUE };
+				if (!View3D_ParticleEmitterCreate(m_system, type, emitter, effect.m_params.data(), effect.m_params.size(), &effect.m_emitter))
+					throw std::runtime_error("Particle emitter creation failed");
+
+				// Burst effects start with one burst, so the gallery is not empty.
+				Burst(effect);
+				return effect;
+			}
+
+			// Return the effect of 'preset'.
+			Effect const& Find(api::EParticlePreset preset) const
+			{
+				// Every preset has one effect.
+				auto iter = std::ranges::find(m_effects, preset, &Effect::m_preset);
+				if (iter == m_effects.end())
+					throw std::runtime_error("No effect for the preset");
+
+				return *iter;
+			}
+
+			// Emit the suggested burst of 'effect'.
+			void Burst(Effect const& effect)
+			{
+				// Continuous effects suggest no burst.
+				if (effect.m_settings.m_burst != 0)
+					View3D_ParticleEmitterBurst(m_system, effect.m_emitter, static_cast<uint32_t>(effect.m_settings.m_burst));
+			}
+
+			// Apply the rate scale to the continuous rate of 'effect'.
+			void UpdateRate(Effect const& effect)
+			{
+				// The parameters are unchanged.
+				auto settings = api::ParticleEmitter{ .m_rate = effect.m_settings.m_rate * m_rate_scale, .m_seed = 1, .m_active = TRUE };
+				View3D_ParticleEmitterUpdate(m_system, effect.m_emitter, settings, effect.m_params.data(), effect.m_params.size());
+			}
+
+			// Set gravity and the uniform wind.
+			void SetEnvironment()
+			{
+				// One contact per step is enough on a flat floor.
+				auto environment = api::ParticleEnvironment
+				{
+					.m_gravity = { 0, 0, -9.8f, 0 },
+					.m_wind = { m_wind, 0, 0, 0 },
+					.m_collision_iterations = 2,
+				};
+				View3D_ParticleEnvironmentSet(m_system, environment);
+			}
+
+			// Advance the particles by the scaled frame time, and refresh the statistics twice a second.
+			void Step(double dt) override
+			{
+				// Long frames are clamped so that a stall does not emit a flood of particles.
+				View3D_ParticleSystemStep(m_system, std::min(dt, 0.1) * m_time_scale);
+
+				// Reading the statistics waits for the GPU, so it is throttled.
+				m_stats_timer += dt;
+				if (m_stats_timer < 0.5)
+					return;
+
+				m_stats_timer = 0;
+				auto text = std::wstring{};
+				for (auto const& effect : m_effects)
+				{
+					// One line per effect, in gallery order.
+					auto stats = api::ParticleStats{};
+					if (!View3D_ParticleStats(m_system, effect.m_type, &stats))
+						return;
+
+					text += std::format(L"{}: live {}, contacts {}\n", Name(effect.m_preset), stats.m_live, stats.m_contacts);
+				}
+				m_stats_label->Text(text.c_str());
+			}
+
+			// The display name of 'preset'.
+			static wchar_t const* Name(api::EParticlePreset preset)
+			{
+				// Names match the enum.
+				switch (preset)
+				{
+					case api::EParticlePreset::Fire: return L"Fire";
+					case api::EParticlePreset::Sparks: return L"Sparks";
+					case api::EParticlePreset::Smoke: return L"Smoke";
+					case api::EParticlePreset::Dust: return L"Dust";
+					case api::EParticlePreset::Rain: return L"Rain";
+					case api::EParticlePreset::Snow: return L"Snow";
+					case api::EParticlePreset::Leaves: return L"Leaves";
+					case api::EParticlePreset::Birds: return L"Birds";
+					case api::EParticlePreset::WoodChips: return L"Wood chips";
+					case api::EParticlePreset::Marker: return L"Marker";
+					default: throw std::invalid_argument("Unknown particle preset");
+				}
+			}
+		};
 	}
 
 	// Demo factories
 	std::unique_ptr<IDemo> CreateParticlesDemo(DemoContext const& ctx)
 	{
 		return std::make_unique<ParticlesDemo>(ctx);
+	}
+	std::unique_ptr<IDemo> CreateParticlePresetsDemo(DemoContext const& ctx)
+	{
+		return std::make_unique<ParticlePresetsDemo>(ctx);
 	}
 }

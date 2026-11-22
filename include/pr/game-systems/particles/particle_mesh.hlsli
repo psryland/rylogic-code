@@ -46,6 +46,52 @@ float3 ParticleRotate(float4 q, float3 v)
 	return v + 2.0f * cross(q.xyz, cross(q.xyz, v) + q.w * v);
 }
 
+// Return the quaternion that applies 'b' then 'a'.
+float4 ParticleQuatMul(float4 a, float4 b)
+{
+	return float4(a.w * b.xyz + b.w * a.xyz + cross(a.xyz, b.xyz), a.w * b.w - dot(a.xyz, b.xyz));
+}
+
+// Return the quaternion that turns by 'angle' radians about the unit 'axis'.
+float4 ParticleQuatAxisAngle(float3 axis, float angle)
+{
+	// A quaternion holds the sine and cosine of half the angle.
+	float sine;
+	float cosine;
+	sincos(0.5f * angle, sine, cosine);
+	return float4(axis * sine, cosine);
+}
+
+// Return the shortest-arc quaternion that turns +z onto the unit vector 'n'.
+float4 ParticleQuatFromZ(float3 n)
+{
+	// The half-way vector between z and n gives the rotation directly. Turning z onto -z has no unique axis, so turn about x.
+	if (n.z < -0.9999f)
+		return float4(1.0f, 0.0f, 0.0f, 0.0f);
+
+	return normalize(float4(-n.y, n.x, 0.0f, 1.0f + n.z));
+}
+
+// Return a uniformly random unit vector from two random values in [0, 1).
+float3 ParticleRandomDirection(float2 u)
+{
+	// A uniform height on the sphere and a uniform angle around it give a uniform direction.
+	float z = 2.0f * u.x - 1.0f;
+	float r = sqrt(saturate(1.0f - z * z));
+	float phi = 6.283185307179586f * u.y;
+	return float3(r * cos(phi), r * sin(phi), z);
+}
+
+// Return the stock scale ramp of a mesh particle at 'age' of 'lifetime': growing from zero over 'grow' seconds after birth and shrinking to zero over
+// 'shrink' seconds before death. A zero time means no ramp at that end.
+float ParticleMeshScaleRamp(float age, float lifetime, float grow, float shrink)
+{
+	// Each end ramps linearly. The ramps multiply, so a life shorter than both ramps never reaches full scale.
+	float scale_in = grow > 0.0f ? saturate(age / grow) : 1.0f;
+	float scale_out = shrink > 0.0f ? saturate((lifetime - age) / shrink) : 1.0f;
+	return scale_in * scale_out;
+}
+
 #endif
 
 #ifdef __cplusplus

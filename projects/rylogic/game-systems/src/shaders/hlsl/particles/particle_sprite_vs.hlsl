@@ -26,23 +26,36 @@ View3DForwardVertexOut Main(uint vertex_id : SV_VertexID, uint instance_id : SV_
 	// Read the record.
 	uint offset = View3DIndirectInstance(g_instances, instance_id) * 32;
 	float4 pos_size = asfloat(g_records.Load4(offset + 0));
-	uint2 colour_angle = g_records.Load2(offset + 16);
-	float4 colour = ParticleUnpackColour(colour_angle.x);
+	uint4 colour_angle_streak = g_records.Load4(offset + 16);
+	float4 colour = ParticleUnpackColour(colour_angle_streak.x);
 
 	// Rim vertices sit on a circle of the sprite's radius in the camera's view plane, turned by the sprite's angle.
+	float radius = 0.5f * pos_size.w;
 	float2 offset_cs = float2(0.0f, 0.0f);
 	if (vertex_id < ParticleSpriteRimCount)
 	{
 		float sine;
 		float cosine;
-		sincos(asfloat(colour_angle.y) + 6.283185307179586f * float(vertex_id) / float(ParticleSpriteRimCount), sine, cosine);
-		offset_cs = 0.5f * pos_size.w * float2(cosine, sine);
+		sincos(asfloat(colour_angle_streak.y) + 6.283185307179586f * float(vertex_id) / float(ParticleSpriteRimCount), sine, cosine);
+		offset_cs = radius * float2(cosine, sine);
 		colour.a = 0.0f;
 	}
 
-	// Place the centre through the object transform, then offset it in world space so the sprite faces the camera.
+	// A streak stretches the disc along the streak's direction on screen, so the sprite spans from its centre back to its tail. Rim points are pushed
+	// out along the streak in proportion to how far they already lie along it, which keeps the outline smooth. The streak is in the object's space.
+	float3 streak = float3(f16tof32(colour_angle_streak.z), f16tof32(colour_angle_streak.z >> 16), f16tof32(colour_angle_streak.w));
+	float3 streak_ws = mul(mul(float4(streak, 0.0f), g_nugget.m2o), g_nugget.o2w).xyz;
+	float2 streak_cs = float2(dot(streak_ws, g_frame.cam.c2w[0].xyz), dot(streak_ws, g_frame.cam.c2w[1].xyz));
+	float streak_len = length(streak_cs);
+	if (streak_len > 1e-6f && radius > 0.0f)
+	{
+		float2 dir = streak_cs / streak_len;
+		offset_cs += dir * dot(offset_cs, dir) * streak_len / (2.0f * radius);
+	}
+
+	// Place the centre through the object transform, then offset it in world space so the sprite faces the camera, and back to the middle of the streak.
 	View3DForwardVertexOut output = View3DProceduralForwardVertex(float4(pos_size.xyz, 1.0f), float4(0.0f, 0.0f, 0.0f, 0.0f), colour, float2(0, 0), float2(0, 0), g_frame, g_nugget);
-	output.ws_vert.xyz += offset_cs.x * g_frame.cam.c2w[0].xyz + offset_cs.y * g_frame.cam.c2w[1].xyz;
+	output.ws_vert.xyz += offset_cs.x * g_frame.cam.c2w[0].xyz + offset_cs.y * g_frame.cam.c2w[1].xyz - 0.5f * streak_ws;
 	output.ws_norm = float4(g_frame.cam.c2w[2].xyz, 0.0f);
 	output.ss_vert = mul(output.ws_vert, g_frame.cam.w2s);
 	return output;

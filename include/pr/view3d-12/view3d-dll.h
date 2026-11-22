@@ -1449,6 +1449,40 @@ namespace pr
 		};
 		static_assert(sizeof(ParticlePlane) == 24);
 
+		// The stock particle effects. See pr/game-systems/particles/particle_presets.h.
+		enum class EParticlePreset :int
+		{
+			Fire = 0,       // Flickering flames that rise and shrink. Stepped sprites.
+			Sparks = 1,     // Streaked sparks thrown up and falling under gravity. Stepped sprites.
+			Smoke = 2,      // Slow grey puffs that rise, grow and drift with the wind. Stepped sprites.
+			Dust = 3,       // A burst of dust that billows out, rises a little and settles. Stepped sprites.
+			Rain = 4,       // Streaked drops that fall with the wind and die where they land. Stepped sprites.
+			Snow = 5,       // Flakes that drift down with the wind and die where they land. Stepped sprites.
+			Leaves = 6,     // Leaves that flutter and tumble down with the wind, and settle where they land. Debris.
+			Birds = 7,      // A distant flock of birds circling, flapping and gliding. Birds.
+			WoodChips = 8,  // A burst of tumbling wood chips, such as from chopping a tree. Debris.
+			Marker = 9,     // Pulses of an expanding ring, such as a beacon. Markers.
+		};
+
+		// A ready-made particle effect: the settings of one batch, one type and its emitters. Every pointer refers to static data.
+		// Presets work in metres with z up, and their emitter parameters are placed at the origin: every emitter parameter structure starts with
+		// a float4 whose xyz is the emitter's position, which the caller sets. Presets collide with nothing; the caller can set the collision set
+		// of the types that have one (stepped sprites and debris).
+		struct ParticlePreset
+		{
+			ParticleSimShaders m_sim;    // The type's simulation shaders.
+			ParticleDrawShaders m_draw;  // The batch's drawing shaders, with the effect's mesh where it has one.
+			EParticleBlend m_blend;      // How the batch blends with the scene.
+			int m_record_stride;         // Bytes per render record, for the batch and the type.
+			int m_state_stride;          // Bytes per particle state, for the type.
+			int m_params_stride;         // Bytes of 'm_params'.
+			void const* m_constants;     // The type's constants.
+			size_t m_constants_size;     // Bytes of 'm_constants'.
+			void const* m_params;        // The emitter parameters of the effect, at the origin.
+			float m_rate;                // Suggested emitter rate (particles per second). Zero for effects that are bursts.
+			int m_burst;                 // Suggested burst size. Zero for continuous effects.
+		};
+
 		struct WindowOptions
 		{
 			ReportErrorCB m_error_cb;
@@ -2319,6 +2353,9 @@ extern "C"
 	// Fill 'out_sim' and 'out_draw' with the shaders of the stock stepped sprite type (see pr/game-systems/particles/particle_stepped_sprite.hlsli).
 	// Its particles draw with the stock sprite batch. The data is static.
 	VIEW3D_API BOOL __stdcall View3D_ParticleSteppedSpriteShaders(pr::view3d::ParticleSimShaders* out_sim, pr::view3d::ParticleDrawShaders* out_draw);
+
+	// Fill 'out_preset' with the settings of a stock particle effect (see pr/game-systems/particles/particle_presets.h). The data is static.
+	VIEW3D_API BOOL __stdcall View3D_ParticlePresetGet(pr::view3d::EParticlePreset preset, pr::view3d::ParticlePreset* out_preset);
 
 	// Set the gravity, uniform wind and contact budget that stepped particle types move in, from the next step. The default is no gravity, no wind,
 	// and 4 contacts.

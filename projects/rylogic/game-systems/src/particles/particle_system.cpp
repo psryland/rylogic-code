@@ -9,6 +9,7 @@
 #include "pr/game-systems/particles/particle_mesh.hlsli"
 #include "pr/game-systems/particles/particle_environment.hlsli"
 #include "pr/game-systems/particles/particle_stepped_sprite.hlsli"
+#include "pr/game-systems/particles/particle_bird.hlsli"
 
 #ifdef NDEBUG
 #define PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(file) PR_STRINGISE(game-systems/src/shaders/hlsl/compiled/release/##file)
@@ -41,6 +42,13 @@ namespace pr::game_systems::particles
 		#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(particle_stepped_sprite_update_cs.h)
 		#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(particle_sprite_vs.h)
 		#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(particle_mesh_vs.h)
+		#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(particle_debris_emit_cs.h)
+		#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(particle_debris_update_cs.h)
+		#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(particle_bird_emit_cs.h)
+		#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(particle_bird_update_cs.h)
+		#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(particle_bird_vs.h)
+		#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(particle_marker_emit_cs.h)
+		#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(particle_marker_update_cs.h)
 	}
 
 	namespace
@@ -100,6 +108,24 @@ namespace pr::game_systems::particles
 				indices[3 * i + 0] = ParticleSpriteRimCount;
 				indices[3 * i + 1] = i;
 				indices[3 * i + 2] = (i + 1) % ParticleSpriteRimCount;
+			}
+			return indices;
+		}();
+
+		// The bird draws seven triangles of its logical vertices (see particle_bird_vs.hlsl): two per wing root, one per wing tip, and the tail.
+		constexpr auto BirdIndices = []
+		{
+			// Each triangle is listed in both windings, so the bird is seen from above and below.
+			constexpr uint32_t triangles[7][3] = { {0, 2, 3}, {0, 3, 1}, {2, 4, 3}, {0, 6, 5}, {0, 1, 6}, {5, 6, 7}, {1, 8, 9} };
+			auto indices = std::array<uint32_t, ParticleBirdIndexCount>{};
+			for (int i = 0; i != 7; ++i)
+			{
+				indices[6 * i + 0] = triangles[i][0];
+				indices[6 * i + 1] = triangles[i][1];
+				indices[6 * i + 2] = triangles[i][2];
+				indices[6 * i + 3] = triangles[i][0];
+				indices[6 * i + 4] = triangles[i][2];
+				indices[6 * i + 5] = triangles[i][1];
 			}
 			return indices;
 		}();
@@ -1114,6 +1140,47 @@ namespace pr::game_systems::particles
 			.m_geom = pr::view3d::EGeom::Vert | pr::view3d::EGeom::Colr | pr::view3d::EGeom::Norm | pr::view3d::EGeom::Tex0,
 			.m_vertex_data = nullptr,
 			.m_vertex_stride = sizeof(ParticleMeshVertex),
+		};
+	}
+
+	// The simulation shaders of the stock debris type.
+	pr::view3d::ParticleSimShaders ParticleSystem::DebrisSimShaders()
+	{
+		return pr::view3d::ParticleSimShaders{
+			.m_emit = { compiled::particle_debris_emit_cs, sizeof(compiled::particle_debris_emit_cs) },
+			.m_update = { compiled::particle_debris_update_cs, sizeof(compiled::particle_debris_update_cs) },
+		};
+	}
+
+	// The simulation shaders of the stock bird type.
+	pr::view3d::ParticleSimShaders ParticleSystem::BirdSimShaders()
+	{
+		return pr::view3d::ParticleSimShaders{
+			.m_emit = { compiled::particle_bird_emit_cs, sizeof(compiled::particle_bird_emit_cs) },
+			.m_update = { compiled::particle_bird_update_cs, sizeof(compiled::particle_bird_update_cs) },
+		};
+	}
+
+	// The draw shaders of a batch of stock bird records.
+	pr::view3d::ParticleDrawShaders ParticleSystem::BirdDrawShaders()
+	{
+		return pr::view3d::ParticleDrawShaders{
+			.m_vertex = { compiled::particle_bird_vs, sizeof(compiled::particle_bird_vs) },
+			.m_indices = BirdIndices.data(),
+			.m_index_count = static_cast<int>(BirdIndices.size()),
+			.m_vertex_count = static_cast<int>(ParticleBirdVertexCount),
+			.m_geom = pr::view3d::EGeom::Vert | pr::view3d::EGeom::Colr,
+			.m_vertex_data = nullptr,
+			.m_vertex_stride = 0,
+		};
+	}
+
+	// The simulation shaders of the stock marker type.
+	pr::view3d::ParticleSimShaders ParticleSystem::MarkerSimShaders()
+	{
+		return pr::view3d::ParticleSimShaders{
+			.m_emit = { compiled::particle_marker_emit_cs, sizeof(compiled::particle_marker_emit_cs) },
+			.m_update = { compiled::particle_marker_update_cs, sizeof(compiled::particle_marker_update_cs) },
 		};
 	}
 }

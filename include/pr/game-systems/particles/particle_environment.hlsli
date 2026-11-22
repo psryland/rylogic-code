@@ -134,15 +134,18 @@ float ParticleContactTolerance(float3 position)
 //    and the remaining motion, and the search repeats with the remaining motion.
 //  - At most 'collision_iterations' contacts are resolved. A particle with further contacts stops at its last contact point for the rest of the tick.
 // A 'set' outside the collision set table, such as -1, has no planes. Contacts, overlaps and exhausted budgets are counted for diagnostics.
-void ParticleCollidePlanes(int set, float radius, inout float3 start, inout float3 end, inout float3 velocity)
+// Returns the number of planes touched: initial overlaps, resolved contacts, and a crossing stopped by the spent budget. Zero means the particle moved freely.
+uint ParticleCollidePlanes(int set, float radius, inout float3 start, inout float3 end, inout float3 velocity)
 {
 	// Particles without a collision set move freely.
 	if (set < 0 || uint(set) >= g_environment.collision_set_count)
-		return;
+		return 0;
 
 	uint2 range = g_collision_sets[set];
 	if (range.y == 0)
-		return;
+		return 0;
+
+	uint touched = 0;
 
 	// Push the particle out of planes it starts inside, carrying the tick's motion with it.
 	float tolerance = ParticleContactTolerance(start);
@@ -157,6 +160,7 @@ void ParticleCollidePlanes(int set, float radius, inout float3 start, inout floa
 			end += depth * plane.plane.xyz;
 			velocity = ParticleReflect(velocity, plane.plane.xyz, plane.restitution, plane.damping);
 			s_collision_counts.y += 1;
+			touched += 1;
 		}
 	}
 
@@ -193,6 +197,7 @@ void ParticleCollidePlanes(int set, float radius, inout float3 start, inout floa
 		{
 			end = start;
 			s_collision_counts.z += 1;
+			touched += 1;
 			break;
 		}
 
@@ -204,7 +209,9 @@ void ParticleCollidePlanes(int set, float radius, inout float3 start, inout floa
 		start = contact;
 		end = contact + remaining;
 		s_collision_counts.x += 1;
+		touched += 1;
 	}
+	return touched;
 }
 
 #endif

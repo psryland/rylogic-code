@@ -88,6 +88,33 @@
     <ShaderBuild Include="src\shaders\hlsl\particles\particle_mesh_vs.hlsl">
       <Filter>src\shaders</Filter>
     </ShaderBuild>
+    <None Include="$(RylogicRoot)include\pr\game-systems\particles\particle_debris.hlsli">
+      <Filter>pr\particles</Filter>
+    </None>
+    <None Include="$(RylogicRoot)include\pr\game-systems\particles\particle_bird.hlsli">
+      <Filter>pr\particles</Filter>
+    </None>
+    <None Include="$(RylogicRoot)include\pr\game-systems\particles\particle_marker.hlsli">
+      <Filter>pr\particles</Filter>
+    </None>
+    <ClInclude Include="$(RylogicRoot)include\pr\game-systems\particles\particle_presets.h">
+      <Filter>pr\particles</Filter>
+    </ClInclude>
+    <ClCompile Include="src\particles\particle_presets.cpp">
+      <Filter>src\particles</Filter>
+    </ClCompile>
+    <ShaderBuild Include="src\shaders\hlsl\particles\particle_debris_cs.hlsl">
+      <Filter>src\shaders</Filter>
+    </ShaderBuild>
+    <ShaderBuild Include="src\shaders\hlsl\particles\particle_bird_cs.hlsl">
+      <Filter>src\shaders</Filter>
+    </ShaderBuild>
+    <ShaderBuild Include="src\shaders\hlsl\particles\particle_bird_vs.hlsl">
+      <Filter>src\shaders</Filter>
+    </ShaderBuild>
+    <ShaderBuild Include="src\shaders\hlsl\particles\particle_marker_cs.hlsl">
+      <Filter>src\shaders</Filter>
+    </ShaderBuild>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="pr">
