@@ -1416,7 +1416,8 @@ namespace pr
 		};
 		static_assert(sizeof(ParticleEmitter) == 12);
 
-		// The pool usage of a particle type after its last step. Counts of particles requested, admitted, and dropped accumulate from the last reset.
+		// The pool usage of a particle type after its last step. Counts of particles requested, admitted, and dropped, and of plane collisions, accumulate
+		// from the last reset. See pr/game-systems/particles/particle_environment.hlsli for the collision counts.
 		struct ParticleStats
 		{
 			uint32_t m_free;
@@ -1424,8 +1425,29 @@ namespace pr
 			uint32_t m_requested;
 			uint32_t m_admitted;
 			uint32_t m_dropped;
+			uint32_t m_contacts;   // Plane contacts resolved.
+			uint32_t m_overlaps;   // Particles pushed out of planes that they started inside.
+			uint32_t m_exhausted;  // Particles stopped because their contact budget was spent.
 		};
-		static_assert(sizeof(ParticleStats) == 20);
+		static_assert(sizeof(ParticleStats) == 32);
+
+		// The environment that stepped particle types move in, in the space of the particles' positions. See pr/game-systems/particles/particle_environment.hlsli.
+		struct ParticleEnvironment
+		{
+			Vec4 m_gravity;                // xyz = Acceleration (m/s²) of every stepped particle. w unused. Finite.
+			Vec4 m_wind;                   // xyz = Uniform wind velocity (m/s), added to the wind grid. w unused. Finite.
+			int m_collision_iterations;    // Most plane contacts resolved per particle per step. In [0, 64].
+		};
+		static_assert(sizeof(ParticleEnvironment) == 36);
+
+		// A static plane that stepped particles collide with. Particles are allowed in the half-space dot(n, p) >= d.
+		struct ParticlePlane
+		{
+			Vec4 m_plane;         // xyz = Unit normal n, pointing into the allowed half-space. w = Offset d. Finite.
+			float m_restitution;  // Fraction of the normal velocity kept after a contact. In [0, 1].
+			float m_damping;      // Fraction of the tangential velocity removed by a contact. In [0, 1].
+		};
+		static_assert(sizeof(ParticlePlane) == 24);
 
 		struct WindowOptions
 		{
@@ -2293,6 +2315,28 @@ extern "C"
 	// Fill 'out_draw' with the stock mesh batch's vertex shader and its outputs (see pr/game-systems/particles/particle_mesh.hlsli). The caller
 	// supplies the mesh: its ParticleMeshVertex array as the vertex data, and its triangle list as the indices. The data is static.
 	VIEW3D_API BOOL __stdcall View3D_ParticleMeshShaders(pr::view3d::ParticleDrawShaders* out_draw);
+
+	// Fill 'out_sim' and 'out_draw' with the shaders of the stock stepped sprite type (see pr/game-systems/particles/particle_stepped_sprite.hlsli).
+	// Its particles draw with the stock sprite batch. The data is static.
+	VIEW3D_API BOOL __stdcall View3D_ParticleSteppedSpriteShaders(pr::view3d::ParticleSimShaders* out_sim, pr::view3d::ParticleDrawShaders* out_draw);
+
+	// Set the gravity, uniform wind and contact budget that stepped particle types move in, from the next step. The default is no gravity, no wind,
+	// and 4 contacts.
+	VIEW3D_API BOOL __stdcall View3D_ParticleEnvironmentSet(pr::view3d::ParticleSystem system, pr::view3d::ParticleEnvironment const& environment);
+
+	// Set the wind grid, from the next step: 'cells_x' by 'cells_y' columns of horizontal wind velocity, row-major, with the minimum corner at 'origin'
+	// in the XY plane and square cells of side 'cell_size'. The data is copied. Zero columns removes the grid.
+	VIEW3D_API BOOL __stdcall View3D_ParticleWindGridSet(pr::view3d::ParticleSystem system, pr::view3d::Vec2 origin, float cell_size, int cells_x, int cells_y, pr::view3d::Vec2 const* wind);
+
+	// Add a collision set of 'count' planes, returning its index in 'out_set'. Emitters of stepped types name the set that their particles collide with.
+	// Indices of deleted sets are reused, so emitters must stop naming a set before it is deleted.
+	VIEW3D_API BOOL __stdcall View3D_ParticleCollisionSetCreate(pr::view3d::ParticleSystem system, pr::view3d::ParticlePlane const* planes, int count, int* out_set);
+
+	// Replace the planes of a collision set, from the next step.
+	VIEW3D_API BOOL __stdcall View3D_ParticleCollisionSetUpdate(pr::view3d::ParticleSystem system, int set, pr::view3d::ParticlePlane const* planes, int count);
+
+	// Remove a collision set. Particles that still name it collide with nothing.
+	VIEW3D_API BOOL __stdcall View3D_ParticleCollisionSetDelete(pr::view3d::ParticleSystem system, int set);
 
 	// Add a particle batch to 'system', returning its index in 'out_batch' and its View3D object in 'out_object'. The options' data is copied.
 	// Delete the object with View3D_ObjectDelete. An object that outlives its system keeps drawing the particles of the system's last step.

@@ -3168,6 +3168,15 @@ static std::span<std::byte const> ParticleParams(void const* params, size_t para
 
 	return std::span<std::byte const>(static_cast<std::byte const*>(params), params_size);
 }
+
+// View a plane array as a span, requiring the data when the count is positive.
+static std::span<view3d::ParticlePlane const> ParticlePlanes(view3d::ParticlePlane const* planes, int count)
+{
+	if (count < 0 || (planes == nullptr && count != 0))
+		throw std::invalid_argument("Particle collision planes must be a non-negative count of planes");
+
+	return std::span<view3d::ParticlePlane const>(planes, static_cast<size_t>(count));
+}
 VIEW3D_API view3d::ParticleSystem __stdcall View3D_ParticleSystemCreate(char const* name)
 {
 	try
@@ -3321,6 +3330,79 @@ VIEW3D_API BOOL __stdcall View3D_ParticleStats(view3d::ParticleSystem system, in
 		return TRUE;
 	}
 	CatchAndReport(View3D_ParticleStats, , FALSE);
+}
+VIEW3D_API BOOL __stdcall View3D_ParticleSteppedSpriteShaders(view3d::ParticleSimShaders* out_sim, view3d::ParticleDrawShaders* out_draw)
+{
+	try
+	{
+		// The shaders are static data and need no renderer. Stepped sprites draw with the sprite batch.
+		if (out_sim == nullptr || out_draw == nullptr)
+			throw std::invalid_argument("Particle stepped sprite shaders outputs are required");
+
+		*out_sim = game_systems::particles::ParticleSystem::SteppedSpriteSimShaders();
+		*out_draw = game_systems::particles::ParticleSystem::SpriteDrawShaders();
+		return TRUE;
+	}
+	CatchAndReport(View3D_ParticleSteppedSpriteShaders, , FALSE);
+}
+VIEW3D_API BOOL __stdcall View3D_ParticleEnvironmentSet(view3d::ParticleSystem system, view3d::ParticleEnvironment const& environment)
+{
+	try
+	{
+		DllLockGuard;
+		RequireParticles(system).EnvironmentSet(environment);
+		return TRUE;
+	}
+	CatchAndReport(View3D_ParticleEnvironmentSet, , FALSE);
+}
+VIEW3D_API BOOL __stdcall View3D_ParticleWindGridSet(view3d::ParticleSystem system, view3d::Vec2 origin, float cell_size, int cells_x, int cells_y, view3d::Vec2 const* wind)
+{
+	try
+	{
+		// The grid has one velocity per column. A grid without columns needs no data.
+		auto const count = cells_x > 0 && cells_y > 0 ? static_cast<size_t>(cells_x) * cells_y : size_t{ 0 };
+		if (count != 0 && wind == nullptr)
+			throw std::invalid_argument("Particle wind grid data is required");
+
+		DllLockGuard;
+		auto data = std::span<v2 const>(reinterpret_cast<v2 const*>(wind), count);
+		RequireParticles(system).WindGridSet(To<v2>(origin), cell_size, cells_x, cells_y, data);
+		return TRUE;
+	}
+	CatchAndReport(View3D_ParticleWindGridSet, , FALSE);
+}
+VIEW3D_API BOOL __stdcall View3D_ParticleCollisionSetCreate(view3d::ParticleSystem system, view3d::ParticlePlane const* planes, int count, int* out_set)
+{
+	try
+	{
+		if (out_set == nullptr)
+			throw std::invalid_argument("Particle collision set output is required");
+
+		DllLockGuard;
+		*out_set = RequireParticles(system).CollisionSetCreate(ParticlePlanes(planes, count));
+		return TRUE;
+	}
+	CatchAndReport(View3D_ParticleCollisionSetCreate, , FALSE);
+}
+VIEW3D_API BOOL __stdcall View3D_ParticleCollisionSetUpdate(view3d::ParticleSystem system, int set, view3d::ParticlePlane const* planes, int count)
+{
+	try
+	{
+		DllLockGuard;
+		RequireParticles(system).CollisionSetUpdate(set, ParticlePlanes(planes, count));
+		return TRUE;
+	}
+	CatchAndReport(View3D_ParticleCollisionSetUpdate, , FALSE);
+}
+VIEW3D_API BOOL __stdcall View3D_ParticleCollisionSetDelete(view3d::ParticleSystem system, int set)
+{
+	try
+	{
+		DllLockGuard;
+		RequireParticles(system).CollisionSetDelete(set);
+		return TRUE;
+	}
+	CatchAndReport(View3D_ParticleCollisionSetDelete, , FALSE);
 }
 
 // Atmospheres ******************************

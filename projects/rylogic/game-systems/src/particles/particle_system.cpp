@@ -7,6 +7,8 @@
 #include "pr/game-systems/particles/particles.hlsli"
 #include "pr/game-systems/particles/particle_sprite.hlsli"
 #include "pr/game-systems/particles/particle_mesh.hlsli"
+#include "pr/game-systems/particles/particle_environment.hlsli"
+#include "pr/game-systems/particles/particle_stepped_sprite.hlsli"
 
 #ifdef NDEBUG
 #define PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(file) PR_STRINGISE(game-systems/src/shaders/hlsl/compiled/release/##file)
@@ -35,6 +37,8 @@ namespace pr::game_systems::particles
 		#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(particle_finalize_cs.h)
 		#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(particle_sprite_emit_cs.h)
 		#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(particle_sprite_update_cs.h)
+		#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(particle_stepped_sprite_emit_cs.h)
+		#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(particle_stepped_sprite_update_cs.h)
 		#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(particle_sprite_vs.h)
 		#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(particle_mesh_vs.h)
 	}
@@ -57,7 +61,15 @@ namespace pr::game_systems::particles
 			RootHeaders = 10,  // t0
 			RootParams = 11,   // t1
 			RootBounds = 12,   // u8
+			RootEnvironment = 13, // b2
+			RootPlanes = 14,      // t2
+			RootSets = 15,        // t3
+			RootWind = 16,        // t4
 		};
+
+		// Limits of the environment. Normals must be unit length because the collision distances are measured along them.
+		constexpr int MaxCollisionIterations = 64;
+		constexpr float PlaneNormalTolerance = 1e-3f;
 
 		// Limits of the type and batch options. The capacity is bounded so that the reset dispatch fits in one dimension of thread groups.
 		// Type constants are bounded by the largest constant buffer view.
@@ -215,6 +227,20 @@ namespace pr::game_systems::particles
 		std::vector<std::unique_ptr<ParticleType>> m_types;
 		uint32_t m_tick;
 
+		// The environment of stepped types. The CPU copies of the planes and wind are uploaded in the next step after they change.
+		ParticleEnvironmentConstants m_env;
+		std::vector<std::vector<ParticleCollisionPlane>> m_sets;
+		std::vector<uint8_t> m_set_deleted;
+		std::vector<v2> m_wind_data;
+		bool m_sets_dirty;
+		bool m_wind_dirty;
+		D3DPtr<ID3D12Resource> m_planes;
+		D3DPtr<ID3D12Resource> m_set_ranges;
+		D3DPtr<ID3D12Resource> m_wind;
+		int64_t m_planes_capacity;
+		int64_t m_set_ranges_capacity;
+		int64_t m_wind_capacity;
+
 	public:
 
 		ParticleSystemImpl(Renderer& rdr, char const* name)
@@ -227,6 +253,18 @@ namespace pr::game_systems::particles
 			, m_batches()
 			, m_types()
 			, m_tick()
+			, m_env(ParticleEnvironmentConstants{ .collision_iterations = 4 })
+			, m_sets()
+			, m_set_deleted()
+			, m_wind_data()
+			, m_sets_dirty()
+			, m_wind_dirty()
+			, m_planes()
+			, m_set_ranges()
+			, m_wind()
+			, m_planes_capacity()
+			, m_set_ranges_capacity()
+			, m_wind_capacity()
 		{
 			// Every particle kernel shares one signature of root views, so the step binds each pool once per type.
 			m_sig = RootSig(ERootSigFlags::ComputeOnly)
@@ -243,9 +281,22 @@ namespace pr::game_systems::particles
 				.SRV(hlsl::ESRVReg::t0)
 				.SRV(hlsl::ESRVReg::t1)
 				.UAV(hlsl::EUAVReg::u8)
+				.CBuf(hlsl::ECBufReg::b2)
+				.SRV(hlsl::ESRVReg::t2)
+				.SRV(hlsl::ESRVReg::t3)
+				.SRV(hlsl::ESRVReg::t4)
 				.Create(m_rdr.d3d(), "Particles:Sig");
 			m_reset = ComputePSO(m_sig.get(), compiled::particle_reset_cs).Create(m_rdr.d3d(), "Particles:Reset");
 			m_finalize = ComputePSO(m_sig.get(), compiled::particle_finalize_cs).Create(m_rdr.d3d(), "Particles:Finalize");
+
+			// The environment's buffers always exist, so every dispatch can bind them. A one-element buffer stands in for an empty table.
+			m_planes = CreateEnvironmentBuffer(1, sizeof(ParticleCollisionPlane), {}, "Particles:Planes");
+			m_set_ranges = CreateEnvironmentBuffer(1, sizeof(uint32_t) * 2, {}, "Particles:CollisionSets");
+			m_wind = CreateEnvironmentBuffer(1, sizeof(v2), {}, "Particles:Wind");
+			m_planes_capacity = 1;
+			m_set_ranges_capacity = 1;
+			m_wind_capacity = 1;
+			m_factory.FlushToGpu(EGpuFlush::Async);
 		}
 		~ParticleSystemImpl()
 		{
@@ -269,6 +320,9 @@ namespace pr::game_systems::particles
 			}
 			m_rdr.DeferRelease(m_reset);
 			m_rdr.DeferRelease(m_finalize);
+			m_rdr.DeferRelease(m_planes);
+			m_rdr.DeferRelease(m_set_ranges);
+			m_rdr.DeferRelease(m_wind);
 			m_rdr.DeferRelease(m_sig);
 		}
 
@@ -475,6 +529,7 @@ namespace pr::game_systems::particles
 				// The batches collect their types' records afresh each tick, so their record counts start at zero.
 				auto& cmd_list = m_factory.CmdList();
 				auto pix = pix::EventScope<ID3D12GraphicsCommandList>(cmd_list.get(), 0xFFFFA040, "Particles::Step");
+				UploadEnvironment();
 				BeginBatches();
 				for (auto& type : m_types)
 					RecordTick(*type, static_cast<float>(dt));
@@ -549,10 +604,183 @@ namespace pr::game_systems::particles
 				.m_requested = counters[ParticleCounterRequested],
 				.m_admitted = counters[ParticleCounterAdmitted],
 				.m_dropped = counters[ParticleCounterDropped],
+				.m_contacts = counters[ParticleCounterContacts],
+				.m_overlaps = counters[ParticleCounterOverlaps],
+				.m_exhausted = counters[ParticleCounterExhausted],
 			};
 		}
 
+		// Set the gravity, uniform wind and contact budget of the environment.
+		void EnvironmentSet(pr::view3d::ParticleEnvironment const& environment) override
+		{
+			// Validate against the documented domain. The constants are uploaded with every dispatch, so they apply from the next step.
+			auto const& g = environment.m_gravity;
+			auto const& w = environment.m_wind;
+			if (!std::isfinite(g.x) || !std::isfinite(g.y) || !std::isfinite(g.z) || !std::isfinite(w.x) || !std::isfinite(w.y) || !std::isfinite(w.z))
+				throw std::invalid_argument("Particle gravity and wind must be finite");
+			if (environment.m_collision_iterations < 0 || environment.m_collision_iterations > MaxCollisionIterations)
+				throw std::invalid_argument("Particle collision iterations must be in [0, 64]");
+
+			m_env.gravity = float3{ g.x, g.y, g.z };
+			m_env.wind = float3{ w.x, w.y, w.z };
+			m_env.collision_iterations = static_cast<uint32_t>(environment.m_collision_iterations);
+		}
+
+		// Set the wind grid.
+		void WindGridSet(v2 origin, float cell_size, int cells_x, int cells_y, std::span<v2 const> wind) override
+		{
+			// Zero columns in either direction removes the grid.
+			if (cells_x < 0 || cells_y < 0)
+				throw std::invalid_argument("Particle wind grid dimensions must be non-negative");
+			if (cells_x == 0 || cells_y == 0)
+			{
+				m_env.wind_cells = uint2{ 0, 0 };
+				return;
+			}
+
+			// Validate the grid against the documented domain.
+			if (!std::isfinite(origin.x) || !std::isfinite(origin.y) || !std::isfinite(cell_size) || cell_size <= 0.0f)
+				throw std::invalid_argument("Particle wind grid origin must be finite and its cell size positive");
+			if (std::ssize(wind) != static_cast<int64_t>(cells_x) * cells_y)
+				throw std::invalid_argument("Particle wind grid data must have one velocity per column");
+			if (std::any_of(wind.begin(), wind.end(), [](v2 const& v) { return !std::isfinite(v.x) || !std::isfinite(v.y); }))
+				throw std::invalid_argument("Particle wind grid velocities must be finite");
+
+			m_env.wind_origin = float2{ origin.x, origin.y };
+			m_env.wind_cell_size = cell_size;
+			m_env.wind_cells = uint2{ static_cast<uint32_t>(cells_x), static_cast<uint32_t>(cells_y) };
+			m_wind_data.assign(wind.begin(), wind.end());
+			m_wind_dirty = true;
+		}
+
+		// Add a collision set of planes, returning its index.
+		int CollisionSetCreate(std::span<pr::view3d::ParticlePlane const> planes) override
+		{
+			// Reuse the lowest deleted index, so the set table stays small.
+			auto converted = ConvertPlanes(planes);
+			auto it = std::find(m_set_deleted.begin(), m_set_deleted.end(), uint8_t{ 1 });
+			auto const set = static_cast<int>(it - m_set_deleted.begin());
+			if (it == m_set_deleted.end())
+			{
+				m_sets.emplace_back();
+				m_set_deleted.push_back(0);
+			}
+			m_sets[set] = std::move(converted);
+			m_set_deleted[set] = 0;
+			m_sets_dirty = true;
+			return set;
+		}
+
+		// Replace the planes of a collision set.
+		void CollisionSetUpdate(int set, std::span<pr::view3d::ParticlePlane const> planes) override
+		{
+			CollisionSet(set) = ConvertPlanes(planes);
+			m_sets_dirty = true;
+		}
+
+		// Remove a collision set.
+		void CollisionSetDelete(int set) override
+		{
+			// A deleted set has no planes until its index is reused.
+			CollisionSet(set).clear();
+			m_set_deleted[set] = 1;
+			m_sets_dirty = true;
+		}
+
 	private:
+
+		// Return the planes of the live collision set 'set'.
+		std::vector<ParticleCollisionPlane>& CollisionSet(int set)
+		{
+			if (set < 0 || set >= std::ssize(m_sets) || m_set_deleted[set] != 0)
+				throw std::out_of_range("Invalid particle collision set index");
+
+			return m_sets[set];
+		}
+
+		// Validate 'planes' and convert them to their GPU layout.
+		static std::vector<ParticleCollisionPlane> ConvertPlanes(std::span<pr::view3d::ParticlePlane const> planes)
+		{
+			// Normals must be unit length, because the collision distances are measured along them.
+			auto converted = std::vector<ParticleCollisionPlane>{};
+			converted.reserve(planes.size());
+			for (auto const& plane : planes)
+			{
+				auto const& p = plane.m_plane;
+				if (!std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z) || !std::isfinite(p.w))
+					throw std::invalid_argument("Particle collision planes must be finite");
+				if (std::abs(p.x * p.x + p.y * p.y + p.z * p.z - 1.0f) > PlaneNormalTolerance)
+					throw std::invalid_argument("Particle collision plane normals must be unit length");
+				if (!(plane.m_restitution >= 0.0f && plane.m_restitution <= 1.0f) || !(plane.m_damping >= 0.0f && plane.m_damping <= 1.0f))
+					throw std::invalid_argument("Particle collision plane restitution and damping must be in [0, 1]");
+
+				converted.push_back(ParticleCollisionPlane{
+					.plane = float4{ p.x, p.y, p.z, p.w },
+					.restitution = plane.m_restitution,
+					.damping = plane.m_damping,
+				});
+			}
+			return converted;
+		}
+
+		// Create a shader-readable environment buffer of 'count' elements of 'stride' bytes, initialised from 'data' when it is not empty.
+		D3DPtr<ID3D12Resource> CreateEnvironmentBuffer(int64_t count, int stride, std::span<std::byte const> data, char const* name)
+		{
+			return m_factory.CreateResource(ResDesc::Buf(count, stride, data, 4).def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE), name);
+		}
+
+		// Copy 'data' to the start of 'buffer', replacing the buffer with a larger one when it holds fewer than 'count' elements.
+		void UploadEnvironmentBuffer(D3DPtr<ID3D12Resource>& buffer, int64_t& capacity, int64_t count, int stride, std::span<std::byte const> data, char const* name)
+		{
+			// A buffer that is too small is replaced, initialised with the data. The old one may still be read by the last step.
+			if (count > capacity)
+			{
+				m_rdr.DeferRelease(buffer);
+				buffer = CreateEnvironmentBuffer(count, stride, data, name);
+				capacity = count;
+				return;
+			}
+
+			// Otherwise the data is copied over the start of the buffer. Elements past 'count' are never read.
+			auto& cmd_list = m_factory.CmdList();
+			auto& upload = m_factory.UploadBuffer();
+			auto alloc = upload.Alloc(static_cast<int64_t>(data.size()), 4);
+			std::memcpy(alloc.m_mem + alloc.m_ofs, data.data(), data.size());
+			BarrierBatch(cmd_list).Transition(buffer.get(), D3D12_RESOURCE_STATE_COPY_DEST).Commit();
+			cmd_list.CopyBufferRegion(buffer.get(), 0, alloc);
+			BarrierBatch(cmd_list).Transition(buffer.get(), D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE).Commit();
+		}
+
+		// Upload the collision planes and wind grid if they changed since the last step.
+		void UploadEnvironment()
+		{
+			// Flatten the collision sets into one plane table and one (first, count) range per set.
+			if (m_sets_dirty)
+			{
+				auto planes = std::vector<ParticleCollisionPlane>{};
+				auto ranges = std::vector<std::array<uint32_t, 2>>{};
+				ranges.reserve(m_sets.size());
+				for (auto const& set : m_sets)
+				{
+					ranges.push_back({ static_cast<uint32_t>(planes.size()), static_cast<uint32_t>(set.size()) });
+					planes.insert(planes.end(), set.begin(), set.end());
+				}
+				if (!planes.empty())
+					UploadEnvironmentBuffer(m_planes, m_planes_capacity, std::ssize(planes), sizeof(ParticleCollisionPlane), std::as_bytes(std::span(planes)), "Particles:Planes");
+				if (!ranges.empty())
+					UploadEnvironmentBuffer(m_set_ranges, m_set_ranges_capacity, std::ssize(ranges), sizeof(uint32_t) * 2, std::as_bytes(std::span(ranges)), "Particles:CollisionSets");
+
+				m_env.collision_set_count = static_cast<uint32_t>(ranges.size());
+				m_sets_dirty = false;
+			}
+
+			// The grid dimensions in the constants describe the uploaded data.
+			if (m_wind_dirty)
+			{
+				UploadEnvironmentBuffer(m_wind, m_wind_capacity, std::ssize(m_wind_data), sizeof(v2), std::as_bytes(std::span(m_wind_data)), "Particles:Wind");
+				m_wind_dirty = false;
+			}
+		}
 
 		// Return the type at 'type_index'.
 		ParticleType& Type(int type_index)
@@ -616,6 +844,10 @@ namespace pr::game_systems::particles
 			cmd_list.SetComputeRootShaderResourceView(RootHeaders, type.m_headers);
 			cmd_list.SetComputeRootShaderResourceView(RootParams, type.m_params);
 			cmd_list.SetComputeRootUnorderedAccessView(RootBounds, type.m_batch->m_bounds);
+			cmd_list.SetComputeRootConstantBufferView(RootEnvironment, UploadConstants(upload, &m_env, sizeof(m_env)));
+			cmd_list.SetComputeRootShaderResourceView(RootPlanes, m_planes);
+			cmd_list.SetComputeRootShaderResourceView(RootSets, m_set_ranges);
+			cmd_list.SetComputeRootShaderResourceView(RootWind, m_wind);
 		}
 
 		// Zero every batch's record count and make its buffers writable by the kernels.
@@ -845,6 +1077,15 @@ namespace pr::game_systems::particles
 		return pr::view3d::ParticleSimShaders{
 			.m_emit = { compiled::particle_sprite_emit_cs, sizeof(compiled::particle_sprite_emit_cs) },
 			.m_update = { compiled::particle_sprite_update_cs, sizeof(compiled::particle_sprite_update_cs) },
+		};
+	}
+
+	// The simulation shaders of the stock stepped sprite type.
+	pr::view3d::ParticleSimShaders ParticleSystem::SteppedSpriteSimShaders()
+	{
+		return pr::view3d::ParticleSimShaders{
+			.m_emit = { compiled::particle_stepped_sprite_emit_cs, sizeof(compiled::particle_stepped_sprite_emit_cs) },
+			.m_update = { compiled::particle_stepped_sprite_update_cs, sizeof(compiled::particle_stepped_sprite_update_cs) },
 		};
 	}
 

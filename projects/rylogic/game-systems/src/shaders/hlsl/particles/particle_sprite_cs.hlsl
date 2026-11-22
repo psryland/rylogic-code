@@ -42,24 +42,9 @@ bool ParticleUpdate(inout ParticleSpriteState state, float dt, ParticleSpriteCon
 // Evaluate a sprite's position, size and colour at its age.
 ParticleSpriteRecord ParticleProject(ParticleSpriteState state, ParticleSpriteConstants c)
 {
-	// Fly on constant acceleration, and blend size and colour over the life.
-	float t = saturate(state.age / state.lifetime);
+	// Fly on constant acceleration.
 	float3 position = state.p0 + state.v0 * state.age + 0.5f * state.accel * state.age * state.age;
-	float size = lerp(state.size0, state.size1, t);
-	float4 colour = lerp(ParticleUnpackColour(state.colour0), ParticleUnpackColour(state.colour1), t);
-
-	// Fade in after birth and out before death.
-	float fade_in = c.fade_in > 0.0f ? saturate(t / c.fade_in) : 1.0f;
-	float fade_out = c.fade_out > 0.0f ? saturate((1.0f - t) / c.fade_out) : 1.0f;
-	colour.a *= fade_in * fade_out;
-
-	ParticleSpriteRecord record;
-	record.pos_size = float4(position, size);
-	record.colour = ParticlePackColour(colour);
-	record.angle = 6.283185307179586f * ParticleRandom(state.seed, 7);
-	record.pad0 = 0;
-	record.pad1 = 0;
-	return record;
+	return ParticleSpriteMakeRecord(position, state.age, state.lifetime, state.seed, state.colour0, state.colour1, state.size0, state.size1, c);
 }
 
 // Bound a sprite by a sphere of its radius at its position. The radius is in world units and the cull scales it by the object's largest axis scale,
