@@ -23,27 +23,31 @@ bool ParticleSprayMove(inout ParticleSteppedSpriteState state, float dt)
 	return state.velocity.z < 0.0f && state.position.z < ParticleSampleWater(state.position.xy).height;
 }
 
-// Throw a droplet from a breaking crest within the emitter's disc, and move it through the part of the tick after its birth.
+// Throw a droplet from a random point of sea within the emitter's disc, kept with a chance set by the wind there, and move it through the part of
+// the tick after its birth.
 ParticleSteppedSpriteState ParticleInit(ParticleSprayEmitter params, ParticleSpawn spawn, ParticleSpriteConstants c)
 {
-	// Random indices below 16 belong to the launch and the sprite record; the crest search uses those from 16.
-	// With a lead and a front, droplets rise from the same leading foam front as froth, as if the wind tears them off the foam.
-	float2 wind = ParticleSampleWind(float3(params.area.xy, 0.0f)).xy;
-	float2 lean = ParticleAlongWind(wind, params.lead);
-	float2 xy;
-	ParticleWaterSample water;
-	bool found = ParticleFindCrest(params.area.xy, params.area.w, params.candidates, params.breaking_threshold, lean, spawn.seed, 16, xy, water);
-	if (found)
-		ParticleFindCrestFront(xy, water, ParticleAlongWind(wind, params.front), params.breaking_threshold, lean);
+	// Random indices below 16 belong to the launch and the sprite record; the birth point, its chance and its height use those from 16.
+	// The square root of a uniform value gives a radius that puts equal areas at equal probability.
+	float r = params.area.w * sqrt(ParticleRandom(spawn.seed, 16));
+	float a = 6.283185307179586f * ParticleRandom(spawn.seed, 17);
+	float2 xy = params.area.xy + r * float2(cos(a), sin(a));
+	ParticleWaterSample water = ParticleSampleWater(xy);
+	float3 position = float3(xy, water.height + params.lift * ParticleRandom(spawn.seed, 19));
+
+	// Stronger winds tear more droplets from the sea. Without water there is no sea to tear them from.
+	float3 wind = ParticleSampleWind(position);
+	float chance = saturate((length(wind.xy) - params.wind_range.x) / (params.wind_range.y - params.wind_range.x));
+	bool found = g_environment.water != 0 && ParticleRandom(spawn.seed, 18) < chance;
 
 	float3 dv = ParticleRandomInBall(float3(ParticleRandom(spawn.seed, 3), ParticleRandom(spawn.seed, 4), ParticleRandom(spawn.seed, 5)));
 	float lifetime = lerp(params.lifetime.x, params.lifetime.y, ParticleRandom(spawn.seed, 6));
 
-	// Droplets leave the surface along its normal, picking up some of the wind.
+	// Droplets leave the surface upwards, already moving with much of the wind.
 	ParticleSteppedSpriteState state;
-	state.position = float3(xy, water.height);
+	state.position = position;
 	state.age = spawn.age;
-	state.velocity = water.normal * params.launch.x + dv * params.launch.y + ParticleSampleWind(state.position) * params.launch.z;
+	state.velocity = float3(0.0f, 0.0f, params.launch.x) + dv * params.launch.y + wind * params.launch.z;
 	state.lifetime = lifetime;
 	state.accel = float3(0.0f, 0.0f, 0.0f);
 	state.drag = params.launch.w;
@@ -60,7 +64,7 @@ ParticleSteppedSpriteState ParticleInit(ParticleSprayEmitter params, ParticleSpa
 	state.pad1 = 0;
 	state.pad2 = 0;
 
-	// A birth without a crest makes no droplet. New particles are always kept for one tick, so it is drawn at zero size, away from the water's
+	// A birth that is not kept makes no droplet. New particles are always kept for one tick, so it is drawn at zero size, away from the water's
 	// far-below height, and the next update removes it.
 	if (!found)
 	{

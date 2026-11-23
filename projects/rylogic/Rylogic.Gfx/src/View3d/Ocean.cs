@@ -477,7 +477,7 @@ public sealed partial class View3d
 
 	/// <summary>Mirrors 'view3d::ShaderByteCode'.</summary>
 	[StructLayout(LayoutKind.Sequential)]
-	private unsafe struct NativeShaderByteCode
+	internal unsafe struct NativeShaderByteCode
 	{
 		public byte* m_bytecode;
 		public nuint m_size;

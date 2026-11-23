@@ -539,8 +539,16 @@ namespace render_tests
 			Require(View3D_WindowRayTracingEnabledGet(fixture.m_window), "Ray tracing did not enable");
 			image = fixture.Image(&width);
 			expect_mirrored(image, width, 0.05f, "Ray traced");
-			Require(px(image, width, 0, 26, ImageSize / 2)[1] > 0.1f, "Reflected quad missing at its left eye position");
-			Require(px(image, width, 0, 37, ImageSize / 2)[1] < 0.02f, "Reflected quad has no uncrossed disparity in the left eye");
+
+			// Reflection rays that miss everything return a dim grey-blue sky, so identify the quad by its saturated green rather than by any green.
+			auto quad_green = [&](int x)
+			{
+				// The quad is pure green; the sky fallback has all channels below 0.5.
+				auto c = px(image, width, 0, x, ImageSize / 2);
+				return c[1] > 0.5f && c[0] < 0.1f && c[2] < 0.1f;
+			};
+			Require(quad_green(26), "Reflected quad missing at its left eye position");
+			Require(!quad_green(37), "Reflected quad has no uncrossed disparity in the left eye");
 			View3D_WindowRayTracingEnabledSet(fixture.m_window, FALSE);
 		}
 		else

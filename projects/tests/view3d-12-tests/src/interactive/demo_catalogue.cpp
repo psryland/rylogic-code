@@ -39,7 +39,7 @@ namespace view3d_test
 		{L"Procedural", "population_field", L"Population Field", L"65536 instances culled and LOD-selected on the GPU. The density slider changes the block live counts. The panel shows the population diagnostics.", &CreatePopulationFieldDemo},
 		{L"Game Systems", "particles", L"Particles", L"GPU-resident sprite particles in one draw call. Change the time scale for slow motion or pause, burst an explosion, or add a grid of emitters to fill the pool.", &CreateParticlesDemo},
 		{L"Game Systems", "particle_presets", L"Particle Presets", L"The stock particle effects side by side: fire, sparks, smoke, dust, rain, snow, leaves, wood chips, a beacon marker and birds, each built only from its preset.", &CreateParticlePresetsDemo},
-		{L"Game Systems", "ocean_spray", L"Ocean Spray", L"Spray and froth born on the breaking crests of a wind-driven ocean, found on the GPU by sampling the waves.", &CreateOceanSprayDemo},
+		{L"Game Systems", "ocean_spray", L"Ocean Spray", L"Wind-blown spray, and froth born where a wind-driven ocean draws strong crest foam, found on the GPU by sampling the waves.", &CreateOceanSprayDemo},
 	}};
 
 	// All demos, in menu order

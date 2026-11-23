@@ -977,12 +977,12 @@ namespace view3d_test
 			}
 		};
 
-		// Spray and froth on a wind-driven ocean. Both presets are born only on breaking crests, which they find by sampling the ocean that the
-		// system's water binding names, so they follow the waves without any CPU readback. The ocean is updated before each particle step.
+		// Spray and froth on a wind-driven ocean. Spray is torn from the sea all over by the wind, and froth is born only where the ocean draws strong crest foam. Both
+		// sample the ocean that the system's water binding names, so they follow the waves without any CPU readback. The ocean is updated before each particle step.
 		struct OceanSprayDemo :IDemo
 		{
 			static constexpr int Capacity = 1 << 16;
-			static constexpr float MaxWind = 20.0f;
+			static constexpr float MaxWind = 40.0f;
 
 			DemoContext m_ctx;
 			demo::SceneObjects m_scene;
@@ -1024,7 +1024,7 @@ namespace view3d_test
 				, m_stats_timer()
 				, m_wave_time(100.0)
 				, m_time_scale(1.0f)
-				, m_wind(14.0f)
+				, m_wind(30.0f)
 			{
 				// Look across the sea from a few metres above it, downwind.
 				View3D_CameraPositionSet(ctx.m_window, { -40, -40, 12, 1 }, { 0, 0, 0, 1 }, { 0, 0, 1, 0 });
@@ -1045,7 +1045,7 @@ namespace view3d_test
 
 				// Demo controls.
 				auto& ui = ctx.m_controls;
-				ui.AddLabel(L"Ocean spray and froth, each created only from its preset (View3D_ParticlePresetGet). Both are born only on breaking crests, found on the GPU by sampling the ocean bound with View3D_ParticleWaterSet. Spray dies when it falls back into the sea; froth rides the waves.");
+				ui.AddLabel(L"Ocean spray and froth, each created only from its preset (View3D_ParticlePresetGet). Both sample the ocean bound with View3D_ParticleWaterSet on the GPU. Spray is thrown up all over the sea once the wind passes 25 m/s, and dies when it falls back into the sea; froth is born where the ocean draws strong crest foam and rides the waves.");
 				ui.AddSlider(L"Time scale (0 = pause)", 0, 2, m_time_scale, [this](float v)
 				{
 					m_time_scale = v;
@@ -1128,7 +1128,7 @@ namespace view3d_test
 
 				m_scene.Add(m_ocean_object);
 
-				// Crest foam over deep water, so the foam drawn on the surface matches where spray and froth are born.
+				// Crest foam over deep water, so the foam drawn on the surface matches where froth is born.
 				auto foam = api::OceanFoam
 				{
 					.m_shore_foam_depth_m = 1, .m_edge_softness = 0.1, 					.m_crest_strength = 1, .m_crest_threshold = 1.0, .m_tile_m = 4, .m_bump_m = 0.01,
