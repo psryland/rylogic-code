@@ -623,10 +623,25 @@ namespace pr::compute::tests
 	PRUnitTestClass(GpuJobLifecycleTests)
 	{
 		// D3D12's failed Close result must stop submission before any queue execution.
-		PRUnitTestMethod(FailedNativeCloseNeverExecutes, Quick)
+		PRUnitTestMethod(FailedNativeCloseNeverExecutes, Quick | Serial)
 		{
 			// Keep D3D validation but not its process-breaking error policy: this test deliberately closes an already closed native list.
 			ComGpu gpu(IsDebug ? EGpuOptions::DeviceDebug : EGpuOptions::None);
+
+			// D3D12 shares one device per adapter, so a break-on-error policy set by any other live user of the device applies here too.
+			// Run serially and suspend that policy for this test only, restoring it afterwards.
+			D3DPtr<ID3D12InfoQueue> info;
+			auto const has_info = SUCCEEDED(gpu.device()->QueryInterface(IID_PPV_ARGS(info.address_of())));
+			auto const break_on_error = has_info && info->GetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR);
+			if (has_info)
+				info->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR, FALSE);
+
+			Scope<void> restore_break([&]
+			{
+				// Return the shared device to the policy it had before this test.
+				if (has_info)
+					info->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR, break_on_error);
+			});
 			ForwardingQueue proxy(gpu.queue());
 			ComputeJob job(gpu.device(), &proxy, "CloseFailure", 0);
 			Check(job.m_cmd_list.get()->Close());
