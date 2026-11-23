@@ -10,7 +10,7 @@ namespace Rylogic.Physics;
 internal static unsafe partial class Native
 {
 	internal const string Dll = "physics";
-	internal const uint ApiVersion = 0x00090000U;
+	internal const uint ApiVersion = 0x000A0000U;
 	internal const uint StructVersion = 3U;
 	private static IntPtr m_module;
 
@@ -488,7 +488,9 @@ internal static unsafe partial class Native
 	/// <summary>Copy a water configuration into an idle engine, or remove water with a null pointer.</summary>
 	[DllImport(Dll)] internal static extern EStatus Physics_EngineWaterSet(ulong engine, WaterDesc* water);
 	[DllImport(Dll)] internal static extern EStatus Physics_EngineWaterBathymetrySet(ulong engine, WaterBathymetryDesc* bathymetry);
-	[DllImport(Dll)] internal static extern EStatus Physics_EngineWaterWindSeaSet(ulong engine, WindSeaDesc* wind_sea);
+	[DllImport(Dll)] internal static extern EStatus Physics_EngineWaterWindSeaSet(ulong engine, IntPtr wind_sea);
+	[DllImport(Dll)] internal static extern EStatus Physics_WindSeaCreate(WindSeaDesc* desc, out IntPtr wind_sea);
+	[DllImport(Dll)] internal static extern void Physics_WindSeaDestroy(IntPtr wind_sea);
 	[DllImport(Dll)] internal static extern EStatus Physics_EngineWaterHeights(ulong engine, double time_s, Vector2d* xy, double* heights, int count);
 	[DllImport(Dll)] internal static extern EStatus Physics_WaveSpectrumSeaTable(WaveSpectrumLayout* spectrum, float fetch, float speed_step, v4* rows, int row_count);
 	[DllImport(Dll)] internal static extern EStatus Physics_WaveSpectrumRelax(float* values, float* targets, int count, float dt, float time_constant);

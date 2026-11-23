@@ -61,6 +61,8 @@ namespace pr::rdr12
 		BBox             m_global_envmap_parallax_bounds; // Reflections correct parallax for captured geometry inside these world-space bounds. Anything beyond them, or everything when invalid, is infinitely distant
 		v4               m_reflection_plane; // The world-space plane (unit normal xyz, distance w along the normal) whose surfaces reflect the rendered scene. Zero for none
 		float            m_reflection_min_population_radius; // Populations whose prototype bounding radius is smaller than this are not drawn into the reflection's mirror view. Zero draws them all
+		float            m_reflection_resolution_scale; // The reflection's mirror view resolution as a fraction of the viewport's, in (0,1]
+		int              m_reflection_min_population_lod; // Populations draw into the reflection's mirror view at no finer LOD than this (clamped to each prototype's last LOD). Zero allows all
 		EFillMode         m_global_fill_mode; // A scene-wide fill mode override. EFillMode::Default means "use the model's default"
 		PipeStates       m_pso;              // Scene-wide pipe state overrides
 		RayTracingProps  m_ray_tracing_props; // Ray tracing render settings for this scene.

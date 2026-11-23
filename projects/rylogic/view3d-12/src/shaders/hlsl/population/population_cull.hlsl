@@ -40,7 +40,7 @@ struct CullConstants
 	uint prototype_count; // The number of prototypes.
 	uint header_size;     // The size of the list header in bytes.
 	float coverage;       // The fraction of each entry's pixels that are drawn, in [0,1]. See ApplyCoverage.
-	uint pad1;
+	uint min_lod;         // The finest LOD drawn. Prototypes with fewer LODs use their last LOD.
 };
 
 // The classification constants of one prototype. Mirrors 'PrototypeConstants' in 'population.cpp'.
@@ -204,8 +204,9 @@ Classification Classify(uint source)
 	float dist = length(centre - g_cull.eye.xyz);
 	float size = g_cull.eye.w != 0 ? radius * g_cull.size_scale : radius * g_cull.size_scale / max(dist, 1e-6f);
 
-	// Select the most detailed LOD whose minimum size the instance reaches. Below the last LOD's minimum size, the instance is not drawn.
-	uint lod = 0;
+	// Select the most detailed LOD, no finer than the view's minimum, whose minimum size the instance reaches. Below the last LOD's minimum size,
+	// the instance is not drawn.
+	uint lod = min(g_cull.min_lod, proto.lod_count - 1);
 	for (; lod != proto.lod_count && size < Packed(proto.lod_size, lod); ++lod) {}
 	if (lod == proto.lod_count)
 		return result;

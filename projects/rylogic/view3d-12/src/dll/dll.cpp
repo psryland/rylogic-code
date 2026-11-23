@@ -1649,6 +1649,54 @@ VIEW3D_API void __stdcall View3D_WindowReflectionMinPopulationRadiusSet(view3d::
 	CatchAndReport(View3D_WindowReflectionMinPopulationRadiusSet, window, );
 }
 
+// Get/Set the resolution of the reflection's mirror view as a fraction of the viewport's
+VIEW3D_API float __stdcall View3D_WindowReflectionResolutionScaleGet(view3d::Window window)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		return window->ReflectionResolutionScale();
+	}
+	CatchAndReport(View3D_WindowReflectionResolutionScaleGet, window, 1.0f);
+}
+VIEW3D_API void __stdcall View3D_WindowReflectionResolutionScaleSet(view3d::Window window, float scale)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		window->ReflectionResolutionScale(scale);
+	}
+	CatchAndReport(View3D_WindowReflectionResolutionScaleSet, window, );
+}
+
+// Get/Set the finest population LOD drawn into the reflection's mirror view
+VIEW3D_API int __stdcall View3D_WindowReflectionMinPopulationLodGet(view3d::Window window)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		return window->ReflectionMinPopulationLod();
+	}
+	CatchAndReport(View3D_WindowReflectionMinPopulationLodGet, window, 0);
+}
+VIEW3D_API void __stdcall View3D_WindowReflectionMinPopulationLodSet(view3d::Window window, int lod)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		window->ReflectionMinPopulationLod(lod);
+	}
+	CatchAndReport(View3D_WindowReflectionMinPopulationLodSet, window, );
+}
+
 // Enable/Disable the depth buffer
 VIEW3D_API BOOL __stdcall View3D_DepthBufferEnabledGet(view3d::Window window)
 {
@@ -3965,6 +4013,16 @@ VIEW3D_API void __stdcall View3D_PopulationCoverageSet(view3d::Population popula
 		population->SetCoverage(coverage);
 	}
 	CatchAndReport(View3D_PopulationCoverageSet, , );
+}
+VIEW3D_API void __stdcall View3D_PopulationReflectedSet(view3d::Population population, BOOL reflected)
+{
+	try
+	{
+		Validate(population);
+		DllLockGuard;
+		population->SetReflected(reflected != 0);
+	}
+	CatchAndReport(View3D_PopulationReflectedSet, , );
 }
 VIEW3D_API uint32_t __stdcall View3D_PopulationDitherWord(view3d::Vec4 origin, float coverage, BOOL complement)
 {

@@ -858,6 +858,26 @@ namespace Rylogic.Gfx
 				set => View3D_WindowReflectionMinPopulationRadiusSet(Handle, value);
 			}
 
+			/// <summary>
+			/// The resolution of the reflection's mirror view as a fraction of the viewport's, in (0,1]. Lower values cost less but blur the
+			/// reflection. 1 (the default) draws one mirror pixel per viewport pixel.
+			/// </summary>
+			public float ReflectionResolutionScale
+			{
+				get => View3D_WindowReflectionResolutionScaleGet(Handle);
+				set => View3D_WindowReflectionResolutionScaleSet(Handle, value);
+			}
+
+			/// <summary>
+			/// The finest population LOD drawn into the reflection's mirror view. Each prototype uses this LOD or a coarser one, clamped to its
+			/// last LOD. 0 (the default) lets the projected size choose any LOD.
+			/// </summary>
+			public int ReflectionMinPopulationLod
+			{
+				get => View3D_WindowReflectionMinPopulationLodGet(Handle);
+				set => View3D_WindowReflectionMinPopulationLodSet(Handle, value);
+			}
+
 			/// <summary>Show the lighting dialog</summary>
 			public void ShowLightingDlg()
 			{

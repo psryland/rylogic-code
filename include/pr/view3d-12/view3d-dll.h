@@ -1992,6 +1992,16 @@ extern "C"
 	VIEW3D_API float __stdcall View3D_WindowReflectionMinPopulationRadiusGet(pr::view3d::Window window);
 	VIEW3D_API void __stdcall View3D_WindowReflectionMinPopulationRadiusSet(pr::view3d::Window window, float radius);
 
+	// Get/Set the resolution of the reflection's mirror view as a fraction of the viewport's, in (0,1]. Lower values cost less but blur the
+	// reflection. 1 (the default) draws one mirror pixel per viewport pixel.
+	VIEW3D_API float __stdcall View3D_WindowReflectionResolutionScaleGet(pr::view3d::Window window);
+	VIEW3D_API void __stdcall View3D_WindowReflectionResolutionScaleSet(pr::view3d::Window window, float scale);
+
+	// Get/Set the finest population LOD drawn into the reflection's mirror view. Each prototype uses this LOD or a coarser one, clamped to its
+	// last LOD. 0 (the default) lets the projected size choose any LOD.
+	VIEW3D_API int __stdcall View3D_WindowReflectionMinPopulationLodGet(pr::view3d::Window window);
+	VIEW3D_API void __stdcall View3D_WindowReflectionMinPopulationLodSet(pr::view3d::Window window, int lod);
+
 	// Enable/Disable the depth buffer
 	VIEW3D_API BOOL __stdcall View3D_DepthBufferEnabledGet(pr::view3d::Window window);
 	VIEW3D_API void __stdcall View3D_DepthBufferEnabledSet(pr::view3d::Window window, BOOL enabled);
@@ -2520,6 +2530,10 @@ extern "C"
 	// zero draws nothing. Use it to dissolve a whole population in or out. Within LOD transitions and fade bands, each entry keeps 'coverage' of its own
 	// pixels, so complementary entries still never cover a pixel twice.
 	VIEW3D_API void __stdcall View3D_PopulationCoverageSet(pr::view3d::Population population, float coverage);
+
+	// Set whether the population is drawn in reflection views, such as the scene's reflection plane. Populations are reflected by default.
+	// Unreflected populations are not classified for reflection views, so they cost those views nothing.
+	VIEW3D_API void __stdcall View3D_PopulationReflectedSet(pr::view3d::Population population, BOOL reflected);
 
 	// Return the screen-door dither word that an ordinary object at 'origin' (its object-to-world translation) uses to draw 'coverage' of its pixels.
 	// An instance at the same translation with the 'Faded' instance flag and the same coverage draws the complementary pixels when 'complement' is

@@ -2254,6 +2254,40 @@ namespace pr::rdr12
 		Invalidate();
 	}
 
+	// Get/Set the resolution of the reflection's mirror view as a fraction of the viewport's
+	float V3dWindow::ReflectionResolutionScale() const
+	{
+		return m_scene.m_reflection_resolution_scale;
+	}
+	void V3dWindow::ReflectionResolutionScale(float scale)
+	{
+		// The mirror view needs at least some pixels, and is never drawn above the viewport's resolution
+		if (!(scale > 0.0f && scale <= 1.0f))
+			throw std::runtime_error("The reflection resolution scale must be in (0,1]");
+		if (scale == m_scene.m_reflection_resolution_scale)
+			return;
+
+		m_scene.m_reflection_resolution_scale = scale;
+		Invalidate();
+	}
+
+	// Get/Set the finest population LOD drawn into the reflection's mirror view
+	int V3dWindow::ReflectionMinPopulationLod() const
+	{
+		return m_scene.m_reflection_min_population_lod;
+	}
+	void V3dWindow::ReflectionMinPopulationLod(int lod)
+	{
+		// Negative LODs have no meaning
+		if (lod < 0)
+			throw std::runtime_error("The reflection minimum population LOD must be non-negative");
+		if (lod == m_scene.m_reflection_min_population_lod)
+			return;
+
+		m_scene.m_reflection_min_population_lod = lod;
+		Invalidate();
+	}
+
 	// The scale of the distances stored in captured cubes. It matches the size of the parallax bounds, so that the 8-bit 'd / (d + S)' encoding
 	// spends most of its precision on distances within the bounds. 0 means the cube stores no distances.
 	float V3dWindow::EnvMapDistanceScale() const

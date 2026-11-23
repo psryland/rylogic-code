@@ -1,5 +1,6 @@
 using System;
 using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
 using Rylogic.Maths;
 
 namespace Rylogic.Physics;
@@ -137,7 +138,7 @@ public readonly struct WaveSpectrumLayout
 }
 
 /// <summary>
-/// The layout of a wind sea (see <see cref="Engine.SetWaterWindSea"/> and pr/physics/terrain/water/wind_sea.hlsli). Node (i, j) is at
+/// The layout of a wind sea (see <see cref="WindSea"/> and pr/physics/terrain/water/wind_sea.hlsli). Node (i, j) is at
 /// Origin + (i, j) * CellSize and node n = j * Width + i holds LevelCount downwind wind vectors (m/s) at winds[n * LevelCount + l].
 /// The levels are spread evenly from the first band to the last, and each band uses the wind interpolated between its two nearest levels.
 /// The table holds BandCount * SpeedCount rows from <see cref="WaveSpectrum.SeaTable"/>, where row r describes a wind of r * SpeedStep m/s.
@@ -165,6 +166,85 @@ public readonly struct WindSeaGrid
 		BandCount = band_count;
 		SpeedCount = speed_count;
 		LevelCount = level_count;
+	}
+}
+
+/// <summary>
+/// An immutable, validated wind sea that any number of engines can share (see <see cref="Engine.SetWaterWindSea"/>). Building one copies and
+/// validates every wind, so it is costly for large grids; build it ahead of time, on any thread, and apply it while the engine is idle.
+/// </summary>
+public sealed unsafe class WindSea :IDisposable
+{
+	private readonly WindSeaHandle m_handle;
+
+	/// <summary>Build a wind sea. See <see cref="WindSeaGrid"/> for the layout of 'table' and 'winds'; both are copied.</summary>
+	public WindSea(in WindSeaGrid grid, ReadOnlySpan<v4> table, ReadOnlySpan<v2> winds)
+	{
+		// Check the array sizes here because the native call trusts them.
+		if ((long)grid.BandCount * grid.SpeedCount != table.Length)
+			throw new ArgumentException("Wind sea table must contain band_count * speed_count rows");
+		if ((long)grid.Width * grid.Height * grid.LevelCount != winds.Length)
+			throw new ArgumentException("Wind sea winds must contain width * height * level_count values");
+
+		// Borrow the caller's arrays for the duration of the call.
+		Native.EnsureLoaded();
+		fixed (v4* table_ptr = table)
+		fixed (v2* winds_ptr = winds)
+		{
+			var desc = new Native.WindSeaDesc
+			{
+				m_header = NativeHeader.Create<Native.WindSeaDesc>(),
+				m_origin = grid.Origin,
+				m_cell_size = grid.CellSize,
+				m_speed_step = grid.SpeedStep,
+				m_width = grid.Width,
+				m_height = grid.Height,
+				m_band_count = grid.BandCount,
+				m_speed_count = grid.SpeedCount,
+				m_level_count = grid.LevelCount,
+				m_table = table_ptr,
+				m_winds = winds_ptr,
+			};
+			Native.Check(Native.Physics_WindSeaCreate(&desc, out var handle));
+			m_handle = new WindSeaHandle(handle);
+		}
+	}
+
+	/// <summary>Release this reference to the native wind sea. Engines using it keep their own share.</summary>
+	public void Dispose()
+	{
+		m_handle.Dispose();
+	}
+
+	/// <summary>The native handle, valid until disposal.</summary>
+	internal IntPtr Handle
+	{
+		get
+		{
+			if (m_handle.IsClosed)
+				throw new ObjectDisposedException(nameof(WindSea));
+
+			return m_handle.DangerousGetHandle();
+		}
+	}
+
+	/// <summary>Releases one native wind sea.</summary>
+	private sealed class WindSeaHandle :SafeHandleZeroOrMinusOneIsInvalid
+	{
+		/// <summary>Adopt a successful Physics_WindSeaCreate handle.</summary>
+		internal WindSeaHandle(IntPtr handle)
+			: base(true)
+		{
+			SetHandle(handle);
+		}
+
+		/// <inheritdoc/>
+		protected override bool ReleaseHandle()
+		{
+			// Destroying the handle only drops its share; engines keep the wind sea alive while they use it.
+			Native.Physics_WindSeaDestroy(handle);
+			return true;
+		}
 	}
 }
 

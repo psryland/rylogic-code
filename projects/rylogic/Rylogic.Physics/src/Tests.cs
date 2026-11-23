@@ -217,7 +217,8 @@ public sealed class TestPhysics
 		Assert.True(elements[0].m_info.y > 0);
 		ExpectStatus(EStatus.InvalidArgument, () => WaveSpectrum.Elements(layout, table.AsSpan(1), 4, elements));
 
-		// The engine accepts the waves with terrain heights and local winds, and rejects grids that do not match their arrays.
+		// The engine accepts the waves with terrain heights and local winds, keeps its share of a released wind sea, and rejects grids that do
+		// not match their arrays.
 		using var runtime = new Physics();
 		using var engine = runtime.CreateEngine();
 		var heights = new float[] { -20, -20, 5, 5 };
@@ -225,7 +226,9 @@ public sealed class TestPhysics
 		var winds = new v2[2 * 2 * layout.Bands];
 		winds.AsSpan().Fill(new v2(10, 0));
 		engine.SetWaterBathymetry(new Vector2d(-100, -100), 200, 2, 2, heights);
-		engine.SetWaterWindSea(grid, table, winds);
+		using (var wind_sea = new WindSea(grid, table, winds))
+			engine.SetWaterWindSea(wind_sea);
+
 		engine.SetWater(new WaterConfiguration(0, repeat_period: 1024), elements.AsSpan(0, long_only));
 
 		// The surface heights move with the waves, and the query needs one output per position.
@@ -237,7 +240,8 @@ public sealed class TestPhysics
 		Assert.True(surface[0] != surface[1] && Array.Exists(surface, h => h != 0));
 		Assert.Throws<ArgumentException>(() => engine.WaterHeights(0, points, surface.AsSpan(1)));
 		Assert.Throws<ArgumentException>(() => engine.SetWaterBathymetry(new Vector2d(0, 0), 1, 3, 3, heights));
-		Assert.Throws<ArgumentException>(() => engine.SetWaterWindSea(grid, table, winds.AsSpan(1)));
+		Assert.Throws<ArgumentException>(() => new WindSea(grid, table, winds.AsSpan(1)));
+		ExpectStatus(EStatus.InvalidArgument, () => new WindSea(new WindSeaGrid(new v2(-100, -100), 200, 0, 2, 2, layout.Bands, speed_count, layout.Bands), table, winds));
 		ExpectStatus(EStatus.InvalidArgument, () => engine.SetWater(new WaterConfiguration(0, breaking_ratio: 0), elements.AsSpan(0, long_only)));
 		engine.ClearWaterWindSea();
 		engine.ClearWaterBathymetry();

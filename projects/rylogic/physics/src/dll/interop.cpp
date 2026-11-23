@@ -2285,6 +2285,12 @@ namespace pr::physics
 	{
 		terrain::landscape::BaselineSurface m_surface;
 	};
+
+	// The object behind a WindSeaHandle. Engines share the immutable wind sea, so it outlives the handle while any engine uses it.
+	struct PreparedWindSea
+	{
+		std::shared_ptr<terrain::water::WindSea const> m_sea;
+	};
 }
 
 using namespace pr::physics;
@@ -2821,7 +2827,7 @@ extern "C"
 	}
 
 	// Replace the wind sea applied to water; null leaves wind-sea elements at their table-maximum amplitude.
-	PhysicsStatus __stdcall Physics_EngineWaterWindSeaSet(PhysicsEngineHandle engine, pr::physics::WindSeaDesc const* wind_sea)
+	PhysicsStatus __stdcall Physics_EngineWaterWindSeaSet(PhysicsEngineHandle engine, pr::physics::WindSeaHandle wind_sea)
 	{
 		return pr::physics::ApiCall([&]
 		{
@@ -2830,40 +2836,8 @@ extern "C"
 			pr::physics::RequireOwner(record);
 			pr::physics::RequireIdle(record);
 
-			// Build and validate the replacement before changing any state.
-			auto replacement = std::shared_ptr<pr::physics::terrain::water::WindSea const>{};
-			if (wind_sea != nullptr)
-			{
-				auto const& c = pr::physics::RequireStruct(wind_sea);
-				if (c.width < 0 || c.height < 0 || c.band_count < 0 || c.speed_count < 0 || c.level_count < 0 || c.table == nullptr || c.winds == nullptr)
-					throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Invalid wind sea grid");
-
-				try
-				{
-					// The ABI vectors have the same layout but weaker alignment than the shared types, so copy rather than reinterpret.
-					using namespace pr::physics::terrain::water;
-					auto const grid = WindSeaGrid{
-						.origin = { c.origin.x, c.origin.y },
-						.cell_size = c.cell_size,
-						.speed_step = c.speed_step,
-						.dims = { c.width, c.height },
-						.band_count = c.band_count,
-						.speed_count = c.speed_count,
-						.level_count = c.level_count,
-					};
-					auto table = std::vector<WindSeaTableRow>(static_cast<size_t>(c.band_count) * static_cast<size_t>(c.speed_count));
-					std::memcpy(table.data(), c.table, table.size() * sizeof(pr::physics::Vector4));
-					auto winds = std::vector<pr::v2>(static_cast<size_t>(c.width) * static_cast<size_t>(c.height) * static_cast<size_t>(c.level_count));
-					std::memcpy(winds.data(), c.winds, winds.size() * sizeof(pr::physics::Vector2));
-					replacement = std::make_shared<WindSea const>(grid, table, winds);
-				}
-				catch (std::exception const& ex)
-				{
-					throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, ex.what());
-				}
-			}
-
 			// Apply the wind sea to the current water immediately; later water replacements pick it up from the record.
+			auto replacement = wind_sea != nullptr ? wind_sea->m_sea : nullptr;
 			if (auto current = record.m_engine->Water(); current != nullptr)
 			{
 				auto config = *current;
@@ -2879,6 +2853,55 @@ extern "C"
 			}
 			record.m_water_wind_sea = std::move(replacement);
 		});
+	}
+
+	// Create a validated, engine-independent wind sea owned by the caller.
+	PhysicsStatus __stdcall Physics_WindSeaCreate(pr::physics::WindSeaDesc const* desc, pr::physics::WindSeaHandle* wind_sea)
+	{
+		// Clear the output first so a failed call never leaves a stale handle for the caller to destroy.
+		if (wind_sea != nullptr)
+			*wind_sea = nullptr;
+
+		return pr::physics::ApiCall([&]
+		{
+			// Check the array sizes before sizing the copies from them.
+			if (wind_sea == nullptr)
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Wind sea output pointer is null");
+
+			auto const& c = pr::physics::RequireStruct(desc);
+			if (c.width < 0 || c.height < 0 || c.band_count < 0 || c.speed_count < 0 || c.level_count < 0 || c.table == nullptr || c.winds == nullptr)
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Invalid wind sea grid");
+
+			try
+			{
+				// The ABI vectors have the same layout but weaker alignment than the shared types, so copy rather than reinterpret.
+				using namespace pr::physics::terrain::water;
+				auto const grid = WindSeaGrid{
+					.origin = { c.origin.x, c.origin.y },
+					.cell_size = c.cell_size,
+					.speed_step = c.speed_step,
+					.dims = { c.width, c.height },
+					.band_count = c.band_count,
+					.speed_count = c.speed_count,
+					.level_count = c.level_count,
+				};
+				auto table = std::vector<WindSeaTableRow>(static_cast<size_t>(c.band_count) * static_cast<size_t>(c.speed_count));
+				std::memcpy(table.data(), c.table, table.size() * sizeof(pr::physics::Vector4));
+				auto winds = std::vector<pr::v2>(static_cast<size_t>(c.width) * static_cast<size_t>(c.height) * static_cast<size_t>(c.level_count));
+				std::memcpy(winds.data(), c.winds, winds.size() * sizeof(pr::physics::Vector2));
+				*wind_sea = new pr::physics::PreparedWindSea{ std::make_shared<pr::physics::terrain::water::WindSea const>(grid, table, winds) };
+			}
+			catch (std::exception const& ex)
+			{
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, ex.what());
+			}
+		});
+	}
+
+	// Release a wind sea created by Physics_WindSeaCreate; null is ignored. Engines using the wind sea keep their share.
+	void __stdcall Physics_WindSeaDestroy(pr::physics::WindSeaHandle wind_sea)
+	{
+		delete wind_sea;
 	}
 
 	// Write the wind-sea table of the spectrum for a wind blowing over 'fetch' metres.

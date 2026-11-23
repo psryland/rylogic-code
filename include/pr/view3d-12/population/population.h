@@ -308,6 +308,7 @@ namespace pr::rdr12
 		int m_instance_capacity;                     // The number of instance slots.
 		int m_payload_size;                          // The size of the caller payload buffer in bytes. Zero means no payload.
 		float m_coverage;                            // The fraction of each instance's pixels that are drawn, in [0,1]. See 'SetCoverage'.
+		std::atomic<bool> m_reflected;               // True if the population is drawn in reflection views. Read by the render thread without the lock.
 		D3DPtr<ID3D12Resource> m_instances;          // StructuredBuffer<View3DPopulationInstance>[m_instance_capacity]
 		D3DPtr<ID3D12Resource> m_live_counts;        // StructuredBuffer<uint>[block capacity]
 		D3DPtr<ID3D12Resource> m_payload;            // ByteAddressBuffer[m_payload_size], or null
@@ -350,6 +351,10 @@ namespace pr::rdr12
 		// and zero draws nothing. Within LOD transitions and fade bands, each entry keeps 'coverage' of its own pixels, so complementary entries still
 		// never cover a pixel twice. Throws std::invalid_argument for values outside [0,1].
 		void SetCoverage(float coverage);
+
+		// True if the population is drawn in reflection views. Populations are reflected by default.
+		bool Reflected() const;
+		void SetReflected(bool reflected);
 
 		// Call 'fn' with the bounds of each active block, and return the content revision consistent with those blocks.
 		uint64_t ActiveBlocks(std::function<void(BBox const&)> fn);
@@ -422,6 +427,9 @@ namespace pr::rdr12
 
 		// True for orthographic projections.
 		bool m_orthographic;
+
+		// The finest LOD that instances are drawn at. Each prototype uses this LOD or a coarser one, clamped to its last LOD.
+		int m_min_lod = 0;
 	};
 
 	// One indirect draw of a classified population: a (prototype, LOD, nugget) triple.

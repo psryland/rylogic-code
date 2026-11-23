@@ -170,44 +170,21 @@ public sealed class Engine :IDisposable
 	}
 
 	/// <summary>
-	/// Supply the wind sea that sets the local amplitude and crest sharpness of the wind-sea water elements (see <see cref="WaveSpectrum.Elements"/>).
-	/// See <see cref="WindSeaGrid"/> for the layout of 'table' and 'winds'. The engine copies both and applies them to current and later water.
+	/// Apply 'wind_sea' to set the local amplitude and crest sharpness of the wind-sea water elements (see <see cref="WaveSpectrum.Elements"/>).
+	/// The engine shares the wind sea and applies it to current and later water, so the caller may dispose it afterwards.
 	/// </summary>
-	public unsafe void SetWaterWindSea(in WindSeaGrid grid, ReadOnlySpan<v4> table, ReadOnlySpan<v2> winds)
+	public void SetWaterWindSea(WindSea wind_sea)
 	{
 		EnsureOwner();
-		if ((long)grid.BandCount * grid.SpeedCount != table.Length)
-			throw new ArgumentException("Wind sea table must contain band_count * speed_count rows");
-		if ((long)grid.Width * grid.Height * grid.LevelCount != winds.Length)
-			throw new ArgumentException("Wind sea winds must contain width * height * level_count values");
-
-		// Borrow the caller's arrays for the duration of the call.
-		fixed (v4* table_ptr = table)
-		fixed (v2* winds_ptr = winds)
-		{
-			var desc = new Native.WindSeaDesc
-			{
-				m_header = NativeHeader.Create<Native.WindSeaDesc>(),
-				m_origin = grid.Origin,
-				m_cell_size = grid.CellSize,
-				m_speed_step = grid.SpeedStep,
-				m_width = grid.Width,
-				m_height = grid.Height,
-				m_band_count = grid.BandCount,
-				m_speed_count = grid.SpeedCount,
-				m_level_count = grid.LevelCount,
-				m_table = table_ptr,
-				m_winds = winds_ptr,
-			};
-			Native.Check(Native.Physics_EngineWaterWindSeaSet(Handle, &desc));
-		}
+		Native.Check(Native.Physics_EngineWaterWindSeaSet(Handle, wind_sea.Handle));
+		GC.KeepAlive(wind_sea);
 	}
 
 	/// <summary>Remove the wind sea so wind-sea elements keep their table-maximum amplitude everywhere.</summary>
-	public unsafe void ClearWaterWindSea()
+	public void ClearWaterWindSea()
 	{
 		EnsureOwner();
-		Native.Check(Native.Physics_EngineWaterWindSeaSet(Handle, null));
+		Native.Check(Native.Physics_EngineWaterWindSeaSet(Handle, IntPtr.Zero));
 	}
 
 	/// <summary>

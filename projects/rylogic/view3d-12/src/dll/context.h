@@ -21,14 +21,11 @@ namespace pr::rdr12
 		D3DPtr<ID3D12PipelineState> m_pipeline;
 	};
 
-	// Retained state for re-running vertex generators without waiting for the GPU.
+	// Cached vertex generator pipelines.
 	struct VertexGenerators
 	{
 		// Pipelines keyed on the shader bytecode plus a trailing byte that is 1 when the root signature has the t0 input.
 		std::unordered_map<std::string, VertexGeneratorPipeline> m_pipelines;
-
-		// Records regeneration work. It is retained so that its upload memory and command allocators stay alive until the GPU has used them.
-		std::unique_ptr<ResourceFactory> m_factory;
 	};
 
 	struct Context : ldraw::ISourceEvents
@@ -43,7 +40,8 @@ namespace pr::rdr12
 		WindowCont           m_windows;  // The created windows
 		ScriptSources        m_sources;  // A container of Ldr objects and a file watcher
 		InitMap              m_inits;    // The unique id of each Initialise call, mapped to that caller's 'ReportError' subscription
-		VertexGenerators     m_vertex_generators; // Cached vertex generator pipelines and the factory for in-place regeneration. Destroyed before 'm_rdr'.
+		VertexGenerators     m_vertex_generators; // Cached vertex generator pipelines. Destroyed before 'm_rdr'.
+		std::unique_ptr<ResourceFactory> m_update_factory; // Records in-place model updates that are submitted without waiting for the GPU. Destroyed before 'm_rdr'.
 		std::recursive_mutex m_mutex;
 		std::thread::id      m_main_thread_id; // The thread that created the context. Initialise and Shutdown calls must be made on this thread.
 
@@ -58,6 +56,8 @@ namespace pr::rdr12
 		Context* This() { return this; }
 		Renderer& rdr() { return m_rdr; }
 
+		// The retained factory for in-place model updates. Work recorded into it must be submitted with 'FlushToGpu(EGpuFlush::Async)'.
+		ResourceFactory& UpdateFactory();
 		// Report an error handled at the DLL API layer
 		void ReportAPIError(std::string_view func_name, view3d::Window wnd, std::exception const* ex);
 

@@ -122,8 +122,8 @@ namespace pr::rdr12
 		// the population draws.
 		void CullPopulations();
 
-		// Classify the scene's populations for 'view' into 'set', and build its draws
-		void CullPopulations(PopulationSet& set, PopulationViewDesc const& view);
+		// Classify the scene's populations for 'view' into 'set', and build its draws. A reflection view leaves out unreflected populations.
+		void CullPopulations(PopulationSet& set, PopulationViewDesc const& view, bool reflection);
 
 		// Cull the instances of the drawlist's nuggets that have GPU-written draw arguments, for the camera and the mirror camera, recording the compute
 		// work into the opaque command list. 'alpha_start' is the drawlist position of the first alpha element, because the mirror view draws only opaques.

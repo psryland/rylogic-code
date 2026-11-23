@@ -2228,6 +2228,10 @@ namespace Rylogic.Gfx
 		[DllImport(Dll)] private static extern void View3D_WindowReflectionPlaneSet(HWindow window, v4 plane);
 		[DllImport(Dll)] private static extern float View3D_WindowReflectionMinPopulationRadiusGet(HWindow window);
 		[DllImport(Dll)] private static extern void View3D_WindowReflectionMinPopulationRadiusSet(HWindow window, float radius);
+		[DllImport(Dll)] private static extern float View3D_WindowReflectionResolutionScaleGet(HWindow window);
+		[DllImport(Dll)] private static extern void View3D_WindowReflectionResolutionScaleSet(HWindow window, float scale);
+		[DllImport(Dll)] private static extern int View3D_WindowReflectionMinPopulationLodGet(HWindow window);
+		[DllImport(Dll)] private static extern void View3D_WindowReflectionMinPopulationLodSet(HWindow window, int lod);
 
 		// Enable/Disable the depth buffer
 		[DllImport(Dll)] private static extern bool View3D_DepthBufferEnabledGet(HWindow window);
