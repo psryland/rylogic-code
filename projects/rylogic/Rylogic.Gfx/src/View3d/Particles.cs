@@ -469,6 +469,36 @@ public sealed partial class View3d
 		public float Squash;
 	}
 
+	/// <summary>
+	/// The emitter parameters of the stock marker preset. Matches 'ParticleMarkerEmitter' in pr/game-systems/particles/particle_marker.hlsli, which
+	/// documents each field. Read and write it in emitter parameter bytes with MemoryMarshal.
+	/// </summary>
+	[StructLayout(LayoutKind.Sequential)]
+	public struct ParticleMarkerEmitter
+	{
+		/// <summary>xyz = Where markers are drawn. w is unused.</summary>
+		public v4 Position;
+
+		/// <summary>xyz = Unit direction that markers face. w = Spin rate about the normal (rad/s).</summary>
+		public v4 Normal;
+
+		/// <summary>Scale of the mesh at birth (x) and at death (y).</summary>
+		public v2 Size;
+
+		/// <summary>Range of lifetimes (s).</summary>
+		public v2 Lifetime;
+
+		/// <summary>Colours (0xAARRGGBB) at birth and at death.</summary>
+		public uint Colour0;
+		public uint Colour1;
+
+		/// <summary>Distance (m) that markers bob along the normal. Zero for none.</summary>
+		public float Bob;
+
+		/// <summary>Bobs per second.</summary>
+		public float BobRate;
+	}
+
 	/// <summary>Helpers for the emitter parameter bytes of the stock particle types.</summary>
 	public static class ParticleParams
 	{

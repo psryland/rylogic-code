@@ -198,6 +198,13 @@ The simulation publishes effect occurrences with a world epoch, sequence/event i
 
 On reload, reconstruct emitters for still-existing fires, weather and beacons. Start transient particle pools empty; do not replay old construction/destruction/chopping events. Particle absence must not change damage, colony visibility, resources or other gameplay outcomes.
 
+As built in Petri (milestone 6), the occurrence identities come from data the projection already publishes instead of a separate event stream:
+
+- Chopping raises an `EActorSound.Chop` sound cue with the strike position. A cue stays in the projections of several ticks, so the adapter remembers `(actor, tick)` pairs it has shown and forgets those older than every current cue.
+- A destroyed building leaves a `BuildingScar`. Scars are only ever appended, so the adapter bursts dust for the scars after the count it last saw. The first scars it sees after entering a world are the baseline and are not shown.
+- Beacon rings are persistent emitters, kept in step with the shown colonies' beacons (new, moved, recoloured or removed).
+- A landscape change resets the pools and forgets the shown events, so nothing replays.
+
 ## 6. Instanced rendering and transparency
 
 ### Exact draw-count contract
@@ -769,3 +776,17 @@ Complete, pending Paul's visual check of the `particle_presets` gallery. Ocean s
 ## Milestone 5 status
 
 Complete. Paul approved the `ocean_spray` spray and froth look.
+
+## Milestone 6 implementation decisions
+
+- Petri owns one particle system with one effect per stock preset. Optional effects (sea spray, sea froth, and the fire and smoke of the diagnostic fire) exist only while enabled; changing the set rebuilds the system. Rain, birds, wood chips, dust and beacon rings always exist.
+- Each burst effect (wood chips, dust) keeps a small ring of emitters, each with its own one-plane collision set for the ground under its burst. A burst uses the emitter's params at the next step, so bursts at different places in one frame need different emitters. More bursts in a frame than the ring holds are dropped.
+- Each beacon has its own ring emitter in its colony's colour. Only new, moved or recoloured beacons are uploaded.
+- Petri has no gameplay fire yet. F3 > Particles places a fire at the camera focus (and moves or removes it) as the explicit diagnostic fixture. It is cleared when the landscape changes.
+- Particles land on the higher of the terrain and the water.
+
+## Milestone 6 status
+
+Sea spray and froth, rain, distant birds, wood chips while chopping, dust from destroyed buildings, beacon rings and the diagnostic fire are integrated; Paul approved the look of the event effects. Spray and froth stay off by default.
+
+Deferred: replacing the climate tracers' draw geometry with the generic instanced path. They are a diagnostic overlay that already works, and the change needs native work in both Petri and game-systems for no gameplay gain. Revisit when the tracers next need work.
