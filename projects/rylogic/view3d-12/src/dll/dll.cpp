@@ -4003,6 +4003,16 @@ VIEW3D_API void __stdcall View3D_PopulationCoverageSet(view3d::Population popula
 	}
 	CatchAndReport(View3D_PopulationCoverageSet, , );
 }
+VIEW3D_API void __stdcall View3D_PopulationReflectedSet(view3d::Population population, BOOL reflected)
+{
+	try
+	{
+		Validate(population);
+		DllLockGuard;
+		population->SetReflected(reflected != 0);
+	}
+	CatchAndReport(View3D_PopulationReflectedSet, , );
+}
 VIEW3D_API uint32_t __stdcall View3D_PopulationDitherWord(view3d::Vec4 origin, float coverage, BOOL complement)
 {
 	try

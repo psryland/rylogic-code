@@ -40,6 +40,7 @@
 #include <type_traits>
 #include <variant>
 #include <mutex>
+#include <atomic>
 #include <shared_mutex>
 #include <condition_variable>
 #include <thread>

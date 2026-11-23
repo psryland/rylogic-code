@@ -2521,6 +2521,10 @@ extern "C"
 	// pixels, so complementary entries still never cover a pixel twice.
 	VIEW3D_API void __stdcall View3D_PopulationCoverageSet(pr::view3d::Population population, float coverage);
 
+	// Set whether the population is drawn in reflection views, such as the scene's reflection plane. Populations are reflected by default.
+	// Unreflected populations are not classified for reflection views, so they cost those views nothing.
+	VIEW3D_API void __stdcall View3D_PopulationReflectedSet(pr::view3d::Population population, BOOL reflected);
+
 	// Return the screen-door dither word that an ordinary object at 'origin' (its object-to-world translation) uses to draw 'coverage' of its pixels.
 	// An instance at the same translation with the 'Faded' instance flag and the same coverage draws the complementary pixels when 'complement' is
 	// false for the object and set on the instance (see 'pr/view3d-12/shaders/population.hlsli'). Use it to cross-fade an object with an instance.

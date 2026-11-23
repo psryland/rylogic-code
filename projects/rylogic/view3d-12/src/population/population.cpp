@@ -297,6 +297,7 @@ namespace pr::rdr12
 		, m_instance_capacity(instance_capacity)
 		, m_payload_size(payload_size)
 		, m_coverage(1.0f)
+		, m_reflected(true)
 		, m_instances()
 		, m_live_counts()
 		, m_payload()
@@ -474,6 +475,18 @@ namespace pr::rdr12
 
 		m_coverage = coverage;
 		++m_revision;
+	}
+
+	// True if the population is drawn in reflection views.
+	bool Population::Reflected() const
+	{
+		// Reflection views are drawn every frame, so the flag needs no revision change
+		return m_reflected.load(std::memory_order_relaxed);
+	}
+	void Population::SetReflected(bool reflected)
+	{
+		// Reflection views are drawn every frame, so the flag needs no revision change
+		m_reflected.store(reflected, std::memory_order_relaxed);
 	}
 
 	// Call 'fn' with the bounds of each active block, and return the content revision read under the same lock.

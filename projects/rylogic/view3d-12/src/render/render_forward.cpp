@@ -992,8 +992,8 @@ namespace pr::rdr12
 		m_cmd_list.OMSetRenderTargets({ &rtv, 1 }, FALSE, &dsv);
 
 		// Draw everything through the mirror camera. The sky's cloud history belongs to the main view's pixels, so the mirror's sky neither reads
-		// nor writes it. Small populations add little to a reflection, so they are left out. The draws are predicated on the open test, so when
-		// no mirror pixel is open, e.g. when the plane is out of view or hidden, the GPU skips the whole scene instead of depth-rejecting it.
+		// nor writes it. Unreflected and small populations add little to a reflection, so they are left out. The draws are predicated on the open
+		// test, so when no mirror pixel is open, e.g. when the plane is out of view or hidden, the GPU skips the whole scene instead of depth-rejecting it.
 		auto sky_history = m_shader.m_sky_history;
 		m_shader.m_sky_history = nullptr;
 		m_shader.m_view = &rp.m_view;
@@ -1228,7 +1228,7 @@ namespace pr::rdr12
 		// Record the classifications on the opaque command list, which also records the draws that consume them. Each view has its own key,
 		// so that the populations keep separate results for each.
 		auto pix_cull = pix::EventScope<ID3D12GraphicsCommandList>(m_cmd_list.get(), 0xFF5AC8A0, "View3D::PopulationCull");
-		CullPopulations(m_populations, PopulationCameraView(reinterpret_cast<uint64_t>(this), scn().m_cam, scn().m_viewport.Height));
+		CullPopulations(m_populations, PopulationCameraView(reinterpret_cast<uint64_t>(this), scn().m_cam, scn().m_viewport.Height), false);
 
 		// The mirror view measures draw distances from the mirrored eye, which is as far from each object as the eye's view of its reflection
 		auto const& rp = *m_reflection_plane;
@@ -1237,7 +1237,7 @@ namespace pr::rdr12
 			// The reflection may use coarser LODs than its projected sizes choose, because waves distort the detail
 			auto view = PopulationProjectionView(reinterpret_cast<uint64_t>(this) + 1, rp.m_mirror_w2s, s_cast<float>(rp.m_mirror_size.y), rp.m_mirror_eye);
 			view.m_min_lod = scn().m_reflection_min_population_lod;
-			CullPopulations(m_mirror_populations, view);
+			CullPopulations(m_mirror_populations, view, true);
 		}
 		else
 			m_mirror_populations = PopulationSet{};
@@ -1267,8 +1267,8 @@ namespace pr::rdr12
 		}
 	}
 
-	// Classify the scene's populations for 'view' into 'set', and build its draws
-	void RenderForward::CullPopulations(PopulationSet& set, PopulationViewDesc const& view)
+	// Classify the scene's populations for 'view' into 'set', and build its draws. A reflection view leaves out unreflected populations.
+	void RenderForward::CullPopulations(PopulationSet& set, PopulationViewDesc const& view, bool reflection)
 	{
 		// Population draws reference the classification results, so rebuild both each frame.
 		set.m_lists.resize(0);
@@ -1283,6 +1283,11 @@ namespace pr::rdr12
 		set.m_lists.reserve(populations.size());
 		for (auto pop : populations)
 		{
+			// Unreflected populations are not classified for a reflection view, so they cost it nothing
+			if (reflection && !pop->Reflected())
+				continue;
+
+			// Classify the population's instances for this view
 			set.m_lists.push_back(rdr().PopulationCulling().Cull(m_cmd_list, m_upload_buffer, m_gsync, *pop.get(), view, m_step_id));
 		}
 
