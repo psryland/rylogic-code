@@ -240,6 +240,42 @@ namespace render_tests
 		std::cout << "PASS emissive scale fade/instance independence: MSAA " << samples << '\n';
 	}
 
+	// Check that an instance tinted with alpha fades an opaque PBR material, while the untinted instances sharing its model stay opaque.
+	void PbrTintAlphaTests(int samples)
+	{
+		// Remove all scene light so the rendered colour is the emission alone, over the fixture's black background.
+		Fixture fixture(samples);
+		auto light = SceneLightingGet(fixture.m_window);
+		light.m_ambient = light.m_diffuse = light.m_specular = 0xFF000000;
+		light.m_on = TRUE;
+		light.m_intensity = 1;
+		SceneLightingSet(fixture.m_window, light);
+
+		// A black PBR plane with an opaque base colour, so its material alpha mode is opaque, that emits full green.
+		auto glow = View3D_ObjectCreateLdrA("*Plane Glow { *Data {90 90} *Material {*BaseColour{FF000000} *Emissive{FF00FF00} *Metallic{0} *Roughness{1}} *o2w{*pos{0 0 -50}}}", FALSE, nullptr, nullptr);
+		Require(glow != nullptr, "Opaque PBR plane creation failed");
+		fixture.m_objects.push_back(glow);
+		auto copy = View3D_ObjectCreateInstance(glow);
+		Require(copy != nullptr, "Instance creation failed");
+		fixture.m_objects.push_back(copy);
+		View3D_ObjectO2WSet(copy, View3D_ObjectO2WGet(glow, nullptr), nullptr);
+
+		// A half-alpha tint shows half of the emission over black, although the material itself is opaque.
+		View3D_ObjectColourSet(glow, FALSE, 0x80FFFFFF, nullptr, api::EColourOp::Overwrite, 0);
+		View3D_WindowAddObject(fixture.m_window, glow);
+		Expect(fixture.Image(), 0, 0.5f, 0);
+
+		// The tint gave the shared model an alpha variant, but an untinted instance still draws its opaque nuggets at full strength.
+		View3D_WindowRemoveObject(fixture.m_window, glow);
+		View3D_WindowAddObject(fixture.m_window, copy);
+		Expect(fixture.Image(), 0, 1, 0);
+
+		// Any DLL or GPU validation error fails the fixture.
+		fixture.CheckErrors();
+		fixture.CheckDebugLayer();
+		std::cout << "PASS PBR tint alpha on an opaque material: MSAA " << samples << '\n';
+	}
+
 	// Check that a region update replaces texture pixels for later frames and rejects regions the texture cannot hold.
 	void TextureUpdateRegionTests(int samples)
 	{
@@ -442,6 +478,11 @@ namespace pr::unittests::view3d12
 	{
 		render_tests::EmissiveScaleTests(1);
 		render_tests::EmissiveScaleTests(4);
+	}
+	PRUnitTest(View3d12_PbrTintAlpha, Extended | Serial)
+	{
+		render_tests::PbrTintAlphaTests(1);
+		render_tests::PbrTintAlphaTests(4);
 	}
 	PRUnitTest(View3d12_TextureUpdateRegion, Extended | Serial)
 	{

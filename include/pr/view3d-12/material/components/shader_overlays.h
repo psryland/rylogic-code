@@ -46,4 +46,11 @@ namespace pr::rdr12::materials
 
 	// Return the forward pixel family of the procedural overlay that 'material' applies for 'step', or null if it has none.
 	ForwardPixelFamily const* ProceduralPixelFamily(Material const& material, ERenderStep step);
+
+	// True if 'material' applies a procedural vertex shader for 'step'. Procedural vertex-ID models have positions only in such shaders, so a step
+	// without one cannot draw them with its stock vertex shader.
+	bool HasProceduralVertexShader(Material const& material, ERenderStep step);
+
+	// True if 'step' can draw 'nugget' with 'material'. A procedural vertex-ID nugget needs a procedural vertex shader for that step.
+	bool HasVertexSource(Nugget const& nugget, Material const& material, ERenderStep step);
 }

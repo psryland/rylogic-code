@@ -6,6 +6,7 @@
 #include "pr/view3d-12/main/renderer.h"
 #include "pr/view3d-12/scene/scene.h"
 #include "pr/view3d-12/instance/instance.h"
+#include "pr/view3d-12/material/components/shader_overlays.h"
 #include "pr/view3d-12/model/skinned_geometry.h"
 #include "pr/view3d-12/model/pose.h"
 #include "pr/view3d-12/model/vertex_layout.h"
@@ -183,6 +184,10 @@ namespace pr::rdr12
 
 			// GPU-written draw arguments describe geometry the CPU cannot know, so those nuggets are not ray cast (see NuggetDrawArgs)
 			if (nug.m_draw_args.m_buffer != nullptr)
+				continue;
+
+			// Procedural vertex-ID nuggets have positions only in their own vertex shaders, so without a ray cast one they cannot be ray cast
+			if (!materials::HasVertexSource(nug, material, m_step_id))
 				continue;
 
 			// Add an element to the draw list

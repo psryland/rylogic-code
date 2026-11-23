@@ -557,12 +557,13 @@ PSOut PSForwardPbrSampledUV(PSIn In, bool is_front_face, float2 base_uv, float2 
 	// Override the completed linear surface colour before lighting and leave the material alpha mode unchanged.
 	base_colour = SurfaceColourBlend(base_colour, g_nugget.colour_blend);
 
-	// Apply the material alpha mode before lighting so masked surfaces can discard early.
+	// Apply the material alpha mode before lighting so masked surfaces can discard early. An opaque material has no alpha of its own, but when the
+	// nugget is drawn as transparent (for example, an instance tinted with alpha), the tint and vertex alpha still fade it.
 	float alpha = base_colour.a;
 	if (g_pbr.alpha_mode == AlphaModeMask)
 		clip(alpha - g_pbr.alpha_cutoff);
 	else if (g_pbr.alpha_mode == AlphaModeOpaque)
-		alpha = 1.0f;
+		alpha = HasAlpha(g_nugget.flags) ? In.diff.a : 1.0f;
 
 	// Convert material parameters to the ranges expected by the PBR lighting equations.
 	float3 albedo = saturate(base_colour.rgb);
