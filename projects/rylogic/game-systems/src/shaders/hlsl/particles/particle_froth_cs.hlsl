@@ -22,28 +22,21 @@ void ParticleFrothMove(inout ParticleFrothState state, float dt)
 	state.position.z = water.height + state.lift + state.rise * state.age;
 	state.normal_xy = ParticleFrothPackNormal(water.normal);
 
-	// The presence follows the crest under the puff as it falls, and decays exponentially over the linger time once the crest moves on.
+	// The presence follows the crest foam under the puff as the crest passes, and decays exponentially over the linger time once the foam has gone.
 	// Presence never rises, so a puff belongs to the crest that formed it, and a later crest passing under a faded puff does not make it pop back.
-	// A breaking amount below half the threshold counts as no crest, so the lower faces of breaking crests do not keep puffs alive.
+	// Foam below half the minimum counts as none, so the fringes of the crest foam do not keep puffs alive.
 	// The water is sampled once per tick, so the fade depends only slightly on the tick length.
-	float crest = smoothstep(0.5f * state.threshold, state.threshold, ParticleWaterBreaking(water, state.lean));
+	float crest = smoothstep(0.5f * state.foam_min, state.foam_min, water.foam);
 	state.presence = min(state.presence, max(crest, state.presence * exp(-dt / state.linger)));
 }
 
-// Form a puff on a breaking crest within the emitter's disc, and move it through the part of the tick after its birth.
+// Form a puff on strong crest foam within the emitter's disc, and move it through the part of the tick after its birth.
 ParticleFrothState ParticleInit(ParticleFrothEmitter params, ParticleSpawn spawn, ParticleSpriteConstants c)
 {
-	// Random indices below 16 belong to the drift, lifetime and sprite record; the crest search uses those from 16.
-	// The search leans towards faces that slope down along the wind, which are the leading faces of the downwind-travelling crests.
-	float2 wind = ParticleSampleWind(float3(params.area.xy, 0.0f)).xy;
-	float2 lean = ParticleAlongWind(wind, params.lead);
+	// Random indices below 16 belong to the drift, lifetime and sprite record; the foam search uses those from 16.
 	float2 xy;
 	ParticleWaterSample water;
-	bool found = ParticleFindCrest(params.area.xy, params.area.w, params.candidates, params.breaking_threshold, lean, spawn.seed, 16, xy, water);
-
-	// Puffs form only in a band 'front' deep behind the leading edge of the crest, so the crest gets a sharp foam front.
-	if (found)
-		ParticleFindCrestFront(xy, water, ParticleAlongWind(wind, params.front), params.breaking_threshold, lean);
+	bool found = ParticleFindFoam(params.area.xy, params.area.w, params.candidates, params.foam_min, spawn.seed, 16, xy, water);
 
 	float spread_r = params.spread * sqrt(ParticleRandom(spawn.seed, 3));
 	float spread_a = 6.283185307179586f * ParticleRandom(spawn.seed, 4);
@@ -64,11 +57,12 @@ ParticleFrothState ParticleInit(ParticleFrothEmitter params, ParticleSpawn spawn
 	state.seed = spawn.seed;
 	state.presence = 1.0f;
 	state.linger = params.linger;
-	state.threshold = params.breaking_threshold;
-	state.lean = lean;
+	state.foam_min = params.foam_min;
 	state.normal_xy = ParticleFrothPackNormal(water.normal);
+	state.fade = f32tof16(params.fade_near) | (f32tof16(params.fade_far) << 16);
+	state.squash = params.squash;
 
-	// A birth without a crest makes no froth. New particles are always kept for one tick, so it is drawn at zero size, away from the water's
+	// A birth without crest foam makes no froth. New particles are always kept for one tick, so it is drawn at zero size, away from the water's
 	// far-below height, and the next update removes it.
 	if (!found)
 	{
@@ -112,9 +106,9 @@ ParticleFrothRecord ParticleProject(ParticleFrothState state, ParticleSpriteCons
 	ParticleFrothRecord record;
 	record.pos_size = float4(sprite.pos_size.xyz, sprite.pos_size.w * (0.3f + 0.7f * sin(3.141592653589793f * t)));
 	record.colour = ParticlePackColour(colour);
-	record.angle = 0.6f * (ParticleRandom(state.seed, 7) - 0.5f);
+	record.shape = ParticleFrothPackShape(0.6f * (ParticleRandom(state.seed, 7) - 0.5f), state.squash, state.lift + state.rise * state.age);
 	record.normal_xy = state.normal_xy;
-	record.height = state.lift + state.rise * state.age;
+	record.fade = state.fade;
 	return record;
 }
 

@@ -373,12 +373,100 @@ public sealed partial class View3d
 		public Texture? CreateTexture(string name)
 		{
 			// The texels are static native data, so they can be passed without pinning. A full mip chain keeps distant sprites smooth.
+			// The texture is only ever sampled, so it rests in the shader-resource state that drawing expects.
 			if (m_native.m_texels == null)
 				return null;
 
 			var size = m_native.m_texture_size;
-			return new Texture(size, size, (IntPtr)m_native.m_texels, size * size * sizeof(uint), new TextureOptions(format: EFormat.DXGI_FORMAT_R8G8B8A8_UNORM, mips: 0, has_alpha: true, dbg_name: name));
+			return new Texture(size, size, (IntPtr)m_native.m_texels, size * size * sizeof(uint), new TextureOptions(format: EFormat.DXGI_FORMAT_R8G8B8A8_UNORM, mips: 0, state: EResState.AllShaderResource, has_alpha: true, dbg_name: name));
 		}
+	}
+
+	/// <summary>
+	/// The emitter parameters of the stock spray preset. Matches 'ParticleSprayEmitter' in pr/game-systems/particles/particle_spray.hlsli, which
+	/// documents each field. Read and write it in emitter parameter bytes with MemoryMarshal.
+	/// </summary>
+	[StructLayout(LayoutKind.Sequential)]
+	public struct ParticleSprayEmitter
+	{
+		/// <summary>xy = Centre of the disc of sea. w = Its radius (m).</summary>
+		public v4 Area;
+
+		/// <summary>x = Mean upward launch speed (m/s). y = Spread of launch velocities (m/s). z = Fraction of the wind added at launch. w = Drag rate (1/s).</summary>
+		public v4 Launch;
+
+		/// <summary>Range of droplet lifetimes (s).</summary>
+		public v2 Lifetime;
+
+		/// <summary>Diameter (m) at birth (x) and at death (y).</summary>
+		public v2 Size;
+
+		/// <summary>Colours (0xAARRGGBB) at birth and at death.</summary>
+		public uint Colour0;
+		public uint Colour1;
+
+		/// <summary>Horizontal wind speeds (m/s) over which the chance that a birth makes a droplet rises from zero (x) to one (y).</summary>
+		public v2 WindRange;
+
+		/// <summary>Greatest height (m) above the surface that droplets start at.</summary>
+		public float Lift;
+
+		/// <summary>Scale of the environment's gravity.</summary>
+		public float Gravity;
+
+		private uint m_pad0;
+		private uint m_pad1;
+	}
+
+	/// <summary>
+	/// The emitter parameters of the stock froth preset. Matches 'ParticleFrothEmitter' in pr/game-systems/particles/particle_froth.hlsli, which
+	/// documents each field. Read and write it in emitter parameter bytes with MemoryMarshal.
+	/// </summary>
+	[StructLayout(LayoutKind.Sequential)]
+	public struct ParticleFrothEmitter
+	{
+		/// <summary>xy = Centre of the disc of sea. w = Its radius (m).</summary>
+		public v4 Area;
+
+		/// <summary>Range of puff lifetimes (s).</summary>
+		public v2 Lifetime;
+
+		/// <summary>Diameter (m) at birth (x) and at death (y).</summary>
+		public v2 Size;
+
+		/// <summary>Colours (0xAARRGGBB) at birth and at death.</summary>
+		public uint Colour0;
+		public uint Colour1;
+
+		/// <summary>Crest foam, in (0, 1], that a point must have to form froth. Uses the ocean's own crest foam settings.</summary>
+		public float FoamMin;
+
+		/// <summary>Random points tried per birth. [1, 32].</summary>
+		public uint Candidates;
+
+		/// <summary>Fraction of the wind that puffs drift with.</summary>
+		public float Drift;
+
+		/// <summary>Spread of the horizontal drift velocities (m/s).</summary>
+		public float Spread;
+
+		/// <summary>Height (m) of a puff's centre above the surface at birth.</summary>
+		public float Lift;
+
+		/// <summary>Rate (m/s) at which a puff's height above the surface grows.</summary>
+		public float Rise;
+
+		/// <summary>Time (s) for a puff to fade once the crest foam under it has gone.</summary>
+		public float Linger;
+
+		/// <summary>Distance (m) from the camera at which puffs start to fade out.</summary>
+		public float FadeNear;
+
+		/// <summary>Distance (m) from the camera beyond which puffs are not drawn. Greater than <see cref="FadeNear"/>.</summary>
+		public float FadeFar;
+
+		/// <summary>Height of a puff along the surface normal as a fraction of its width, in (0, 1].</summary>
+		public float Squash;
 	}
 
 	/// <summary>Helpers for the emitter parameter bytes of the stock particle types.</summary>

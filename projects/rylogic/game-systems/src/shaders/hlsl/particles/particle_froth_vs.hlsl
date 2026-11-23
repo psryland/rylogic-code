@@ -28,11 +28,12 @@ View3DForwardVertexOut Main(uint vertex_id : SV_VertexID, uint instance_id : SV_
 	float4 pos_size = asfloat(g_records.Load4(offset + 0));
 	uint4 colour_angle_surface = g_records.Load4(offset + 16);
 	float4 colour = ParticleUnpackColour(colour_angle_surface.x);
+	ParticleFrothShape shape = ParticleFrothUnpackShape(colour_angle_surface.y);
 
 	// Find the vertex's place on the uncut octagon, in world space.
 	float2 offset_cs;
 	float2 uv;
-	ParticleSpriteVertex(vertex_id, asfloat(colour_angle_surface.y), 0.5f * pos_size.w, offset_cs, uv);
+	ParticleSpriteVertex(vertex_id, shape.angle, 0.5f * pos_size.w, offset_cs, uv);
 	float3 offset_ws = offset_cs.x * g_frame.cam.c2w[0].xyz + offset_cs.y * g_frame.cam.c2w[1].xyz;
 
 	// Cut the octagon off at the surface plane. The plane is moved to world space, which keeps it a plane when the object is scaled evenly.
@@ -41,7 +42,11 @@ View3DForwardVertexOut Main(uint vertex_id : SV_VertexID, uint instance_id : SV_
 	// vertices, which follows the surface closely enough for an octagon. The cut edge lies on the water, where the soft depth fade hides it.
 	float4x4 o2w = mul(g_nugget.m2o, g_nugget.o2w);
 	float3 normal_ws = normalize(mul(float4(ParticleFrothUnpackNormal(colour_angle_surface.z), 0.0f), o2w).xyz);
-	float centre_above = max(0.0f, dot(normal_ws, mul(float4(0.0f, 0.0f, asfloat(colour_angle_surface.w), 0.0f), o2w).xyz));
+	float centre_above = max(0.0f, dot(normal_ws, mul(float4(0.0f, 0.0f, shape.height, 0.0f), o2w).xyz));
+
+	// Squash the octagon along the surface normal, so the puff is flat on the water from the side and still round from above. The texture moves
+	// with the vertices, so it is squashed too.
+	offset_ws -= (1.0f - shape.squash) * dot(normal_ws, offset_ws) * normal_ws;
 	float rim_above = centre_above + dot(normal_ws, offset_ws);
 	if (rim_above < 0.0f)
 	{
@@ -53,8 +58,16 @@ View3DForwardVertexOut Main(uint vertex_id : SV_VertexID, uint instance_id : SV_
 
 	// Place the centre through the object transform, then offset it in world space so the puff faces the camera.
 	View3DForwardVertexOut output = View3DProceduralForwardVertex(float4(pos_size.xyz, 1.0f), float4(0.0f, 0.0f, 0.0f, 0.0f), colour, uv, float2(0, 0), g_frame, g_nugget);
+
+	// Fade the puff out with the distance of its centre from this frame's camera, so distant froth does not show its repeated texture. The fade is
+	// smooth, from full at the near distance to nothing at the far distance.
+	float2 fade = float2(f16tof32(colour_angle_surface.w), f16tof32(colour_angle_surface.w >> 16));
+	float camera_distance = length(output.ws_vert.xyz - g_frame.cam.c2w[3].xyz);
+	output.diff.a *= 1.0f - smoothstep(fade.x, fade.y, camera_distance);
+
+	// Froth lies on the water, so it is lit with the surface normal under it, like the foam drawn on the surface, rather than facing the camera.
 	output.ws_vert.xyz += offset_ws;
-	output.ws_norm = float4(g_frame.cam.c2w[2].xyz, 0.0f);
+	output.ws_norm = float4(normal_ws, 0.0f);
 	output.ss_vert = mul(output.ws_vert, g_frame.cam.w2s);
 	return output;
 }

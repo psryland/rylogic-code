@@ -408,6 +408,8 @@ Add GPU crest/breaking emission, spray motion and water-impact behaviour, plus w
 
 Connect simulation-owned occurrences and persistent emitters to Petri gameplay/presentation. Add F3 controls and diagnostics using existing development paths. Rebuild persistent emitters on load, clear world epochs correctly, and keep all particle state out of saves.
 
+Petri's sea spray and froth are integrated and tunable in the Waves window, but are off by default (each has an Enabled checkbox) until their look is reworked. A disabled effect is not created at all, so it costs no GPU memory, dispatches or draws; toggling one rebuilds Petri's particle system.
+
 Replace the moved diagnostic tracer draw geometry with the generic instanced path once colour/size and field-advection behaviour are equivalent. Consolidate its allocation/evolution with the particle runtime only where that preserves its diagnostic contract; do not force a diagnostic solver algorithm into a mismatched abstraction.
 
 **Exit:** marker effects, chopping chips, weather and representative destruction/fire triggers work from real application state or explicit diagnostic fixtures where gameplay triggers do not yet exist. Reload does not replay old bursts. A non-Petri fixture still works from packages alone.
@@ -663,15 +665,18 @@ collision with per-emitter sets and a contact budget, collision diagnostics, the
   (`ParticleBirdVertexCount` vertices) circling on seeded paths; **markers** emit expanding ring pulses as sprite records.
 - **Sprite appearance curves.** `ParticleSpriteConstants` holds up to four curve keys (t in [0, 1] of the life, size scale, colour multiplier).
   Keys are interpolated linearly, keys at an equal t make a step, and no keys means a constant 1. Flicker (amount and rate) is two sine waves with
-  per-particle phases, a function of age alone. Streak stretches a sprite back from its centre along `velocity * streak` seconds, drawn as a soft
+  per-particle phases, a function of age alone. Streak stretches a sprite back from its head along `velocity * streak` seconds, drawn as a soft
   ellipse whose bounds include the streak; it is stored in the record as half floats. All are shared by the analytic and stepped sprites.
+- **Streaks are projected with perspective.** The sprite lies in the screen-parallel plane through the middle of the streak, and each end of the
+  streak is moved along its line of sight onto that plane. Projecting the streak onto the camera's x and y axes alone ignored perspective, so fast
+  spray seen across the sea looked slanted against its motion. An end at or behind the eye is clamped close to it.
 - **Gravity scale.** Stepped sprite and debris emitters take a scale of the environment's gravity (stepped sprites also accept negative values,
   which rise), so fire and smoke rise and snow falls slowly in the one environment.
 - **No flipbooks yet.** None of the catalogue needed texture animation; curves, flicker and streaks cover them. Flipbooks and authored appearance
   assets wait until an application asks for them.
 - **Proof.** `GameSystems_ParticlePresets` builds every preset from its settings alone and uses collision-plane contact counts as sensors: fire and
   smoke reach a ceiling and never a floor, sparks fall, rain and snow die on a floor, leaves reach only the downwind plane, chips land, the dust and
-  flock bursts live on, and markers emit. `GameSystems_ParticleSpriteCurve` checks a stepped colour curve and a streak against a round sprite. The
+  flock bursts live on, and markers emit. `GameSystems_ParticleSpriteCurve` checks a stepped colour curve, a streak against a round sprite, and a perspective streak towards the camera. The
   `particle_presets` demo in `view3d-12-tests` is a gallery of every preset side by side, each in its own batch and type, with time scale, rate,
   wind and burst controls. One gallery replaces the planned per-effect demos, because each effect is already isolated in its own place and batch.
 
@@ -686,20 +691,21 @@ Complete, pending Paul's visual check of the `particle_presets` gallery. Ocean s
   `ParticleSampleWater` mirrors the ocean vertex shader, so particles meet exactly the waves that are drawn, at the ocean's wave time. The
   environment's `water` flag says whether a surface is bound; without one the water is far below everything and has no foam. Nothing is read back
   to the CPU. The ocean's model space must be the particles' space, and `View3D_OceanUpdate` must run before the particle step in each frame.
-- **Breaking is the emission field.** Crest foam is analytic (wave crest steepness faded by depth), so it is available right after the ocean
-  update with no extra pass. Particles sample `breaking`: the crest foam before it is limited to the ocean's crest strength, so it keeps rising
-  towards the tops of the ridges. Spray and froth births try random points in the emitter's disc of sea and use the first where `breaking` reaches
-  the emitter's `breaking_threshold`; a birth that finds none makes no particle (zero size, immediate death), so calm seas make nothing and rough
-  seas emit along breaking crests. A threshold above the crest strength confines births to ridge tops, where the drawn foam is already full. The
-  continuous surface foam drawn by the ocean is unchanged; particles add detail on top of it, and their cost is bounded by the emitter rate.
-- **Crest fronts.** Both emitters have a `lead`, which leans the breaking amount towards faces that slope down along the wind, and a `front`.
-  After a birth finds a breaking point, `ParticleFindCrestFront` steps it downwind in steps of `front` metres while the next point still breaks,
-  up to 16 steps, and the birth forms at the last point that breaks. The found point is at a random distance from the leading edge, so births
-  land evenly in a band `front` deep along the edge. Without this, puffs appeared one by one across the whole breaking region. With it, each
-  crest has a sharp foam front, and the foam behind it is puffs left behind as the crest moves on. The search costs up to 16 extra water samples per birth.
-- **Spray** is a stepped sprite type (stepped sprite state and the stock sprite batch). Droplets launch along the surface normal, are carried by
-  the wind, fall under gravity and die when they fall back into the water. The spray preset uses the same threshold, lead and front as froth
-  (1.1, 1.8, 0.35 m, 32 candidates), so droplets rise from the foam front, as if the wind tears them off the foam.
+- **Drawn crest foam is the emission field.** Crest foam is analytic (wave crest steepness faded by depth), so it is available right after the
+  ocean update with no extra pass. Particles sample `foam`: the ocean's own crest foam amount (`OceanCrestFoam`, using the ocean's crest strength,
+  threshold and range, and zero when the ocean's foam flag is off), so froth forms exactly where the ocean adds crest foam to the surface and
+  follows any app's foam tuning. The particle sample is at vertex resolution and excludes the short near-camera waves of the pixel shader, so it
+  is slightly broader than the drawn crests. Foam trails (`FoamHistory`) are not used for births. Froth births try random points in the emitter's
+  disc of sea and use the first where `foam` reaches the emitter's `foam_min` (0.32 in the preset); a birth that finds none makes no particle
+  (zero size, immediate death), so calm seas make nothing and rough seas emit along the strongest crest foam. The continuous surface foam drawn by
+  the ocean is unchanged; particles add detail on top of it, and their cost is bounded by the emitter rate. Earlier designs used a separate
+  breaking threshold with a lean and a crest-front search; puffs then formed down the leading faces, away from the drawn foam, so they were removed.
+- **Spray** is a stepped sprite type (stepped sprite state and the stock sprite batch). It is not tied to crests: spray torn from crest fronts
+  looked wrong in Petri, so each birth picks a random point evenly over the emitter's disc of sea and starts up to `lift` (0.95 m) above the
+  surface. The birth makes a droplet with a chance that rises linearly from zero to one over the emitter's `wind_range` of horizontal wind speed
+  at that point (25.5–40.5 m/s in the preset, so only gales throw spray); other births make no particle. Droplets launch upwards (2.25 m/s,
+  spread over a 4.95 m/s ball) with all of the wind's velocity, are dragged towards the wind, fall under weak gravity (0.28), and die when they
+  fall back into the water. The preset tries 200 births per second. Its values were tuned by eye in Petri.
 - **Froth** is a stepped type drawn by its own froth batch (`FrothDrawShaders`, `particle_froth_vs.hlsl`) with weighted blending: nearly upright
   camera-facing clumps of foam that swell up on breaking crests. Each puff keeps a low height above the wave below it that grows slowly with
   age, drifts with a fraction of the wind, and dies when the water is removed. Its colour and alpha follow the shared sprite curve, but its size swells from 30% to
@@ -714,22 +720,26 @@ Complete, pending Paul's visual check of the `particle_presets` gallery. Ocean s
 - **Froth is cut off at the water.** An upright puff crosses the surface. The part in front of the water faded to zero as it neared it, but the
   part behind the water was drawn at full alpha in the "behind" group and showed dimly through the ocean. This drew thin lines where puffs crossed
   the surface, and dim round ghosts below it that made the clumps look circular. Froth therefore writes its own 32-byte `ParticleFrothRecord`. It
-  keeps the sprite's position, size, colour and angle, but replaces the unused streak with the surface normal under the puff (half floats) and
-  the centre's height above the surface. The froth vertex shader pulls each rim vertex below that plane towards the centre until it lies on the
+  keeps the sprite's position, size and colour, and replaces the unused streak with the surface normal under the puff (half floats), a packed shape
+  (the angle and squash to 8 bits each, and the centre's height above the surface as a half float), and the fade distances (half floats).
+  The froth vertex shader pulls each rim vertex below that plane towards the centre until it lies on the
   plane, moving its texture coordinate with it. Only the part above the water is drawn, and the cut edge lies on the water, where soft depth hides it.
   Changing the general soft-depth rule in view3d-12 was rejected, because treating the sorted layer as opaque would hide smoke behind glass.
+- **Froth lies flat and fades with distance.** Round puffs stood too high on the waves even with no lift. The emitter's `squash` (height as a
+  fraction of width) flattens each puff along the surface normal before the cut, so puffs are low from the side and still round from above.
+  Puffs also fade out between the emitter's `fade_near` and `fade_far` camera distances, so distant froth does not show the texture's repeat.
+  The fade is applied in the vertex shader with each frame's camera, so it changes only how froth looks, never its motion or life.
 - **Dense froth showed saturated white streaks.** The weighted accumulation targets are half float. Weights went up to 3000, so about 22
   overlapping opaque puffs pushed the sums past 65504. The hardware clamps every channel, so the average became 1 (pure white). view3d-12's
   weighted pass now uses a maximum weight of 100. Only the ratio between weights matters, so near fragments still dominate far ones (over a
   smaller range), and about 650 opaque overlaps now fit per pixel. `View3d12_AlphaWeighted` checks 64 overlapping layers.
   The froth octagon has flat alpha, so the texture alone gives each clump its outline. This makes the clumps more opaque and less round. The batch
   needs a texture, and `lift` must not be negative.
-- **Leading edges.** Froth births and presence use `breaking + dot(normal.xy, lean)` (`ParticleWaterBreaking`), where `lean` is the emitter's
-  `lead` along the wind direction at the emitter's centre. Waves travel downwind, so faces sloping down along the wind are the leading faces,
-  and froth forms there earlier. Spray uses no lean.
+- **Froth colour matches the surface foam.** The preset colours are the ocean's foam albedo (`FoamColour` in `ocean_forward_ps.hlsli`), and
+  puffs are lit with the water surface normal under them rather than the camera's forward axis, which had made them look cream beside the foam.
 - **Froth stays on crests.** Crests travel at the waves' phase speed, so a puff that stays put soon sits over a trough. Each puff carries a
-  presence in [0, 1] that follows `breaking` under it (below half the emitter's threshold counts as none), never rises, and decays over
-  the emitter's `linger` time once the crest has passed. Alpha is scaled by presence, and the puff dies when it has faded. Moving puffs with the
+  presence in [0, 1] that follows the crest `foam` under it (below half of `foam_min` counts as none), never rises, and decays over
+  the emitter's `linger` time once the foam has gone. Alpha is scaled by presence, and the puff dies when it has faded. Moving puffs with the
   crests was rejected because several wave trains give no single crest velocity.
 - **Textured sprites.** The stock sprite vertex shader outputs texture coordinates (rotating with the sprite), and its geometry includes `Tex0`,
   so a batch with a texture multiplies it by the soft disc; batches without one are unchanged. `ParticlePreset` gains optional static
@@ -737,11 +747,10 @@ Complete, pending Paul's visual check of the `particle_presets` gallery. Ocean s
   the batch texture, keeping presets free of GPU resources. The froth preset uses a baked 256² heap of about 160 top-lit hemispherical foam lumps
   with darkened creases and pin holes. Its alpha is coverage: solid in each lump's middle and soft at its edge. The lumps fill only the central
   half of the texture, so the octagon never cuts them off. Puffs are tilted by at most ±0.3 radians so the baked lighting stays on top. A
-  texture costs one sample per sprite pixel and no extra draw calls; overdraw dominates the cost. The froth preset lives briefly (0.7–1.4 s,
-  linger 0.15 s) and emits densely (26000 per second, 32 candidates, sizes 1.6–2.6 m, lift 0 m, rise 0.02 m/s, lead 1.8, front 0.35 m) with a threshold
-  of 1.1, so foam is a thin, thick-packed layer along the ridges and leading faces, and clears from the backs of the waves soon after the crest passes.
-  Breaking alone varies along a crest and gave patchy froth; the strong lead lets the more even leading-face slope decide most births, giving a
-  dense, near-uniform band. With zero lift, only the upper half of each puff shows, so puffs rise out of the wave rather than float on it. A flat
+  texture costs one sample per sprite pixel and no extra draw calls; overdraw dominates the cost. The froth preset lives 0.5 s with a linger of
+    0.15 s, and emits 15500 births per second (32 candidates, 15 m wide puffs squashed to 0.2 of their width, no lift, a rise of 0.5 m/s, no
+    drift or spread, `foam_min` 0.32, a pale blue-white colour `0xCDE1F5` from fully clear to half opaque, fading from 30 m to 80 m), so wide, flat puffs cover the drawn crest foam, fade in over their short lives,
+    and fade soon after the crests move on. These values were tuned by eye in Petri. With no lift, only the upper half of each puff shows, so puffs rise out of the wave rather than float on it. A flat
   layer of foam under each clump's lumps fills the gaps between them. Its edge wanders in and out, so clumps are not round. The colour holds until 60% of a puff's life, so overlapping clumps read as continuous foam. The `ocean_spray`
   demo keeps its emitters' disc 40 m ahead of the camera, so the waves in view always have spray and froth; the particle system itself stays
   camera-independent.
@@ -751,9 +760,10 @@ Complete, pending Paul's visual check of the `particle_presets` gallery. Ocean s
 - **Shared HLSL fix.** `OceanWaveSampleZero` and `OceanCrestSteepness` in `ocean_surface.hlsli` were missing `odr`, which caused duplicate symbols
   once a second C++ file included the header.
 - **No separate shader getters.** The presets already return the spray and froth shaders, so no `View3D_Particle*Shaders` calls were added.
-- **Proof.** `GameSystems_ParticleWater` builds both presets over a test ocean and checks: no births without water; births on a rough sea; spray
+- **Proof.** `GameSystems_ParticleWater` builds both presets over a test ocean and checks: no births without water; on a rough sea about half
+  the spray births make droplets at a wind half way up the test's wind range, and froth is born on crests only; spray
   dies within seconds; froth with a long linger lives on while the water is bound and dies when it is cleared; froth with the preset's linger
-  fades as the crests pass; a calm sea gives no births; and binding an invalid
+  fades as the crests pass; a calm sea in still air gives no births; and binding an invalid
   ocean is reported. The `ocean_spray` demo in `view3d-12-tests` shows spray and froth on a wind-driven sea, with time scale and wind controls.
 
 ## Milestone 5 status

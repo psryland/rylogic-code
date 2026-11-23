@@ -1185,6 +1185,41 @@ namespace render_tests
 			Require(RedAt(image, 17.0f) > 0.25f && RedAt(image, 13.0f) > 0.25f, "The streaked sprite was not stretched behind its centre");
 			Require(RedAt(image, 24.0f) < 0.01f, "The streaked sprite was stretched ahead of its centre");
 			Require(RedAt(image, -10.0f) > 0.25f && RedAt(image, -16.0f) < 0.01f, "The round sprite was stretched");
+
+			// Under perspective, a streak follows the particle's motion on screen. A camera at the origin looks down -z with a field of view half as wide
+			// as its distance. A sprite 1.5 m to the right moves straight at the camera from 20 m to 5 m away in 1 s, so its 1 s streak runs from 20 m
+			// to 5 m deep, which is along the row through the screen centre from 0.15 to 0.6 of the half-width, centred at 0.375. A streak that ignored
+			// depth would look like a round sprite at 0.24.
+			auto ndc_px = [](float ndc)
+			{
+				// Pixel column of a horizontal screen position in [-1, 1].
+				return static_cast<int>((ndc + 1.0f) * 0.5f * ImageSize);
+			};
+			auto red_at_ndc = [&](std::vector<unsigned char> const& img, float ndc, int dy)
+			{
+				// Average red in a 3x3 square, 'dy' rows from the centre row.
+				auto px = ndc_px(ndc);
+				return RegionRed(img, px - 1, px + 2, ImageSize / 2 + dy - 1, ImageSize / 2 + dy + 2);
+			};
+			View3D_CameraOrthographicSet(fixture.m_window, FALSE);
+			View3D_CameraFovSet(fixture.m_window, api::Vec2{ 2.0f * std::atan(0.5f), 2.0f * std::atan(0.5f) });
+			View3D_CameraClipPlanesSet(fixture.m_window, 0.1f, 200, api::EClipPlanes::Both);
+			View3D_CameraPositionSet(fixture.m_window, api::Vec4{ 0, 0, 0, 1 }, api::Vec4{ 0, 0, -10, 1 }, api::Vec4{ 0, 1, 0, 0 });
+			particles.Reset();
+			auto params = ParticleSpriteEmitter{};
+			params.position = { 1.5f, 0.0f, -20.0f, 0.0f };
+			params.velocity = { 0.0f, 0.0f, 15.0f, 0.0f };
+			params.lifetime = { 10.0f, 10.0f };
+			params.size = { 1.0f, 1.0f };
+			params.colour0 = 0xFFFF0000U;
+			params.colour1 = 0xFFFF0000U;
+			particles.Burst(particles.EmitterCreate(streaked, &params, sizeof(params), 0.0f, 1), 1);
+			particles.Step(BirthStep);
+			particles.Step(1.0);
+			image = fixture.Image();
+			Require(red_at_ndc(image, 0.375f, 0) > 0.25f && red_at_ndc(image, 0.47f, 0) > 0.25f, "The perspective streak did not follow the motion on screen");
+			Require(red_at_ndc(image, 0.7f, 0) < 0.01f, "The perspective streak was stretched ahead of its head");
+			Require(red_at_ndc(image, 0.375f, 12) < 0.01f && red_at_ndc(image, 0.375f, -12) < 0.01f, "The perspective streak was stretched across its motion");
 		}
 		fixture.CheckErrors();
 		fixture.CheckDebugLayer();
@@ -1457,8 +1492,8 @@ namespace render_tests
 		}
 	};
 
-	// Spray and froth are born only on breaking crests of a bound water surface. Spray droplets die when they fall back into the water, and
-	// froth rides the water for its whole life, but dies when the water is removed.
+	// Spray is born all over a bound water surface where the wind blows, and froth only where the ocean draws strong crest foam. Spray droplets die when they fall back
+	// into the water, and froth rides the water for its whole life, but dies when the water is removed.
 	void ParticleWaterTests()
 	{
 		auto fixture = Fixture(1);
@@ -1479,12 +1514,14 @@ namespace render_tests
 				}
 			};
 
-			// Emitters over the sea near the camera, born only by bursts, with lifetimes long enough that only the water ends them.
+			// Emitters over the sea near the camera, born only by bursts, with lifetimes long enough that only the water ends them. The spray's wind
+			// range puts the 5 m/s wind half way up it, so about half its births make droplets.
 			using namespace pr::game_systems::particles;
 			auto spray = PresetCreate(particles, api::EParticlePreset::Spray, 4096);
 			auto spray_params = *static_cast<ParticleSprayEmitter const*>(spray.m_settings.m_params);
 			spray_params.area = { 0.0f, 0.0f, 0.0f, 15.0f };
 			spray_params.lifetime = { 100.0f, 100.0f };
+			spray_params.wind_range = { 2.0f, 8.0f };
 			auto spray_emitter = particles.EmitterCreate(spray.m_type, &spray_params, sizeof(spray_params), 0.0f, 1);
 			auto froth = PresetCreate(particles, api::EParticlePreset::Froth, 4096);
 			auto froth_params = *static_cast<ParticleFrothEmitter const*>(froth.m_settings.m_params);
@@ -1499,7 +1536,8 @@ namespace render_tests
 			fading_params.linger = static_cast<ParticleFrothEmitter const*>(fading.m_settings.m_params)->linger;
 			auto fading_emitter = particles.EmitterCreate(fading.m_type, &fading_params, sizeof(fading_params), 0.0f, 3);
 
-			// Burst all effects, and return how many spray and froth particles survive their first tick: those born on a crest.
+			// Burst all effects, and return how many spray and froth particles survive their first tick: spray born where the wind tears it from the
+			// sea, and froth born on a crest.
 			auto burst = [&]
 			{
 				// A failed birth lives for its birth step only.
@@ -1515,10 +1553,10 @@ namespace render_tests
 			auto [dry_spray, dry_froth] = burst();
 			Require(dry_spray == 0 && dry_froth == 0, "Spray or froth was born without water");
 
-			// On a rough sea, some births find a breaking crest, but not every point is a crest.
+			// On a rough sea, about half the spray births make droplets, and some froth births find strong crest foam, but not every point has it.
 			Require(View3D_ParticleWaterSet(particles.m_system, ocean.m_ocean, ocean.m_object) != FALSE, "Particle water set failed");
 			auto [rough_spray, rough_froth] = burst();
-			Require(rough_spray > 20 && rough_spray < 1000, std::format("Spray was not born on crests only ({} of 1000)", rough_spray).c_str());
+			Require(rough_spray > 250 && rough_spray < 750, std::format("Spray births were not thinned by the wind ({} of 1000)", rough_spray).c_str());
 			Require(rough_froth > 20 && rough_froth < 1000, std::format("Froth was not born on crests only ({} of 1000)", rough_froth).c_str());
 			Require(!fixture.Image().empty(), "Spray and froth were not drawn");
 
@@ -1526,9 +1564,22 @@ namespace render_tests
 			// formed it move on, when it fades and dies.
 			auto fading_born = particles.Stats(fading.m_type).m_live;
 			Require(fading_born > 20, std::format("Fading froth was not born on crests ({} of 1000)", fading_born).c_str());
-			step(0.05, 80);
+
+			// Step for the longest flight of a droplet launched straight up at the top speed from the greatest lift, plus a second for the waves.
+			// The wind is level, so drag slows the rise but also limits the fall to 'g / drag'. A fall from rest covers at least '(g/k)(t - 1/k)'
+			// in time 't', which bounds the time down from the highest point.
+			auto spray_g = 9.8f * spray_params.gravity;
+			auto spray_k = spray_params.launch.w;
+			auto spray_up = spray_params.launch.x + spray_params.launch.y;
+			auto spray_peak = spray_params.lift + spray_up * spray_up / (2.0f * spray_g);
+			auto spray_fall = spray_k > 0.0f ? spray_peak * spray_k / spray_g + 1.0f / spray_k : std::sqrt(2.0f * spray_peak / spray_g);
+			auto spray_flight = spray_up / spray_g + spray_fall;
+			step(0.05, static_cast<int>((spray_flight + 1.0f) / 0.05f));
 			Require(particles.Stats(spray.m_type).m_live == 0, "Spray did not die in the water");
 			Require(particles.Stats(froth.m_type).m_live == rough_froth, "Froth did not live on the water");
+
+			// Faded puffs are removed once their presence decays below 0.02, about four lingers after the foam under them has gone.
+			step(0.05, static_cast<int>(5.0f * fading_params.linger / 0.05f));
 			Require(particles.Stats(fading.m_type).m_live < fading_born / 4, std::format("Froth did not fade behind the passing crests ({} of {})", particles.Stats(fading.m_type).m_live, fading_born).c_str());
 
 			// Removing the water ends the froth.
@@ -1536,8 +1587,11 @@ namespace render_tests
 			step(0.05, 1);
 			Require(particles.Stats(froth.m_type).m_live == 0, "Froth outlived the water");
 
-			// A calm sea has no breaking crests.
+			// A calm sea has no crest foam, and still air tears no spray from it.
 			ocean.Wind(0.0f);
+			auto calm_env = env;
+			calm_env.m_wind = { 0, 0, 0, 0 };
+			Require(View3D_ParticleEnvironmentSet(particles.m_system, calm_env) != FALSE, "Particle environment set failed");
 			Require(View3D_ParticleWaterSet(particles.m_system, ocean.m_ocean, ocean.m_object) != FALSE, "Particle water set failed");
 			auto [calm_spray, calm_froth] = burst();
 			Require(calm_spray == 0 && calm_froth == 0, "Spray or froth was born on a calm sea");

@@ -2,11 +2,10 @@
 // Game Systems
 //  Copyright (c) Rylogic Ltd 2026
 //************************************
-// The stock spray particle type: droplets thrown up from the breaking crests of a bound water surface (see particle_water.hlsli). Each birth tries
-// random points over the emitter's disc of sea, finds the first point where the breaking amount, leaned towards the leading faces of the crests,
-// reaches the emitter's threshold, and moves it to the crest's leading edge (see ParticleFindCrestFront). A birth that finds
-// no breaking crest makes no droplet, so calm seas throw no spray and rough seas throw spray along their crests. Droplets launch along the surface
-// normal, are carried by the wind, fall under gravity, and die when they fall back into the water.
+// The stock spray particle type: droplets torn from a bound water surface (see particle_water.hlsli) by the wind and blown over it. Each birth picks
+// a random point over the emitter's disc of sea, spread evenly over its area, and keeps it with a chance that rises with the wind speed there (see
+// ParticleSprayEmitter::wind_range). A birth that is not kept makes no droplet, so still air throws no spray and strong winds throw spray all over the
+// sea. Droplets start just above the surface, are carried by the wind, fall under gravity, and die when they fall back into the water.
 //
 // Spray uses the stepped sprite state (see particle_stepped_sprite.hlsli) and draws with the stock sprite batch. It moves only in simulated time.
 // Positions are in the space of the type's View3D object, which must be the model space of the bound ocean's object.
@@ -26,19 +25,18 @@ namespace pr::game_systems::particles
 struct ParticleSprayEmitter
 {
 	float4 area;           // xy = Centre of the disc of sea that spray rises from. z unused. w = Radius of the disc (m).
-	float4 launch;         // x = Mean launch speed along the surface normal (m/s). y = Radius of the ball that launch velocities are spread over (m/s).
+	float4 launch;         // x = Mean upward launch speed (m/s). y = Radius of the ball that launch velocities are spread over (m/s).
 	                       // z = Fraction of the wind velocity added at launch. w = Drag rate towards the wind velocity (1/s). Non-negative.
 	float2 lifetime;       // Range of droplet lifetimes (s). Each droplet picks a lifetime uniformly in [x, y]. Positive.
 	float2 size;           // Diameter (m) at birth (x) and at death (y).
 	uint colour0;          // Colour at birth.
 	uint colour1;          // Colour at death.
-	float breaking_threshold;  // Breaking amount (see ParticleSampleWater) that a point must reach to throw spray. Positive.
-	uint candidates;       // Random points tried per birth. [1, 32] (see ParticleFindCrest). More finds the crests of calmer seas, at more cost.
+	float2 wind_range;     // Horizontal wind speeds (m/s) at the birth point over which the chance that a birth makes a droplet rises linearly from
+	                       // zero (x) to one (y). No birth makes a droplet at or below x. y > x >= 0.
+	float lift;            // Greatest height (m) above the surface that droplets start at. Each droplet picks a height uniformly in [0, lift]. Non-negative.
 	float gravity;         // Scale of the environment's gravity.
-	float lead;            // Lean of the breaking amount towards faces that slope down along the wind (see ParticleFrothEmitter::lead). Zero for no lean.
-	float front;           // Depth (m) of the band behind the leading edge of a breaking crest that droplets rise from (see ParticleFindCrestFront).
-	                       // Zero throws droplets from anywhere on the crest.
 	uint pad0;
+	uint pad1;
 };
 
 #ifdef __cplusplus
