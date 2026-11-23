@@ -108,21 +108,29 @@ odr int FindSleepRoot(int body_idx)
 // Merge the contact components containing 'body_idx_a' and 'body_idx_b'. Only dynamic-dynamic contacts reach this function.
 odr void UnionSleepRoots(int body_idx_a, int body_idx_b)
 {
-	// Roots only move toward lower body indices, so racing unions converge deterministically. Retrying when another thread changed the higher root keeps
-	// disconnected components from remaining split just because two contacts touched the same component in the same dispatch.
-	for (int i = 0; i != g.body_count; ++i)
-	{
-		int root_a = FindSleepRootNoCompress(body_idx_a);
-		int root_b = FindSleepRootNoCompress(body_idx_b);
-		if (root_a < 0 || root_b < 0 || root_a == root_b)
-			return;
+	// Link the higher root under the lower one, but only while it is still a root. A compare-exchange never replaces a link that another thread made,
+	// so no contact edge is lost and one pass over the contacts joins every component. Links only point to lower body indices, so each component's root
+	// is its lowest body index whatever order the threads run in. A failed exchange returns the true parent of the higher node, which is a lower index,
+	// so continuing from it always makes progress even if the plain reads in the root walk saw stale links.
+	int root_a = FindSleepRootNoCompress(body_idx_a);
+	int root_b = FindSleepRootNoCompress(body_idx_b);
+	if (root_a < 0 || root_b < 0)
+		return;
 
+	for (int i = 0; i != g.body_count && root_a != root_b; ++i)
+	{
 		int root = min(root_a, root_b);
 		int child = max(root_a, root_b);
 		int original_parent;
-		InterlockedMin(g_sleep_parents[child], root, original_parent);
-		if (original_parent == child || original_parent == root)
+		InterlockedCompareExchange(g_sleep_parents[child], child, root, original_parent);
+		if (original_parent == child)
 			return;
+
+		int next = FindSleepRootNoCompress(original_parent);
+		if (child == root_a)
+			root_a = next;
+		else
+			root_b = next;
 	}
 }
 

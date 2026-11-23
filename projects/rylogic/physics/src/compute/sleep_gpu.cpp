@@ -247,26 +247,18 @@ namespace pr::physics
 			commit_scratch_barriers();
 		}
 		{
-			// Parallel union can miss a transitive edge if two contacts relink a shared endpoint in the same dispatch. Repeating hook/compress sweeps makes
-			// the connected components converge without serialising contact processing.
-			auto union_iteration_count = 1;
-			for (auto span = body_count; span > 2 && union_iteration_count != 8; span = (span + 1) / 2)
-				++union_iteration_count;
+			// One union pass joins every contact component (see 'UnionSleepRoots'), then one sweep points every body directly at its root.
+			bind_update(m_cs_union_sleep_contacts);
+			job.m_cmd_list.ExecuteIndirect(m_cmd_sig.get(), 1, contact_dispatch.get());
 
-			for (int iteration = 0; iteration != union_iteration_count; ++iteration)
-			{
-				bind_update(m_cs_union_sleep_contacts);
-				job.m_cmd_list.ExecuteIndirect(m_cmd_sig.get(), 1, contact_dispatch.get());
+			job.m_barriers.UAV(m_r_sleep_parents.get());
+			job.m_barriers.Commit();
 
-				job.m_barriers.UAV(m_r_sleep_parents.get());
-				job.m_barriers.Commit();
+			bind_update(m_cs_canonicalise_roots);
+			job.m_cmd_list.Dispatch(body_dispatch_count, 1, 1);
 
-				bind_update(m_cs_canonicalise_roots);
-				job.m_cmd_list.Dispatch(body_dispatch_count, 1, 1);
-
-				job.m_barriers.UAV(m_r_sleep_parents.get());
-				job.m_barriers.Commit();
-			}
+			job.m_barriers.UAV(m_r_sleep_parents.get());
+			job.m_barriers.Commit();
 		}
 		{
 			bind_update(m_cs_reduce_sleep_stats);
