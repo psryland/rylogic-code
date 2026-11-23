@@ -790,3 +790,5 @@ Complete. Paul approved the `ocean_spray` spray and froth look.
 Sea spray and froth, rain, distant birds, wood chips while chopping, dust from destroyed buildings, beacon rings and the diagnostic fire are integrated; Paul approved the look of the event effects. Spray and froth stay off by default.
 
 Deferred: replacing the climate tracers' draw geometry with the generic instanced path. They are a diagnostic overlay that already works, and the change needs native work in both Petri and game-systems for no gameplay gain. Revisit when the tracers next need work.
+
+Milestones 7 (million-particle characterisation) and 8 (screen distortion) are deferred until Paul asks for them.
