@@ -48,7 +48,7 @@ namespace pr::physics
 
 namespace pr::physics
 {
-	inline constexpr std::uint32_t PHYSICS_API_VERSION = 0x00090000U;
+	inline constexpr std::uint32_t PHYSICS_API_VERSION = 0x000A0000U;
 	inline constexpr std::uint32_t PHYSICS_STRUCT_VERSION = 3U;
 	inline constexpr std::uint32_t PHYSICS_CHECKPOINT_VERSION = 4U;
 
@@ -67,6 +67,11 @@ namespace pr::physics
 	// An immutable landscape owned by the caller. Handles are not validated: passing a destroyed or foreign handle is undefined behaviour.
 	struct Landscape;
 	using LandscapeHandle = Landscape*;
+
+	// An immutable, validated wind sea owned by the caller, ready to apply to any number of engines. Handles are not validated: passing a
+	// destroyed or foreign handle is undefined behaviour.
+	struct PreparedWindSea;
+	using WindSeaHandle = PreparedWindSea*;
 }
 namespace pr::physics::terrain::landscape::shared
 {
@@ -752,7 +757,7 @@ namespace pr::physics
 	// at winds[n * level_count + l], in m/s, pointing downwind. The levels are spread evenly from the first band to the last, and each band
 	// uses the wind interpolated between its two nearest levels (see wind_sea.hlsli). 'table' holds band_count * speed_count rows from
 	// Physics_WaveSpectrumSeaTable, where row r describes a wind of r * speed_step m/s. Width, height and speed_count are at least two, and
-	// level_count is in [1, band_count]. The engine copies the arrays.
+	// level_count is in [1, band_count]. Physics_WindSeaCreate copies the arrays.
 	struct WindSeaDesc
 	{
 		StructHeader header;
@@ -1029,8 +1034,9 @@ extern "C"
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_EngineWaterBathymetrySet(pr::physics::EngineHandle engine, pr::physics::WaterBathymetryDesc const* bathymetry);
 
 	// Replace the wind sea that sets the local amplitude of wind-sea water elements; null leaves those elements at their table-maximum amplitude.
-	// Applies to the current water and to later Physics_EngineWaterSet calls. Only valid between completed frames.
-	PHYSICS_API pr::physics::EStatus __stdcall Physics_EngineWaterWindSeaSet(pr::physics::EngineHandle engine, pr::physics::WindSeaDesc const* wind_sea);
+	// Applies to the current water and to later Physics_EngineWaterSet calls. The engine shares the wind sea, so the caller may destroy its handle
+	// afterwards. Only valid between completed frames. The wind sea is already validated, so this call is cheap.
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_EngineWaterWindSeaSet(pr::physics::EngineHandle engine, pr::physics::WindSeaHandle wind_sea);
 
 	// Write the water-surface height at each of the 'count' world-space XY positions in 'xy' to 'heights', at simulation time 'time_s'.
 	// This is the surface that buoyancy uses: the same elements, wind sea, and depth correction. Fails when the engine has no water.
@@ -1049,6 +1055,11 @@ extern "C"
 	// sharpness; a wind sea (see Physics_EngineWaterWindSeaSet) supplies the local values. Steepness is zero. Fails when more than 'capacity'
 	// elements are needed.
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_WaveSpectrumElements(pr::physics::WaveSpectrumDesc const* spectrum, pr::physics::Vector4 const* rows, std::int32_t row_count, float min_wavelength, pr::physics::WaterElement* elements, std::int32_t capacity, std::int32_t* element_count);
+
+	// Create an immutable wind sea from 'desc' without an engine or GPU device, for use with Physics_EngineWaterWindSeaSet. Building and validating
+	// a large wind sea is costly, so it can be done ahead of time and on any thread. Destroy it with Physics_WindSeaDestroy.
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_WindSeaCreate(pr::physics::WindSeaDesc const* desc, pr::physics::WindSeaHandle* wind_sea);
+	PHYSICS_API void __stdcall Physics_WindSeaDestroy(pr::physics::WindSeaHandle wind_sea);
 
 	// Create an immutable landscape from 'desc' without an engine or GPU device. 'desc->surface_spacing' is not used.
 	// The landscape is safe to sample from many threads at once. Destroy it with Physics_LandscapeDestroy.
