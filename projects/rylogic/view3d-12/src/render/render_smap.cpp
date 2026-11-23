@@ -6,6 +6,7 @@
 #include "pr/view3d-12/main/renderer.h"
 #include "pr/view3d-12/main/window.h"
 #include "pr/view3d-12/scene/scene.h"
+#include "pr/view3d-12/material/components/shader_overlays.h"
 #include "pr/view3d-12/model/nugget.h"
 #include "pr/view3d-12/model/model.h"
 #include "pr/view3d-12/model/skinned_geometry.h"
@@ -195,6 +196,10 @@ namespace pr::rdr12
 			auto const& material = material_override != nullptr ? *material_override.get() : nug.mat();
 			auto const* pass = material.Pass(m_step_id);
 			if (pass == nullptr)
+				continue;
+
+			// Procedural vertex-ID nuggets have positions only in their own vertex shaders, so without a shadow one they cannot cast shadows
+			if (!materials::HasVertexSource(nug, material, m_step_id))
 				continue;
 
 			sk = pass->AddSortKey(m_step_id, inst, material, nug, sk);

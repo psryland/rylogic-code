@@ -6,6 +6,7 @@
 #include "pr/view3d-12/instance/instance.h"
 #include "pr/view3d-12/main/window.h"
 #include "pr/view3d-12/main/renderer.h"
+#include "pr/view3d-12/model/model.h"
 #include "pr/view3d-12/model/nugget.h"
 #include "pr/view3d-12/render/drawlist_element.h"
 #include "pr/view3d-12/resource/resource_factory.h"
@@ -231,6 +232,31 @@ namespace pr::rdr12
 			}
 		}
 		return family;
+	}
+
+	// True if 'material' applies a procedural vertex shader for 'step'.
+	bool materials::HasProceduralVertexShader(Material const& material, ERenderStep step)
+	{
+		// Only procedural overlays assigned to this step can supply the vertex shader that decodes logical vertex IDs.
+		if (auto const* overlays = material.Component<ShaderOverlays>(); overlays != nullptr)
+		{
+			for (auto const& overlay : overlays->m_overlays)
+			{
+				if (overlay.m_rdr_step != step)
+					continue;
+
+				if (auto const* procedural = dynamic_cast<ProceduralShader const*>(overlay.m_overlay.get()); procedural != nullptr && procedural->HasVertexShader())
+					return true;
+			}
+		}
+		return false;
+	}
+
+	// True if 'step' can draw 'nugget' with 'material'.
+	bool materials::HasVertexSource(Nugget const& nugget, Material const& material, ERenderStep step)
+	{
+		// Buffered models feed the stock vertex shaders. Procedural vertex-ID models have no input layout, so they need the step's own vertex shader.
+		return nugget.m_model->m_vertex_source != EVertexSource::ProceduralVertexId || HasProceduralVertexShader(material, step);
 	}
 
 	namespace

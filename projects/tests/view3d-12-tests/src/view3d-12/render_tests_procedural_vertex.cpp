@@ -798,6 +798,19 @@ namespace render_tests
 		View3D_ShaderRelease(retained_shader);
 		fixture.CheckErrors();
 
+		// A procedural object with only a Forward vertex shader has no positions for RayCast or ShadowMap, so those steps must skip it.
+		auto forward_only_shader = ProceduralVertexShader(api::ERenderStep::ForwardRender, forward_bytecode.data(), forward_bytecode.size(), constants);
+		Require(forward_only_shader != nullptr, "Forward-only shader creation failed");
+		auto forward_only_nugget = nugget;
+		forward_only_nugget.m_shaders[0] = api::Nugget::Shader{forward_only_shader, api::ERenderStep::ForwardRender, 0};
+		forward_only_nugget.m_shaders[1] = {};
+		forward_only_nugget.m_shaders[2] = {};
+		auto forward_only = View3D_ObjectCreateU32("ProceduralForwardOnly", 0xFFFFFFFF, 1, 3, 1, &placeholder, indices, &forward_only_nugget, options, GUID{});
+		View3D_ShaderRelease(forward_only_shader);
+		Require(forward_only != nullptr, "Forward-only procedural object creation failed");
+		fixture.m_objects.push_back(forward_only);
+		fixture.CheckErrors();
+
 		// Release every caller handle and mutate the source buffers before the renderer first consumes the recipes.
 		View3D_ShaderRelease(forward);
 		View3D_ShaderRelease(raycast);
@@ -884,6 +897,17 @@ namespace render_tests
 		View3D_ObjectFlagsSet(object, api::ELdrFlags::ShadowCastExclude, FALSE, nullptr);
 		View3D_WindowRemoveObject(fixture.m_window, receiver);
 		fixture.CheckErrors();
+
+		// Shadow and ray cast steps without a procedural vertex shader must skip the forward-only object, not compose a stock pipeline without an input layout.
+		View3D_WindowAddObject(fixture.m_window, forward_only);
+		fixture.Image();
+		fixture.CheckErrors();
+		auto forward_only_hit = api::HitTestResult{};
+		View3D_WindowHitTestObjects(fixture.m_window, &ray, &forward_only_hit, 1, &forward_only, 1);
+		fixture.CheckErrors();
+		Require(forward_only_hit.m_obj == nullptr, "RayCast hit a procedural object that has no RayCast vertex shader");
+		View3D_WindowRemoveObject(fixture.m_window, forward_only);
+		fixture.CheckDebugLayer();
 
 		// DXR must reject placeholder geometry explicitly rather than tracing it or silently omitting it.
 		if (View3D_WindowRayTracingInfoGet(fixture.m_window).m_available)
