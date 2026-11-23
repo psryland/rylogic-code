@@ -236,8 +236,9 @@ public static class ParallelBuild
 		};
 		if (!BuildOptions.RunUnitTests)
 			args.Add("-p:RunUnitTests=false");
-		if (!BuildOptions.GeneratePackageOnBuild)
-			args.Add("-p:RylogicGeneratePackageOnBuild=false");
+
+		// Always state the packaging choice so this script's -nopack option overrides local preferences in Directory.Build.user.props.
+		args.Add($"-p:RylogicGeneratePackageOnBuild={(BuildOptions.GeneratePackageOnBuild ? "true" : "false")}");
 
 		// Profiling adds a binary log and per-target timing to the console summary.
 		if (BuildOptions.Profile)
