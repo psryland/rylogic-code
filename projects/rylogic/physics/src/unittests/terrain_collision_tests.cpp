@@ -789,7 +789,9 @@ namespace pr::physics::tests
 				log_stream() << std::format("drift_clamp friction substeps={} distance={:.5f} final_speed={:.6f} z={:.6f}\n", substeps, distances[i], Length(body.VelocityWS().lin), body.O2W().pos.z);
 				ok &= (Length(body.VelocityWS().lin) < 0.05f);
 			}
-			auto const coulomb = 5.0f * 5.0f / (2 * 0.3f * 9.81f);
+			// The material's friction is a bounded ratio r; the Coulomb cone slope is r / (1 - r).
+			auto const mu = 0.3f / (1 - 0.3f);
+			auto const coulomb = 5.0f * 5.0f / (2 * mu * 9.81f);
 			ok &= (std::abs(distances[0] - coulomb) < 0.1f * coulomb && std::abs(distances[1] - coulomb) < 0.1f * coulomb);
 			PR_EXPECT(ok);
 		}

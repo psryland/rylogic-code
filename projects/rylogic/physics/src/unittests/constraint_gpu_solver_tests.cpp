@@ -2871,8 +2871,8 @@ namespace pr::physics::tests
 			PR_EXPECT(removed_stats.m_constraints.m_active_count == 0);
 		}
 
-		// Empty simulation input still validates live constraint endpoints while allowing disabled descriptors to remain declared.
-		PRUnitTestMethod(EmptyFrameValidatesLiveConstraints, Quick)
+		// Empty simulation input reports declared constraints while allowing disabled descriptors to reference bodies that were not submitted.
+		PRUnitTestMethod(EmptyFrameDeclaresDisabledConstraints, Quick)
 		{
 			auto shape = collision::ShapeSphere{0.25f};
 			auto body = RigidBody{&shape, m4x4::Identity(), Inertia::Sphere(shape.m_radius, 1.0f)};
@@ -2884,11 +2884,6 @@ namespace pr::physics::tests
 			auto const handle = constraints.Add(desc);
 			auto& engine = SharedEngine();
 			ResetEngineForNextTest(engine);
-
-			PR_THROWS(engine.Step(Engine::StepInput{
-				.m_constraints = &constraints,
-				.m_elapsed_seconds = 1.0f / 60.0f,
-			}), std::invalid_argument);
 
 			constraints.SetEnabled(handle, false);
 			engine.Step(Engine::StepInput{

@@ -1354,7 +1354,7 @@ void CSPositionSolve(int3 DTID(dtid))
 //   (elastic bounces, head-on impacts) and matches the analytic 1D elastic solution for
 //   symmetric pair-wise contacts (preserving the conservation tests).
 //
-//   Phase 2 (linear bias, only when penetrating): Apply a scalar Baumgarte bias impulse to linear momentum only.
+//   Phase 2 (linear bias, only when penetrating and the centre of mass is not closing): Apply a scalar Baumgarte bias impulse to linear momentum only.
 //   Phase 3 (per-manifold-point friction): Project accumulated tangent impulses against physical normal support, including warm starting.
 //   Broad face contacts can resist sliding and torsion without bias-driven angular runaway.
 void ResolveContact(uint idx)
@@ -1490,11 +1490,15 @@ void ResolveContact(uint idx)
 	PR_HLSL_BRANCH
 	if (bias > 0.0f)
 	{
+		// Add only separation speed beyond a non-closing centre of mass. While the centre of mass still closes, Phase 1 of this and the other contacts must
+		// supply that support. A one-point contact away from the centre of mass (for example one corner of a box) stops its point mostly by spin, so a bias
+		// impulse that lifted the centre of mass from a closing speed would carry the body's weight in place of the physical impulse. Phase 1 never releases
+		// below this floor, so that bias would then stay as the support, and friction, which is limited by the physical normal impulse alone, would starve.
 		float k_n_c = inv_mass_a + inv_mass_b;
 		float3 v_com_a = mul(rot_a, BodyTwistWS(bodyA).lin);
 		float3 v_com_b = mul(rot_a, BodyTwistWS(bodyB).lin);
 		float vn_now = dot(v_com_b - v_com_a, axis);
-		float Jn_bias_centroid = (k_n_c > 1e-12f) ? max(0.0f, (bias - vn_now) / k_n_c) : 0.0f;
+		float Jn_bias_centroid = (k_n_c > 1e-12f && vn_now >= 0.0f) ? max(0.0f, (bias - vn_now) / k_n_c) : 0.0f;
 
 		PR_HLSL_BRANCH
 		if (Jn_bias_centroid > 0.0f)
