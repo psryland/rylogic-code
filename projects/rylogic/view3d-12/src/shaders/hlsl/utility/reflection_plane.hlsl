@@ -15,10 +15,10 @@
 // The key texture must be cleared to 0 before the first pass. A non-zero key marks a texel that 'CSReflectionWrite' wrote, so the raw
 // reflection texture does not need clearing.
 //
-// The project and write passes can run more than once, each time with a different source image, before the fill pass runs. Besides the main view,
-// a mirror source adds the true reflection: the scene drawn from the mirror image of the camera, clipped at the plane. It holds the reflections of
-// surfaces that near objects hide in the main view, and of objects beyond the edges of the screen. The mirror view may be drawn at a lower
-// resolution than the viewport. Its mirror images then land on every few target texels, and 'CSReflectionFill' closes the gaps between them.
+// The project and write passes read one source image. Normally this is the mirror source, which holds the true reflection: the scene drawn from the
+// mirror image of the camera, clipped at the plane. It includes the reflections of surfaces that near objects hide from the camera, and of objects
+// beyond the edges of the screen. The mirror view may be drawn at a lower resolution than the viewport. Its mirror images then land on every few
+// target texels, and 'CSReflectionFill' closes the gaps between them. Without a mirror view the main view is the source.
 //
 // Each reflection texel holds (linear colour, distance). The distance is measured from the camera to the mirrored point, which equals the length
 // of the path from the camera to the plane and on to the reflected object. Final texels with distance 0 have no reflection. Sky pixels are
@@ -34,11 +34,10 @@ struct CBufReflectionPlane
 	float4 cam;             // xyz = world-space camera position of the main view, w unused
 
 	// The source image of the project and write passes. Thread 'DTid' reads source pixel 'DTid + load', which is at normalised device position
-	// (dot(src0.xy, p) + src0.z, dot(src1.xy, p) + src1.z) in the source's own view, where p = DTid + 0.5. Keys of the source's candidates are
-	// scaled by 'key scale', so that a scale below 1 makes the source lose to others that land at almost the same depth.
+	// (dot(src0.xy, p) + src0.z, dot(src1.xy, p) + src1.z) in the source's own view, where p = DTid + 0.5.
 	float4 src0;            // xy = map row for x, z = offset for x, w = source width in pixels
 	float4 src1;            // xy = map row for y, z = offset for y, w = source height in pixels
-	float4 src2;            // xy = load offset in pixels, z = key scale, w unused
+	float4 src2;            // xy = load offset in pixels, zw unused
 };
 
 // The distance stored for mirrored sky pixels. Half floats hold values up to 65504.
@@ -129,7 +128,7 @@ bool ReflectionTarget(float2 ndc, float depth, out uint2 target, out uint key, o
 
 	// Reversed depth is greater for nearer points, so the greatest key wins. The bits of a non-negative float order the same way as its value.
 	target = (uint2)(vp.xy + float2(ss.x * 0.5f + 0.5f, 0.5f - ss.y * 0.5f) * vp.zw);
-	key = depth > 0.0f ? max(asuint(max(ss.z * g_cb.src2.z, 0.0f)), ReflectionSkyKey + 1u) : ReflectionSkyKey;
+	key = depth > 0.0f ? max(asuint(max(ss.z, 0.0f)), ReflectionSkyKey + 1u) : ReflectionSkyKey;
 	return true;
 }
 

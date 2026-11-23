@@ -84,16 +84,13 @@ namespace pr::rdr12
 	};
 
 	// The reflection of the opaque scene in the scene's reflection plane, projected each frame by three compute passes (see reflection_plane.hlsl).
-	// The main view is projected pixel for pixel. A second source, the mirror view, is the opaque scene and the sky drawn from
-	// the mirror image of the camera, with the near plane moved onto the reflection plane. It holds the true reflection, so it fills in surfaces
-	// that near objects hide in the main view and objects beyond the edges of the screen.
+	// The source is the mirror view: the opaque scene and the sky drawn from the mirror image of the camera, with the near plane moved onto the
+	// reflection plane. It holds the true reflection, including surfaces that near objects hide from the camera and objects beyond the edges of the
+	// screen. When there is no mirror view, e.g. for an orthographic camera, the main view is projected pixel for pixel instead.
 	struct RenderForward::ReflectionPlane
 	{
 		// Root parameters of the projection passes. Each view gets its own table, because consecutive heap entries can wrap around the ring.
 		enum class EParam { Constants, Colour, Depth, Key, Raw, Final };
-
-		// The mirror view's keys are scaled by this, so that where the main view and the mirror view see the same surface, the sharper main view wins
-		static constexpr float MirrorKeyScale = 0.95f;
 
 		// Matches 'CBufReflectionPlane' in reflection_plane.hlsl
 		struct Constants
@@ -1044,14 +1041,17 @@ namespace pr::rdr12
 		auto* colour = bb_main.m_render_target.get();
 		auto* depth = bb_main.m_depth_stencil.get();
 
-		// The opaque colour and depth become inputs, and every target texel starts with no candidate
+		// The source's colour and depth become inputs, and every target texel starts with no candidate. The main depth is left readable in either case.
 		BarrierBatch bb(m_alp_list);
-		bb.Transition(colour, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 		bb.Transition(depth, D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
 		if (rp.m_active)
 		{
 			bb.Transition(rp.m_mirror_colour->m_res.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 			bb.Transition(rp.m_mirror_depth->m_res.get(), D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
+		}
+		else
+		{
+			bb.Transition(colour, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 		}
 		bb.Transition(rp.m_key->m_res.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		bb.Transition(rp.m_raw->m_res.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -1063,74 +1063,76 @@ namespace pr::rdr12
 		bb.UAV(rp.m_key->m_res.get());
 		bb.Commit();
 
-		// Describe the sources. The main view is read pixel for pixel; the mirror view's pixels map onto blocks of the viewport's pixels from its
-		// top-left corner. 's2w' maps each source's normalised
-		// device coordinates to the world position of the surface drawn there. The colour is read through an sRGB view, which converts it to linear
-		// colour. Creating a view does not modify the frame's back buffer, so it is safe to drop the const.
+		// Describe the source. The mirror view holds the true reflection, so it is the only source when it was drawn. Without it, e.g. for an
+		// orthographic camera, the main view is projected instead, which can reflect only what the camera itself sees. The main view is read pixel
+		// for pixel; the mirror view's pixels map onto blocks of the viewport's pixels from its top-left corner. 's2w' maps the source's normalised
+		// device coordinates to the world position of the surface drawn there.
 		struct Source
 		{
 			v4 src0, src1, src2;
 			m4x4 s2w;
 			D3D12_GPU_DESCRIPTOR_HANDLE colour, depth;
 		};
-		auto colour_srv = D3D12_SHADER_RESOURCE_VIEW_DESC{
-			.Format = ToSRGB(wnd().m_rt_props.Format),
-			.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2DMS,
-			.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
-		};
-		auto sources = pr::vector<Source, 2, false>{};
-		sources.push_back(Source{
-			.src0 = v4(2.0f / vp.Width, 0.0f, -1.0f, vp.Width),
-			.src1 = v4(0.0f, -2.0f / vp.Height, 1.0f, vp.Height),
-			.src2 = v4(vp.TopLeftX, vp.TopLeftY, 1.0f, 0.0f),
-			.s2w = cam.CameraToWorld() * Invert(cam.CameraToScreen()),
-			.colour = wnd().m_heap_view.Add(const_cast<ID3D12Resource*>(colour), colour_srv),
-			.depth = wnd().m_heap_view.Add(bb_main.m_depth_srv),
-		});
+		auto src = Source{};
 		if (rp.m_active)
 		{
-			sources.push_back(Source{
+			// The mirror view may be drawn at a lower resolution than the viewport
+			src = Source{
 				.src0 = v4(2.0f / (vp.Width * scn().m_reflection_resolution_scale), 0.0f, -1.0f, s_cast<float>(rp.m_mirror_size.x)),
 				.src1 = v4(0.0f, -2.0f / (vp.Height * scn().m_reflection_resolution_scale), 1.0f, s_cast<float>(rp.m_mirror_size.y)),
-				.src2 = v4(0.0f, 0.0f, ReflectionPlane::MirrorKeyScale, 0.0f),
+				.src2 = v4(0.0f, 0.0f, 0.0f, 0.0f),
 				.s2w = rp.m_mirror_s2w,
 				.colour = wnd().m_heap_view.Add(rp.m_mirror_colour->m_srv),
 				.depth = wnd().m_heap_view.Add(rp.m_mirror_depth->m_srv),
-			});
+			};
+		}
+		else
+		{
+			// The main colour is read through an sRGB view, which converts it to linear colour. Creating a view does not modify the frame's back
+			// buffer, so it is safe to drop the const.
+			auto colour_srv = D3D12_SHADER_RESOURCE_VIEW_DESC{
+				.Format = ToSRGB(wnd().m_rt_props.Format),
+				.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2DMS,
+				.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+			};
+			src = Source{
+				.src0 = v4(2.0f / vp.Width, 0.0f, -1.0f, vp.Width),
+				.src1 = v4(0.0f, -2.0f / vp.Height, 1.0f, vp.Height),
+				.src2 = v4(vp.TopLeftX, vp.TopLeftY, 0.0f, 0.0f),
+				.s2w = cam.CameraToWorld() * Invert(cam.CameraToScreen()),
+				.colour = wnd().m_heap_view.Add(const_cast<ID3D12Resource*>(colour), colour_srv),
+				.depth = wnd().m_heap_view.Add(bb_main.m_depth_srv),
+			};
 		}
 
-		// Bind the passes' constants and outputs
+		// Bind the passes' constants, source, and outputs
 		auto const w2s = cam.CameraToScreen() * InvertOrthonormal(cam.CameraToWorld());
 		auto const viewport = v4(vp.TopLeftX, vp.TopLeftY, vp.Width, vp.Height);
 		auto cb = ReflectionPlane::Constants{
+			.s2w = src.s2w,
 			.w2s = w2s,
 			.plane = plane,
 			.viewport = viewport,
 			.cam = cam_pos,
+			.src0 = src.src0,
+			.src1 = src.src1,
+			.src2 = src.src2,
 		};
 		using EParam = ReflectionPlane::EParam;
 		m_alp_list.SetComputeRootSignature(rp.m_sig.get());
+		m_alp_list.SetComputeRoot32BitConstants(EParam::Constants, sizeof(cb) / sizeof(uint32_t), &cb, 0);
+		m_alp_list.SetComputeRootDescriptorTable(EParam::Colour, src.colour);
+		m_alp_list.SetComputeRootDescriptorTable(EParam::Depth, src.depth);
 		m_alp_list.SetComputeRootDescriptorTable(EParam::Key, wnd().m_heap_view.Add(rp.m_key->m_uav));
 		m_alp_list.SetComputeRootDescriptorTable(EParam::Raw, wnd().m_heap_view.Add(rp.m_raw->m_uav));
 		m_alp_list.SetComputeRootDescriptorTable(EParam::Final, wnd().m_heap_view.Add(rp.m_final->m_uav));
 
-		// Run each pass over every source, one thread per source pixel in 8x8 groups. Each pass reads what the previous one wrote.
+		// Run each pass over the source, one thread per source pixel in 8x8 groups. Each pass reads what the previous one wrote.
 		for (auto* pso : { rp.m_project.get(), rp.m_write.get() })
 		{
-			// Dispatch one pass per source, then make its writes visible to the next pass
+			// Dispatch the pass, then make its writes visible to the next pass
 			m_alp_list.SetPipelineState(pso);
-			for (auto const& src : sources)
-			{
-				// Bind the source and its map
-				cb.s2w = src.s2w;
-				cb.src0 = src.src0;
-				cb.src1 = src.src1;
-				cb.src2 = src.src2;
-				m_alp_list.SetComputeRoot32BitConstants(EParam::Constants, sizeof(cb) / sizeof(uint32_t), &cb, 0);
-				m_alp_list.SetComputeRootDescriptorTable(EParam::Colour, src.colour);
-				m_alp_list.SetComputeRootDescriptorTable(EParam::Depth, src.depth);
-				m_alp_list.Dispatch((s_cast<int>(src.src0.w) + 7) / 8, (s_cast<int>(src.src1.w) + 7) / 8, 1);
-			}
+			m_alp_list.Dispatch((s_cast<int>(src.src0.w) + 7) / 8, (s_cast<int>(src.src1.w) + 7) / 8, 1);
 			bb.UAV(rp.m_key->m_res.get());
 			bb.UAV(rp.m_raw->m_res.get());
 			bb.Commit();
