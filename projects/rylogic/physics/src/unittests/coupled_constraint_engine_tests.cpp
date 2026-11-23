@@ -349,6 +349,10 @@ namespace pr::physics::tests
 				.m_elapsed_seconds = 1.0f / 60.0f,
 			}), std::runtime_error);
 			PR_EXPECT(tree.m_articulation.Sleeping());
+
+			// The failure stops the engine, so close it while the articulation it references is still alive.
+			PR_EXPECT(engine.Closing());
+			PR_EXPECT(engine.TryClose(INFINITE) == S_OK);
 		}
 
 		// A throwing post-commit notification propagates without restoring the pre-step articulation sleep state over published motion.

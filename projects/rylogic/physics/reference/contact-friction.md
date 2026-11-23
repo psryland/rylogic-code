@@ -8,6 +8,9 @@ The centroid solve preserves the coupled restitution response for impacts.
 Its accepted physical impulse and the accepted normal warm-start impulse contribute
 to the contact's accumulated normal support. Positional Baumgarte correction is
 linear-only and does not contribute to that physical support or its cache.
+It only adds separation speed once the centre-of-mass normal speed is not closing;
+otherwise it would carry the body's weight in place of the physical impulse, for
+example on a box corner, where a point impulse mostly spins the body, and starve friction.
 
 Each manifold point owns an accumulated tangential impulse for the current solve.
 Centroid friction is shared equally among these accumulators. For a point, compute

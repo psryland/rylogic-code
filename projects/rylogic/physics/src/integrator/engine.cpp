@@ -757,6 +757,16 @@ namespace pr::physics
 			 !std::isfinite(m_config.sleep_velocity_threshold_ang) || m_config.sleep_velocity_threshold_ang < 0.0f ||
 			 !std::isfinite(m_config.sleep_delay_s) || m_config.sleep_delay_s < 0.0f))
 			throw std::runtime_error("Engine articulation sleep thresholds and delay must be finite and non-negative");
+		#if PR_DBG_PHYSICS
+		{
+			// Empty frames never resolve constraint endpoints, so only Debug builds check that live endpoints were submitted.
+			// The check runs before the pending step begins, so the caller error is reported without stopping the engine.
+			// Packing throws for an unsubmitted live endpoint, and the assertion treats that exception as a failure.
+			if (input.m_bodies.empty() && input.m_articulations.empty() && input.m_constraints != nullptr && input.m_constraints->Count() != 0)
+				PR_ASSERT(PR_DBG_PHYSICS, (static_cast<void>(PackGpuConstraints(*input.m_constraints, BodyRemap{std::span<RigidBody* const>{}})), true), "Live constraint endpoints must be submitted with the step");
+		}
+		#endif
+
 		auto const dt = input.m_elapsed_seconds / input.m_substep_count;
 		m_last_feature_stats = {};
 		m_pending_step.Begin(input.m_bodies, input.m_articulations, input.m_constraints, dt, input.m_elapsed_seconds, m_config.sleeping_enabled);
@@ -792,14 +802,7 @@ namespace pr::physics
 
 		if (bodies.empty() && articulations.empty())
 		{
-			// Empty frames still validate active endpoints and report live declarations rather than bypassing the supplied constraint set.
-			if (input.m_constraints != nullptr && input.m_constraints->Count() != 0)
-			{
-				auto const empty_remap = BodyRemap{std::span<RigidBody* const>{}};
-				static_cast<void>(PackGpuConstraints(*input.m_constraints, empty_remap));
-			}
-
-			// Empty input also releases retained optional articulation buffers after their last completed use.
+			// Empty input releases retained optional articulation buffers after their last completed use.
 			if (m_gpu_articulation_midpoint != nullptr)
 				m_gpu_articulation_midpoint->Upload(m_gpu->m_job, GpuArticulationUpload{});
 			if (m_gpu_articulation_link_proxies != nullptr)

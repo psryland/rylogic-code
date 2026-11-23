@@ -297,11 +297,12 @@ namespace pr::physics::tests
 			}
 		}
 
-		// Verify a pre-submit callback failure retires recorded GPU work and leaves the engine reusable.
-		PRUnitTestMethod(RecordingFailureRetiresGpuWork, Extended)
+		// A callback failure on a later substep stops the engine without publishing the frame, although an earlier substep was already flushed.
+		PRUnitTestMethod(RecordingFailureAfterFlushStopsEngine, Extended)
 		{
 			auto shape = collision::ShapeSphere{0.25f};
-			auto body = MakeSubstepSphere(shape, m4x4::Translation(0, 0, 1));
+			auto const initial_o2w = m4x4::Translation(0, 0, 1);
+			auto body = MakeSubstepSphere(shape, initial_o2w);
 			auto bodies = std::array<RigidBody*, 1>{&body};
 			auto& engine = SharedEngine();
 			ResetEngineForNextTest(engine);
@@ -313,7 +314,7 @@ namespace pr::physics::tests
 					throw std::runtime_error("Intentional later-substep recording failure");
 			};
 
-			// The failed frame must retire one complete substep before rejecting the next recorded pass.
+			// The failure happens while recording the second substep, after the first has been flushed to the GPU.
 			PR_THROWS(engine.Step(Engine::StepInput{
 				.m_bodies = bodies,
 				.m_elapsed_seconds = 1.0f / 60.0f,
@@ -321,16 +322,10 @@ namespace pr::physics::tests
 			}), std::runtime_error);
 			PR_EXPECT(callback_count == 2);
 
-			// A clean frame proves command-list, resource-state, and engine pending-state recovery.
-			engine.ExternalForces.reset();
-			engine.Step(Engine::StepInput{
-				.m_bodies = bodies,
-				.m_elapsed_seconds = 1.0f / 60.0f,
-				.m_substep_count = 2,
-			});
-			PR_EXPECT(engine.LastStepProfile().m_submission_count == 1);
-			PR_EXPECT(engine.LastStepProfile().m_wait_count == 1);
-			PR_EXPECT(engine.LastStepProfile().m_readback_copy_count == 1);
+			// The stopped engine accepts only closure, which retires the flushed work before the caller's body is released and leaves the body unchanged.
+			PR_EXPECT(engine.Closing());
+			PR_EXPECT(engine.TryClose(INFINITE) == S_OK);
+			PR_EXPECT(All(body.O2W() == initial_o2w));
 		}
 
 		// A collision observer that rejects publication must not leave its solved contact impulses available to the retry.

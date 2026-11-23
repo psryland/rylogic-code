@@ -25,15 +25,25 @@
 namespace pr::physics::tests
 {
 	// Lazy-initialised default-config Engine for the test class running on the calling thread.
+	// A test that stops the engine must close it (Engine::TryClose) before its inputs are destroyed. The next call then replaces the stopped engine,
+	// so a deliberately failed step cannot fail the later tests in its class.
 	inline physics::Engine& SharedEngine()
 	{
 		thread_local auto engine = std::unique_ptr<physics::Engine>{};
-		return ClassFixture(engine, []
+		auto make = []
 		{
 			// Build on the calling thread's GPU fixture, which therefore outlives the engine.
 			auto& gpu = SharedTestGpu();
 			return std::make_unique<physics::Engine>(physics::EngineConfig{}, &SharedTestShaderCache(), gpu.m_gpu.device(), gpu.m_gpu.queue());
-		});
+		};
+
+		// A stopped engine accepts only closure, so replace it. The registered class fixture release still applies to the replacement.
+		if (engine && engine->Closing())
+		{
+			PR_EXPECT(!engine->StepPending());
+			engine = make();
+		}
+		return ClassFixture(engine, make);
 	}
 
 	// Reset per-test engine state before a test runs. Clears registered event
