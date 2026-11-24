@@ -237,6 +237,7 @@
     <None Include="scenes\constraint_vehicle_suspension.json" />
     <None Include="scenes\constraints_full_showcase.json" />
     <None Include="scenes\cylinder_showcase.json" />
+    <None Include="scenes\rolling_resistance.json" />
     <None Include="scenes\cylinder_spinning_barrel.json" />
     <None Include="scenes\cylinder_terrain_water.json" />
     <None Include="scenes\drop_test.json" />

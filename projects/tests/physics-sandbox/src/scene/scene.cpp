@@ -1142,6 +1142,8 @@ namespace physics_sandbox
 			.m_elasticity_norm = scene_desc.elasticity,
 			.m_elasticity_tang = 0.0f,
 			.m_elasticity_tors = 0.0f,
+			.m_rolling_resistance = scene_desc.rolling_resistance,
+			.m_spin_resistance = scene_desc.spin_resistance,
 		});
 		auto const prepare_end = Clock::now();
 		m_last_load_profile.m_prepare_ms = ElapsedMs(mark, prepare_end);

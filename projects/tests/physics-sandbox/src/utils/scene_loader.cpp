@@ -1433,6 +1433,12 @@ namespace physics_sandbox::scene_loader
 
 			if (auto* jfriction = jmat->to_object().find("friction"))
 				desc.friction = jfriction->to<float>();
+
+			if (auto* jrolling = jmat->to_object().find("rolling_resistance"))
+				desc.rolling_resistance = jrolling->to<float>();
+
+			if (auto* jspin = jmat->to_object().find("spin_resistance"))
+				desc.spin_resistance = jspin->to<float>();
 		}
 
 		// Physics settings
