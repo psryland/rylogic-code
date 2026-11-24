@@ -81,6 +81,7 @@ namespace pr::unittests
 			decltype(&Physics_Step) Step;
 			decltype(&Physics_StepEx) StepEx;
 			decltype(&Physics_SnapshotCopy) SnapshotCopy;
+			decltype(&Physics_DebugLinesCopy) DebugLinesCopy;
 			decltype(&Physics_EventsCopy) EventsCopy;
 			decltype(&Physics_DiagnosticsGet) DiagnosticsGet;
 			decltype(&Physics_StateChecksumGet) StateChecksumGet;
@@ -154,6 +155,7 @@ namespace pr::unittests
 				, Step(m_module.Proc<decltype(Step)>("Physics_Step"))
 				, StepEx(m_module.Proc<decltype(StepEx)>("Physics_StepEx"))
 				, SnapshotCopy(m_module.Proc<decltype(SnapshotCopy)>("Physics_SnapshotCopy"))
+				, DebugLinesCopy(m_module.Proc<decltype(DebugLinesCopy)>("Physics_DebugLinesCopy"))
 				, EventsCopy(m_module.Proc<decltype(EventsCopy)>("Physics_EventsCopy"))
 				, DiagnosticsGet(m_module.Proc<decltype(DiagnosticsGet)>("Physics_DiagnosticsGet"))
 				, StateChecksumGet(m_module.Proc<decltype(StateChecksumGet)>("Physics_StateChecksumGet"))
@@ -843,6 +845,34 @@ namespace pr::unittests
 
 			PR_EXPECT(fix.m_api.BodyDestroy(fix.m_engine, body) == EStatus::Success);
 			PR_EXPECT(fix.m_api.ShapeDestroy(fix.m_engine, shape) == EStatus::Success);
+		}
+		PRUnitTestMethod(DebugLinesOutlineBodyShapes, Extended)
+		{
+			// A static box away from the origin
+			auto fix = PhysicsFixture{};
+			auto shape = MakeBox(fix.m_api, fix.m_engine, {1.0f, 2.0f, 3.0f, 0});
+			auto body = MakeBody(fix.m_api, fix.m_engine, shape, Translation(5, 0, 2), EMotionType::Static);
+
+			// The size probe reports the twelve box edges
+			auto required = std::uint32_t{};
+			PR_EXPECT(fix.m_api.DebugLinesCopy(fix.m_engine, nullptr, 0, &required) == EStatus::BufferTooSmall);
+			PR_EXPECT(required == 12U);
+
+			// Every segment belongs to the body, and the edges are centred on the body position
+			auto lines = std::vector<DebugLine>(required);
+			PR_EXPECT(fix.m_api.DebugLinesCopy(fix.m_engine, lines.data(), required, &required) == EStatus::Success);
+			auto sum = Vector4{};
+			for (auto const& line : lines)
+			{
+				// Accumulate both end points of each edge.
+				PR_EXPECT(line.body == body && line.motion_type == EMotionType::Static);
+				sum.x += line.a.x + line.b.x;
+				sum.y += line.a.y + line.b.y;
+				sum.z += line.a.z + line.b.z;
+			}
+			PR_EXPECT(FEqlAbsolute(sum.x / 24.0f, 5.0f, 1e-5f));
+			PR_EXPECT(FEqlAbsolute(sum.y / 24.0f, 0.0f, 1e-5f));
+			PR_EXPECT(FEqlAbsolute(sum.z / 24.0f, 2.0f, 1e-5f));
 		}
 		PRUnitTestMethod(HandlesThreadsStepsAndBuffers, Extended)
 		{

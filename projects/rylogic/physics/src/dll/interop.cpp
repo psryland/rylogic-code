@@ -6,6 +6,7 @@
 #include "pr/physics/physics-dll.h"
 #include "pr/collision/shape_array.h"
 #include "pr/collision/shape_polytope.h"
+#include "pr/collision/shape_wireframe.h"
 #include "pr/container/byte_data.h"
 #include "pr/compute/shaders/shader_cache_fs.h"
 #include "physics/src/compute/physics_types.h"
@@ -4157,6 +4158,55 @@ extern "C"
 					pr::physics::MakeChildHandle(record.m_cookie, i, slot.m_generation),
 					*slot.m_object);
 			}
+		});
+	}
+
+	PhysicsStatus __stdcall Physics_DebugLinesCopy(PhysicsEngineHandle engine, pr::physics::DebugLine* lines, std::uint32_t capacity, std::uint32_t* required)
+	{
+		return pr::physics::ApiCall([&]
+		{
+			// Shapes and transforms are only stable between steps.
+			auto scope = pr::physics::EngineScope(engine);
+			auto& record = *scope;
+			pr::physics::RequireIdle(record);
+			if (required == nullptr)
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Debug line required-count pointer is null");
+
+			// Visit each segment of every enabled body's outline. Counting and filling use the same walk so they always agree.
+			auto visit = [&](auto&& emit)
+			{
+				// 'emit(handle, body, a, b)' receives one world-space segment.
+				for (auto i = std::size_t{}; i != record.m_bodies.size(); ++i)
+				{
+					auto const& slot = record.m_bodies[i];
+					if (!slot.m_object || !slot.m_object->m_enabled || !slot.m_object->m_body->HasShape())
+						continue;
+
+					auto const& body = *slot.m_object->m_body;
+					auto handle = pr::physics::MakeChildHandle(record.m_cookie, i, slot.m_generation);
+					pr::collision::ShapeWireframe(body.Shape(), body.O2W(), [&](pr::v4 const& a, pr::v4 const& b) { emit(handle, *slot.m_object, a, b); });
+				}
+			};
+
+			// Report the required size before checking the caller's buffer.
+			auto count = std::uint32_t{};
+			visit([&](auto, auto const&, pr::v4 const&, pr::v4 const&) { ++count; });
+			*required = count;
+			if (capacity < count || (count != 0 && lines == nullptr))
+				throw pr::physics::ApiException(PhysicsStatus::BufferTooSmall, "Debug line buffer is too small");
+
+			// Fill the caller's buffer, tagging each segment with its body's motion state for colouring.
+			auto output = std::uint32_t{};
+			visit([&](PhysicsBodyHandle handle, pr::physics::BodyRecord const& body, pr::v4 const& a, pr::v4 const& b)
+			{
+				// Copy one segment.
+				auto& line = lines[output++];
+				line.a = {a.x, a.y, a.z, 1.0f};
+				line.b = {b.x, b.y, b.z, 1.0f};
+				line.body = handle;
+				line.motion_type = pr::physics::ToAbi(body.m_body->Motion());
+				line.flags = pr::physics::BodyFlags(body);
+			});
 		});
 	}
 

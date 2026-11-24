@@ -511,6 +511,17 @@ public struct BodySnapshot
 	public uint m_collision_mask;
 }
 
+/// <summary>One world-space segment of a body's collision shape outline, for debug drawing. See Engine.CopyDebugLines.</summary>
+[StructLayout(LayoutKind.Sequential)]
+public struct DebugLine
+{
+	public v4 m_a;
+	public v4 m_b;
+	public BodyHandle m_body;
+	public EMotionType m_motion_type;
+	public EBodyFlags m_flags;
+}
+
 /// <summary>
 /// The complete mutable state of one rigid body outside a pending step. 'm_inertia' is always the body's own mass properties, which static and
 /// kinematic bodies keep for a later switch to Dynamic. Dynamic bodies take 'm_momentum'; kinematic bodies take 'm_velocity' as their twist.

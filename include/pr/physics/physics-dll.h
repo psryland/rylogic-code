@@ -457,6 +457,16 @@ namespace pr::physics
 		BodyHandle body_b;
 	};
 
+	// One world-space segment of a body's collision shape outline, for debug drawing. 'motion_type' and 'flags' match the owning body's snapshot.
+	struct DebugLine
+	{
+		Vector4 a;
+		Vector4 b;
+		BodyHandle body;
+		EMotionType motion_type;
+		EBodyFlags flags;
+	};
+
 	#pragma endregion
 
 	#pragma region Articulations
@@ -1156,6 +1166,8 @@ extern "C"
 
 	// Completed immutable state, buffered events, and diagnostics.
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_SnapshotCopy(pr::physics::EngineHandle engine, pr::physics::BodySnapshot* snapshots, std::uint32_t capacity, std::uint32_t* required);
+	// Outline the collision shapes of all enabled bodies as world-space line segments. Costly; intended for debug views only. Terrain and articulations are not included.
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_DebugLinesCopy(pr::physics::EngineHandle engine, pr::physics::DebugLine* lines, std::uint32_t capacity, std::uint32_t* required);
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_EventsCopy(pr::physics::EngineHandle engine, pr::physics::Event* events, std::uint32_t capacity, std::uint32_t* required);
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_DiagnosticsGet(pr::physics::EngineHandle engine, pr::physics::Diagnostics* diagnostics);
 
