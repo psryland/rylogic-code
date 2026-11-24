@@ -163,21 +163,26 @@ namespace pr::rdr12
 		// If initialisation data is provided, initialise using an UploadBuffer
 		if (has_init_data)
 		{
+			// 'desc.Data' holds either one mip-level-zero image per array slice, or every mip level of each slice when 'MipData' is set.
+			// 'UpdateSubresourceScope' expects one image per mip level of a single slice.
+			auto const mip_data = AllSet(desc.MiscFlags, ResDesc::EMiscFlags::MipData);
+			auto const mips_per_slice = mip_data ? s_cast<int>(desc.MipLevels) : 1;
+			assert(mips_per_slice >= 1 && "'MipData' requires an explicit mip level count");
+
 			// Copy the initialisation data for each array slice into the resource
 			auto array_length = desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D ? 1 : s_cast<int>(desc.DepthOrArraySize);
 			for (auto i = 0; i != array_length; ++i)
 			{
-				// Note: here 'desc.Data' is an array of mip-level-zero images.
-				// The span of images expected by 'UpdateSubresource' is for each mip level.
-				UpdateSubresourceScope map(m_state->m_gfx_cmd_list, m_state->m_upload_buffer, res.get(), i, 0, 1, desc.DataAlignment);
-				map.Write(desc.Data[i], AllSet(desc.MiscFlags, ResDesc::EMiscFlags::PartialInitData));
+				auto images = std::span<Image const>{ desc.Data.data(), desc.Data.size() }.subspan(s_cast<size_t>(i) * mips_per_slice, mips_per_slice);
+				UpdateSubresourceScope map(m_state->m_gfx_cmd_list, m_state->m_upload_buffer, res.get(), i, 0, mips_per_slice, desc.DataAlignment);
+				map.Write(images, AllSet(desc.MiscFlags, ResDesc::EMiscFlags::PartialInitData));
 				map.Commit(EFinalState::Override, desc.DefaultState);
 			}
 
 			// Generate mip maps for the texture (if needed)
 			// 'm_mipmap_gen' should use the same cmd-list as the resource manager, so that mips are generated as
 			// textures are created. Remember cmd-lists are executed serially.
-			if (desc.MipLevels != 1)
+			if (desc.MipLevels != 1 && !mip_data)
 				m_state->m_mipmap_gen.Generate(res.get());
 		}
 

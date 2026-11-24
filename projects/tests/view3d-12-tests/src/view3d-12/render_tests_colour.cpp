@@ -313,6 +313,81 @@ namespace render_tests
 		std::cout << "PASS texture region update: MSAA " << samples << '\n';
 	}
 
+	// Check that caller-supplied mip levels are uploaded unchanged, and that data not matching the declared chain is rejected.
+	void TextureMipDataTests(int samples)
+	{
+		// A 4x4 texture whose three levels have different colours, so the rendered colour shows which level the GPU sampled.
+		Fixture fixture(samples);
+		auto options = api::TextureOptions{};
+		options.m_format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		options.m_resource_state = D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE;
+		options.m_mips = 0;
+		options.m_mip_data = TRUE;
+		options.m_multisamp = {1, 0};
+		options.m_t2s = {{1,0,0,0}, {0,1,0,0}, {0,0,1,0}, {0,0,0,1}};
+		auto pixels = std::vector<uint32_t>{};
+		pixels.insert(pixels.end(), 16, 0xFF0000FFU);
+		pixels.insert(pixels.end(), 4, 0xFF00FF00U);
+		pixels.insert(pixels.end(), 1, 0xFFFF0000U);
+		auto texture = api::TexturePtr(View3D_TextureCreate(4, 4, pixels.data(), pixels.size() * sizeof(uint32_t), options));
+		auto sampler = api::SamplerPtr(View3D_SamplerCreate(api::SamplerOptions{D3D12_FILTER_MIN_MAG_MIP_POINT, D3D12_TEXTURE_ADDRESS_MODE_WRAP, D3D12_TEXTURE_ADDRESS_MODE_WRAP, D3D12_TEXTURE_ADDRESS_MODE_WRAP, "MipData"}));
+		fixture.CheckErrors();
+		Require(texture != nullptr && sampler != nullptr, "Mip-data texture was not created");
+		Require(View3D_TextureGetInfo(texture.get()).m_mips == 3, "Mip-data texture does not have the full chain");
+
+		// A textured quad whose UVs span 'uv_span' across its width. A large span makes neighbouring pixels far apart in UV space,
+		// so the GPU selects the smallest level; a zero span samples level 0.
+		auto quad = [&](float uv_span)
+		{
+			// The quad matches the fixture's full-image quad, with UVs added.
+			api::Vertex verts[] =
+			{
+				{{-45,-45,-50,1}, {}, {0, uv_span}, 0xFFFFFFFF, 0},
+				{{+45,-45,-50,1}, {}, {uv_span, uv_span}, 0xFFFFFFFF, 0},
+				{{+45,+45,-50,1}, {}, {uv_span, 0}, 0xFFFFFFFF, 0},
+				{{-45,+45,-50,1}, {}, {0, 0}, 0xFFFFFFFF, 0},
+			};
+			UINT16 indices[] = {0,1,2,0,2,3};
+			auto nugget = api::Nugget{};
+			nugget.m_topo = api::ETopo::TriList;
+			nugget.m_geom = static_cast<api::EGeom>(static_cast<int>(api::EGeom::Vert) | static_cast<int>(api::EGeom::Tex0));
+			nugget.m_cull_mode = api::ECullMode::None;
+			nugget.m_tint = 0xFFFFFFFF;
+			auto object = View3D_ObjectCreate("MipDataQuad", 0xFFFFFFFF, 4, 6, 1, verts, indices, &nugget, GUID{});
+			Require(object != nullptr, "Mip-data quad creation failed");
+			fixture.m_objects.push_back(object);
+			View3D_ObjectSetTexture(object, texture.get(), nullptr);
+			View3D_ObjectSetSampler(object, sampler.get(), nullptr);
+			View3D_WindowAddObject(fixture.m_window, object);
+			fixture.CheckErrors();
+		};
+
+		// Level 0 is red and the 1x1 level is blue, as supplied, rather than generated from level 0.
+		fixture.Clear();
+		quad(0);
+		Expect(fixture.Image(), 1, 0, 0);
+		fixture.Clear();
+		quad(256);
+		Expect(fixture.Image(), 0, 0, 1);
+
+		// A partial chain uses only the levels it declares.
+		options.m_mips = 2;
+		auto partial = api::TexturePtr(View3D_TextureCreate(4, 4, pixels.data(), 20 * sizeof(uint32_t), options));
+		fixture.CheckErrors();
+		Require(partial != nullptr && View3D_TextureGetInfo(partial.get()).m_mips == 2, "Partial mip-data chain was not created");
+
+		// Data shorter or longer than the declared levels is reported rather than read past or ignored.
+		options.m_mips = 0;
+		auto too_short = View3D_TextureCreate(4, 4, pixels.data(), 20 * sizeof(uint32_t), options);
+		auto too_long = View3D_TextureCreate(4, 2, pixels.data(), pixels.size() * sizeof(uint32_t), options);
+		Require(too_short == nullptr && too_long == nullptr && fixture.m_errors.size() == 2, "Mip data of the wrong size was not rejected");
+		fixture.m_errors.clear();
+
+		// Any GPU validation error fails the fixture.
+		fixture.CheckDebugLayer();
+		std::cout << "PASS texture mip data: MSAA " << samples << '\n';
+	}
+
 	// Check that translucent surfaces composite in depth order regardless of add order, and that back faces are still drawn.
 	void AlphaLayeringTests(int samples)
 	{
@@ -487,5 +562,9 @@ namespace pr::unittests::view3d12
 	PRUnitTest(View3d12_TextureUpdateRegion, Extended | Serial)
 	{
 		render_tests::TextureUpdateRegionTests(1);
+	}
+	PRUnitTest(View3d12_TextureMipData, Extended | Serial)
+	{
+		render_tests::TextureMipDataTests(1);
 	}
 }

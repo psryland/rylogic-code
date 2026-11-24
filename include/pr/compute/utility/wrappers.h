@@ -500,12 +500,16 @@ namespace pr::compute
 			PartialInitData = 1 << 0,
 			CubeMap = 1 << 1,
 			RayTracingStruct = 1 << 2,
+
+			// 'Data' holds 'MipLevels' images for each array slice (slice-major, largest mip first), so no mips are generated.
+			// 'MipLevels' must not be zero.
+			MipData = 1 << 3,
 			_flags_enum = 0,
 		};
 
 		int ElemStride;                     // Element stride
 		int DataAlignment;                  // The alignment that initialisation data should have.
-		pr::vector<Image> Data;             // The initialisation data for the buffer, texture, or texture array
+		pr::vector<Image> Data;             // The initialisation data for the buffer, texture, or texture array. One mip-level-zero image per array slice, unless 'MipData' is set.
 		HeapProps HeapProps;                // The heap to create this buffer in
 		D3D12_HEAP_FLAGS HeapFlags;         // Properties
 		clear_value_t ClearValue;           // A clear value for the resource

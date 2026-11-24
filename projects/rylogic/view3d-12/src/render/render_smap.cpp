@@ -215,6 +215,12 @@ namespace pr::rdr12
 	{
 		// The material selects its shaders for the nugget's geometry. Clamped views keep casters in front of the near plane, at depth 0.
 		ApplyGeometryPipeline(desc, nugget);
+
+		// The nugget's cull mode decides which faces are drawn, so it also decides which faces cast shadows. Without it, single-sided geometry that is
+		// drawn from both sides, such as cut-out cards, would cast no shadow from the faces that point away from the light.
+		if (auto const* cull_mode = nugget.m_pso.Find<EPipeState::CullMode>(); cull_mode != nullptr)
+			desc.Apply(PSO<EPipeState::CullMode>(*cull_mode));
+
 		pass.SelectPipeline(MaterialPipelineContext{ .m_step_id = m_step_id, .m_material = material, .m_nugget = nugget }, desc);
 		desc.Apply(PSO<EPipeState::DepthClipEnable>(clamp_depth ? FALSE : TRUE));
 		if (!population)
