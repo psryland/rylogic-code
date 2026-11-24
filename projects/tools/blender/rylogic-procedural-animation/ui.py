@@ -1,11 +1,12 @@
 """Properties-editor panels for the rig description."""
 
 import math
+from typing import Any
 
 import bpy
 from bpy.types import Panel, UIList
 
-from . import operators, pin, ragdoll
+from . import activity_types, operators, pin, props, ragdoll
 
 
 class RYLOGIC_UL_rig_chains(UIList):
@@ -32,27 +33,33 @@ class RYLOGIC_UL_rig_families(UIList):
 	"""Lists an armature's gait families."""
 
 	def draw_item(self, context, layout, data, item, icon, active_data, active_property, index):
-		# Show the editable name with its posture, or with its action for an action family
+		# Show the editable name with its posture
 		row = layout.row()
 		row.prop(item, "name", text="", emboss=False, icon="ARMATURE_DATA")
-		if item.action_kind != "NONE":
-			row.label(text=f"{item.action_kind.title()} from {item.action_base or '(no base)'}")
-			return
-
 		slope = "any slope" if item.max_slope >= math.pi else f"up to {math.degrees(item.max_slope):.0f}°"
 		row.label(text=f"{item.medium.title()}, {item.up.title()} up, {slope}, {item.max_speed:.2f} m/s")
 
 
-class RYLOGIC_UL_rig_punches(UIList):
-	"""Lists an action family's punch sequence."""
+class RYLOGIC_UL_rig_activities(UIList):
+	"""Lists an armature's activities."""
 
 	def draw_item(self, context, layout, data, item, icon, active_data, active_property, index):
-		# Show each punch's hand, kind and duration in sequence order
+		# Show the editable name with its type and posture
+		row = layout.row()
+		row.prop(item, "name", text="", emboss=False, icon="ACTION")
+		row.label(text=f"{item.type.title()} in {item.posture or '(no posture)'}")
+
+
+class RYLOGIC_UL_activity_list_items(UIList):
+	"""Lists the items of an activity's list parameter, with an editor for each of the item's fields. The fields come from the type description."""
+
+	def draw_item(self, context, layout, data, item, icon, active_data, active_property, index):
+		# Show each item's fields in their description order, numbered in list order
 		row = layout.row(align=True)
 		row.label(text=f"{index + 1}.")
-		row.prop(item, "hand", text="")
-		row.prop(item, "kind", text="")
-		row.prop(item, "duration", text="")
+		for key in item.bl_rna.properties.keys():
+			if key not in ("rna_type", "name"):
+				row.prop(item, key, text="")
 
 
 class RYLOGIC_UL_rig_cycles(UIList):
@@ -282,25 +289,9 @@ class RYLOGIC_PT_rig_families(_RigSubPanel, Panel):
 		if not 0 <= rig.active_family < len(rig.families):
 			return
 
-		# The active family. An action family uses only its action settings.
+		# The active family
 		family = rig.families[rig.active_family]
 		box = layout.box()
-		box.prop(family, "action_kind")
-		if family.action_kind != "NONE":
-			box.prop_search(family, "action_base", rig, "families")
-			match family.action_kind:
-				case "COLLAPSE":
-					box.prop(family, "action_duration")
-				case "PUNCHES":
-					row = box.row()
-					row.template_list("RYLOGIC_UL_rig_punches", "", family, "punches", family, "active_punch", rows=3)
-					column = row.column(align=True)
-					column.operator("rylogic_rig.item_add", icon="ADD", text="").collection = "PUNCHES"
-					column.operator("rylogic_rig.item_remove", icon="REMOVE", text="").collection = "PUNCHES"
-				case _:
-					raise ValueError(f"Unknown action kind '{family.action_kind}'")
-			return
-
 		box.prop(family, "up")
 		box.prop(family, "max_slope")
 		box.prop(family, "max_speed")
@@ -355,6 +346,50 @@ class RYLOGIC_PT_rig_cycles(_RigSubPanel, Panel):
 		row.operator("rylogic_rig.gait_export", icon="EXPORT")
 
 
+class RYLOGIC_PT_rig_activities(_RigSubPanel, Panel):
+	"""Procedural motions that the game starts and stops by name, such as a fist fight. Exported in the '.gait' with the movement cycles."""
+
+	bl_label = "Activities"
+	bl_parent_id = "RYLOGIC_PT_rig_locomotion"
+
+	def draw(self, context):
+		# The list of activities
+		layout = self.layout
+		rig = context.active_object.data.rylogic_rig
+		row = layout.row()
+		row.template_list("RYLOGIC_UL_rig_activities", "", rig, "activities", rig, "active_activity", rows=2)
+		column = row.column(align=True)
+		column.operator("rylogic_rig.item_add", icon="ADD", text="").collection = "ACTIVITIES"
+		column.operator("rylogic_rig.item_remove", icon="REMOVE", text="").collection = "ACTIVITIES"
+		if not 0 <= rig.active_activity < len(rig.activities):
+			return
+
+		# The active activity, with the parameter editor of its type
+		activity = rig.activities[rig.active_activity]
+		box = layout.box()
+		box.prop(activity, "type")
+		box.prop_search(activity, "posture", rig, "families")
+		_DrawParams(box, getattr(activity, f"params_{activity.type}"), props.ACTIVITY_FIELDS[activity.type])
+
+
+def _DrawParams(layout: bpy.types.UILayout, group: Any, fields: list[activity_types.EditorField]) -> None:
+	"""Draw an editor for each of an activity type's parameters, in the order its description lists them."""
+	# A list parameter is a list of items with add and remove buttons; other parameters are single properties
+	for f in fields:
+		if f.kind != "list":
+			layout.prop(group, f.name)
+			continue
+
+		layout.label(text=f.options["name"])
+		row = layout.row()
+		row.template_list("RYLOGIC_UL_activity_list_items", f.name, group, f.name, group, f"active_{f.name}", rows=3)
+		column = row.column(align=True)
+		add = column.operator("rylogic_rig.item_add", icon="ADD", text="")
+		add.collection, add.param = "ACTIVITY_LIST", f.name
+		remove = column.operator("rylogic_rig.item_remove", icon="REMOVE", text="")
+		remove.collection, remove.param = "ACTIVITY_LIST", f.name
+
+
 class RYLOGIC_PT_rig_bone(Panel):
 	"""The active bone's joint limit."""
 
@@ -385,7 +420,8 @@ CLASSES = (
 	RYLOGIC_UL_rig_chains,
 	RYLOGIC_UL_rig_contacts,
 	RYLOGIC_UL_rig_families,
-	RYLOGIC_UL_rig_punches,
+	RYLOGIC_UL_rig_activities,
+	RYLOGIC_UL_activity_list_items,
 	RYLOGIC_UL_rig_cycles,
 	RYLOGIC_PT_rig,
 	RYLOGIC_PT_rig_overlay,
@@ -398,6 +434,7 @@ CLASSES = (
 	RYLOGIC_PT_rig_locomotion,
 	RYLOGIC_PT_rig_families,
 	RYLOGIC_PT_rig_cycles,
+	RYLOGIC_PT_rig_activities,
 	RYLOGIC_PT_rig_bone,
 )
 

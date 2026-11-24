@@ -1,0 +1,27 @@
+{
+	"punches": {
+		"root_mode": "planted",
+		"params": [{
+				"name": "punches",
+				"kind": "list",
+				"min_items": 1,
+				"fields": [{
+						"name": "hand",
+						"kind": "enum",
+						"items": ["left","right"],
+						"default": "left"
+					},{
+						"name": "kind",
+						"kind": "enum",
+						"items": ["jab","cross","hook","uppercut","body_hook","body_jab"],
+						"default": "jab"
+					},{
+						"name": "duration",
+						"kind": "float",
+						"min": 0.05000000074505806,
+						"max": 5,
+						"default": 0.6000000238418579
+					}]
+			}]
+	}
+}

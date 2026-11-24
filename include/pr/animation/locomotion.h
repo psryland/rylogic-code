@@ -40,19 +40,14 @@
 //    least amount that brings every grasping arm within reach. A grasping arm's elbow flares out from the body and stays outside the torso, which
 //    is the capsule around the spine that just reaches the arms' roots in the rest pose. A grasp with a wrap radius closes the hand's digits
 //    around a bar of that radius that lies against the palm at the grip point, across the fingers.
-//  - An action family (see gait.h) plays a timed action on top of its base family's stance, holding the body in place:
-//     - "collapse" plays once over its duration and then holds. The knees buckle as the body sinks, the body topples sideways onto its left side
-//       until it lies flat, and the limbs go limp towards the stance. The arms, legs and head then sag under gravity until they rest on the ground
-//       or reach their joint limits. The joint limits blend in over the start of the collapse so that the standing pose does not change
-//       suddenly, and every bone keeps within its joint limits after that (see 'CollapseLimitEnd'). Leaving the family plays the collapse
-//       backwards, so the body stands back up the way it fell, before any other action starts. The feet do not step while collapsed.
-//       The family's posture (see 'Locomotion::posture') is its base stance lying on its side.
-//     - "punches" loops its sequence of punches. The feet take a boxing stance with the left foot forward, and the body crouches with its hands
-//       holding a guard in front of the chin. Each punch drives one fist out and back while the torso turns the punching shoulder forward and
-//       leans after the fist, carrying the hips and head with it. Depending on the kind of punch, the knees dip or rise, the chest bends towards
-//       the punching side, and the punching side's foot turns on its ball or steps forward and back. The feet return to their stance after each
-//       punch, so the body stays in place. The punches fade in and out with the family's blend time. The caller can choose where in the
-//       sequence the punches start, so that bodies which start fighting together do not punch in step.
+//  - The caller starts and stops activities (see activity.h), such as a sequence of punches, by name. The controller runs them for their types:
+//     - An activity plays at the caller's simulation time ('BodyState::time') minus the time at which the caller started it, so callers can
+//       vary bodies by their start times and know when timeline marks happen without asking the controller.
+//     - An activity controls its own chains only. It fades in from, and out to, the gait's goals for those chains over times that the caller
+//       chooses. Starting an activity stops any running activity that shares a chain, with the same fade.
+//     - While a Planted activity plays, the body holds its posture family's stance, shifted as the activity needs, and does not travel.
+//       A Free activity leaves the gait alone. The Travel and Mounted root modes are not yet supported.
+//     - The controller holds no code for any particular type, so new types need no changes here.
 //
 // The body's motion comes from outside (for example, a physics simulation); the controller does not move the character's origin.
 // Model space has +Z up. The body's up is the model's +Z axis in world space, so the body may stand on any surface: a slope, a wall, or a ceiling.
@@ -107,6 +102,7 @@ namespace pr::animation
 		float stroke_speed = 0.0f;  // The speed that a water family's strokes would drive the body at, in m/s (>= 0). Water families play their cycles at this speed rather than the measured velocity, and never slower than their slowest cycle, see 'Locomotion::Advance'.
 		float calm_tilt = 0.0f;     // The tilt (radians) up to which a swimming body makes no effort to right itself, see 'Locomotion::RightingReach'. Needs 'gravity'.
 		float rough_tilt = 0.0f;    // The tilt (radians, > 'calm_tilt' to enable righting) at which a swimming body's limbs reach fully towards its lowest side. Zero disables righting.
+		double time = 0.0;          // The caller's simulation time in seconds. Activities play at this time minus their start times, see 'Locomotion::StartActivity'.
 	};
 
 	// A breathing motion. Each breath eases in and out, peaking halfway through the breath. Zero depths give no motion.
@@ -199,12 +195,13 @@ namespace pr::animation
 			, m_request_blend_s(1.0f)
 			, m_request_pending(false)
 			, m_family_weight(1.0f)
-			, m_action(-1)
-			, m_action_time(0.0f)
-			, m_action_weight(0.0f)
-			, m_action_phase(0.0f)
-			, m_strike()
-			, m_strike_radius(0.0f)
+			, m_activities()
+			, m_running()
+			, m_activity_limbs()
+			, m_activity_out(rig.chains.size())
+			, m_activity_curl(rig.chains.size())
+			, m_curl(rig.chains.size())
+			, m_activity_chest(v4::Zero())
 			, m_gait_speed(0.0f)
 			, m_turn_rate(0.0f)
 			, m_look()
@@ -302,6 +299,12 @@ namespace pr::animation
 				if (rig.chains[c].role == EChainRole::Spine)
 					m_spine = c;
 			}
+
+			// Resolve each activity's posture and chains, and describe the limbs to the activities
+			for (auto const& activity : m_gait.activities)
+				m_activities.push_back(ActivityData{ .posture = FamilyIndex(m_gait, activity.posture), .chains = activity.activity->Chains(rig) });
+			for (auto const& limb : m_limbs)
+				m_activity_limbs.push_back(ActivityLimb{ .chain = limb.chain, .reach = limb.reach, .sole_up = limb.sole_up });
 
 			// Grasping elbows stay outside the torso: the capsule around the spine whose radius reaches the nearest arm root in the rest pose
 			if (m_spine >= 0 && !m_reaches.empty())
@@ -415,13 +418,12 @@ namespace pr::animation
 			return m_family;
 		}
 
-		// The model-space frame of each bone, in rig bone order, when the character holds the family at 'index' in 'gait().families'. For most families
-		// this is the stance of the family's slowest cycle, with the hip joints at that cycle's hip height above the model origin. A collapse action
-		// family lies that stance on its side on the ground (see the file header).
+		// The model-space frame of each bone, in rig bone order, when the character holds the family at 'index' in 'gait().families'. This is the
+		// stance of the family's slowest cycle, with the hip joints at that cycle's hip height above the model origin.
 		std::span<xform const> posture(int index) const
 		{
 			pr_assert(index >= 0 && index < static_cast<int>(m_families.size()) && "Family index out of range");
-			return m_families[index].posture_model;
+			return m_families[index].stance_model;
 		}
 
 		// Request the movement family at 'index' in 'gait().families'. Each step blends to it over 'blend_s' seconds (> 0) once the ground allows
@@ -436,23 +438,118 @@ namespace pr::animation
 			m_request_pending = true;
 		}
 
-		// Set where looping actions (punches) start in their sequence, as 'phase' in [0,1) of the sequence's length. Bodies that start the same action
-		// at the same time with different phases do not move in step. The phase applies each time a looping action starts; one that is already
-		// playing is not changed. Actions that play once (collapse) always start at their beginning.
-		void SetActionPhase(float phase)
+		// What a caller needs to know about an activity in 'gait().activities' without running it
+		struct ActivityInfo
 		{
-			pr_assert(phase >= 0 && phase < 1 && "Action phase must be in [0,1)");
-			m_action_phase = phase;
+			std::span<int const> chains;      // The chain indices that the activity controls, in increasing order
+			int posture;                      // The index in 'gait().families' of the family whose stance the activity plays from
+			ERootMode root_mode;              // What happens to the root while the activity plays
+			ActivityTimeline const* timeline; // The activity's length, looping and marks. Valid for the controller's lifetime.
+		};
+
+		// The index of the activity called 'name' in 'gait().activities', or -1 if there is none
+		int FindActivity(std::string_view name) const
+		{
+			return ActivityIndex(m_gait, name);
 		}
 
-		// Aim punches at a body whose centre is at 'world_point' and whose surface is 'radius' (>= 0) from that centre, or throw them to their usual
-		// extent if it is empty. Each punch drives the fist forward to the body's surface instead, as far as the arm can reach and never back behind
-		// the guard. A target that moves should be set again every step.
-		void SetStrikeTarget(std::optional<v4> world_point, float radius)
+		// Describe the activity at 'activity' in 'gait().activities'
+		ActivityInfo activity_info(int activity) const
 		{
-			pr_assert(radius >= 0 && "Strike target radius must not be negative");
-			m_strike = world_point;
-			m_strike_radius = radius;
+			pr_assert(activity >= 0 && activity < static_cast<int>(m_activities.size()) && "Activity index out of range");
+			auto const& desc = *m_gait.activities[activity].activity;
+			return ActivityInfo{
+				.chains = m_activities[activity].chains,
+				.posture = m_activities[activity].posture,
+				.root_mode = desc.RootMode(),
+				.timeline = &desc.Timeline(),
+			};
+		}
+
+		// Start the activity at 'activity' in 'gait().activities' at the caller's time 'start_time' (see 'BodyState::time'), fading it in over
+		// 'fade_s' seconds (>= 0, 0 for no fade). The activity plays at 'BodyState::time - start_time', so callers can start it in the past to join
+		// it part way through, or vary its start time between bodies so that they do not move in step. Any running activity that shares a chain with
+		// it stops at 'start_time' with the same fade. A Planted activity requests its posture family, blending to it over 'fade_s' seconds (or a
+		// short time for no fade). Throws 'std::invalid_argument' for root modes that the controller does not yet support (Travel and Mounted).
+		void StartActivity(int activity, double start_time, float fade_s)
+		{
+			// Reject root modes that have no runner support
+			pr_assert(activity >= 0 && activity < static_cast<int>(m_activities.size()) && "Activity index out of range");
+			pr_assert(fade_s >= 0 && "Fade time must not be negative");
+			auto mode = m_gait.activities[activity].activity->RootMode();
+			switch (mode)
+			{
+				case ERootMode::Planted:
+				case ERootMode::Free:
+				{
+					break;
+				}
+				case ERootMode::Travel:
+				case ERootMode::Mounted:
+				{
+					throw std::invalid_argument(std::format("Activity '{}': root mode '{}' is not supported yet", m_gait.activities[activity].name, RootModeNames[static_cast<int>(mode)]));
+				}
+				default:
+				{
+					throw std::invalid_argument("Unknown root mode");
+				}
+			}
+
+			// Stop the running activities that share a chain, including an earlier run of this activity
+			auto const& chains = m_activities[activity].chains;
+			for (auto& run : m_running)
+			{
+				auto const& other = m_activities[run.activity].chains;
+				if (run.stop || std::none_of(other.begin(), other.end(), [&](int c) { return std::binary_search(chains.begin(), chains.end(), c); }))
+					continue;
+
+				run.stop = start_time;
+				run.fade_out = fade_s;
+			}
+
+			// A planted activity stands in its posture family's stance
+			m_running.push_back(Running{ .activity = activity, .start = start_time, .fade_in = fade_s, .stop = std::nullopt, .fade_out = 0.0f, .targets = {} });
+			if (mode == ERootMode::Planted)
+				RequestFamily(m_activities[activity].posture, std::max(fade_s, MinActivityBlend));
+
+			UseStance(m_family);
+		}
+
+		// Stop the running activity at 'activity' in 'gait().activities' at the caller's time 'stop_time', fading it out over 'fade_s' seconds
+		// (>= 0, 0 for no fade). Does nothing if the activity is not running or is already stopping. The posture family stays requested; callers
+		// request the family that the body should move in next.
+		void StopActivity(int activity, double stop_time, float fade_s)
+		{
+			// Only a run that has not been stopped is affected
+			pr_assert(fade_s >= 0 && "Fade time must not be negative");
+			for (auto& run : m_running)
+			{
+				if (run.activity != activity || run.stop)
+					continue;
+
+				run.stop = stop_time;
+				run.fade_out = fade_s;
+			}
+			UseStance(m_family);
+		}
+
+		// Set what the running activity at 'activity' in 'gait().activities' acts on. Targets that move should be set again every step. Does nothing
+		// if the activity is not running. Each type documents which targets it reads.
+		void SetActivityTargets(int activity, ActivityTargets const& targets)
+		{
+			// Every run of the activity, including one that is fading out, acts on the latest targets
+			pr_assert((!targets.strike || targets.strike->radius >= 0) && "Strike radius must not be negative");
+			for (auto& run : m_running)
+			{
+				if (run.activity == activity)
+					run.targets = targets;
+			}
+		}
+
+		// True while the activity at 'activity' in 'gait().activities' is running and has not been stopped
+		bool activity_running(int activity) const
+		{
+			return std::any_of(m_running.begin(), m_running.end(), [=](Running const& r) { return r.activity == activity && !r.stop; });
 		}
 
 		// Forget the body's motion history so that the next step starts afresh, as the first step does: every foot plants beneath the body, tails take
@@ -540,9 +637,10 @@ namespace pr::animation
 			m_up = Rotate(body.model_to_world.rot, v4::ZAxis());
 			FindNeutralFeet(body.model_to_world, ground);
 
-			// Move in the requested family if the ground beneath the feet allows it, otherwise in the first family that it allows
+			// Move in the requested family if the ground beneath the feet allows it, otherwise in the first family that it allows. Activities that
+			// have faded out end.
 			ChooseFamily(body.gravity);
-			StepAction(dt);
+			EndFadedActivities(body.time);
 
 			// The first step plants every foot beneath the body
 			if (!m_started)
@@ -601,12 +699,10 @@ namespace pr::animation
 			auto dphase = cadence * dt;
 			m_phase = Frac(m_phase + dphase);
 
-			// Advance each limb's stance and swing, collecting the landings that swinging feet still need to aim at. A collapsing body's feet stay
-			// where they are, because the body no longer stands on them.
+			// Advance each limb's stance and swing, collecting the landings that swinging feet still need to aim at
 			m_landings.clear();
 			m_probe_rays.clear();
-			auto collapse = CollapseProgress();
-			for (int i = 0, iend = static_cast<int>(m_limbs.size()); i != iend && collapse == 0; ++i)
+			for (int i = 0, iend = static_cast<int>(m_limbs.size()); i != iend; ++i)
 				AdvanceLimb(i, body, airborne, moving, cadence, dphase);
 
 			// Aim the swinging feet at the ground beneath their predicted landings
@@ -638,16 +734,14 @@ namespace pr::animation
 				reach.weight.Step(dt);
 
 			StepSpine(dt, world_to_model);
-			DriveTorso();
 			for (auto const& limb : m_limbs)
 			{
 				auto foot = world_to_model * limb.foot;
 				m_targets[limb.chain].frame = limb.support == 1.0f ? foot : BlendFrame(HangingFrame(limb), foot, limb.support);
 			}
-			StepPunchFeet();
-			AimPunches(world_to_model);
+			RunActivities(body.time, world_to_model);
 
-			// Grasping hands move from their usual goals, including any punches, to their grasps
+			// Grasping hands move from their usual goals, including any activity's, to their grasps
 			for (auto const& reach : m_reaches)
 			{
 				auto weight = reach.weight.Value();
@@ -669,14 +763,11 @@ namespace pr::animation
 			TurnRaisedFeet();
 			PlantDigits();
 			CurlDigits();
-			ClenchFists();
+			CurlActivityDigits();
 			StepTails(body.model_to_world, world_to_model, ground);
 
-			// Bring the bones moved since the solve, and their descendants, up to date. A collapse moves every bone.
-			if (collapse == 0)
-				m_pose.UpdateModel(m_rig, m_finish_refresh);
-			else
-				Collapse(collapse);
+			// Bring the bones moved since the solve, and their descendants, up to date
+			m_pose.UpdateModel(m_rig, m_finish_refresh);
 		}
 
 	private:
@@ -753,49 +844,27 @@ namespace pr::animation
 		// so that ground close to the limit does not switch families back and forth
 		static constexpr float SlopeMargin = 0.05f;
 
-		// How a collapse moves the body over its progress in [0,1] (see 'Collapse'):
-		//  - The knees buckle as the body stoops by up to 'CollapseStoop' (see 'Stooped'), until 'CollapseBuckleEnd'.
-		//  - The body topples sideways from 'CollapseToppleStart' and lies flat by 'CollapseToppleEnd', falling faster as it goes, like a falling pole.
-		//  - The joints relax from 'CollapseRelaxStart', ending 'CollapseRelax' of the way from the solved pose to the stance.
-		//  - The joint limits apply fully from 'CollapseLimitEnd', so that a standing body is not changed at the start.
-		//  - The limbs and head sag under gravity from 'CollapseRelaxStart', until they rest on the ground or reach their joint limits (see 'Sag').
-		static constexpr float CollapseStoop = 0.6f;
-		static constexpr float CollapseBuckleEnd = 0.5f;
-		static constexpr float CollapseToppleStart = 0.3f;
-		static constexpr float CollapseToppleEnd = 0.85f;
-		static constexpr float CollapseRelaxStart = 0.55f;
-		static constexpr float CollapseRelax = 0.6f;
-		static constexpr float CollapseLimitEnd = 0.2f;
+		// The shortest time (seconds) over which a Planted activity blends to its posture family, so that an activity started without a fade
+		// does not make the stance jump
+		static constexpr float MinActivityBlend = 0.1f;
 
-		// The distance that a boxing stance moves each foot forward (left) or back (right), as a fraction of the legs' reach
-		static constexpr float BoxingStagger = 0.12f;
+		// An activity with its names resolved
+		struct ActivityData
+		{
+			int posture;              // The index of the activity's posture family in 'm_gait.families'
+			std::vector<int> chains;  // The chains that the activity controls, in increasing order
+		};
 
-		// The angle (radians) about model +Z by which the torso turns its left shoulder forward when on guard, and the fractions of each punch at which
-		// the fist is fully out and then back on guard
-		static constexpr float GuardYaw = 0.25f;
-		static constexpr float PunchOut = 0.35f;
-		static constexpr float PunchBack = 0.75f;
-
-		// The furthest forward that a fist aimed at a strike target goes, in units of the arm's reach from the shoulder. A straight arm reaches 1.
-		static constexpr float StrikeMaxReach = 1.0f;
-
-		// The fraction of the chest's punch turn that the pelvis also turns
-		static constexpr float PunchPelvisShare = 0.4f;
-
-		// The angle (radians) by which the torso of a body on guard leans forward about the pelvis, and the distance that the hips drop, as a fraction
-		// of the spine's length, so that the body crouches behind its guard
-		static constexpr float GuardLean = 0.12f;
-		static constexpr float GuardCrouch = 0.1f;
-
-		// The fraction of the chest's forward travel, as the torso leans into a punch, by which the hips also move forward over the front foot
-		static constexpr float PunchHipDrive = 0.4f;
-
-		// The fraction of a punching foot's step by which the hips move forward with it, and the height of the step's arc as a fraction of its length
-		static constexpr float StepSurge = 0.5f;
-		static constexpr float StepLift = 0.3f;
-
-		// The angle (radians) by which each bone of a punching hand's digits curls towards the palm to make a fist
-		static constexpr float FistCurl = 1.2f;
+		// One run of an activity, from its start until it has faded out
+		struct Running
+		{
+			int activity;               // Index into 'm_gait.activities'
+			double start;               // The caller's time at which the activity started
+			float fade_in;              // The seconds over which the activity fades in (>= 0)
+			std::optional<double> stop; // The caller's time at which the activity stops, or empty while it plays on
+			float fade_out;             // The seconds over which the activity fades out after 'stop' (>= 0)
+			ActivityTargets targets;    // What the activity acts on
+		};
 
 		// A bone motion with its bone index resolved
 		struct BoneTrack
@@ -809,8 +878,7 @@ namespace pr::animation
 		struct FamilyData
 		{
 			std::vector<std::vector<xform>> stance_local; // Per cycle, per bone, the stance transform relative to the parent bone
-			std::vector<xform> stance_model;             // Per bone, the slowest cycle's stance transform in model space
-			std::vector<xform> posture_model;            // Per bone, the model-space transform that the family holds, see 'posture'
+			std::vector<xform> stance_model;             // Per bone, the slowest cycle's stance transform in model space, see 'posture'
 			std::vector<std::vector<BoneTrack>> tracks;  // Per cycle, the bone motions
 			std::vector<int> limb_footfall;              // Per limb in 'm_limbs', its footfall index in the family's cycles, or -1 if it does not walk
 		};
@@ -901,12 +969,13 @@ namespace pr::animation
 		float m_request_blend_s;    // The seconds over which a change of family blends
 		bool m_request_pending;     // True from 'RequestFamily' until the next step has chosen a family
 		Fade m_family_weight;       // From the previous family (0) to the current family (1)
-		int m_action;               // The action family whose action is playing or fading out, or -1 if none
-		float m_action_time;        // Collapse: the seconds into the collapse. Punches: the seconds into the punch sequence.
-		float m_action_weight;      // In [0,1]. Collapse: how far through the collapse the body is. Punches: how strongly the punches show.
-		float m_action_phase;       // In [0,1). Where a looping action starts in its sequence, as a fraction of the sequence's length, see 'SetActionPhase'
-		std::optional<v4> m_strike; // The world-space centre of the body that punches aim at, or empty for punches to their usual extent, see 'SetStrikeTarget'
-		float m_strike_radius;      // The distance from 'm_strike' to the surface that punches stop at
+		std::vector<ActivityData> m_activities; // Parallel to 'm_gait.activities'
+		std::vector<Running> m_running;         // The activities that are playing or fading out, in the order that they started
+		std::vector<ActivityLimb> m_activity_limbs; // Parallel to 'm_limbs', what the activities know about each limb
+		std::vector<Target> m_activity_out;     // Per chain, an activity's goals (scratch)
+		std::vector<float> m_activity_curl;     // Per chain, an activity's digit curl (scratch)
+		std::vector<float> m_curl;              // Per chain, the blended digit curl of the running activities this step, see 'CurlActivityDigits'
+		v4 m_activity_chest;                    // The model-space move (w = 0) of the chest by the running activities this step, which the necks follow
 		float m_gait_speed;         // The smoothed speed that selects cycles and scales body motion
 		float m_turn_rate;          // The smoothed rate of turning about the body's up direction, in radians per second
 		TargetPath m_look;          // The world-space look point (pos), which moves smoothly to each new point
@@ -987,11 +1056,6 @@ namespace pr::animation
 			// The slowest cycle's stance places the limbs' neutral contacts, because a standing body holds it
 			data.stance_model = ModelFrames(data.stance_local.front());
 
-			// A collapsed body holds the stance lying on its side
-			data.posture_model = data.stance_model;
-			if (family.action && family.action->kind == EActionKind::Collapse)
-				Topple(data.posture_model, math::constants<float>::tau_by_4);
-
 			// Map the controller's limbs to the family's footfalls
 			auto const& footfalls = family.cycles[0].footfalls;
 			for (auto const& limb : m_limbs)
@@ -1016,25 +1080,32 @@ namespace pr::animation
 			return model;
 		}
 
-		// Set each limb's stance contact and orientation from the stance of family 'f'. A punches action family stands in a boxing stance, with the
-		// left foot forward and the right foot back.
+		// Set each limb's stance contact and orientation from the stance of family 'f'. Planted activities that play from family 'f' and are not
+		// stopping shift the contacts of their legs (see 'IActivity::StanceShift').
 		void UseStance(int f)
 		{
 			// Contacts stand on the ground, so only their position across the ground plane is kept
 			auto const& model = m_families[f].stance_model;
-			auto const& action = m_gait.families[f].action;
-			auto boxing = action && action->kind == EActionKind::Punches;
-			for (auto& limb : m_limbs)
+			for (int i = 0, iend = static_cast<int>(m_limbs.size()); i != iend; ++i)
 			{
+				auto& limb = m_limbs[i];
 				auto const& contact = m_rig.contacts[limb.contact];
 				limb.stance_contact = model[contact.bone] * contact.offset;
 				limb.stance_contact.z = 0.0f;
 				limb.stance_rot = model[m_rig.chains[limb.chain].bones.back()].rot;
 				limb.stance_bend = ~model[m_rig.chains[limb.chain].bones[1]].rot * limb.stance_rot;
+				m_activity_limbs[i].stance_rot = limb.stance_rot;
 
-				// Forward is model -Y and left is +X
-				if (boxing && m_rig.chains[limb.chain].role == EChainRole::Leg)
-					limb.stance_contact.y -= SideSign(m_rig.chains[limb.chain].side) * BoxingStagger * m_leg_reach;
+				// Only legs take a shifted stance
+				if (m_rig.chains[limb.chain].role != EChainRole::Leg)
+					continue;
+
+				for (auto const& run : m_running)
+				{
+					auto const& activity = *m_gait.activities[run.activity].activity;
+					if (!run.stop && activity.RootMode() == ERootMode::Planted && m_activities[run.activity].posture == f)
+						limb.stance_contact += activity.StanceShift(m_rig, limb.chain, m_leg_reach);
+				}
 			}
 		}
 
@@ -1157,7 +1228,7 @@ namespace pr::animation
 			AddMotion(m_prev_family, (1.0f - w) * amplitude);
 			AddMotion(m_family, w * amplitude);
 			for (auto const& shoulder : m_shoulders)
-				m_rot_offset[shoulder.bone] += shoulder.axis * (m_breath.shoulders * Inhale() * Breathing());
+				m_rot_offset[shoulder.bone] += shoulder.axis * (m_breath.shoulders * Inhale());
 
 			// Root bones carry the hips at the hip height of the cycles either side of the speed
 			auto lift = v4(0, 0, Lerp(HipLift(m_prev_family), HipLift(m_family), w), 0);
@@ -1606,8 +1677,8 @@ namespace pr::animation
 			return Dot(m_ground_up, -Normalise(gravity)) >= std::cos(limit);
 		}
 
-		// Change to the requested family if the ground allows it, otherwise to the first family in the gait that it allows, other than an action
-		// family. If the ground allows no family, the current one is kept.
+		// Change to the requested family if the ground allows it, otherwise to the first family in the gait that it allows. If the ground allows
+		// no family, the current one is kept.
 		void ChooseFamily(v4 gravity)
 		{
 			// Prefer the request, then the gait's order
@@ -1615,9 +1686,8 @@ namespace pr::animation
 			auto f = m_requested;
 			for (int i = 0, iend = static_cast<int>(m_families.size()); i != iend && !AllowsGround(f, gravity); ++i)
 			{
-				// Try each family in order until the ground allows one. Actions are only played on request.
-				if (!m_gait.families[i].action)
-					f = i;
+				// Try each family in order until the ground allows one
+				f = i;
 			}
 			if (f == m_family || !AllowsGround(f, gravity))
 				return;
@@ -2145,7 +2215,7 @@ namespace pr::animation
 
 			// Breathing turns the chest bone about its head so that its tip moves out from the front of the body, which faces along the spine
 			// turned a quarter turn forward about model +X. The chest's head stays in place, so the rib cage swells rather than the belly.
-			auto breath = m_breath.chest * Inhale() * Breathing();
+			auto breath = m_breath.chest * Inhale();
 			if (breath != 0)
 			{
 				auto& chest = m_targets[m_spine].frame;
@@ -2159,9 +2229,9 @@ namespace pr::animation
 			// place the grasps that cause it: a grasp that moved with the stoop would keep needing it.
 			m_chest_motion = m_targets[m_spine].frame * Invert(m_chest_stance);
 
-			// Stoop as far as the grasping hands need, or as far as a collapse buckles the body. The stoop follows the need smoothly, so a hand may
+			// Stoop as far as the grasping hands need. The stoop follows the need smoothly, so a hand may
 			// briefly stretch for a grasp before the body brings it within reach.
-			auto need = std::max(StoopNeeded(world_to_model), CollapseStoop * Ease(0.0f, CollapseBuckleEnd, CollapseProgress()));
+			auto need = StoopNeeded(world_to_model);
 			m_stoop += (need - m_stoop) * std::min(dt / StoopResponse, 1.0f);
 			if (m_stoop > 0)
 				std::tie(m_targets[m_spine].base, m_targets[m_spine].frame) = Stooped(m_stoop, m_targets[m_spine].base, m_targets[m_spine].frame);
@@ -2173,516 +2243,98 @@ namespace pr::animation
 			return 0.5f * (1.0f - std::cos(math::constants<float>::tau * m_breath_phase));
 		}
 
-		// A smooth step from 0 at 'lo' to 1 at 'hi', clamped outside that range
-		static float Ease(float lo, float hi, float x)
+		// How strongly 'run' shows at the caller's time 'time', in [0,1]. Each fade rises or falls linearly over its time, and a zero fade time is a step.
+		static float ActivityWeight(Running const& run, double time)
 		{
-			auto t = Clamp((x - lo) / (hi - lo), 0.0f, 1.0f);
-			return t * t * (3.0f - 2.0f * t);
-		}
-
-		// +1 for the left side of the body (model +X), -1 for the right side, and 0 for the middle
-		static float SideSign(ESide side)
-		{
-			switch (side)
+			// Fade in from the start
+			auto ramp = [](double t, float fade_s)
 			{
-				case ESide::Centre: { return 0.0f; }
-				case ESide::Left: { return +1.0f; }
-				case ESide::Right: { return -1.0f; }
-				default: throw std::runtime_error("Unknown body side");
-			}
-		}
-
-		// Start, advance, or fade out the action of the current family. An action that is fading out finishes before another starts, so a collapsed
-		// body stands back up before it does anything else.
-		void StepAction(float dt)
-		{
-			// Start the current family's action when no action is playing. A looping action starts at the caller's phase of its sequence.
-			if (m_action < 0 && m_gait.families[m_family].action)
-			{
-				auto const& start = *m_gait.families[m_family].action;
-				m_action = m_family;
-				m_action_weight = 0.0f;
-				switch (start.kind)
-				{
-					case EActionKind::Collapse: { m_action_time = 0.0f; break; }
-					case EActionKind::Punches: { m_action_time = m_action_phase * SequenceDuration(start); break; }
-					default: throw std::runtime_error("Unknown action kind");
-				}
-			}
-			if (m_action < 0)
-				return;
-
-			// An action plays forward while its family is current, and backs out otherwise
-			auto const& action = *m_gait.families[m_action].action;
-			auto playing = m_action == m_family;
-			switch (action.kind)
-			{
-				case EActionKind::Collapse:
-				{
-					// The collapse plays backwards in real time, so the body gets up the way it fell
-					m_action_time = Clamp(m_action_time + (playing ? dt : -dt), 0.0f, action.duration);
-					m_action_weight = m_action_time / action.duration;
-					break;
-				}
-				case EActionKind::Punches:
-				{
-					// The punches fade in and out with the family blend, and keep looping while they fade out
-					auto fade = m_request_blend_s > 0 ? dt / m_request_blend_s : 1.0f;
-					m_action_weight = Clamp(m_action_weight + (playing ? fade : -fade), 0.0f, 1.0f);
-					m_action_time = std::fmod(m_action_time + dt, SequenceDuration(action));
-					break;
-				}
-				default: throw std::runtime_error("Unknown action kind");
-			}
-
-			// A finished action makes way for the next
-			if (!playing && m_action_weight == 0)
-				m_action = -1;
-		}
-
-		// The action that is playing or fading out, if it is of 'kind', otherwise null
-		GaitAction const* ActiveAction(EActionKind kind) const
-		{
-			// Only the active action family's action shows
-			if (m_action < 0)
-				return nullptr;
-
-			auto const& action = m_gait.families[m_action].action;
-			return action->kind == kind ? &*action : nullptr;
-		}
-
-		// How far through a collapse the body is, in [0,1]. 0 when no collapse is playing.
-		float CollapseProgress() const
-		{
-			return ActiveAction(EActionKind::Collapse) ? m_action_weight : 0.0f;
-		}
-
-		// How much the body breathes and looks around, in [0,1]. A collapsed body goes still.
-		float Breathing() const
-		{
-			return 1.0f - Ease(CollapseRelaxStart, 1.0f, CollapseProgress());
-		}
-
-		// The seconds that one pass through the punch sequence of 'action' takes
-		static float SequenceDuration(GaitAction const& action)
-		{
-			auto total = 0.0f;
-			for (auto const& punch : action.punches)
-				total += punch.duration;
-
-			return total;
-		}
-
-		// Finish the pose of a body that is 'u' of the way through a collapse, where u is in (0,1]. The joints go limp towards the stance and are
-		// held within their limits, then the whole body topples sideways about its lowest outside edge (see 'Topple').
-		void Collapse(float u)
-		{
-			// Relax each joint towards the stance and keep it within its limits. Root bones place the body, so they are moved only by the topple.
-			auto relax = CollapseRelax * Ease(CollapseRelaxStart, 1.0f, u);
-			auto limit = Ease(0.0f, CollapseLimitEnd, u);
-			auto const& stance = m_families[m_action].stance_local.front();
-			for (int b = 0, bend = static_cast<int>(m_rig.bones.size()); b != bend; ++b)
-			{
-				// Limits are relative to the rest orientation under the parent
-				auto const& bone = m_rig.bones[b];
-				if (bone.parent < 0)
-					continue;
-
-				auto& local = m_pose.local[b];
-				local.rot = Normalise(Slerp(local.rot, stance[b].rot, relax));
-				if (!bone.limit.IsFree())
-				{
-					// Blend the limits in so that the standing pose at the start of the collapse is not changed suddenly
-					auto allowed = Normalise(bone.rest.rot * bone.limit.Clamp(~bone.rest.rot * local.rot));
-					local.rot = Normalise(Slerp(local.rot, allowed, limit));
-				}
-			}
-			m_pose.UpdateModel(m_rig);
-
-			// The topple falls slowly at first, then faster, until the body lies flat
-			auto t = Clamp((u - CollapseToppleStart) / (CollapseToppleEnd - CollapseToppleStart), 0.0f, 1.0f);
-			Topple(m_pose.model, math::constants<float>::tau_by_4 * t * t);
-			for (int b = 0, bend = static_cast<int>(m_rig.bones.size()); b != bend; ++b)
-			{
-				// Root bones' local transforms are their model transforms
-				if (m_rig.bones[b].parent < 0)
-					m_pose.local[b] = m_pose.model[b];
-			}
-
-			// Limp limbs and the head flop down as the body lands
-			Sag(Ease(CollapseRelaxStart, 1.0f, u));
-		}
-
-		// Let the arms, legs and necks hang under gravity, which is model -Z, by 'weight' of the way, where weight is in [0,1]. Each bone turns
-		// down until its tip rests on the ground (model z = 0), or it reaches its joint limits. A bone that points straight up falls forward.
-		//  - The pose's model transforms must be current for its local transforms. On return, they are current again.
-		void Sag(float weight)
-		{
-			// Chains are visited parents first, so each bone turns from its parent's settled frame
-			if (weight == 0)
-				return;
-
-			for (auto c : m_rig.solve_order)
-			{
-				// Only limbs and necks hang. The spine lies on the ground and carries them.
-				auto const& chain = m_rig.chains[c];
-				if (chain.role != EChainRole::Arm && chain.role != EChainRole::Leg && chain.role != EChainRole::Neck)
-					continue;
-
-				for (auto b : chain.bones)
-				{
-					// Root bones place the body, so they keep their frames and the rest of the chain sags from them
-					auto const& bone = m_rig.bones[b];
-					if (bone.parent < 0)
-						continue;
-
-					// Bring the bone along with its parent, which may have sagged
-					auto const& parent = m_pose.model[bone.parent];
-					auto& model = m_pose.model[b];
-					model = parent * m_pose.local[b];
-
-					// The lowest the bone may point is the direction that puts its tip on the ground. A bone that already points that low, or lower,
-					// is left alone.
-					auto dir = Rotate(model.rot, v4::YAxis());
-					if (bone.length <= 0)
-						continue;
-
-					auto low = Clamp(-model.pos.z / bone.length, -1.0f, 1.0f);
-					if (low >= dir.z)
-						continue;
-
-					// Turn the bone down within its vertical plane, through the horizontal so that neither part of the turn is a half turn, then hold it
-					// within its joint limits (relative to the rest orientation under the parent)
-					auto flat = Normalise(v4(dir.x, dir.y, 0, 0), v4(0, -1, 0, 0));
-					auto down = flat * std::sqrt(1 - low * low) + v4::ZAxis() * low;
-					auto turn = quat(flat, down) * quat(dir, flat);
-					auto rot = Normalise(Slerp(Identity<quat>(), turn, weight) * model.rot);
-					auto local = Normalise(~parent.rot * rot);
-					if (!bone.limit.IsFree())
-						local = Normalise(bone.rest.rot * bone.limit.Clamp(~bone.rest.rot * local));
-
-					m_pose.local[b].rot = local;
-					model = parent * m_pose.local[b];
-				}
-			}
-
-			// Bring the bones outside the hanging chains, such as digits, along with them
-			m_pose.UpdateModel(m_rig);
-		}
-
-		// Turn the model-space bone frames 'model' by 'angle' (radians) about a line along model Y through the lowest joint height and the furthest
-		// joint position towards model +X. A positive angle turns model +Z towards +X, so the body falls onto its left side about the outside of its
-		// left side. Joints below the ground are lifted onto it as the body falls, so at a quarter turn no joint is below the ground.
-		static void Topple(std::span<xform> model, float angle)
-		{
-			// The pivot line is the body's lowest outside edge on its left
-			if (model.empty())
-				return;
-
-			auto pivot = v4(-std::numeric_limits<float>::max(), 0, std::numeric_limits<float>::max(), 1);
-			for (auto const& xf : model)
-			{
-				pivot.x = std::max(pivot.x, xf.pos.x);
-				pivot.z = std::min(pivot.z, xf.pos.z);
-			}
-
-			// Turn every frame about the pivot line
-			auto rot = quat(v4::YAxis(), angle);
-			auto lowest = std::numeric_limits<float>::max();
-			for (auto& xf : model)
-			{
-				xf.pos = pivot + Rotate(rot, xf.pos - pivot);
-				xf.rot = Normalise(rot * xf.rot);
-				lowest = std::min(lowest, xf.pos.z);
-			}
-
-			// A joint that was below the ground, such as a hanging hand as the knees buckle, is not left there by the topple. The body lifts so that
-			// its lowest joint is on the ground.
-			auto lift = std::max(0.0f, -lowest) * Clamp(angle / math::constants<float>::tau_by_4, 0.0f, 1.0f);
-			for (auto& xf : model)
-				xf.pos.z += lift;
-		}
-
-		// The punch of the active punches action that is being thrown, and how far out its fist is, in [0,1]
-		std::pair<Punch const*, float> CurrentPunch() const
-		{
-			// Walk the sequence to the punch that the action time is in
-			auto const* action = ActiveAction(EActionKind::Punches);
-			if (action == nullptr)
-				return { nullptr, 0.0f };
-
-			auto time = m_action_time;
-			for (auto const& punch : action->punches)
-			{
-				// The fist accelerates all the way out, so it is at its fastest when it lands, then comes back to guard more slowly
-				if (time < punch.duration || &punch == &action->punches.back())
-				{
-					auto u = Clamp(time / punch.duration, 0.0f, 1.0f);
-					auto extend = u < PunchOut ? Sqr(u / PunchOut) : 1.0f - Ease(PunchOut, PunchBack, u);
-					return { &punch, extend };
-				}
-				time -= punch.duration;
-			}
-			return { nullptr, 0.0f };
-		}
-
-		// How the body moves into one kind of punch. Angles and distances are at the punch's full extent unless stated. The fist's path is in
-		// model axes from the shoulder, in units of the arm's reach, for a left-hand punch. A right-hand punch mirrors its X values.
-		struct PunchStyle
-		{
-			float yaw;     // The angle (radians) by which the torso turns the punching shoulder forward
-			float lean;    // The angle (radians) by which the torso leans forward, beyond its guard
-			float tilt;    // The angle (radians) by which the chest bends sideways, dropping the punching shoulder
-			float dip;     // The distance that the hips drop, as a fraction of the spine's length. Negative values rise out of the guard's crouch.
-			float sink;    // The distance that the hips drop half way out, and rise from again by full extent, as a fraction of the spine's length
-			float pivot;   // The angle (radians) by which the punching side's foot turns on its ball, turning its heel out
-			float step;    // The distance that the punching side's foot steps forward, as a fraction of the leg's reach
-			v4 ctrl;       // The control point of the fist's curved path from the guard
-			v4 end;        // The fist's position at full extent
-			v4 dir;        // The direction that the fingers point at full extent
-			v4 pole;       // The direction that the elbow bends towards at full extent
-		};
-
-		// The left fist's guard position, in front of the chin, in model axes from the shoulder in units of the arm's reach
-		static v4 GuardFist()
-		{
-			return v4(-0.2f, -0.4f, 0.2f, 0);
-		}
-
-		// The movement of each kind of punch (see 'PunchStyle')
-		static PunchStyle StyleOf(EPunchKind kind)
-		{
-			switch (kind)
-			{
-				case EPunchKind::Jab:
-				{
-					// Straight out from the lead side, with a short step in
-					auto end = v4(-0.25f, -0.9f, 0.15f, 0);
-					return PunchStyle{ .yaw = 0.25f, .lean = 0.12f, .tilt = 0, .dip = 0, .sink = 0, .pivot = 0, .step = 0.06f,
-						.ctrl = (GuardFist() + end) * 0.5f, .end = end, .dir = v4(0, -1, 0, 0), .pole = Normalise(v4(0.5f, 0, -1, 0)) };
-				}
-				case EPunchKind::Cross:
-				{
-					// Straight out across the body's midline, with the hips and shoulders turned fully and the rear heel turned out
-					auto end = v4(-0.35f, -0.9f, 0.15f, 0);
-					return PunchStyle{ .yaw = 0.75f, .lean = 0.3f, .tilt = 0, .dip = 0, .sink = 0, .pivot = 0.6f, .step = 0,
-						.ctrl = (GuardFist() + end) * 0.5f, .end = end, .dir = v4(0, -1, 0, 0), .pole = Normalise(v4(0.5f, 0, -1, 0)) };
-				}
-				case EPunchKind::Hook:
-				{
-					// Out to the side, then around in front, with the elbow raised level with the fist and the foot turning with the hips
-					return PunchStyle{ .yaw = 0.65f, .lean = 0.2f, .tilt = 0, .dip = 0.05f, .sink = 0, .pivot = 0.5f, .step = 0,
-						.ctrl = v4(0.25f, -0.45f, 0.25f, 0), .end = v4(-0.45f, -0.6f, 0.2f, 0), .dir = Normalise(v4(-1, -0.6f, 0, 0)), .pole = Normalise(v4(1, 0, 0.3f, 0)) };
-				}
-				case EPunchKind::Uppercut:
-				{
-					// The knees dip with the fist, then the body rises, driving the fist up and forward under the chin of the opponent
-					return PunchStyle{ .yaw = 0.45f, .lean = 0.05f, .tilt = 0.12f, .dip = -0.08f, .sink = 0.3f, .pivot = 0.3f, .step = 0,
-						.ctrl = v4(-0.1f, -0.35f, -0.15f, 0), .end = v4(-0.25f, -0.55f, 0.35f, 0), .dir = Normalise(v4(0, -0.3f, 1, 0)), .pole = Normalise(v4(0.3f, 0, -1, 0)) };
-				}
-				case EPunchKind::BodyHook:
-				{
-					// A hook to the body. The knees bend deeply and the body leans to the punching side, so the fist swings in at the opponent's ribs.
-					return PunchStyle{ .yaw = 0.5f, .lean = 0.25f, .tilt = 0.25f, .dip = 0.35f, .sink = 0, .pivot = 0.4f, .step = 0,
-						.ctrl = v4(0.25f, -0.4f, -0.1f, 0), .end = v4(-0.35f, -0.55f, -0.3f, 0), .dir = Normalise(v4(-1, -0.6f, 0.2f, 0)), .pole = Normalise(v4(1, 0, 0.3f, 0)) };
-				}
-				case EPunchKind::BodyJab:
-				{
-					// A straight punch to the body. The punching side's foot lunges forward and the body drops level with the opponent's chest.
-					auto end = v4(-0.25f, -0.95f, -0.2f, 0);
-					return PunchStyle{ .yaw = 0.3f, .lean = 0.35f, .tilt = 0, .dip = 0.4f, .sink = 0, .pivot = 0, .step = 0.25f,
-						.ctrl = (GuardFist() + end) * 0.5f, .end = end, .dir = Normalise(v4(0, -1, -0.2f, 0)), .pole = Normalise(v4(0.5f, 0, -1, 0)) };
-				}
-				default: throw std::runtime_error("Unknown punch kind");
-			}
-		}
-
-		// The first leg on the side 'side', or null if the rig has none
-		LimbState const* LegOn(ESide side) const
-		{
-			// Rigs may have several legs on a side, so this picks the first in limb order
-			auto it = std::ranges::find_if(m_limbs, [&](auto const& limb) { auto const& chain = m_rig.chains[limb.chain]; return chain.role == EChainRole::Leg && chain.side == side; });
-			return it != m_limbs.end() ? &*it : nullptr;
-		}
-
-		// How the torso of a body throwing punches moves from its guide pose. It is still when no punches show.
-		struct TorsoDrive
-		{
-			float yaw = 0;          // The chest's turn (radians) about model +Z. The pelvis turns 'PunchPelvisShare' of this.
-			float lean = 0;         // The chest's forward lean (radians) about the pelvis
-			float tilt = 0;         // The chest's sideways bend (radians) about model +Y, towards +X for positive angles
-			v4 hips = v4::Zero();   // The pelvis's model-space shift
-			v4 chest = v4::Zero();  // The chest's model-space shift, from the lean, the bend and the hips' shift
-		};
-
-		// The torso motion of a body throwing punches. On guard, the left shoulder leads and the body crouches forward. Into each punch, the
-		// punching shoulder turns forward and the chest leans after the fist, carrying the hips forward over the front foot, so the body's weight
-		// goes into the punch and the fist reaches further. Punches to the body bend the knees and lean to the punching side.
-		TorsoDrive PunchDrive() const
-		{
-			// The torso moves only while punches show
-			auto [punch, extend] = CurrentPunch();
-			if (punch == nullptr || m_spine < 0)
-				return {};
-
-			// Turning about model +Z by a positive angle moves the right shoulder (-X) forward (-Y), leaning about model +X by a positive angle
-			// moves the chest forward, and bending about model +Y by a positive angle moves the chest towards +X (left)
-			auto style = StyleOf(punch->kind);
-			auto side = SideSign(punch->hand);
-			auto weight = m_action_weight;
-			auto drive = TorsoDrive{
-				.yaw = (-GuardYaw - side * style.yaw * extend) * weight,
-				.lean = (GuardLean + style.lean * extend) * weight,
-				.tilt = side * style.tilt * extend * weight,
+				// The fraction of the fade completed 't' seconds after it began
+				return fade_s > 0 ? static_cast<float>(std::clamp(t / fade_s, 0.0, 1.0)) : t >= 0 ? 1.0f : 0.0f;
 			};
+			auto weight = ramp(time - run.start, run.fade_in);
 
-			// The hips drop behind the guard, drop further or rise with the punch, and move forward with a share of the punch's lean. A stepping
-			// foot carries the hips forward by a share of its step. The chest swings about the hips.
-			auto const& guide = m_guide_targets[m_spine];
-			auto span = guide.frame.pos - guide.base.pos;
-			auto length = Length(span);
-			auto leg = LegOn(punch->hand);
-			auto surge = PunchHipDrive * length * style.lean + (leg != nullptr ? StepSurge * style.step * leg->reach : 0.0f);
-			auto drop = GuardCrouch + style.dip * extend + style.sink * 4 * extend * (1 - extend);
-			drive.hips = v4(0, -surge * extend, -drop * length, 0) * weight;
-			drive.chest = drive.hips + Rotate(quat(v4::YAxis(), drive.tilt) * quat(v4::XAxis(), drive.lean), span) - span;
-			return drive;
+			// Fade out from the stop
+			if (run.stop)
+				weight *= 1.0f - ramp(time - *run.stop, run.fade_out);
+
+			return weight;
 		}
 
-		// Move the torso of a body throwing punches (see 'PunchDrive'). The chest and pelvis turn about their own positions, so the spine bends
-		// between them.
-		void DriveTorso()
+		// The time into 'activity' at the caller's time 'time' for a run that started at 'start'. Looping activities wrap, and others hold at their end.
+		static float ActivityTime(IActivity const& activity, double start, double time)
 		{
-			// Nothing moves when no punches show
-			auto drive = PunchDrive();
-			if (m_spine < 0 || (drive.yaw == 0 && drive.lean == 0))
-				return;
-
-			auto& spine = m_targets[m_spine];
-			spine.frame = xform(spine.frame.pos + drive.chest, Normalise(quat(v4::ZAxis(), drive.yaw) * quat(v4::YAxis(), drive.tilt) * quat(v4::XAxis(), drive.lean) * spine.frame.rot));
-			spine.base = xform(spine.base.pos + drive.hips, Normalise(quat(v4::ZAxis(), PunchPelvisShare * drive.yaw) * spine.base.rot));
+			// Measure in double precision so that late times keep their accuracy, then wrap or clamp to the timeline
+			auto const& timeline = activity.Timeline();
+			auto t = std::max(time - start, 0.0);
+			t = timeline.loop ? std::fmod(t, static_cast<double>(timeline.length)) : std::min(t, static_cast<double>(timeline.length));
+			return static_cast<float>(t);
 		}
 
-		// Move the punching side's foot of a body throwing punches. The foot turns on its ball as the hips turn, turning its heel out, and steps
-		// forward and back along a low arc for punches that step in. The foot's planted position does not change, so it returns to it.
-		void StepPunchFeet()
+		// Forget the activities that have faded out by the caller's time 'time'
+		void EndFadedActivities(double time)
 		{
-			// Only the punching side's foot moves
-			auto [punch, extend] = CurrentPunch();
-			auto const* leg = punch != nullptr ? LegOn(punch->hand) : nullptr;
-			if (leg == nullptr || m_action_weight == 0)
-				return;
-
-			// Turning about model +Z with the same sign as the torso's turn moves the heel outward. The ball is the foot bone's tip.
-			auto style = StyleOf(punch->kind);
-			auto& target = m_targets[leg->chain];
-			auto length = m_rig.bones[m_rig.chains[leg->chain].bones.back()].length;
-			auto ball = target.frame.pos + Rotate(target.frame.rot, v4::YAxis()) * length;
-			auto turn = quat(v4::ZAxis(), -SideSign(punch->hand) * style.pivot * extend * m_action_weight);
-			auto frame = xform(ball + Rotate(turn, target.frame.pos - ball), Normalise(turn * target.frame.rot));
-
-			// The step moves forward (-Y) and lifts the foot most half way out
-			auto step = style.step * leg->reach * m_action_weight;
-			frame.pos += v4(0, -step * extend, StepLift * step * 4 * extend * (1 - extend), 0);
-			target.frame = frame;
-		}
-
-		// The model-space position of the shoulder joint of the arm 'limb', carried by the body like a hanging arm (see 'HangingFrame')
-		v4 ArmRoot(LimbState const& limb) const
-		{
-			// Without a spine the body does not move relative to the guide
-			auto root = m_guide.model[m_rig.chains[limb.chain].bones.front()];
-			if (m_spine < 0)
-				return root.pos;
-
-			return (m_targets[m_spine].frame * Invert(m_guide_targets[m_spine].frame) * root).pos;
-		}
-
-		// Aim the hands of a body throwing punches. Both hands hold a guard in front of the chin, and the punching hand drives out to the punch and
-		// back. Offsets are in model axes from each shoulder, in units of the arm's reach, with 'side' being +1 for the left arm and -1 for the right.
-		// A punch aimed at a strike target reaches forward to the target's surface instead of to its usual extent (see 'SetStrikeTarget').
-		void AimPunches(xform const& world_to_model)
-		{
-			// Arms that are not punching stay on guard
-			auto [punch, extend] = CurrentPunch();
-			if (punch == nullptr)
-				return;
-
-			for (auto const& limb : m_limbs)
+			// A stopped run has faded out once its fade time has passed
+			std::erase_if(m_running, [=](Running const& run)
 			{
-				// Only arms box
-				auto const& chain = m_rig.chains[limb.chain];
-				if (chain.role != EChainRole::Arm)
+				// Runs that have not been stopped play on
+				return run.stop && time - *run.stop >= run.fade_out;
+			});
+		}
+
+		// Blend the goals of each running activity at the caller's time 'time' over the gait's goals, in the order that the activities started.
+		// Each activity changes only its own chains, by its weight. The chest's move and the digits' curl are recorded for 'StepNecks' and 'CurlActivityDigits'.
+		void RunActivities(double time, xform const& world_to_model)
+		{
+			// Start from no activity motion
+			m_activity_chest = v4::Zero();
+			std::fill(m_curl.begin(), m_curl.end(), 0.0f);
+			for (auto const& run : m_running)
+			{
+				// An activity that does not show yet, or any more, changes nothing
+				auto weight = ActivityWeight(run, time);
+				if (weight == 0)
 					continue;
 
-				// The guard holds the fist up in front of the chin, the forearm upright and the elbow down. Left-hand offsets mirror for the right arm.
-				auto side = SideSign(chain.side);
-				auto mirror = [side](v4 v)
-				{
-					// Reflect across the body's midline for the right arm
-					return v4(side * v.x, v.y, v.z, v.w);
+				// Evaluate the activity from the current goals
+				auto const& activity = *m_gait.activities[run.activity].activity;
+				std::copy(m_targets.begin(), m_targets.end(), m_activity_out.begin());
+				std::fill(m_activity_curl.begin(), m_activity_curl.end(), 0.0f);
+				auto input = ActivityInput{
+					.rig = m_rig,
+					.limbs = m_activity_limbs,
+					.guide = m_guide_targets,
+					.guide_model = m_guide.model,
+					.spine = m_spine,
+					.world_to_model = world_to_model,
+					.targets = run.targets,
 				};
-				auto guard = mirror(GuardFist());
-				auto guard_dir = Normalise(v4(0, -0.4f, 1, 0));
-				auto guard_pole = Normalise(v4(side * 0.5f, 0, -1, 0));
+				activity.Evaluate(ActivityTime(activity, run.start, time), input, ActivityOutput{ .targets = m_activity_out, .curl = m_activity_curl });
 
-				// The punch's path from the guard, through a control point, to its full extent
-				auto ctrl = guard;
-				auto end = guard;
-				auto dir = guard_dir;
-				auto pole = guard_pole;
-				auto strike = 0.0f;
-				if (chain.side == punch->hand)
+				// Blend the activity's own chains in by its weight
+				for (auto c : m_activities[run.activity].chains)
 				{
-					auto style = StyleOf(punch->kind);
-					ctrl = mirror(style.ctrl);
-					end = mirror(style.end);
-					dir = mirror(style.dir);
-					pole = mirror(style.pole);
-					strike = extend;
+					// The necks follow the chest's move, see 'StepNecks'
+					if (c == m_spine)
+						m_activity_chest += (m_activity_out[c].frame.pos - m_targets[c].frame.pos) * weight;
 
-					// Scale the punch's forward (-Y) path so its fist stops at the target's surface ahead of the shoulder. The shoulder moves with the
-					// torso as the punch goes out, so the fist meets the surface when the punch is fully out. A target closer than the guard does not
-					// pull the fist back behind it, and one beyond reach gets a straight arm, allowing for the punch's sideways and upward offset.
-					if (m_strike && end.y < 0)
-					{
-						auto point = world_to_model * *m_strike;
-						auto ahead = (ArmRoot(limb).y - point.y - m_strike_radius) / limb.reach;
-						auto most = std::sqrt(std::max(Sqr(StrikeMaxReach) - Sqr(end.x) - Sqr(end.z), 0.0f));
-						auto forward = Clamp(ahead, std::min(-GuardFist().y, most), most);
-						auto scale = forward / -end.y;
-						ctrl.y *= scale;
-						end.y *= scale;
-					}
+					m_targets[c] = Blend(m_targets[c], m_activity_out[c], weight);
+					m_curl[c] += (m_activity_curl[c] - m_curl[c]) * weight;
 				}
-
-				// Follow the curved path from the guard to the punch's extent, turning the fingers from the guard direction to the punch direction
-				auto s = strike;
-				auto offset = guard * ((1 - s) * (1 - s)) + ctrl * (2 * s * (1 - s)) + end * (s * s);
-				auto aim = Normalise(Lerp(guard_dir, dir, s));
-				auto fingers = Rotate(limb.stance_rot, v4::YAxis());
-				auto fist = xform(ArmRoot(limb) + offset * limb.reach, Normalise(quat(fingers, aim) * limb.stance_rot));
-
-				// Fade in over the current goal
-				auto& target = m_targets[limb.chain];
-				target.frame = BlendFrame(target.frame, fist, m_action_weight);
-				target.pole = Normalise(Lerp(target.pole, Normalise(Lerp(guard_pole, pole, s)), m_action_weight), target.pole);
 			}
 		}
 
-		// Clench the digits of the arms of a body throwing punches into fists. Each digit bone turns towards the palm by 'FistCurl', scaled by how
-		// strongly the punches show. Hands that hold a grasp are left to their grasps.
-		void ClenchFists()
+		// Curl the digits of each arm by the activities' curl for that arm (see 'RunActivities'). Each digit bone turns towards the palm by the
+		// curl angle. Hands that hold a grasp are left to their grasps.
+		void CurlActivityDigits()
 		{
 			// Digit bones are posed from their parents' current frames. Their descendants are updated once the pose is finished (see 'm_finish_refresh').
-			if (ActiveAction(EActionKind::Punches) == nullptr || m_action_weight == 0)
-				return;
-
 			for (int i = 0, iend = static_cast<int>(m_limbs.size()); i != iend; ++i)
 			{
-				// Only free hands make fists
+				// Only free hands that an activity curls change
 				auto const& limb = m_limbs[i];
-				if (m_rig.chains[limb.chain].role != EChainRole::Arm || limb.digits.empty())
+				auto curl = m_curl[limb.chain];
+				if (curl == 0 || m_rig.chains[limb.chain].role != EChainRole::Arm || limb.digits.empty())
 					continue;
 				if (std::ranges::any_of(m_reaches, [&](auto const& reach) { return reach.limb == i && reach.weight.Value() != 0; }))
 					continue;
@@ -2703,7 +2355,7 @@ namespace pr::animation
 					{
 						// Each bone turns from its parent's current frame
 						auto frame = m_pose.model[m_rig.bones[b].parent] * m_pose.local[b];
-						m_pose.SetModel(m_rig, b, xform(frame.pos, Normalise(quat(axis, FistCurl * m_action_weight) * frame.rot)));
+						m_pose.SetModel(m_rig, b, xform(frame.pos, Normalise(quat(axis, curl) * frame.rot)));
 					}
 				}
 			}
@@ -2768,15 +2420,15 @@ namespace pr::animation
 			};
 		}
 
-		// Turn each neck from its guide aim towards the look point by the look weight. The aim moves with a torso that drives into punches, so the
+		// Turn each neck from its guide aim towards the look point by the look weight. The aim moves with a torso that an activity drives, so the
 		// head goes with the body and keeps facing forward.
 		void StepNecks(float dt, xform const& world_to_model)
 		{
 			m_look_weight.Step(dt);
 			m_look.Step(dt);
-			auto weight = m_look_weight.Value() * Breathing();
+			auto weight = m_look_weight.Value();
 			auto look = world_to_model * m_look.Frame().pos;
-			auto drive = PunchDrive().chest;
+			auto drive = m_activity_chest;
 			for (int c = 0, cend = static_cast<int>(m_rig.chains.size()); c != cend; ++c)
 			{
 				// Rotate the guide aim point about the neck's base onto the look direction, so that a zero weight gives the guide aim exactly
@@ -4267,62 +3919,12 @@ namespace pr::animation::tests
 				PR_EXPECT(swinging.pose().model[end].pos.x - still.pose().model[end].pos.x < -0.01f);
 			}
 		}
-		PRUnitTestMethod(CollapseLiesDownAndGetsUp, Quick)
-		{
-			// A collapse ends with the body lying flat on its side on the ground, as its posture describes. Leaving the family plays the collapse
-			// backwards, so the body stands up again in the stance.
-			auto rig = TestRig();
-			auto gait = TestActionGait();
-			auto death = FamilyIndex(gait, "death");
-			auto loco = Locomotion(rig, gait);
-			auto ground = TestGround();
-			auto dt = 1.0f / 60;
-			auto body = BodyState{ .gravity = v4(0, 0, -9.8f, 0) };
-			auto tilt = [&](std::span<xform const> model)
-			{
-				// The angle of the leg, from the foot up to the hip, from model +Z
-				auto from = model[rig.BoneIndex("foot.L")].pos;
-				auto to = model[rig.BoneIndex("thigh.L")].pos;
-				return std::acos(Clamp(Normalise(to - from).z, -1.0f, 1.0f));
-			};
-			for (int i = 0; i != 60; ++i)
-				loco.Step(dt, body, ground);
-
-			auto stand_tilt = tilt(loco.pose().model);
-			loco.RequestFamily(death, 0.5f);
-			for (int i = 0; i != 180; ++i)
-				loco.Step(dt, body, ground);
-
-			// Lying flat, with no joint below the ground
-			PR_EXPECT(loco.family() == death);
-			PR_EXPECT(std::abs(tilt(loco.pose().model) - math::constants<float>::tau_by_4) < 0.3f);
-			PR_EXPECT(std::abs(tilt(loco.posture(death)) - math::constants<float>::tau_by_4) < 0.3f);
-			for (auto const& xf : loco.pose().model)
-				PR_EXPECT(xf.pos.z > -0.01f);
-
-			// The limp head sags until it rests on the ground
-			auto head = rig.BoneIndex("head");
-			PR_EXPECT(loco.pose().Tip(rig, head).z < 0.05f);
-
-			// Standing up again
-			loco.RequestFamily(FamilyIndex(gait, "bipedal"), 0.5f);
-			for (int i = 0; i != 30; ++i)
-				loco.Step(dt, body, ground);
-
-			PR_EXPECT(tilt(loco.pose().model) > stand_tilt + 0.3f);
-			for (int i = 0; i != 270; ++i)
-				loco.Step(dt, body, ground);
-
-			PR_EXPECT(std::abs(tilt(loco.pose().model) - stand_tilt) < 0.05f);
-			auto hand = rig.BoneIndex("hand.L");
-			PR_EXPECT(FEqlAbsolute(loco.pose().model[hand].pos, rig.rest_model[hand].pos, 1e-2f));
-		}
 		PRUnitTestMethod(PunchesLoop, Quick)
 		{
 			// A body throwing punches drives its fist forward from the guard and back, with its chest moving into each punch, and repeats the sequence
 			auto rig = TestRig();
-			auto gait = TestActionGait();
-			auto fight = FamilyIndex(gait, "fist-fight");
+			auto gait = TestActivityGait();
+			auto fight = ActivityIndex(gait, "fist-fight");
 			auto loco = Locomotion(rig, gait);
 			auto ground = TestGround();
 			auto dt = 1.0f / 60;
@@ -4331,8 +3933,8 @@ namespace pr::animation::tests
 			auto chest = rig.BoneIndex("chest");
 			auto hips = rig.BoneIndex("hips");
 			auto foot = rig.BoneIndex("foot.L");
-			loco.RequestFamily(fight, 0.5f);
-			for (int i = 0; i != 144; ++i)
+			loco.StartActivity(fight, body.time, 0.5f);
+			for (int i = 0; i != 144; ++i, body.time += dt)
 				loco.Step(dt, body, ground);
 
 			// One pass of the sequence, which is 2.4 seconds long
@@ -4345,7 +3947,7 @@ namespace pr::animation::tests
 			auto hips_lo = std::numeric_limits<float>::max();
 			auto hips_hi = std::numeric_limits<float>::lowest();
 			auto foot_lo = std::numeric_limits<float>::max();
-			for (int i = 0; i != 144; ++i)
+			for (int i = 0; i != 144; ++i, body.time += dt)
 			{
 				loco.Step(dt, body, ground);
 				y_lo = std::min(y_lo, loco.pose().model[hand].pos.y);
@@ -4369,48 +3971,215 @@ namespace pr::animation::tests
 			PR_EXPECT(FEqlAbsolute(loco.pose().model[foot].pos, foot_start, 0.02f));
 			PR_EXPECT(FEqlAbsolute(loco.pose().model[hand].pos, start, 0.02f));
 		}
-		PRUnitTestMethod(PunchesStartAtPhase, Quick)
+		PRUnitTestMethod(ActivityJoinedMidwayMatches, Quick)
 		{
-			// Two bodies that start punching together are out of step when their action phases differ, and in step when they match
+			// A body created part way through an activity, and started at the activity's original start time, moves as a body that played the
+			// activity from the start, because the activity is a function of its time
 			auto rig = TestRig();
-			auto gait = TestActionGait();
-			auto fight = FamilyIndex(gait, "fist-fight");
+			auto gait = TestActivityGait();
+			auto fight = ActivityIndex(gait, "fist-fight");
 			auto ground = TestGround();
 			auto dt = 1.0f / 60;
 			auto body = BodyState{ .gravity = v4(0, 0, -9.8f, 0) };
 			auto hand = rig.BoneIndex("hand.L");
+			auto chest = rig.BoneIndex("chest");
 			auto a = Locomotion(rig, gait);
-			auto b = Locomotion(rig, gait);
-			auto c = Locomotion(rig, gait);
-			b.SetActionPhase(0.5f);
-			for (auto* loco : { &a, &b, &c })
-			{
-				// Each body fights for the same time
-				loco->RequestFamily(fight, 0.5f);
-				for (int i = 0; i != 90; ++i)
-					loco->Step(dt, body, ground);
-			}
+			a.StartActivity(fight, body.time, 0.5f);
+			for (int i = 0; i != 120; ++i, body.time += dt)
+				a.Step(dt, body, ground);
 
-			// Over part of the sequence, the out-of-step hand is somewhere else at least once, while the in-step hand always matches
-			auto apart = 0.0f;
-			auto together = 0.0f;
-			for (int i = 0; i != 72; ++i)
+			// The late body joins with no fade, and both play on until the late body has settled into the posture
+			auto b = Locomotion(rig, gait);
+			b.StartActivity(fight, 0.0, 0.0f);
+			for (int i = 0; i != 180; ++i, body.time += dt)
 			{
+				// Both bodies see the same time
 				a.Step(dt, body, ground);
 				b.Step(dt, body, ground);
-				c.Step(dt, body, ground);
-				apart = std::max(apart, Length(a.pose().model[hand].pos - b.pose().model[hand].pos));
-				together = std::max(together, Length(a.pose().model[hand].pos - c.pose().model[hand].pos));
 			}
-			PR_EXPECT(apart > 0.1f * a.limbs()[1].reach);
-			PR_EXPECT(together < 1e-4f);
+
+			// Over one pass of the sequence, the hands and chests match
+			auto worst = 0.0f;
+			for (int i = 0; i != 144; ++i, body.time += dt)
+			{
+				// Compare the bodies at each frame
+				a.Step(dt, body, ground);
+				b.Step(dt, body, ground);
+				worst = std::max(worst, Length(a.pose().model[hand].pos - b.pose().model[hand].pos));
+				worst = std::max(worst, Length(a.pose().model[chest].pos - b.pose().model[chest].pos));
+			}
+			PR_EXPECT(worst < 1e-3f);
+		}
+		PRUnitTestMethod(StoppedActivityFadesOut, Quick)
+		{
+			// Stopping an activity fades it out and forgets it, leaving the body as it would be had it only stood in the activity's posture
+			auto rig = TestRig();
+			auto gait = TestActivityGait();
+			auto fight = ActivityIndex(gait, "fist-fight");
+			auto biped = FamilyIndex(gait, "bipedal");
+			auto ground = TestGround();
+			auto dt = 1.0f / 60;
+			auto body = BodyState{ .gravity = v4(0, 0, -9.8f, 0) };
+			auto hand = rig.BoneIndex("hand.L");
+			auto fighter = Locomotion(rig, gait);
+			auto stander = Locomotion(rig, gait);
+			fighter.StartActivity(fight, body.time, 0.5f);
+			stander.RequestFamily(biped, 0.5f);
+			for (int i = 0; i != 120; ++i, body.time += dt)
+			{
+				// Both bodies take on the posture
+				fighter.Step(dt, body, ground);
+				stander.Step(dt, body, ground);
+			}
+			PR_EXPECT(fighter.family() == biped && fighter.activity_running(fight));
+
+			// Stop part way through a punch
+			fighter.StopActivity(fight, body.time, 0.25f);
+			for (int i = 0; i != 30; ++i, body.time += dt)
+			{
+				// Both bodies play on
+				fighter.Step(dt, body, ground);
+				stander.Step(dt, body, ground);
+			}
+			PR_EXPECT(!fighter.activity_running(fight));
+
+			// Once the feet have stepped back to the stance, the hand is where the standing body's hand is
+			for (int i = 0; i != 120; ++i, body.time += dt)
+			{
+				// Both bodies settle
+				fighter.Step(dt, body, ground);
+				stander.Step(dt, body, ground);
+			}
+			PR_EXPECT(fighter.family() == biped);
+			PR_EXPECT(FEqlAbsolute(fighter.pose().model[hand].pos, stander.pose().model[hand].pos, 0.02f));
+		}
+		PRUnitTestMethod(PunchesAreAFunctionOfTime, Quick)
+		{
+			// Evaluating punches at a time gives the same goals whatever was evaluated before. The goals change only the activity's chains, and the
+			// sequence ends where it starts so that the loop wraps without a jump.
+			auto rig = TestRig();
+			auto gait = TestActivityGait();
+			auto fight = ActivityIndex(gait, "fist-fight");
+			auto const& punches = *gait.activities[fight].activity;
+			auto loco = Locomotion(rig, gait);
+			auto limbs = std::vector<ActivityLimb>{};
+			for (auto const& limb : loco.limbs())
+				limbs.push_back(ActivityLimb{ .chain = limb.chain, .reach = limb.reach, .stance_rot = limb.stance_rot, .sole_up = limb.sole_up });
+
+			auto spine = static_cast<int>(std::ranges::find(rig.chains, EChainRole::Spine, &Chain::role) - rig.chains.begin());
+			auto guide = PoseTargets(rig, rig.rest_model);
+			auto targets = ActivityTargets{};
+			auto input = ActivityInput{
+				.rig = rig,
+				.limbs = limbs,
+				.guide = guide,
+				.guide_model = rig.rest_model,
+				.spine = spine,
+				.world_to_model = xform::Identity(),
+				.targets = targets,
+			};
+			auto evaluate = [&](float time)
+			{
+				// The goals and curls at 'time', starting from the guide's goals
+				auto out = guide;
+				auto curl = std::vector<float>(rig.chains.size());
+				punches.Evaluate(time, input, ActivityOutput{ .targets = out, .curl = curl });
+				return std::pair{ out, curl };
+			};
+			auto same = [](Target const& l, Target const& r)
+			{
+				// Bitwise equal, because the evaluation must not depend on anything but its inputs
+				return std::memcmp(&l, &r, sizeof(Target)) == 0;
+			};
+
+			// The same time gives the same goals
+			auto [first, first_curl] = evaluate(1.3f);
+			(void)evaluate(0.2f);
+			auto [again, again_curl] = evaluate(1.3f);
+			for (int c = 0, cend = static_cast<int>(rig.chains.size()); c != cend; ++c)
+				PR_EXPECT(same(first[c], again[c]) && first_curl[c] == again_curl[c]);
+
+			// Only the declared chains change, and some of them do
+			auto declared = punches.Chains(rig);
+			auto changed = 0;
+			for (int c = 0, cend = static_cast<int>(rig.chains.size()); c != cend; ++c)
+			{
+				// Undeclared chains keep the gait's goal and curl nothing
+				if (std::ranges::find(declared, c) != declared.end())
+				{
+					// Count the declared chains that moved
+					changed += same(first[c], guide[c]) ? 0 : 1;
+					continue;
+				}
+				PR_EXPECT(same(first[c], guide[c]) && first_curl[c] == 0);
+			}
+			PR_EXPECT(changed != 0);
+			PR_EXPECT(first_curl[loco.limbs()[1].chain] > 0);
+
+			// The end of the sequence meets its start
+			auto length = punches.Timeline().length;
+			auto [start, start_curl] = evaluate(0.0f);
+			auto [end, end_curl] = evaluate(length - 1e-4f);
+			for (auto c : declared)
+				PR_EXPECT(FEqlAbsolute(start[c].frame.pos, end[c].frame.pos, 1e-3f));
+		}
+		PRUnitTestMethod(PunchesMarkContacts, Quick)
+		{
+			// The punches' timeline is readable without running the animator. It loops over the sum of the punch durations, with a "contact" mark
+			// for each punch when its fist reaches full extent.
+			auto rig = TestRig();
+			auto gait = TestActivityGait();
+			auto fight = ActivityIndex(gait, "fist-fight");
+			auto loco = Locomotion(rig, gait);
+			auto info = loco.activity_info(fight);
+			PR_EXPECT(info.root_mode == ERootMode::Planted && info.posture == FamilyIndex(gait, "bipedal"));
+			PR_EXPECT(std::ranges::find(info.chains, loco.limbs()[1].chain) != info.chains.end());
+
+			auto const& timeline = *info.timeline;
+			PR_EXPECT(timeline.loop && FEqlAbsolute(timeline.length, 2.4f, 1e-6f));
+			PR_EXPECT(timeline.marks.size() == 4);
+			auto starts = std::array<float, 4>{ 0.0f, 0.5f, 1.1f, 1.8f };
+			auto durations = std::array<float, 4>{ 0.5f, 0.6f, 0.7f, 0.6f };
+			for (int i = 0; i != 4; ++i)
+			{
+				// Each contact is the punch's start plus its time to full extent
+				PR_EXPECT(timeline.marks[i].name == "contact");
+				PR_EXPECT(FEqlAbsolute(timeline.marks[i].time, starts[i] + Punches::PunchOut * durations[i], 1e-5f));
+			}
+
+			// A body that started the activity has its fist furthest forward near the first contact
+			auto ground = TestGround();
+			auto dt = 1.0f / 60;
+			auto body = BodyState{ .gravity = v4(0, 0, -9.8f, 0), .time = -1.0 };
+			auto hand = rig.BoneIndex("hand.L");
+			loco.StartActivity(fight, 0.0, 0.0f);
+			for (; body.time < 0.0; body.time += dt)
+				loco.Step(dt, body, ground);
+
+			auto best = std::pair{ std::numeric_limits<float>::max(), 0.0 };
+			for (; body.time < 0.5; body.time += dt)
+			{
+				// Track the most forward (-Y) fist position over the first punch
+				loco.Step(dt, body, ground);
+				best = std::min(best, std::pair{ loco.pose().model[hand].pos.y, body.time });
+			}
+			PR_EXPECT(std::abs(best.second - timeline.marks[0].time) < 0.05);
+		}
+		PRUnitTestMethod(ActivityTypesMatchAddon, Quick)
+		{
+			// The Blender add-on builds its activity editors from a copy of the registry's parameter descriptions, which must stay current
+			auto path = repo_path(L"projects/tools/blender/rylogic-procedural-animation/activity_types.json");
+			auto file = std::ifstream(path);
+			PR_EXPECT(file.good());
+			auto text = std::string(std::istreambuf_iterator<char>(file), {});
+			PR_EXPECT(json::Write(json::Read(std::string_view(text))) == ActivityTypesJson());
 		}
 		PRUnitTestMethod(PunchesReachStrikeTarget, Quick)
 		{
 			// Punches aimed at a near body stop short of their usual extent, and punches aimed at a far body reach further on average, up to a straight arm
 			auto rig = TestRig();
-			auto gait = TestActionGait();
-			auto fight = FamilyIndex(gait, "fist-fight");
+			auto gait = TestActivityGait();
+			auto fight = ActivityIndex(gait, "fist-fight");
 			auto ground = TestGround();
 			auto dt = 1.0f / 60;
 			auto body = BodyState{ .gravity = v4(0, 0, -9.8f, 0) };
@@ -4420,13 +4189,16 @@ namespace pr::animation::tests
 			{
 				// The most forward (-Y) position, and the mean position, of the left hand over one pass of the sequence
 				auto loco = Locomotion(rig, gait);
-				loco.SetStrikeTarget(target, 0.1f * reach);
-				loco.RequestFamily(fight, 0.5f);
+				auto clock = body;
+				loco.StartActivity(fight, clock.time, 0.5f);
+				if (target)
+					loco.SetActivityTargets(fight, ActivityTargets{ .strike = Strike{ .point = *target, .radius = 0.1f * reach } });
+
 				auto lo = std::numeric_limits<float>::max();
 				auto sum = 0.0f;
-				for (int i = 0; i != 288; ++i)
+				for (int i = 0; i != 288; ++i, clock.time += dt)
 				{
-					loco.Step(dt, body, ground);
+					loco.Step(dt, clock, ground);
 					lo = std::min(lo, loco.pose().model[hand].pos.y);
 					sum += loco.pose().model[hand].pos.y;
 				}
@@ -4443,8 +4215,8 @@ namespace pr::animation::tests
 		{
 			// A hand holding a grasp stays on it while the body throws punches, because the grasp outranks the hand's usual goals
 			auto rig = TestRig();
-			auto gait = TestActionGait();
-			auto fight = FamilyIndex(gait, "fist-fight");
+			auto gait = TestActivityGait();
+			auto fight = ActivityIndex(gait, "fist-fight");
 			auto loco = Locomotion(rig, gait);
 			auto ground = TestGround();
 			auto dt = 1.0f / 60;
@@ -4452,52 +4224,20 @@ namespace pr::animation::tests
 			auto const& arm = loco.limbs()[1];
 			auto hand = rig.chains[arm.chain].bones.back();
 			auto within = Grasp{ .point = v4(0.2f, -1.3f, 0.5f, 1), .palm = v4(-1, 0, 0, 0), .fingers = v4(0, -1, 0, 0) };
-			loco.RequestFamily(fight, 0.5f);
+			loco.StartActivity(fight, body.time, 0.5f);
 			loco.SetReach(ESide::Left, within, 0.25f);
-			for (int i = 0; i != 144; ++i)
+			for (int i = 0; i != 144; ++i, body.time += dt)
 				loco.Step(dt, body, ground);
 
 			// Over one pass of the punch sequence, the palm stays on the grasp
 			auto worst = 0.0f;
-			for (int i = 0; i != 144; ++i)
+			for (int i = 0; i != 144; ++i, body.time += dt)
 			{
 				loco.Step(dt, body, ground);
 				worst = std::max(worst, Length(loco.pose().model[hand] * arm.grip - within.point));
 			}
-			PR_EXPECT(loco.family() == fight);
+			PR_EXPECT(loco.activity_running(fight));
 			PR_EXPECT(worst < 1e-2f);
-		}
-		PRUnitTestMethod(CollapseWithRootChains, Quick)
-		{
-			// A rig whose arm and neck chains start at root bones collapses without a spine bone carrying them. The root bones stay where the topple
-			// puts them, and the rest of each chain sags from them.
-			auto desc = TestRigDesc();
-			auto rest = Rig(desc).rest_model;
-			for (auto name : { "neck", "arm.L" })
-			{
-				// Detach the bone from its parent, keeping it where it was
-				auto b = static_cast<int>(std::ranges::find(desc.bones, std::string_view{name}, &Bone::name) - desc.bones.begin());
-				desc.bones[b].parent = -1;
-				desc.bones[b].rest = rest[b];
-			}
-			auto rig = Rig(desc);
-			auto gait = TestActionGait();
-			auto death = FamilyIndex(gait, "death");
-			auto loco = Locomotion(rig, gait);
-			auto ground = TestGround();
-			auto dt = 1.0f / 60;
-			auto body = BodyState{ .gravity = v4(0, 0, -9.8f, 0) };
-			loco.RequestFamily(death, 0.5f);
-			for (int i = 0; i != 180; ++i)
-				loco.Step(dt, body, ground);
-
-			// The chains stay connected to their roots, and the body lies on the ground
-			PR_EXPECT(loco.family() == death);
-			for (auto [child, root] : { std::pair{ "head", "neck" }, std::pair{ "forearm.L", "arm.L" } })
-				PR_EXPECT(FEqlAbsolute(loco.pose().model[rig.BoneIndex(child)].pos, loco.pose().Tip(rig, rig.BoneIndex(root)), 1e-4f));
-
-			for (auto const& xf : loco.pose().model)
-				PR_EXPECT(xf.pos.z > -0.01f);
 		}
 	};
 }

@@ -5,10 +5,14 @@ Bones are referred to by name. See 'rig_desc.py' for how these properties map to
 """
 
 import math
+from typing import Any
+
 import bpy
 from bpy.app.handlers import persistent
 from bpy.props import BoolProperty, CollectionProperty, EnumProperty, FloatProperty, FloatVectorProperty, IntProperty, PointerProperty, StringProperty
 from bpy.types import PropertyGroup
+
+from . import activity_types
 
 # Enum items. The identifiers are the lower-case '.rig' names in upper case, so the export is a simple mapping.
 CHAIN_ROLES = [
@@ -39,23 +43,6 @@ FAMILY_UPS = [
 FAMILY_MEDIUMS = [
 	("GROUND", "Ground", "The family walks on the ground"),
 	("WATER", "Water", "The family swims at the water's surface. Its cycles must not plant any feet; the limbs hang from the body in the cycle's pose"),
-]
-FAMILY_ACTIONS = [
-	("NONE", "None", "The family moves with its movement cycles"),
-	("COLLAPSE", "Collapse", "Lose motor control and crumple from the base family's stance to lying on the ground. Leaving the family gets back up"),
-	("PUNCHES", "Punches", "Stand in a boxing stance and throw the punch sequence in turn, repeating it"),
-]
-PUNCH_HANDS = [
-	("LEFT", "Left", "Punch with the left arm"),
-	("RIGHT", "Right", "Punch with the right arm"),
-]
-PUNCH_KINDS = [
-	("JAB", "Jab", "A straight punch with the lead hand"),
-	("CROSS", "Cross", "A straight punch with the rear hand, turning the torso further"),
-	("HOOK", "Hook", "A punch that swings around from the side"),
-	("UPPERCUT", "Uppercut", "An upward punch from low to chin height"),
-	("BODY_HOOK", "Body hook", "A hook to the body, bending the knees and leaning to the punching side"),
-	("BODY_JAB", "Body jab", "A straight punch to the body, stepping in with the punching side's foot"),
 ]
 
 
@@ -155,26 +142,12 @@ class RYLOGIC_PG_RigContact(PropertyGroup):
 	normal: FloatVectorProperty(name="Normal", size=3, default=(0.0, 0.0, -1.0), description="The outward surface direction in the bone's rest space")
 
 
-class RYLOGIC_PG_GaitPunch(PropertyGroup):
-	"""One punch of an action family's punch sequence."""
-
-	hand: EnumProperty(name="Hand", items=PUNCH_HANDS, default="LEFT", description="The side of the arm that punches. The rig needs an arm chain on that side")
-	kind: EnumProperty(name="Kind", items=PUNCH_KINDS, default="JAB")
-	duration: FloatProperty(name="Duration", unit="TIME_ABSOLUTE", min=0.05, default=0.6, description="The time for the punch and the return to the guard")
-
-
 class RYLOGIC_PG_GaitFamily(PropertyGroup):
-	"""A posture: a group of movement cycles that share walking limbs. The name is the built-in 'name' property, which cycles refer to.
+	"""A posture: a group of movement cycles that share walking limbs. The name is the built-in 'name' property, which cycles and activities refer to.
 
 	The order of the families is their order in the '.gait', which is the runtime's order of preference when a family cannot be used on the ground.
-	An action family has no cycles. It plays a procedural action in place, starting from the stance of its base family.
 	"""
 
-	action_kind: EnumProperty(name="Action", items=FAMILY_ACTIONS, default="NONE", description="An action that the family plays in place instead of moving. An action family uses only the action settings")
-	action_base: StringProperty(name="Base Family", default="", description="Action families only. The family without an action whose stance and posture the action starts from and returns to")
-	action_duration: FloatProperty(name="Duration", unit="TIME_ABSOLUTE", min=0.05, default=1.6, description="Collapse only. The time from standing to lying on the ground")
-	punches: CollectionProperty(name="Punches", type=RYLOGIC_PG_GaitPunch, description="Punches only. The sequence of punches, which repeats")
-	active_punch: IntProperty(name="Active Punch", default=0)
 	up: EnumProperty(name="Up", items=FAMILY_UPS, default="SURFACE", description="The direction that the body stands up along")
 	max_slope: FloatProperty(name="Max Slope", subtype="ANGLE", min=math.radians(0.1), max=math.pi, default=math.pi, description="The steepest ground, from level, on which the family can be used. 180 degrees allows any ground")
 	max_speed: FloatProperty(name="Max Speed", unit="VELOCITY", min=0.01, default=1.0, description="The fastest that the character should move in this family. It may exceed the fastest cycle's speed")
@@ -197,6 +170,55 @@ class RYLOGIC_PG_GaitCycle(PropertyGroup):
 	leg_swing_out: FloatProperty(name="Leg Swing Out", default=0.0, min=0.0, subtype='DISTANCE', description="The distance by which each walking leg's foot moves out, away from the body's centre line, at the middle of its swing, so that the raised leg swings around rather than straight up and down, e.g. 0 for an upright biped or 0.06 m for a lizard")
 	arm_swing_out: FloatProperty(name="Arm Swing Out", default=0.0, min=0.0, subtype='DISTANCE', description="The distance by which each walking arm's hand moves out, away from the body's centre line, at the middle of its swing (see Leg Swing Out). Arms that do not walk ignore it")
 
+
+def _ParamGroups(class_name: str, fields: list[activity_types.EditorField]) -> list[type]:
+	"""Return property group classes that edit 'fields', the parameters of an activity type. The last class holds the fields; any before it are list items.
+
+	A list field is a collection of item groups, with an 'active_<name>' index for its list editor.
+	"""
+	# Each kind of field maps to the Blender property with the same options
+	classes: list[type] = []
+	annotations: dict[str, Any] = {}
+	for f in fields:
+		match f.kind:
+			case "float":
+				annotations[f.name] = FloatProperty(**f.options)
+			case "int":
+				annotations[f.name] = IntProperty(**f.options)
+			case "bool":
+				annotations[f.name] = BoolProperty(**f.options)
+			case "enum":
+				annotations[f.name] = EnumProperty(**f.options)
+			case "list":
+				classes.extend(_ParamGroups(f"{class_name}_{f.name}", f.fields))
+				annotations[f.name] = CollectionProperty(type=classes[-1], **f.options)
+				annotations[f"active_{f.name}"] = IntProperty(name=f"Active {f.options['name']}", default=0)
+			case _:
+				raise ValueError(f"Unknown parameter kind '{f.kind}'")
+
+	classes.append(type(class_name, (PropertyGroup,), {"__annotations__": annotations, "__doc__": "Generated from the activity type description."}))
+	return classes
+
+
+# The activity type description, and the property groups generated from it. Each type's parameters are in the activity's 'params_<type>' group.
+ACTIVITY_TYPES = activity_types.LoadDescription()
+ACTIVITY_FIELDS = {name: activity_types.EditorFields(ACTIVITY_TYPES, name) for name in ACTIVITY_TYPES}
+_ACTIVITY_PARAM_CLASSES = {name: _ParamGroups(f"RYLOGIC_PG_ActivityParams_{name}", fields) for name, fields in ACTIVITY_FIELDS.items()}
+
+
+class RYLOGIC_PG_GaitActivity(PropertyGroup):
+	"""A procedural motion that the game starts and stops by name, e.g. a fist fight. The name is the built-in 'name' property.
+
+	Only the parameters of the activity's type are exported. The other types' parameters are kept, so changing the type back restores them.
+	"""
+
+	__annotations__ = {
+		"type": EnumProperty(name="Type", items=activity_types.TypeItems(ACTIVITY_TYPES), description="The kind of motion. Each type has its own parameters"),
+		"posture": StringProperty(name="Posture", default="", description="The family whose stance the body holds while the activity plays"),
+		**{f"params_{name}": PointerProperty(type=classes[-1]) for name, classes in _ACTIVITY_PARAM_CLASSES.items()},
+	}
+
+
 class RYLOGIC_PG_Rig(PropertyGroup):
 	"""The chains, contacts, families and movement cycles of an armature."""
 
@@ -218,6 +240,8 @@ class RYLOGIC_PG_Rig(PropertyGroup):
 	active_family: IntProperty(name="Active Family", default=0)
 	cycles: CollectionProperty(name="Movement Cycles", type=RYLOGIC_PG_GaitCycle)
 	active_cycle: IntProperty(name="Active Cycle", default=0)
+	activities: CollectionProperty(name="Activities", type=RYLOGIC_PG_GaitActivity)
+	active_activity: IntProperty(name="Active Activity", default=0)
 	pin_live: BoolProperty(name="Live Pin", default=False, update=lambda rig, context: _OnPinLiveChanged(rig, context), description="In Pose Mode, hold the selected chain bones still as the frame changes, bending the chains above them with IK. With Auto Key on, each frame change keys the solved pose")
 
 
@@ -259,9 +283,10 @@ CLASSES = (
 	RYLOGIC_PG_RigBoneRef,
 	RYLOGIC_PG_RigChain,
 	RYLOGIC_PG_RigContact,
-	RYLOGIC_PG_GaitPunch,
 	RYLOGIC_PG_GaitFamily,
 	RYLOGIC_PG_GaitCycle,
+	*(cls for classes in _ACTIVITY_PARAM_CLASSES.values() for cls in classes),
+	RYLOGIC_PG_GaitActivity,
 	RYLOGIC_PG_Rig,
 )
 
