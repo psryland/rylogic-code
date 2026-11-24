@@ -25,6 +25,7 @@
 		public const string Pinned = "pinned";
 		public const string DockSizes = "dock_sizes";
 		public const string Visible = "visible";
+		public const string Closed = "closed";
 		public const string StripLocation = "strip_location";
 		public const string Active = "active";
 		public const string UserData = "user_data";

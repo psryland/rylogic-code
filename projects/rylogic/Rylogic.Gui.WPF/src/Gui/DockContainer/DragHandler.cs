@@ -198,6 +198,11 @@ namespace Rylogic.Gui.WPF.DockContainerDetail
 						c.DockPane = null;
 						target.AllContent.Insert(index++, c);
 					}
+
+					// Refit floating windows whose content changed
+					(TreeHost as FloatingWindow)?.FitToContent();
+					if (DraggedFromTree != TreeHost)
+						(DraggedFromTree as FloatingWindow)?.FitToContent();
 				}
 
 				// Restore the active content

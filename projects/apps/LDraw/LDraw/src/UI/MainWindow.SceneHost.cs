@@ -44,6 +44,9 @@ public partial class MainWindow :ISceneHost
 		var create_replacement = Model.Scenes.Count == 1;
 		Model.Scenes.Remove(scene);
 		Model.Profile.RemoveSceneState(scene.SceneState);
+		if (m_animation_controls.Scene == scene)
+			m_animation_controls.SetScene(null);
+
 		scene.Dispose();
 
 		// Profiles always retain one usable scene after their final scene is closed.

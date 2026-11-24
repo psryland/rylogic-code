@@ -356,14 +356,21 @@ namespace LDraw
 			m_object_manager = new ObjectManagerUI();
 			m_dc.Add(m_object_manager, EDockSite.Right).IsAutoHide = true;
 
+			// Register the animation controls with the dock container, initially hidden. The saved layout restores where they were last shown
+			m_animation_controls = new AnimationControlsUI();
+			m_animation_controls.DockControl.DockContainer = m_dc;
+
 			// Update our reference to the active content whenever it changes in the dock container
 			m_dc.ActiveContentChanged += delegate
 			{
 				ActiveContent = m_dc.ActiveDockable;
 
-				// Update the object manager to show objects for the active scene
+				// Update the object manager and animation controls for the active scene
 				if (m_dc.ActiveDockable is SceneUI scene)
+				{
 					m_object_manager.SetScene(scene);
+					m_animation_controls.SetScene(scene);
+				}
 			};
 			m_dc.LayoutChanged += SaveLayout;
 
@@ -371,6 +378,29 @@ namespace LDraw
 			m_menu.Items.Insert(1, m_dc.WindowsMenu());
 		}
 		private ObjectManagerUI m_object_manager = null!;
+		private AnimationControlsUI m_animation_controls = null!;
+
+		/// <inheritdoc/>
+		public void ShowAnimationControls(bool activate)
+		{
+			// Animation controls that have never been shown dock at the bottom of the main window.
+			// The pane is sized to fit the controls, unless other content already occupies the bottom dock site.
+			var dc = m_animation_controls.DockControl;
+			var fit_height = false;
+			if (dc.DockPane == null && dc.RestoreLocation == null)
+			{
+				fit_height = (m_dc.GetPane(EDockSite.Bottom)?.AllContent.Count ?? 0) == 0;
+				dc.RestoreLocation = dc.DefaultDockLocation;
+			}
+
+			// Control the active scene, and show the controls
+			if (ActiveContent is SceneUI scene)
+				m_animation_controls.SetScene(scene);
+
+			m_dc.FindAndShow(dc, activate);
+			if (fit_height)
+				m_animation_controls.FitDockedHeight();
+		}
 
 		/// <summary>Update the UI layout to match the current profile</summary>
 		private void LoadProfile()

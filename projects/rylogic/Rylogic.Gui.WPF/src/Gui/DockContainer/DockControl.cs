@@ -145,9 +145,20 @@ namespace Rylogic.Gui.WPF
 			// Although removed from the UI, the dock container still remembers this instance.
 			// The 'Windows' menu can be used to reopen it. If 'DestroyOnClose' is true or the
 			// instance is 'Removed', then it can't be reopened.
+			// Record where the content was so that 'FindAndShow' can restore it there. Floating windows
+			// are discarded when they become empty, so floating content records the window bounds instead.
+			if (DockPane != null)
+			{
+				RestoreLocation = TreeHost is FloatingWindow fw
+					? new DockContainer.DockLocation(DockAddress, ContentIndex, float_bounds: fw.Bounds)
+					: CurrentDockLocation;
+			}
 			DockPane = null;
 			Closed?.Invoke(this, EventArgs.Empty);
 		}
+
+		/// <summary>Where 'DockContainer.FindAndShow' restores this content when it is not in any dock pane (null to use its last dock address)</summary>
+		public DockContainer.DockLocation? RestoreLocation { get; set; }
 
 		/// <summary>Remove this DockControl from whatever dock container it is in</summary>
 		public void Remove()
@@ -242,6 +253,10 @@ namespace Rylogic.Gui.WPF
 			if (dc != null && DockContainer != dc)
 				DockContainer = dc;
 
+			// Content in a pane is shown, so it no longer needs a restore location
+			if (m_pane != null)
+				RestoreLocation = null;
+
 			// If a pane is given, save the dock address for the root branch (if the pane is within a tree)
 			if (m_pane != null && m_pane.ParentBranch != null && m_pane.RootBranch != null)
 				DockAddresses[m_pane.RootBranch] = DockAddress;
@@ -325,6 +340,8 @@ namespace Rylogic.Gui.WPF
 					// Ensure the floating window is visible
 					if (!fw.IsVisible)
 						fw.Show();
+
+					fw.FitToContent();
 				}
 
 				// Dock this content back in the dock container
@@ -333,8 +350,10 @@ namespace Rylogic.Gui.WPF
 					// Get the dock address associated with the dock container
 					var hs = DockAddressFor(DockContainer);
 
-					// Return this content to the dock container
+					// Return this content to the dock container, and refit the floating window it left
+					var old_fw = (FloatingWindow?)TreeHost;
 					DockContainer.Add(Dockable, hs);
+					old_fw?.FitToContent();
 				}
 
 				// Copy pane state to the new pane
@@ -531,6 +550,20 @@ namespace Rylogic.Gui.WPF
 			}
 		}
 
+		/// <summary>
+		/// True if a floating window that hosts this content should resize to fit the content when content is floated, or added to or removed from the window.
+		/// A floating window only fits its content when all of its content has this flag set. Use for content with a natural size, not content that stretches to fill.</summary>
+		public bool FloatingSizeToContent
+		{
+			get;
+			set
+			{
+				if (field == value) return;
+				field = value;
+				NotifyPropertyChanged(nameof(FloatingSizeToContent));
+			}
+		}
+
 		/// <summary>Creates a default context menu for the tab. Use: TabCMenu = DefaultTabCMenu()</summary>
 		public ContextMenu? DefaultTabCMenu()
 		{
@@ -601,7 +634,16 @@ namespace Rylogic.Gui.WPF
 			// Add the name to identify the content
 			node.Add2(XmlTag.Name, PersistName, false);
 			node.Add2(XmlTag.Type, Owner.GetType().FullName, false);
-			CurrentDockLocation.ToXml(node);
+			if (DockPane == null && RestoreLocation != null)
+			{
+				// Closed content records where it should be restored to
+				RestoreLocation.ToXml(node);
+				node.Add2(XmlTag.Closed, true, false);
+			}
+			else
+			{
+				CurrentDockLocation.ToXml(node);
+			}
 			node.Add2(user);
 
 			return node;
