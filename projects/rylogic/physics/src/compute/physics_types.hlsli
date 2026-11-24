@@ -349,6 +349,7 @@ struct GpuResolveContact
 	float bias_impulse;     // Accumulated normal Baumgarte bias impulse on B for this solve. It changes momentum but is never cached for warm starting.
 	int pad3;
 	float4 friction_impulses[GpuContactMaxPoints]; // Per-point physical tangent accumulators for this solve; not replayed across contact frames.
+	float4 angular_impulse; // Accumulated rolling and spin resistance angular impulse on B (A gets the negative) for this solve, in body A space; not replayed.
 };
 struct GpuWarmStartEntry
 {
@@ -846,9 +847,9 @@ struct GpuMaterial
 	float elasticity_tang;
 	float elasticity_tors;
 	float density;
+	float rolling_resistance; // Dimensionless rolling resistance coefficient; see Material::m_rolling_resistance.
+	float spin_resistance;    // Dimensionless spin resistance coefficient; see Material::m_spin_resistance.
 	float pad0;
-	float pad1;
-	float pad2;
 };
 
 // D3D12_DISPATCH_ARGUMENTS

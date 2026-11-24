@@ -483,6 +483,9 @@
     <None Include="scenes\cylinder_showcase.json">
       <Filter>scenes</Filter>
     </None>
+    <None Include="scenes\rolling_resistance.json">
+      <Filter>scenes</Filter>
+    </None>
     <None Include="scenes\cylinder_spinning_barrel.json">
       <Filter>scenes</Filter>
     </None>

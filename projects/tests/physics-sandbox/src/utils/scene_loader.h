@@ -14,7 +14,9 @@ namespace physics_sandbox::scene_loader
 	//         "seed": 1547575334,             // Optional seed used for generated content
 	//         "material": {                    // Optional global material properties
 	//             "elasticity": 1.0,           // Normal restitution coefficient [0,1]
-	//             "friction": 0.0              // Static friction coefficient
+	//             "friction": 0.0,             // Static friction coefficient
+	//             "rolling_resistance": 0.0,   // Optional dimensionless rolling resistance (round bodies rest on slopes with tan(angle) below this)
+	//             "spin_resistance": 0.0       // Optional dimensionless resistance to spin about the contact normal
 	//         },
 	//         "physics": {                      // Optional physics settings
 	//             "substeps": 4,                // Run this many physics steps per scene step
@@ -400,6 +402,8 @@ namespace physics_sandbox::scene_loader
 		// Material properties (applied to material slot 0)
 		float elasticity = 1.0f;
 		float friction = 0.0f;
+		float rolling_resistance = 0.0f;
+		float spin_resistance = 0.0f;
 
 		// Seed for generated scene content
 		unsigned int seed = 0x5C3E2026u;

@@ -387,8 +387,11 @@ public sealed class TestPhysics
 	{
 		using var runtime = new Physics();
 		using var engine = runtime.CreateEngine();
-		engine.SetMaterial(new Material(1, 0.7f, 0.1f, 0.0f, 0.0f, 500.0f));
-		Assert.Equal(500.0f, engine.GetMaterial(1).m_density);
+		engine.SetMaterial(new Material(1, 0.7f, 0.1f, 0.0f, 0.0f, 500.0f, 0.05f, 0.02f));
+		var material = engine.GetMaterial(1);
+		Assert.Equal(500.0f, material.m_density);
+		Assert.Equal(0.05f, material.m_rolling_resistance);
+		Assert.Equal(0.02f, material.m_spin_resistance);
 		using var sphere = engine.CreateSphere(0.5f, new ShapeOptions
 		{
 			ShapeToRoot = m4x4.Translation(-0.75f, 0.0f, 0.0f),

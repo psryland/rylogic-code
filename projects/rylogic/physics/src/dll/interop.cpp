@@ -3138,6 +3138,8 @@ extern "C"
 				.tangential_elasticity = native.m_elasticity_tang,
 				.torsional_elasticity = native.m_elasticity_tors,
 				.density = native.m_density,
+				.rolling_resistance = native.m_rolling_resistance,
+				.spin_resistance = native.m_spin_resistance,
 			};
 		});
 	}
@@ -3152,13 +3154,19 @@ extern "C"
 			pr::physics::RequireIdle(record);
 			auto const& value = pr::physics::RequireStruct(material);
 			pr::physics::RequireMaterialId(value.id);
+			if (!(value.rolling_resistance >= 0.0f) || !std::isfinite(value.rolling_resistance) || !(value.spin_resistance >= 0.0f) || !std::isfinite(value.spin_resistance))
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Material rolling and spin resistance must be finite and non-negative");
+
 			record.m_engine->Material(pr::physics::Material{
-				value.id,
-				value.static_friction,
-				value.normal_elasticity,
-				value.tangential_elasticity,
-				value.torsional_elasticity,
-				value.density});
+				.m_id = value.id,
+				.m_friction_static = value.static_friction,
+				.m_elasticity_norm = value.normal_elasticity,
+				.m_elasticity_tang = value.tangential_elasticity,
+				.m_elasticity_tors = value.torsional_elasticity,
+				.m_density = value.density,
+				.m_rolling_resistance = value.rolling_resistance,
+				.m_spin_resistance = value.spin_resistance,
+			});
 		});
 	}
 
@@ -4370,6 +4378,8 @@ extern "C"
 					.tangential_elasticity = native.m_elasticity_tang,
 					.torsional_elasticity = native.m_elasticity_tors,
 					.density = native.m_density,
+					.rolling_resistance = native.m_rolling_resistance,
+					.spin_resistance = native.m_spin_resistance,
 				};
 				pr::physics::WriteCheckpointValue(output, material);
 			}
@@ -4623,12 +4633,15 @@ extern "C"
 			for (auto const& value : materials)
 			{
 				imported_engine->Material(pr::physics::Material{
-					value.id,
-					value.static_friction,
-					value.normal_elasticity,
-					value.tangential_elasticity,
-					value.torsional_elasticity,
-					value.density});
+					.m_id = value.id,
+					.m_friction_static = value.static_friction,
+					.m_elasticity_norm = value.normal_elasticity,
+					.m_elasticity_tang = value.tangential_elasticity,
+					.m_elasticity_tors = value.torsional_elasticity,
+					.m_density = value.density,
+					.m_rolling_resistance = value.rolling_resistance,
+					.m_spin_resistance = value.spin_resistance,
+				});
 			}
 			record.BindEvents(*imported_engine);
 

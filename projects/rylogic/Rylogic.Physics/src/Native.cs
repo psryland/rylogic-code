@@ -11,7 +11,7 @@ internal static unsafe partial class Native
 {
 	internal const string Dll = "physics";
 	internal const uint ApiVersion = 0x000A0000U;
-	internal const uint StructVersion = 3U;
+	internal const uint StructVersion = 4U;
 	private static IntPtr m_module;
 
 	/// <summary>Load the configuration-appropriate native runtime before the first P/Invoke.</summary>
@@ -395,6 +395,8 @@ internal static unsafe partial class Native
 		internal float m_tangential_elasticity;
 		internal float m_torsional_elasticity;
 		internal float m_density;
+		internal float m_rolling_resistance;
+		internal float m_spin_resistance;
 
 		/// <summary>Convert a public material into its versioned ABI representation.</summary>
 		internal static MaterialValue From(Material material)
@@ -408,13 +410,15 @@ internal static unsafe partial class Native
 				m_tangential_elasticity = material.m_tangential_elasticity,
 				m_torsional_elasticity = material.m_torsional_elasticity,
 				m_density = material.m_density,
+				m_rolling_resistance = material.m_rolling_resistance,
+				m_spin_resistance = material.m_spin_resistance,
 			};
 		}
 
 		/// <summary>Convert a versioned ABI material to its caller-facing value.</summary>
 		internal Material ToPublic()
 		{
-			return new Material(m_id, m_static_friction, m_normal_elasticity, m_tangential_elasticity, m_torsional_elasticity, m_density);
+			return new Material(m_id, m_static_friction, m_normal_elasticity, m_tangential_elasticity, m_torsional_elasticity, m_density, m_rolling_resistance, m_spin_resistance);
 		}
 	}
 

@@ -406,6 +406,70 @@ float3 ApplyImpulseWithEnergyGuard(
 	return impulse;
 }
 
+// Apply an equal and opposite pure angular impulse (in A's space) to the two bodies: A receives '-impulse' and B receives '+impulse'.
+// Returns the part of the impulse that survived the energy guard. The guard scales the impulse down if it would increase kinetic energy.
+float3 ApplyAngularImpulseWithEnergyGuard(
+	inout_(GpuRigidBody) bodyA, inout_(GpuRigidBody) bodyB,
+	float3 impulse, float3x3 rot_a, float3x3 ws_iinv_a, float3x3 ws_iinv_b)
+{
+	// Rigid body state stores world-space momentum, so convert the A-space torque impulse to world space first
+	float3 impulse_ws = mul(impulse, rot_a);
+
+	// Quadratic kinetic energy coefficient for this impulse direction. It gives the fraction to remove if the trial impulse adds energy.
+	float A = 0.5f * (dot(mul(ws_iinv_a, impulse_ws), impulse_ws) + dot(mul(ws_iinv_b, impulse_ws), impulse_ws));
+	float ke_before = KineticEnergy(bodyA) + KineticEnergy(bodyB);
+	AddBodyMomentumWS(bodyA, -impulse_ws, float3(0, 0, 0));
+	AddBodyMomentumWS(bodyB, +impulse_ws, float3(0, 0, 0));
+
+	// A moving kinematic body may correctly add energy, so the guard only applies between non-kinematic bodies
+	float delta = KineticEnergy(bodyA) + KineticEnergy(bodyB) - ke_before;
+	if (!KinematicBody(bodyA) && !KinematicBody(bodyB) && delta > 0 && A > 1e-12f)
+	{
+		float correction = 1.0f - clamp((A - delta) / A, 0.0f, 1.0f);
+		AddBodyMomentumWS(bodyA, +correction * impulse_ws, float3(0, 0, 0));
+		AddBodyMomentumWS(bodyB, -correction * impulse_ws, float3(0, 0, 0));
+		return (1.0f - correction) * impulse;
+	}
+	return impulse;
+}
+
+// Return the change to the accumulated angular impulse 'old_impulse' (A space) that opposes the relative angular velocity 'w_rel' (B relative to A)
+// while keeping the accumulated rolling part (perpendicular to 'axis') within 'roll_limit' and the spin part (along 'axis') within 'spin_limit'.
+// 'K' is the sum of the two bodies' inverse inertias in A space, mapping angular impulse to change in relative angular velocity.
+float3 ComputeRollingResistanceImpulse(float3x3 K, float3 w_rel, float3 axis, float roll_limit, float spin_limit, float3 old_impulse)
+{
+	// Split the relative angular velocity and the accumulator into spin (about the normal) and rolling (perpendicular to the normal) parts
+	float w_spin = dot(w_rel, axis);
+	float3 w_roll = w_rel - w_spin * axis;
+	float old_spin = dot(old_impulse, axis);
+	float3 old_roll = old_impulse - old_spin * axis;
+
+	// Spin: a scalar accumulated impulse about the normal, clamped to [-spin_limit, +spin_limit]
+	float new_spin = old_spin;
+	float k_s = dot(axis, mul(K, axis));
+	if (spin_limit > 0.0f && k_s > 1e-12f)
+		new_spin = clamp(old_spin - w_spin / k_s, -spin_limit, spin_limit);
+
+	// Rolling: oppose the current rolling direction, then project the accumulated impulse back into a disc of radius 'roll_limit'.
+	// Using the current rolling direction (like the tangent friction solve) avoids inverting a possibly singular 2x2 block.
+	float3 new_roll = old_roll;
+	float w_roll_len = length(w_roll);
+	if (roll_limit > 0.0f && w_roll_len > 1e-6f)
+	{
+		float3 dir = w_roll / w_roll_len;
+		float k_r = dot(dir, mul(K, dir));
+		if (k_r > 1e-12f)
+		{
+			new_roll = old_roll - (w_roll_len / k_r) * dir;
+			float len = length(new_roll);
+			if (len > roll_limit)
+				new_roll *= roll_limit / len;
+		}
+	}
+
+	return (new_roll + new_spin * axis) - old_impulse;
+}
+
 // Apply a non-physical Baumgarte bias impulse to linear momentum only, so positional error correction does not inject spin through an unstable contact point.
 float3 ApplyLinearBiasImpulse(inout_(GpuRigidBody) bodyA, inout_(GpuRigidBody) bodyB, float3 impulse, float3x3 rot_a)
 {
@@ -1347,7 +1411,7 @@ void CSPositionSolve(int3 DTID(dtid))
 
 // Resolve one contact against the latest body momenta. Callers provide either a race-free colour batch or exclusive serial execution.
 //
-// The contact solve runs in three phases:
+// The contact solve runs in four phases:
 //
 //   Phase 1 (centroid): Apply a coupled restitution+friction impulse at the contact centroid
 //   using the classic 3D Coulomb-cone-clamped formula. This handles dynamic collisions
@@ -1357,6 +1421,7 @@ void CSPositionSolve(int3 DTID(dtid))
 //   Phase 2 (linear bias, only when penetrating and the centre of mass is not closing): Apply a scalar Baumgarte bias impulse to linear momentum only.
 //   Phase 3 (per-manifold-point friction): Project accumulated tangent impulses against physical normal support, including warm starting.
 //   Broad face contacts can resist sliding and torsion without bias-driven angular runaway.
+//   Phase 4 (rolling and spin resistance): Clamp an accumulated pure angular impulse against the material rolling and spin resistance limits.
 void ResolveContact(uint idx)
 {
 	// Load the contact and both bodies. Updates are written back only if an impulse is applied, which avoids unnecessary UAV traffic for separating contacts.
@@ -1546,6 +1611,36 @@ void ResolveContact(uint idx)
 				c.warmstart_impulse.xyz += applied_friction_impulse;
 				any_impulse = any_impulse || any(applied_friction_impulse != float3(0, 0, 0));
 			}
+		}
+	}
+
+	// ===== Phase 4: Rolling and spin resistance =====
+	// A round body touches at a single point, so the point friction above cannot stop it rolling or spinning. Apply an accumulated pure angular impulse
+	// that opposes the relative angular velocity. The rolling and spin parts are limited to 'coefficient * Jn * r', where Jn is this solve's physical normal
+	// impulse and r is the larger dynamic-body distance from the contact point to the centre of mass along the normal. For a ball, r is its radius, so the
+	// coefficient behaves like a rolling friction coefficient: a round body rests on a slope whose tangent is less than the coefficient.
+	float rolling_resistance = max(mat_a.rolling_resistance, mat_b.rolling_resistance);
+	float spin_resistance = max(mat_a.spin_resistance, mat_b.spin_resistance);
+	float Jn_total = max(dot(c.warmstart_impulse.xyz, axis), 0.0f);
+	PR_HLSL_BRANCH
+	if ((rolling_resistance > 0.0f || spin_resistance > 0.0f) && Jn_total > 0.0f)
+	{
+		// Static and kinematic bodies have no lever arm of their own; their motion is still included through the relative angular velocity
+		float3 pt = c.contact_point.xyz;
+		float r_a = inv_mass_a > 0.0f ? abs(dot(pt - com_a_in_a, axis)) : 0.0f;
+		float r_b = inv_mass_b > 0.0f ? abs(dot(pt - com_b_in_a, axis)) : 0.0f;
+		float r = max(r_a, r_b);
+
+		// Relative angular velocity of B with respect to A, and the angular response of both bodies, in A space
+		float3 w_rel = mul(rot_a, BodyTwistWS(bodyB).ang - BodyTwistWS(bodyA).ang);
+		float3x3 K = os_iinv_a + b2a_iinv_b;
+		float3 angular_impulse = ComputeRollingResistanceImpulse(K, w_rel, axis, rolling_resistance * Jn_total * r, spin_resistance * Jn_total * r, c.angular_impulse.xyz);
+		if (any(angular_impulse != float3(0, 0, 0)))
+		{
+			// Keep the accumulator equal to what the energy guard accepted
+			float3 applied_angular_impulse = ApplyAngularImpulseWithEnergyGuard(bodyA, bodyB, angular_impulse, rot_a, ws_iinv_a, ws_iinv_b);
+			c.angular_impulse.xyz += applied_angular_impulse;
+			any_impulse = any_impulse || any(applied_angular_impulse != float3(0, 0, 0));
 		}
 	}
 

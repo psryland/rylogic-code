@@ -46,6 +46,8 @@ namespace pr::physics
 				.elasticity_tang = mat.m_elasticity_tang,
 				.elasticity_tors = mat.m_elasticity_tors,
 				.density = mat.m_density,
+				.rolling_resistance = mat.m_rolling_resistance,
+				.spin_resistance = mat.m_spin_resistance,
 			};
 		}
 
@@ -54,12 +56,14 @@ namespace pr::physics
 		{
 			Check(id);
 			return Material{
-				id,
-				m_mats[id].friction_static,
-				m_mats[id].elasticity_norm,
-				m_mats[id].elasticity_tang,
-				m_mats[id].elasticity_tors,
-				m_mats[id].density,
+				.m_id = id,
+				.m_friction_static = m_mats[id].friction_static,
+				.m_elasticity_norm = m_mats[id].elasticity_norm,
+				.m_elasticity_tang = m_mats[id].elasticity_tang,
+				.m_elasticity_tors = m_mats[id].elasticity_tors,
+				.m_density = m_mats[id].density,
+				.m_rolling_resistance = m_mats[id].rolling_resistance,
+				.m_spin_resistance = m_mats[id].spin_resistance,
 			};
 		}
 

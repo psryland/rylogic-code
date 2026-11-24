@@ -1,0 +1,98 @@
+{
+	"scene": {
+		"description": "Rolling and spin resistance (material rolling_resistance 0.1, about tan(5.7 deg)). Left to right: a cylinder rests on a 4 degree ramp; a cylinder rolls down a 10 degree ramp and stops on the flat; a rolling ball and a rolling capsule slow down and sleep; a spinning ball stops spinning; a tall tilted box still tips over.",
+		"gravity": [0, 0, -9.81],
+		"material": {
+			"friction": 0.8,
+			"elasticity": 0.1,
+			"rolling_resistance": 0.1,
+			"spin_resistance": 0.1
+		},
+		"camera": {
+			"position": [0, -16, 9],
+			"lookat": [0, 0, 0.5]
+		},
+		"ground_plane": {
+			"height": 0.0,
+			"texture": "#checker"
+		},
+		"shapes": {
+			"ramp": { "name": "ramp", "type": "box", "dimensions": [2.0, 6.0, 0.3] },
+			"roller": { "name": "roller", "type": "cylinder", "length": 1.2, "radius": 0.3 },
+			"ball": { "name": "ball", "type": "sphere", "radius": 0.3 },
+			"capsule": { "name": "capsule", "type": "line", "length": 1.6, "thickness": 0.25 },
+			"tall-box": { "name": "tall-box", "type": "box", "dimensions": [0.4, 0.4, 2.0] }
+		},
+		"bodies": [
+			{
+				"name": "ramp_4deg",
+				"shape": "ramp",
+				"mass": 100.0,
+				"colour": "0xFF808080",
+				"position": [-6.0, 0.0, 1.0],
+				"rotation": [4, 0, 0],
+				"kinematic": true
+			},
+			{
+				"name": "roller_4deg",
+				"shape": "roller",
+				"mass": 4.0,
+				"colour": "0xFF40E040",
+				"position": [-6.0, 1.465, 1.554],
+				"z_axis": [1, 0, 0]
+			},
+			{
+				"name": "ramp_10deg",
+				"shape": "ramp",
+				"mass": 100.0,
+				"colour": "0xFF808080",
+				"position": [-3.0, 0.0, 1.0],
+				"rotation": [10, 0, 0],
+				"kinematic": true
+			},
+			{
+				"name": "roller_10deg",
+				"shape": "roller",
+				"mass": 4.0,
+				"colour": "0xFFE04040",
+				"position": [-3.0, 1.399, 1.704],
+				"z_axis": [1, 0, 0]
+			},
+			{
+				"name": "rolling_ball",
+				"shape": "ball",
+				"mass": 2.0,
+				"colour": "0xFF4080E0",
+				"position": [1.0, -4.0, 0.3],
+				"velocity": [0.0, 3.0, 0.0],
+				"angular_velocity": [-10.0, 0.0, 0.0]
+			},
+			{
+				"name": "rolling_capsule",
+				"shape": "capsule",
+				"mass": 5.0,
+				"colour": "0xFFE0A040",
+				"position": [3.0, -4.0, 0.25],
+				"z_axis": [1, 0, 0],
+				"velocity": [0.0, 2.0, 0.0],
+				"angular_velocity": [-8.0, 0.0, 0.0]
+			},
+			{
+				"name": "spinning_ball",
+				"shape": "ball",
+				"mass": 2.0,
+				"colour": "0xFFA040E0",
+				"position": [5.0, -2.0, 0.3],
+				"angular_velocity": [0.0, 0.0, 15.0]
+			},
+			{
+				"name": "tipping_box",
+				"shape": "tall-box",
+				"mass": 10.0,
+				"colour": "0xFF40A0E0",
+				"position": [7.0, 2.0, 1.1],
+				"rotation": [10, 0, 0]
+			}
+		]
+	}
+}

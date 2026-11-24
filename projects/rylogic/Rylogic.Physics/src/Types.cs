@@ -354,8 +354,17 @@ public readonly struct Material
 	public readonly float m_torsional_elasticity;
 	public readonly float m_density;
 
+	/// <summary>
+	/// Dimensionless rolling resistance (>= 0). Limits the angular impulse that opposes relative rolling to 'coefficient * normal_impulse * r',
+	/// where 'r' is the contact-to-centre-of-mass distance along the contact normal. A round body rests on a slope whose tangent is less than this value.
+	/// </summary>
+	public readonly float m_rolling_resistance;
+
+	/// <summary>Dimensionless spin resistance (>= 0). Limits the angular impulse that opposes relative spin about the contact normal, on the same scale as rolling resistance.</summary>
+	public readonly float m_spin_resistance;
+
 	/// <summary>Create a material with stable identity and physical properties.</summary>
-	public Material(int id, float static_friction, float normal_elasticity, float tangential_elasticity, float torsional_elasticity, float density)
+	public Material(int id, float static_friction, float normal_elasticity, float tangential_elasticity, float torsional_elasticity, float density, float rolling_resistance = 0.0f, float spin_resistance = 0.0f)
 	{
 		m_id = id;
 		m_static_friction = static_friction;
@@ -363,6 +372,8 @@ public readonly struct Material
 		m_tangential_elasticity = tangential_elasticity;
 		m_torsional_elasticity = torsional_elasticity;
 		m_density = density;
+		m_rolling_resistance = rolling_resistance;
+		m_spin_resistance = spin_resistance;
 	}
 }
 
