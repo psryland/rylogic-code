@@ -5,6 +5,8 @@ using System.Diagnostics;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Interop;
+using System.Windows.Threading;
 using System.Xml.Linq;
 using Rylogic.Extn;
 using Rylogic.Utility;
@@ -17,8 +19,8 @@ namespace Rylogic.Gui.WPF.DockContainerDetail
 	{
 		public FloatingWindow(DockContainer dc)
 		{
-			// Don't set 'Owner' to 'Window.GetWindow(dc)', 'dc' may not have an owner
-			// window yet. Also, it's nice to allow floating windows behind the main window.
+			// The window that contains 'dc' becomes the owner once it exists (see 'AttachToOwner'),
+			// so that floating windows stay in front of the main window.
 			InitializeComponent();
 			Content = new DockPanel { LastChildFill = true };
 
@@ -27,6 +29,11 @@ namespace Rylogic.Gui.WPF.DockContainerDetail
 			Root = new Branch(dc, DockSizeData.Quarters);
 
 			SizeChanged += delegate { DockContainer.NotifyLayoutChanged(); };
+		}
+		protected override void OnSourceInitialized(EventArgs e)
+		{
+			base.OnSourceInitialized(e);
+			AttachToOwner();
 		}
 		protected override void OnClosing(CancelEventArgs e)
 		{
@@ -151,6 +158,70 @@ namespace Rylogic.Gui.WPF.DockContainerDetail
 				Width = value.Width;
 				Height = value.Height;
 			}
+		}
+
+		/// <summary>Make the window that contains the dock container the owner of this window, waiting until that window exists</summary>
+		private void AttachToOwner()
+		{
+			// Owned windows can only be attached to a window that has a handle.
+			// The dock container may not be in a window yet, or its window may not have been shown yet.
+			if (Owner != null || DockContainer == null)
+				return;
+
+			var owner = GetWindow(DockContainer);
+			if (owner == null)
+			{
+				DockContainer.Loaded += OnDockContainerLoaded;
+				return;
+			}
+			if (new WindowInteropHelper(owner).Handle == IntPtr.Zero)
+			{
+				owner.SourceInitialized += OnOwnerSourceInitialized;
+				return;
+			}
+
+			Owner = owner;
+
+			void OnDockContainerLoaded(object sender, RoutedEventArgs e)
+			{
+				// Retry now that the dock container is in a window
+				((DockContainer)sender).Loaded -= OnDockContainerLoaded;
+				AttachToOwner();
+			}
+			void OnOwnerSourceInitialized(object? sender, EventArgs e)
+			{
+				// Retry now that the owner window has a handle
+				((Window)sender!).SourceInitialized -= OnOwnerSourceInitialized;
+				AttachToOwner();
+			}
+		}
+
+		/// <summary>
+		/// Resize this window to fit its content, if all the content has 'DockControl.FloatingSizeToContent' set.
+		/// The size is set once. The user can resize the window freely afterwards.</summary>
+		public void FitToContent()
+		{
+			// Defer until the current content move is complete, because callers may add several items one at a time
+			Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () =>
+			{
+				// Only fit open windows whose content all has a natural size
+				if (DockContainer == null || !AllContent.Any() || !AllContent.All(x => x.FloatingSizeToContent))
+					return;
+
+				// Let WPF size the window to its content. The explicit Width/Height are cleared because they take precedence over 'SizeToContent'
+				ClearValue(WidthProperty);
+				ClearValue(HeightProperty);
+				SizeToContent = SizeToContent.WidthAndHeight;
+
+				// Return to manual sizing after the layout pass, keeping the fitted size, so the user can resize freely
+				Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () =>
+				{
+					// Keep the fitted size as the explicit size
+					SizeToContent = SizeToContent.Manual;
+					Width = ActualWidth;
+					Height = ActualHeight;
+				});
+			});
 		}
 
 		/// <summary>Add a dockable instance to this branch at the position described by 'location'.</summary>

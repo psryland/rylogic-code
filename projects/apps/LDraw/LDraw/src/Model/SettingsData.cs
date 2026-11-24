@@ -66,6 +66,7 @@ namespace LDraw
 			FontSize = 10.0;
 			AutoRefresh = false;
 			ResetOnLoad = true;
+			ShowAnimationControlsOnLoad = true;
 			ReloadChangedScripts = null;
 			ClearErrorLogOnReload = true;
 			CheckForChangesPollPeriodS = 1.0;
@@ -116,6 +117,13 @@ namespace LDraw
 		{
 			get => get<bool>(nameof(ResetOnLoad));
 			set => set(nameof(ResetOnLoad), value);
+		}
+
+		/// <summary>True if the animation controls are shown when a newly loaded source adds animation to a scene</summary>
+		public bool ShowAnimationControlsOnLoad
+		{
+			get => get<bool>(nameof(ShowAnimationControlsOnLoad));
+			set => set(nameof(ShowAnimationControlsOnLoad), value);
 		}
 
 		/// <summary>Where scripts changed externally are automatically reloaded. Null means prompt</summary>

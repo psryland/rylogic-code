@@ -274,7 +274,7 @@ namespace Rylogic.Gui.WPF
 		}
 
 		/// <summary>Add the dockable to the dock container, auto hide panel, or float window, as described by 'loc'</summary>
-		internal DockPane Add(DockControl dc, DockLocation loc)
+		internal DockPane Add(DockControl dc, DockLocation loc, bool activate = true)
 		{
 			dc = dc ?? throw new ArgumentNullException(nameof(dc), "'dockable' or 'dockable.DockControl' cannot be 'null'");
 			loc ??= dc.DefaultDockLocation;
@@ -286,7 +286,15 @@ namespace Rylogic.Gui.WPF
 				var id = loc.FloatingWindowId.Value;
 				var fw = FloatingWindows.GetOrAdd(id);
 				pane = fw.Add(dc, loc.Index, loc.Address);
-				fw.Show();
+				ShowFloatingWindow(fw, activate);
+			}
+			else if (loc.FloatingBounds != null)
+			{
+				// If floating bounds are given, create a new floating window at those bounds
+				var fw = FloatingWindows.GetOrAdd(x => false);
+				fw.Bounds = Gui_.OnScreen(loc.FloatingBounds.Value);
+				pane = fw.Add(dc, loc.Index, loc.Address);
+				ShowFloatingWindow(fw, activate);
 			}
 			else if (loc.AutoHide != null)
 			{
@@ -306,6 +314,15 @@ namespace Rylogic.Gui.WPF
 		public DockPane Add(IDockable dockable, DockLocation loc)
 		{
 			return Add(dockable.DockControl, loc);
+		}
+
+		/// <summary>Make 'fw' visible, optionally without taking focus from the currently active window</summary>
+		private static void ShowFloatingWindow(FloatingWindow fw, bool activate)
+		{
+			// 'ShowActivated' only affects the next show, so restore the default afterwards
+			fw.ShowActivated = activate;
+			fw.Show();
+			fw.ShowActivated = true;
 		}
 		public TDockable Add2<TDockable>(TDockable dockable, DockLocation loc)
 			where TDockable : IDockable
@@ -503,12 +520,14 @@ namespace Rylogic.Gui.WPF
 			items.Add(new MenuItem { Header = "Reset Layout", Command = CmdResetLayout });
 		}
 
-		/// <summary>Make 'content' visible to the user, by making it's containing window visible, on-screen, popped-out, etc</summary>
-		public void FindAndShow(IDockable content)
+		/// <summary>
+		/// Make 'content' visible to the user, by making it's containing window visible, on-screen, popped-out, etc.
+		/// Closed content is restored to where it was last shown. If 'activate' is false, the content is shown without becoming the active content.</summary>
+		public void FindAndShow(IDockable content, bool activate = true)
 		{
-			FindAndShow(content.DockControl);
+			FindAndShow(content.DockControl, activate);
 		}
-		public void FindAndShow(DockControl dc)
+		public void FindAndShow(DockControl dc, bool activate = true)
 		{
 			if (dc.DockContainer != this)
 				throw new Exception($"Cannot show content '{dc.TabText}', it is not managed by this DockContainer");
@@ -517,9 +536,12 @@ namespace Rylogic.Gui.WPF
 			var pane = dc.DockPane;
 			if (pane == null)
 			{
-				// Restore 'content' to the dock container
-				var address = dc.DockAddressFor(this);
-				Add(dc, int.MaxValue, address);
+				// Restore 'content' to where it was last shown, or to its last address in the dock container
+				if (dc.RestoreLocation != null)
+					Add(dc, dc.RestoreLocation, activate);
+				else
+					Add(dc, int.MaxValue, dc.DockAddressFor(this));
+
 				pane = dc.DockPane;
 				if (pane == null)
 					throw new Exception($"Cannot show content '{dc.TabText}'. Could not add it to a visible dock pane");
@@ -531,7 +553,8 @@ namespace Rylogic.Gui.WPF
 			// Make it the active item in the dock container
 			if (pane.TreeHost != null)
 			{
-				ActiveContentManager.ActiveContent = dc;
+				if (activate)
+					ActiveContentManager.ActiveContent = dc;
 
 				// If the container is an auto hide panel, make sure it's popped out
 				if (pane.TreeHost is AutoHidePanel ah)
@@ -543,7 +566,8 @@ namespace Rylogic.Gui.WPF
 				if (pane.TreeHost is FloatingWindow fw)
 				{
 					fw.Bounds = Gui_.OnScreen(fw.Bounds);
-					fw.Visibility = Visibility.Visible;
+					if (!fw.IsVisible)
+						ShowFloatingWindow(fw, activate);
 					if (fw.WindowState == WindowState.Minimized)
 						fw.WindowState = WindowState.Normal;
 				}
@@ -664,7 +688,13 @@ namespace Rylogic.Gui.WPF
 				if (all_content.TryGetValue(name, out content) || (content = content_factory?.Invoke(name, type, udat)) != null)
 				{
 					var loc = new DockLocation(content_node);
-					if (loc.Address.First() != EDockSite.None)
+					if (content_node.Element(XmlTag.Closed).As<bool>(false))
+					{
+						// Closed content stays hidden, but remembers where to restore it
+						content.DockPane = null;
+						content.RestoreLocation = loc;
+					}
+					else if (loc.Address.First() != EDockSite.None)
 						Add(content, loc);
 					else
 						content.DockPane = null;

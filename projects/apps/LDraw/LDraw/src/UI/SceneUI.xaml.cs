@@ -46,6 +46,7 @@ namespace LDraw.UI
 			RenameScene = Command.Create(this, RenameSceneInternal);
 			CloseScene = Command.Create(this, CloseSceneInternal);
 			LinkCameras = Command.Create(this, LinkCamerasInternal);
+			ShowAnimationControls = Command.Create(this, ShowAnimationControlsInternal);
 
 			PopulateOtherScenes();
 
@@ -485,18 +486,6 @@ namespace LDraw.UI
 			Links.RemoveAll(x => x.Source == null || x.Target == null || (x.CamLink == ELinkCameras.None && x.AxisLink == ELinkAxes.None));
 		}
 
-		/// <summary>True if the animation UI is visible</summary>
-		public bool AnimationUI
-		{
-			get;
-			set
-			{
-				if (field == value) return;
-				field = value;
-				NotifyPropertyChanged(nameof(AnimationUI));
-			}
-		}
-
 		/// <summary>True while the scene is presented in a borderless window that covers its monitor</summary>
 		public bool IsFullscreen => m_fullscreen != null;
 
@@ -588,6 +577,15 @@ namespace LDraw.UI
 		private void CloseSceneInternal()
 		{
 			DockControl.Close();
+		}
+
+		/// <summary>Show the dockable animation controls for this scene</summary>
+		public Command ShowAnimationControls { get; }
+		private void ShowAnimationControlsInternal()
+		{
+			// Make this the active scene so that the controls apply to it
+			DockControl.IsActiveContent = true;
+			Model.SceneHost?.ShowAnimationControls(activate: true);
 		}
 
 		/// <summary>Show the link cameras UI</summary>
