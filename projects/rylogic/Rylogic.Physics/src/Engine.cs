@@ -559,6 +559,26 @@ public sealed class Engine :IDisposable
 		}
 	}
 
+	/// <summary>Return the number of collision outline segments for all enabled bodies. Costly; for debug views only.</summary>
+	public unsafe int DebugLineCount()
+	{
+		var status = Native.Physics_DebugLinesCopy(Handle, null, 0, out var required);
+		if (status != EStatus.Success && status != EStatus.BufferTooSmall)
+			Native.Check(status);
+
+		return checked((int)required);
+	}
+
+	/// <summary>Copy world-space collision outline segments for all enabled bodies without partial writes. Terrain and articulations are not included.</summary>
+	public unsafe int CopyDebugLines(Span<DebugLine> lines)
+	{
+		fixed (DebugLine* line_ptr = lines)
+		{
+			Native.Check(Native.Physics_DebugLinesCopy(Handle, line_ptr, (uint)lines.Length, out var required));
+			return checked((int)required);
+		}
+	}
+
 	/// <summary>Return the number of events buffered by the most recently completed step.</summary>
 	public unsafe int EventCount()
 	{

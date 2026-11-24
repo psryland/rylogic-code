@@ -9,8 +9,8 @@ namespace Rylogic.Gfx.UI;
 internal static unsafe class Native
 {
 	internal const string Dll = "view3d-ui";
-	internal const uint ApiVersion = 0x000B0000U;
-	internal const uint StructVersion = 11U;
+	internal const uint ApiVersion = 0x000C0000U;
+	internal const uint StructVersion = 12U;
 	private static IntPtr m_module;
 
 	/// <summary>Load the configuration-appropriate native runtime before the first P/Invoke.</summary>
@@ -157,6 +157,10 @@ internal static unsafe class Native
 		internal uint m_max_visible_items;
 		internal EOrientation m_orientation;
 		internal ETextAlign m_text_align;
+		internal uint m_tooltip_offset;
+		internal uint m_tooltip_length;
+		internal StyleId m_tooltip_style_id;
+		internal ResourceId m_tooltip_font_resource_id;
 	}
 
 	[StructLayout(LayoutKind.Sequential)]
@@ -445,6 +449,7 @@ internal static unsafe class Native
 	[DllImport(Dll)] internal static extern EStatus View3DUI_InputInject(ulong context, NormalizedInput* input);
 	[DllImport(Dll)] internal static extern EStatus View3DUI_InputInjectText(ulong context, NormalizedInput* input, InputTextPayload* payload);
 	[DllImport(Dll)] internal static extern EStatus View3DUI_CaretGeometry(ulong context, ControlId control_id, Rect* caret_dip, int* valid);
+	[DllImport(Dll)] internal static extern EStatus View3DUI_TooltipSet(ulong context, ControlId root_id, ulong key, byte* text_utf8, uint text_length);
 	[DllImport(Dll)] internal static extern EStatus View3DUI_Update(ulong context, ViewportState* viewport);
 
 	[DllImport(Dll)] internal static extern EStatus View3DUI_EventCount(ulong context, out uint count);

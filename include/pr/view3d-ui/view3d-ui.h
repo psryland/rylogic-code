@@ -49,6 +49,7 @@ namespace pr::view3d::ui
 	x(InputInject            , EStatus (__stdcall*)(ContextHandle context, NormalizedInput const* input))\
 	x(InputInjectText        , EStatus (__stdcall*)(ContextHandle context, NormalizedInput const* input, InputTextPayload const* payload))\
 	x(CaretGeometry          , EStatus (__stdcall*)(ContextHandle context, ControlId control_id, Rect* caret_dip, std::int32_t* valid))\
+	x(TooltipSet             , EStatus (__stdcall*)(ContextHandle context, ControlId root_id, std::uint64_t key, char const* text_utf8, std::uint32_t text_length))\
 	x(Update                 , EStatus (__stdcall*)(ContextHandle context, ViewportState const* viewport))\
 	x(EventCount             , EStatus (__stdcall*)(ContextHandle context, std::uint32_t* count))\
 	x(EventsCopy             , EStatus (__stdcall*)(ContextHandle context, Event* events, std::uint32_t capacity, std::uint32_t* required, std::byte* payload_blob, std::uint32_t payload_capacity, std::uint32_t* payload_required))\
@@ -303,6 +304,12 @@ namespace pr::view3d::ui
 			auto caret = Rect{};
 			impl::Check(Dll::Get().CaretGeometry(m_handle, control_id, &caret, &valid));
 			return caret;
+		}
+
+		// Set the application hover tooltip for 'key' (0 clears it). See View3DUI_TooltipSet.
+		void TooltipSet(ControlId root_id, std::uint64_t key, std::string_view text_utf8) const
+		{
+			impl::Check(Dll::Get().TooltipSet(m_handle, root_id, key, text_utf8.data(), static_cast<std::uint32_t>(text_utf8.size())));
 		}
 
 		// Count of currently pending queued events.

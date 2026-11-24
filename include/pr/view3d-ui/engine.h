@@ -103,6 +103,12 @@ namespace pr::view3d::ui
 		// when the control is not a focused, laid-out, editable control.
 		void CaretGeometry(ControlId control_id, Rect& out_caret_dip, std::int32_t& out_valid);
 
+		// Set the application tooltip, shown when the pointer rests over no interactive control. 'key' identifies the thing the
+		// tooltip describes: a new key restarts the hover delay, while the same key with new text updates the text in place.
+		// 'key == 0' clears the tooltip. 'root_id' must be an accepted Root, whose tooltip style and font are used, and 'text_utf8'
+		// must be valid UTF-8. A control with its own tooltip text takes priority over the application tooltip.
+		void TooltipSet(ControlId root_id, std::uint64_t key, std::string_view text_utf8);
+
 		// Pending event queue accessors (section 5.4). Count/PayloadBytes report the true pending
 		// size regardless of the caller's buffer; Copy drains the entire queue and clears it.
 		std::uint32_t EventCount() const;

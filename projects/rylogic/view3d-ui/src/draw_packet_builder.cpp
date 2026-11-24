@@ -602,6 +602,46 @@ namespace pr::view3d::ui
 			}
 		}
 
+		// Paint a visible tooltip as a screen-space group after every other group, so it draws on top of all roots and popups.
+		void AppendTooltip(TreeModel const& tree, TooltipView const& tooltip, DrawPacket& out)
+		{
+			// The tooltip box uses the root's tooltip style at unit scale, because tooltips are always placed in viewport DIPs.
+			if (!tooltip.visible)
+				return;
+
+			auto const& root = tree.m_controls.at(tooltip.root_id).desc;
+			auto const& visual = StyleOf(tree, root.tooltip_style_id).desc.visuals[static_cast<std::size_t>(EStateChannel::Normal)];
+			auto const font = ResolveControlFont(tree, root.tooltip_font_resource_id);
+			auto const first_item = static_cast<std::uint32_t>(out.items.size());
+			AppendBox(tree, tooltip.root_id, tooltip.bounds, visual, 1.0f, out);
+
+			// The text is left aligned inside the border and padding. The renderer centres multi-line text vertically.
+			DrawItem text_item{};
+			text_item.control_id = tooltip.root_id;
+			text_item.primitive = EVisualPrimitive::TextPresenter;
+			text_item.bounds = tooltip.bounds;
+			text_item.fill = font.colour;
+			text_item.opacity = visual.opacity;
+			text_item.text = tooltip.text;
+			text_item.font_family = font.family;
+			text_item.font_size = font.size;
+			text_item.text_align = ETextAlign::Left;
+			text_item.text_inset_dip = TooltipPadX + std::max(0.0f, visual.border_thickness);
+			out.items.push_back(std::move(text_item));
+
+			out.groups.push_back(DrawGroup{
+				.root_id = tooltip.root_id,
+				.policy = ERootPolicy::Screen,
+				.first_item = first_item,
+				.item_count = static_cast<std::uint32_t>(out.items.size()) - first_item,
+				.clip_depth = 0.0f,
+				.view_depth = 0.0f,
+				.occlusion_min_opacity = 0.0f,
+				.occlusion_fade_depth = 0.0f,
+				.occlusion_depth_bias = 0.0f,
+			});
+		}
+
 		void Walk(TreeModel const& tree, ControlId id, std::unordered_map<ControlId, Rect> const& layout, ViewportState const& viewport, StyleResolver& styles, InputState const& input_state, double time_ms, float scale, DrawPacket& out)
 		{
 			auto const& node = tree.m_controls.at(id);
@@ -735,7 +775,7 @@ namespace pr::view3d::ui
 		}
 	}
 
-	DrawPacket BuildDrawPacket(TreeModel const& tree, std::unordered_map<ControlId, Rect> const& layout, std::unordered_map<ControlId, RootPlacement> const& placements, StyleResolver& styles, InputState const& input_state, std::uint64_t accepted_revision, std::uint64_t visual_sequence, double time_ms, float viewport_dpi, ViewportState const& viewport)
+	DrawPacket BuildDrawPacket(TreeModel const& tree, std::unordered_map<ControlId, Rect> const& layout, std::unordered_map<ControlId, RootPlacement> const& placements, StyleResolver& styles, InputState const& input_state, TooltipView const& tooltip, std::uint64_t accepted_revision, std::uint64_t visual_sequence, double time_ms, float viewport_dpi, ViewportState const& viewport)
 	{
 		DrawPacket out;
 		out.accepted_revision = accepted_revision;
@@ -819,6 +859,8 @@ namespace pr::view3d::ui
 			}
 		}
 
+		// The tooltip is the last group so nothing covers it.
+		AppendTooltip(tree, tooltip, out);
 		return out;
 	}
 }

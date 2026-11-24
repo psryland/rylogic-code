@@ -14,13 +14,15 @@
 #include "style.h"
 #include "input.h"
 #include "world.h"
+#include "tooltip.h"
 
 namespace pr::view3d::ui
 {
 	// Build one immutable draw packet in deterministic pre-order (invisible controls and their
 	// whole subtree are excluded, matching hit-testing/tab-order). One DrawGroup is emitted per
 	// root that draws anything, in tree root order, carrying the root's host-stage policy and
-	// depth/fade parameters; culled world roots contribute nothing. 'styles' is mutated (its
-	// transition runtime state advances to 'time_ms' for every visited control).
-	DrawPacket BuildDrawPacket(TreeModel const& tree, std::unordered_map<ControlId, Rect> const& layout, std::unordered_map<ControlId, RootPlacement> const& placements, StyleResolver& styles, InputState const& input_state, std::uint64_t accepted_revision, std::uint64_t visual_sequence, double time_ms, float viewport_dpi, ViewportState const& viewport);
+	// depth/fade parameters; culled world roots contribute nothing. An open ComboBox popup and then
+	// a visible 'tooltip' follow as the final groups, so they draw above every root. 'styles' is
+	// mutated (its transition runtime state advances to 'time_ms' for every visited control).
+	DrawPacket BuildDrawPacket(TreeModel const& tree, std::unordered_map<ControlId, Rect> const& layout, std::unordered_map<ControlId, RootPlacement> const& placements, StyleResolver& styles, InputState const& input_state, TooltipView const& tooltip, std::uint64_t accepted_revision, std::uint64_t visual_sequence, double time_ms, float viewport_dpi, ViewportState const& viewport);
 }

@@ -18,6 +18,8 @@
 #include "control_geometry.h"
 #include "text_shaper.h"
 #include "text_layout.h"
+#include "text_unicode.h"
+#include "tooltip.h"
 #include "uia_bridge.h"
 
 namespace pr::view3d::ui
@@ -56,6 +58,7 @@ namespace pr::view3d::ui
 		std::unordered_map<ControlId, RootPlacement> m_placements; // One per root, from the same Update() as m_layout
 		StyleResolver m_styles;
 		InputState m_input;
+		TooltipState m_tooltip;
 		EventQueue m_events;
 		Win32InputTranslatorState m_win32_translator;
 		HWND m_capture_hwnd = nullptr; // Only capture acquired through real window messages is owned here.
@@ -184,6 +187,7 @@ namespace pr::view3d::ui
 		// transaction removed; this never emits events or throws, so it cannot roll back the commit.
 		ReconcileTextEditsAfterTransaction(m_impl->m_tree, m_impl->m_input);
 		m_impl->m_input.Prune(live_ids);
+		m_impl->m_tooltip.Prune(m_impl->m_tree);
 	}
 
 	void UiEngine::Update(ViewportState const& viewport)
@@ -217,7 +221,8 @@ namespace pr::view3d::ui
 		m_impl->m_placements = std::move(placements);
 		m_impl->m_semantics = std::move(semantics);
 		m_impl->m_visual_sequence++;
-		m_impl->m_draw_packet = BuildDrawPacket(m_impl->m_tree, m_impl->m_layout, m_impl->m_placements, m_impl->m_styles, m_impl->m_input, m_impl->m_tree.m_revision, m_impl->m_visual_sequence, m_impl->m_time_ms, viewport.dpi, m_impl->m_viewport);
+		m_impl->m_tooltip.Update(m_impl->m_tree, m_impl->m_input, m_impl->m_viewport, TextShaperOrNull(), m_impl->m_time_ms);
+		m_impl->m_draw_packet = BuildDrawPacket(m_impl->m_tree, m_impl->m_layout, m_impl->m_placements, m_impl->m_styles, m_impl->m_input, m_impl->m_tooltip.m_view, m_impl->m_tree.m_revision, m_impl->m_visual_sequence, m_impl->m_time_ms, viewport.dpi, m_impl->m_viewport);
 
 		// Republish the accessibility projection from the committed snapshot, on the owner thread,
 		// after everything else has succeeded. This is a no-throw step so a UI Automation failure
@@ -374,7 +379,11 @@ namespace pr::view3d::ui
 		try
 		{
 			auto const hit_context = TextHitContext{ .shaper = TextShaperOrNull(), .placements = &m_impl->m_placements };
-			return ProcessNormalizedInput(m_impl->m_tree, m_impl->m_layout, m_impl->m_viewport, input, text_payload, hit_context, m_impl->m_input, m_impl->m_events, m_impl->m_tree.m_revision);
+			auto const result = ProcessNormalizedInput(m_impl->m_tree, m_impl->m_layout, m_impl->m_viewport, input, text_payload, hit_context, m_impl->m_input, m_impl->m_events, m_impl->m_tree.m_revision);
+
+			// The tooltip follows the pointer and dismissal from the same records the state machine accepted.
+			m_impl->m_tooltip.ObserveInput(input);
+			return result;
 		}
 		catch (EngineException const& ex)
 		{
@@ -431,6 +440,25 @@ namespace pr::view3d::ui
 		}
 
 		return m_impl->m_text_shaper.get();
+	}
+
+	void UiEngine::TooltipSet(ControlId root_id, std::uint64_t key, std::string_view text_utf8)
+	{
+		// Clearing needs no root, so a host can clear after removing its root.
+		if (key == 0)
+		{
+			m_impl->m_tooltip.SetApp(0, 0, {});
+			return;
+		}
+
+		// The root supplies the tooltip's style and font, so it must be an accepted Root.
+		auto const root_it = m_impl->m_tree.m_controls.find(root_id);
+		if (root_it == m_impl->m_tree.m_controls.end() || root_it->second.desc.type != EControlType::Root)
+			throw EngineException(EStatus::InvalidArgument, std::format("TooltipSet: {} is not an accepted root", root_id));
+		if (!Utf8Validate(text_utf8))
+			throw EngineException(EStatus::InvalidArgument, "TooltipSet: text is not valid UTF-8");
+
+		m_impl->m_tooltip.SetApp(root_id, key, text_utf8);
 	}
 
 	void UiEngine::CaretGeometry(ControlId control_id, Rect& out_caret_dip, std::int32_t& out_valid)
