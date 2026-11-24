@@ -60,6 +60,12 @@ extern "C"
 	// candidate-window placement and for a later UI Automation Text provider.
 	VIEW3D_UI_API pr::view3d::ui::EStatus __stdcall View3DUI_CaretGeometry(pr::view3d::ui::ContextHandle context, pr::view3d::ui::ControlId control_id, pr::view3d::ui::Rect* caret_dip, std::int32_t* valid);
 
+	// Set the application hover tooltip, shown after the pointer rests over no interactive control. 'key' identifies what the
+	// tooltip describes: a new key restarts the hover delay, while the same key with new text updates the text in place. 'key'
+	// 0 clears the tooltip. 'root_id' must be an accepted Root, whose tooltip style and font are used. 'text_utf8' must be
+	// valid UTF-8 and is copied before the call returns; it may be null only when 'text_length' is 0.
+	VIEW3D_UI_API pr::view3d::ui::EStatus __stdcall View3DUI_TooltipSet(pr::view3d::ui::ContextHandle context, pr::view3d::ui::ControlId root_id, std::uint64_t key, char const* text_utf8, std::uint32_t text_length);
+
 	// --- Update and render-neutral snapshot -----------------------------------------------------
 	VIEW3D_UI_API pr::view3d::ui::EStatus __stdcall View3DUI_Update(pr::view3d::ui::ContextHandle context, pr::view3d::ui::ViewportState const* viewport);
 

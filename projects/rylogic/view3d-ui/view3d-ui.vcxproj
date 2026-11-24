@@ -46,6 +46,7 @@
 		<ClInclude Include="src\text_layout.h" />
 		<ClInclude Include="src\text_shaper.h" />
 		<ClInclude Include="src\text_unicode.h" />
+		<ClInclude Include="src\tooltip.h" />
 		<ClInclude Include="src\tree.h" />
 		<ClInclude Include="src\uia_bridge.h" />
 		<ClInclude Include="src\uia_provider.h" />
@@ -64,6 +65,7 @@
 		<ClCompile Include="src\text_layout.cpp" />
 		<ClCompile Include="src\text_shaper.cpp" />
 		<ClCompile Include="src\text_unicode.cpp" />
+		<ClCompile Include="src\tooltip.cpp" />
 		<ClCompile Include="src\tree.cpp" />
 		<ClCompile Include="src\uia_bridge.cpp" />
 		<ClCompile Include="src\uia_provider.cpp" />

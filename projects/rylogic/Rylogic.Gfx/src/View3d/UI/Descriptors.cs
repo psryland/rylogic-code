@@ -202,6 +202,18 @@ public sealed record UiControlDesc
 	public ETextAlign TextAlign { get; set; } = ETextAlign.Left;
 
 	/// <summary>
+	/// Text shown after the pointer rests on this control, or on a descendant without its own tooltip. Explicit line breaks start new lines.
+	/// Only interactive controls start a tooltip. Empty means no tooltip.
+	/// </summary>
+	public string Tooltip { get; set; } = string.Empty;
+
+	/// <summary>Root only: the style (Normal channel) used to draw every tooltip raised within this root. None selects the built-in style.</summary>
+	public StyleId TooltipStyleId { get; set; } = StyleId.None;
+
+	/// <summary>Root only: the Font resource used to draw every tooltip raised within this root. None selects the built-in font.</summary>
+	public ResourceId TooltipFontResourceId { get; set; } = ResourceId.None;
+
+	/// <summary>
 	/// Create an independent deep copy: mutating the clone's Layout/World (or this instance's) afterward cannot affect the
 	/// other, because Layout and World are themselves replaced with their own independent copies rather than shared by
 	/// reference. Named DeepClone (not Clone) because C# records disallow a member literally named "Clone".

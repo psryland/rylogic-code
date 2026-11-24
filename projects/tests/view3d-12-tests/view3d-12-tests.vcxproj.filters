@@ -230,6 +230,9 @@
     <ClCompile Include="src\view3d-ui\tests_slider.cpp">
       <Filter>view3d-ui</Filter>
     </ClCompile>
+    <ClCompile Include="src\view3d-ui\tests_tooltips.cpp">
+      <Filter>view3d-ui</Filter>
+    </ClCompile>
     <ClCompile Include="src\view3d-ui\tests_combo_box.cpp">
       <Filter>view3d-ui</Filter>
     </ClCompile>

@@ -513,6 +513,26 @@ namespace pr::view3d::ui
 							throw EngineException(EStatus::UnknownResource, std::format("control {}: font_resource_id {} does not reference a Font resource", found->id, found->font_resource_id));
 					}
 
+					// A root's tooltip style and font follow the same rules as the control's own style and font.
+					if (found->type == EControlType::Root)
+					{
+							if (found->tooltip_style_id != 0 && next.m_styles.find(found->tooltip_style_id) == next.m_styles.end())
+								throw EngineException(EStatus::UnknownResource, std::format("control {}: unknown tooltip_style_id {}", found->id, found->tooltip_style_id));
+							if (found->tooltip_font_resource_id != 0)
+							{
+								auto font_it = next.m_resources.find(found->tooltip_font_resource_id);
+								if (font_it == next.m_resources.end())
+									throw EngineException(EStatus::UnknownResource, std::format("control {}: unknown tooltip_font_resource_id {}", found->id, found->tooltip_font_resource_id));
+								if (font_it->second.desc.kind != EResourceKind::Font)
+									throw EngineException(EStatus::UnknownResource, std::format("control {}: tooltip_font_resource_id {} does not reference a Font resource", found->id, found->tooltip_font_resource_id));
+							}
+					}
+
+					// Tooltip text is shaped and displayed as-is, so it must be valid UTF-8.
+					auto tooltip = CopyBlobRange(txn.blob, txn.blob_length, found->tooltip_offset, found->tooltip_length, "control tooltip");
+					if (!Utf8Validate(tooltip))
+							throw EngineException(EStatus::InvalidArgument, std::format("control {}: tooltip is not valid UTF-8", found->id));
+
 					auto existing = next.m_controls.find(found->id);
 
 					auto copy_combo_items = [&]()
@@ -554,6 +574,7 @@ namespace pr::view3d::ui
 						node.text = CopyBlobRange(txn.blob, txn.blob_length, found->text_offset, found->text_length, "control text");
 						node.name = CopyBlobRange(txn.blob, txn.blob_length, found->name_offset, found->name_length, "control name");
 						node.description = CopyBlobRange(txn.blob, txn.blob_length, found->desc_offset, found->desc_length, "control description");
+						node.tooltip = std::move(tooltip);
 						node.combo_items = copy_combo_items();
 						next.m_controls.emplace(found->id, std::move(node));
 					}
@@ -569,6 +590,7 @@ namespace pr::view3d::ui
 						existing->second.text = CopyBlobRange(txn.blob, txn.blob_length, found->text_offset, found->text_length, "control text");
 						existing->second.name = CopyBlobRange(txn.blob, txn.blob_length, found->name_offset, found->name_length, "control name");
 						existing->second.description = CopyBlobRange(txn.blob, txn.blob_length, found->desc_offset, found->desc_length, "control description");
+						existing->second.tooltip = std::move(tooltip);
 						existing->second.combo_items = copy_combo_items();
 					}
 					break;
@@ -621,7 +643,7 @@ namespace pr::view3d::ui
 
 			for (auto const& [control_id, node] : next.m_controls)
 			{
-				if (node.desc.font_resource_id == id)
+				if (node.desc.font_resource_id == id || (node.desc.type == EControlType::Root && node.desc.tooltip_font_resource_id == id))
 					throw EngineException(EStatus::ResourceInUse, std::format("resource removal: resource {} is still referenced by control {}", id, control_id));
 			}
 
@@ -653,7 +675,7 @@ namespace pr::view3d::ui
 
 			for (auto const& [control_id, node] : next.m_controls)
 			{
-				if (node.desc.style_id == id)
+				if (node.desc.style_id == id || (node.desc.type == EControlType::Root && node.desc.tooltip_style_id == id))
 					throw EngineException(EStatus::ResourceInUse, std::format("style removal: style {} is still referenced by control {}", id, control_id));
 			}
 

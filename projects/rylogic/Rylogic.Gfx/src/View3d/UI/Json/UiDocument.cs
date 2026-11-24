@@ -234,6 +234,9 @@ public sealed class UiDocument
 		writer.WriteNumber("max_visible_items", control.MaxVisibleItems);
 		writer.WriteString("orientation", control.Orientation.ToString());
 		writer.WriteString("text_align", control.TextAlign.ToString());
+		writer.WriteString("tooltip", control.Tooltip);
+		writer.WriteNumber("tooltip_style_id", control.TooltipStyleId.m_value);
+		writer.WriteNumber("tooltip_font_resource_id", control.TooltipFontResourceId.m_value);
 		WriteWorld(writer, control.World);
 
 		writer.WriteStartArray("children");
@@ -506,6 +509,14 @@ public sealed class UiDocument
 		if (!font_resource_id.IsNone && !resource_ids.Contains(font_resource_id.m_value))
 			throw new UiJsonException($"{path}.font_resource_id", $"References resource id {font_resource_id.m_value}, which is not declared in this document's \"resources\" array.");
 
+		var tooltip_style_id = TryGetUInt64(node, "tooltip_style_id", out var tooltip_style_value) ? new StyleId(tooltip_style_value) : StyleId.None;
+		if (!tooltip_style_id.IsNone && !style_ids.Contains(tooltip_style_id.m_value))
+			throw new UiJsonException($"{path}.tooltip_style_id", $"References style id {tooltip_style_id.m_value}, which is not declared in this document's \"styles\" array.");
+
+		var tooltip_font_resource_id = TryGetUInt64(node, "tooltip_font_resource_id", out var tooltip_font_value) ? new ResourceId(tooltip_font_value) : ResourceId.None;
+		if (!tooltip_font_resource_id.IsNone && !resource_ids.Contains(tooltip_font_resource_id.m_value))
+			throw new UiJsonException($"{path}.tooltip_font_resource_id", $"References resource id {tooltip_font_resource_id.m_value}, which is not declared in this document's \"resources\" array.");
+
 		// Reject the superseded boolean rather than silently treating an old hidden control as Visible.
 		if (node.TryGetProperty("visible", out _))
 			throw new UiJsonException($"{path}.visible", "Use visibility: Visible, Hidden, or Collapsed.");
@@ -542,6 +553,9 @@ public sealed class UiDocument
 			MaxVisibleItems = GetUInt32(node, "max_visible_items", path, 0),
 			Orientation = GetEnum<EOrientation>(node, "orientation", path, required: false, EOrientation.Horizontal),
 			TextAlign = GetEnum<ETextAlign>(node, "text_align", path, required: false, ETextAlign.Left),
+			Tooltip = GetString(node, "tooltip", path, string.Empty),
+			TooltipStyleId = tooltip_style_id,
+			TooltipFontResourceId = tooltip_font_resource_id,
 			World = ParseWorld(node, $"{path}.world"),
 		};
 		// Reject invalid completion at the authoring boundary, before constructing a transaction.

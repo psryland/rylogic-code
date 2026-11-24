@@ -79,7 +79,7 @@ public sealed class TestUiProgressBar
 	public void AbiAndSemantics()
 	{
 		Native.EnsureLoaded();
-		Assert.Equal(0x000B0000U, Native.View3DUI_ApiVersion());
+		Assert.Equal(0x000C0000U, Native.View3DUI_ApiVersion());
 		Native.Check(Native.View3DUI_StructSize(EStructId.Control, out var control_size));
 		Native.Check(Native.View3DUI_StructSize(EStructId.Style, out var style_size));
 		Native.Check(Native.View3DUI_StructSize(EStructId.SemanticNode, out var semantic_size));
@@ -1564,6 +1564,9 @@ public sealed class TestUiJson
 		Assert.Equal(expected.MaxVisibleItems, actual.MaxVisibleItems);
 		Assert.Equal(expected.Orientation, actual.Orientation);
 		Assert.Equal(expected.TextAlign, actual.TextAlign);
+		Assert.Equal(expected.Tooltip, actual.Tooltip);
+		Assert.Equal(expected.TooltipStyleId, actual.TooltipStyleId);
+		Assert.Equal(expected.TooltipFontResourceId, actual.TooltipFontResourceId);
 		Assert.Equal(expected.Layout.Width, actual.Layout.Width);
 		Assert.Equal(expected.Layout.Height, actual.Layout.Height);
 		Assert.Equal(expected.Layout.HAlign, actual.Layout.HAlign);
@@ -1582,6 +1585,74 @@ public sealed class TestUiJson
 		{
 			Assert.True(ex.Path.Contains(path_contains));
 		}
+	}
+}
+
+/// <summary>Tooltip descriptors, wire packing, declarative round trips, and the native application tooltip entry point.</summary>
+[TestFixture]
+[TestFlags(EUnitTestFlags.Serial)] // Uses the single-threaded View3d singleton via UiTestDevice
+public sealed class TestUiTooltips
+{
+	/// <summary>Tooltip text packs into the shared blob, and the root tooltip style and font pack as ids.</summary>
+	[Test]
+	public void TooltipFieldsPack()
+	{
+		// Pack a root with tooltip settings and a button with its own tooltip.
+		var root = new UiControlDesc { Id = new ControlId(1), Type = EControlType.Root, TooltipStyleId = new StyleId(5), TooltipFontResourceId = new ResourceId(6) };
+		var button = new UiControlDesc { Id = new ControlId(2), ParentId = root.Id, Type = EControlType.Button, Text = "OK", Tooltip = "Confirm\nthe dialog" };
+		var builder = new UiTransactionBuilder().Upsert(root).Upsert(button);
+
+		var packed_root = builder.DebugControls[0];
+		Assert.Equal(new StyleId(5), packed_root.m_tooltip_style_id);
+		Assert.Equal(new ResourceId(6), packed_root.m_tooltip_font_resource_id);
+		Assert.Equal(0U, packed_root.m_tooltip_length);
+
+		var packed_button = builder.DebugControls[1];
+		Assert.Equal("Confirm\nthe dialog", builder.DebugDecodeBlobText(packed_button.m_tooltip_offset, packed_button.m_tooltip_length));
+	}
+
+	/// <summary>Tooltip fields round-trip through JSON, and tooltip style and font references must be declared in the document.</summary>
+	[Test]
+	public void TooltipJsonRoundTripsAndRejectsDanglingReferences()
+	{
+		// Round-trip a document that uses every tooltip field.
+		const string json = @"{ ""schema_version"": 3,
+			""resources"": [ { ""id"": 4, ""kind"": ""Font"", ""name"": ""Segoe UI"", ""font_size"": 12 } ],
+			""styles"": [ { ""id"": 3, ""states"": { ""normal"": { ""visual"": { ""fill"": ""#202020FF"" } } } } ],
+			""tree"": [ { ""id"": 1, ""type"": ""Root"", ""tooltip_style_id"": 3, ""tooltip_font_resource_id"": 4, ""children"": [
+				{ ""id"": 2, ""type"": ""Button"", ""text"": ""OK"", ""tooltip"": ""Confirm"" } ] } ] }";
+		var document = UiDocument.Parse(json);
+		Assert.Equal(new StyleId(3), document.Controls[0].TooltipStyleId);
+		Assert.Equal(new ResourceId(4), document.Controls[0].TooltipFontResourceId);
+		Assert.Equal("Confirm", document.Controls[1].Tooltip);
+		Assert.Equal(document.Serialize(), UiDocument.Parse(document.Serialize()).Serialize());
+
+		// References to undeclared styles or resources are rejected at the authoring boundary.
+		Assert.Throws<UiJsonException>(() => UiDocument.Parse(@"{ ""schema_version"": 3, ""tree"": [ { ""id"": 1, ""type"": ""Root"", ""tooltip_style_id"": 9 } ] }"));
+		Assert.Throws<UiJsonException>(() => UiDocument.Parse(@"{ ""schema_version"": 3, ""tree"": [ { ""id"": 1, ""type"": ""Root"", ""tooltip_font_resource_id"": 9 } ] }"));
+	}
+
+	/// <summary>A live context accepts application tooltips for a root, clears them with key zero, and rejects ids that are not roots.</summary>
+	[Test]
+	public void NativeSetTooltip()
+	{
+		// Skip only when the environment cannot create the native D3D12-backed context.
+		var lease = UiTestDevice.Lease;
+		if (lease == null)
+			return;
+
+		using var runtime = new UiRuntime();
+		using var context = runtime.CreateContext(device: lease);
+		var root = new UiControlDesc { Id = new ControlId(1), Type = EControlType.Root };
+		var panel = new UiControlDesc { Id = new ControlId(2), ParentId = root.Id, Type = EControlType.Panel };
+		new UiTransactionBuilder().Upsert(root).Upsert(panel).Apply(context, 0, 1);
+
+		// Valid calls set and clear the application tooltip.
+		context.SetTooltip(root.Id, 7, "Oak tree\nHealth 41/64");
+		context.SetTooltip(root.Id, 0, string.Empty);
+
+		// A non-root control is rejected.
+		Assert.Throws<View3dUiException>(() => context.SetTooltip(panel.Id, 7, "Panel"));
 	}
 }
 #endif

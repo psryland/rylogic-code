@@ -60,6 +60,9 @@
     <ClInclude Include="src\text_unicode.h">
       <Filter>src</Filter>
     </ClInclude>
+    <ClInclude Include="src\tooltip.h">
+      <Filter>src</Filter>
+    </ClInclude>
     <ClInclude Include="src\tree.h">
       <Filter>src</Filter>
     </ClInclude>
@@ -79,6 +82,9 @@
       <Filter>src</Filter>
     </ClInclude>
     <ClCompile Include="src\engine.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\tooltip.cpp">
       <Filter>src</Filter>
     </ClCompile>
     <ClCompile Include="src\control_geometry.cpp">

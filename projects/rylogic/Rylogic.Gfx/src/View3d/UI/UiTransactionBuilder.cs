@@ -341,12 +341,13 @@ public sealed unsafe class UiTransactionBuilder
 		return Encoding.UTF8.GetString(m_blob.ToArray(), checked((int)offset), checked((int)length));
 	}
 
-	/// <summary>Convert a public control descriptor to its versioned ABI representation, packing its Text/Name/Description into the shared blob.</summary>
+	/// <summary>Convert a public control descriptor to its versioned ABI representation, packing its Text/Name/Description/Tooltip into the shared blob.</summary>
 	private Native.ControlDesc ToNative(UiControlDesc control)
 	{
 		var (text_offset, text_length) = AddText(control.Text);
 		var (name_offset, name_length) = AddText(control.Name);
 		var (desc_offset, desc_length) = AddText(control.Description);
+		var (tooltip_offset, tooltip_length) = AddText(control.Tooltip);
 		var combo_item_offset = checked((uint)m_combo_box_items.Count);
 		foreach (var item in control.Items)
 		{
@@ -391,6 +392,10 @@ public sealed unsafe class UiTransactionBuilder
 			m_max_visible_items = control.MaxVisibleItems,
 			m_orientation = control.Orientation,
 			m_text_align = control.TextAlign,
+			m_tooltip_offset = tooltip_offset,
+			m_tooltip_length = tooltip_length,
+			m_tooltip_style_id = control.TooltipStyleId,
+			m_tooltip_font_resource_id = control.TooltipFontResourceId,
 			m_world = ToNative(control.World),
 		};
 	}

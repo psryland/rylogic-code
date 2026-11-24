@@ -167,6 +167,23 @@ public sealed unsafe class UiContext :IDisposable
 		return valid != 0;
 	}
 
+	/// <summary>
+	/// Show 'text' as the application tooltip for screen root 'rootId', for example to describe the world object under the pointer.
+	/// 'key' identifies the hovered subject: changing it restarts the rest delay, and keeping it while changing the text refreshes the shown tooltip in place.
+	/// A key of zero clears the application tooltip. Control tooltips take priority while the pointer is over a control with one.
+	/// </summary>
+	public void SetTooltip(ControlId rootId, ulong key, string text)
+	{
+		EnsureOwner();
+
+		// The native side reads the text as UTF-8 for the duration of the call only.
+		var bytes = Encoding.UTF8.GetBytes(text ?? string.Empty);
+		fixed (byte* ptr = bytes)
+		{
+			Native.Check(Native.View3DUI_TooltipSet(Handle, rootId, key, ptr, checked((uint)bytes.Length)));
+		}
+	}
+
 	/// <summary>Advance the context by one frame: resolve style/state transitions, project world roots, and refresh the semantic snapshot.</summary>
 	public void Update(ViewportState viewport)
 	{

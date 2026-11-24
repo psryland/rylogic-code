@@ -58,12 +58,13 @@ namespace pr::view3d::ui
 			m_operations.push_back(Operation{ .header = Header<Operation>(), .kind = EOperationKind::Upsert, .target_id = desc.id, .child_order_index = 0, .reserved0 = 0 });
 		}
 
-		// Queue an Upsert while packing the control's UTF-8 content and semantic strings.
-		void Upsert(ControlDesc desc, std::string_view text, std::string_view name, std::string_view description = {})
+		// Queue an Upsert while packing the control's UTF-8 content, semantic and tooltip strings.
+		void Upsert(ControlDesc desc, std::string_view text, std::string_view name, std::string_view description = {}, std::string_view tooltip = {})
 		{
 			std::tie(desc.text_offset, desc.text_length) = AddText(text);
 			std::tie(desc.name_offset, desc.name_length) = AddText(name);
 			std::tie(desc.desc_offset, desc.desc_length) = AddText(description);
+			std::tie(desc.tooltip_offset, desc.tooltip_length) = AddText(tooltip);
 			Upsert(static_cast<ControlDesc const&>(desc));
 		}
 

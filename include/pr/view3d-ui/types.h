@@ -15,8 +15,8 @@
 
 namespace pr::view3d::ui
 {
-	inline constexpr std::uint32_t VIEW3D_UI_API_VERSION = 0x000B0000U;
-	inline constexpr std::uint32_t VIEW3D_UI_STRUCT_VERSION = 11U;
+	inline constexpr std::uint32_t VIEW3D_UI_API_VERSION = 0x000C0000U;
+	inline constexpr std::uint32_t VIEW3D_UI_STRUCT_VERSION = 12U;
 
 	// Maximum role parts recorded directly within one TemplateDesc. Bounded so the descriptor
 	// stays fixed-layout; the closed role vocabulary (section 6.3) never needs more than this.
@@ -693,6 +693,17 @@ namespace pr::view3d::ui
 		// Horizontal placement of a Text control's run within its text rectangle. Zero (Left) is the
 		// default. Ignored by other control types, which use a fixed placement for their type.
 		ETextAlign text_align;
+
+		// Tooltip text range within Transaction::blob, as valid UTF-8. Explicit line breaks start new lines. The tooltip shows after
+		// the pointer rests on this control, or on a descendant without its own tooltip. Only interactive controls (those
+		// that hit-test) start a tooltip. An empty range means no tooltip.
+		std::uint32_t tooltip_offset;
+		std::uint32_t tooltip_length;
+
+		// Root only: the style (Normal channel) and Font resource used to draw every tooltip raised within this root, including
+		// application tooltips set with TooltipSet for this root. Zero selects the built-in style or font. Ignored by other types.
+		StyleId tooltip_style_id;
+		ResourceId tooltip_font_resource_id;
 	};
 
 	// One ComboBox item text range. Ranges index Transaction::blob and are copied into the
