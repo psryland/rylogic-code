@@ -1117,6 +1117,7 @@ namespace Rylogic.Gfx
 			m4x4? t2s = null, 
 			EFormat? format = null, 
 			int? mips = null, 
+			bool? mip_data = null, 
 			EResFlags? usage = null, 
 			EResState? state = null, 
 			ClearValue? clear_value = null, 
@@ -1128,6 +1129,9 @@ namespace Rylogic.Gfx
 			public m4x4 T2S = t2s ?? m4x4.Identity;
 			public EFormat Format = format ?? EFormat.DXGI_FORMAT_R8G8B8A8_UNORM;
 			public int Mips = mips ?? 0;
+
+			/// <summary>True if the initialisation data holds every mip level, so none are generated. See View3D_TextureCreate.</summary>
+			public bool MipData = mip_data ?? false;
 			public EResFlags Usage = usage ?? EResFlags.None;
 			public EResState State = state ?? EResState.Common;
 			public ClearValue ClearValue = clear_value ?? new ClearValue(format ?? EFormat.DXGI_FORMAT_R8G8B8A8_UNORM);

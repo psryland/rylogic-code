@@ -5408,17 +5408,52 @@ VIEW3D_API void __stdcall View3D_ResourceBatchEnd()
 // Set 'data' to 0 to leave the texture uninitialised, if not 0 then data must point to width x height pixel data
 // of the size appropriate for the given format. 'e.g. uint32_t px_data[width * height] for D3DFMT_A8R8G8B8'
 // Note: careful with stride, 'data' is expected to have the appropriate stride for compute::BytesPerPixel(format) * width
+// If 'options.m_mip_data' is set, 'data' holds every mip level, packed from level 0. See view3d-dll.h.
 VIEW3D_API view3d::Texture __stdcall View3D_TextureCreate(int width, int height, void const* data, size_t data_size, view3d::TextureOptions const& options)
 {
 	try
 	{
 		Image src(width, height, data, options.m_format);
-		if (src.m_data != nullptr && src.m_pitch.y != s_cast<int>(data_size))
+		auto const mip_data = options.m_mip_data != 0 && src.m_data != nullptr;
+		if (src.m_data != nullptr && !mip_data && src.m_pitch.y != s_cast<int>(data_size))
 			throw std::runtime_error("Incorrect data size provided");
 
 		ResDesc rdesc = ResDesc::Tex2D(src, s_cast<uint16_t>(options.m_mips), s_cast<EUsage>(options.m_usage))
 			.multisamp(To<pr::compute::MultiSamp>(options.m_multisamp))
 			.def_state(options.m_resource_state);
+
+		// Split caller-supplied mip levels into one image per level. The level count must be explicit in the resource description,
+		// because the factory writes one image per level instead of generating them.
+		if (mip_data)
+		{
+			// Zero mips means the full chain down to 1x1
+			auto mips = options.m_mips;
+			if (mips == 0)
+			{
+				// One level per halving of the larger side
+				for (auto side = std::max(width, height); side != 0; side >>= 1)
+					++mips;
+			}
+
+			// Each level follows the previous one in 'data'
+			rdesc.Data.clear();
+			auto offset = size_t{};
+			for (auto i = 0; i != mips; ++i)
+			{
+				// Each level halves the previous one, down to one pixel
+				Image level(std::max(1, width >> i), std::max(1, height >> i), static_cast<uint8_t const*>(data) + offset, options.m_format);
+				offset += s_cast<size_t>(level.m_pitch.y);
+				if (offset > data_size)
+					throw std::runtime_error("Incorrect data size provided");
+
+				rdesc.Data.push_back(level);
+			}
+			if (offset != data_size)
+				throw std::runtime_error("Incorrect data size provided");
+
+			rdesc.mips(mips);
+			rdesc.MiscFlags |= ResDesc::EMiscFlags::MipData;
+		}
 
 		// D3D12 accepts an optimised clear value only for render-target and depth-stencil textures.
 		if ((options.m_usage & (D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL)) != 0)

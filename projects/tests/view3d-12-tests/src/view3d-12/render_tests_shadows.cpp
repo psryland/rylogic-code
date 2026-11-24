@@ -375,6 +375,15 @@ namespace render_tests
 			}
 		}
 
+		// A single-sided caster drawn from both sides must also cast a shadow when it faces away from the light. Turning the caster half a turn
+		// about Y, then moving it back to depth 40, points its front face away from the light without moving its shadow.
+		{
+			api::Mat4x4 turned{{-1,0,0,0}, {0,1,0,0}, {0,0,-1,0}, {0,0,-80,1}};
+			View3D_ObjectO2WSet(caster, turned, nullptr);
+			shadow_difference("Two-sided caster facing away from the light cast no shadow");
+			View3D_ObjectO2WSet(caster, api::Mat4x4{{1,0,0,0}, {0,1,0,0}, {0,0,1,0}, {0,0,0,1}}, nullptr);
+		}
+
 		// Cached views must match views rendered every frame, both for a static scene and after a caster moves
 		auto render_pair = [&](char const* message)
 		{
