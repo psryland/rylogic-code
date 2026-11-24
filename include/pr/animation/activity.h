@@ -59,10 +59,19 @@ namespace pr::animation
 		float radius = 0.0f;
 	};
 
+	// A tool held in one hand, such as an axe. Points are in the tool's own space, where +Y runs along the handle from the grip towards the head,
+	// and +Z is the direction that the striking face points. A hand holds the handle with its thumb towards +Y and its fingers wrapped towards +Z.
+	struct Tool
+	{
+		v4 grip = v4::Origin();  // The point on the handle that the hand holds (tool space, w = 1)
+		v4 head = v4::Origin();  // The point that strikes (tool space, w = 1)
+	};
+
 	// The things in the world that an activity acts on. Each type documents which members it reads, and what it does when one is empty.
 	struct ActivityTargets
 	{
 		std::optional<Strike> strike;  // What a striking motion hits
+		std::optional<Tool> tool;      // What the hand holds. Without a tool, the tool point is the hand's grip point (a bare fist).
 	};
 
 	// What an activity can know about one of the character's limbs
@@ -72,6 +81,7 @@ namespace pr::animation
 		float reach = 0.0f;                  // The limb's length from its root joint to its contact
 		quat stance_rot = Identity<quat>();  // The end bone's model-space orientation in the current stance
 		v4 sole_up = v4::YAxis();            // The unit normal of the sole or palm in the end bone's space, pointing away from the ground
+		v4 grip = v4::Origin();              // The point on the palm that holds a handle, in the end bone's space (w = 1)
 	};
 
 	// The inputs to 'IActivity::Evaluate'. All frames are in model space unless stated.

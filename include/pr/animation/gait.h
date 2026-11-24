@@ -741,7 +741,8 @@ namespace pr::animation::tests
 		};
 	}
 
-	// 'TestGait' with a "fist-fight" activity that throws punches with the rig's only arm, holding the "bipedal" posture
+	// 'TestGait' with a "fist-fight" activity that throws punches with the rig's only arm, and a "chop" activity that strikes with it, both holding
+	// the "bipedal" posture
 	inline GaitDesc TestActivityGait()
 	{
 		auto gait = TestGait();
@@ -754,6 +755,11 @@ namespace pr::animation::tests
 				Punch{ .hand = ESide::Left, .kind = EPunchKind::Uppercut, .duration = 0.7f },
 				Punch{ .hand = ESide::Left, .kind = EPunchKind::BodyJab, .duration = 0.6f },
 			}),
+		});
+		gait.activities.push_back(GaitActivity{
+			.name = "chop",
+			.posture = "bipedal",
+			.activity = std::make_shared<Strikes const>(StrikeSwing{ .hands = EStrikeHands::Left, .duration = 1.0f }),
 		});
 		return gait;
 	}
@@ -771,12 +777,20 @@ namespace pr::animation::tests
 			PR_EXPECT(text.find("\"punches\"") != std::string::npos);
 			auto read = ReadGaitDesc(json::Read(std::string_view(text)));
 			PR_EXPECT(Validate(read, rig).empty());
-			PR_EXPECT(read.families.size() == 3 && read.activities.size() == 1);
+			PR_EXPECT(read.families.size() == 3 && read.activities.size() == 2);
 			PR_EXPECT(read.activities[0].name == "fist-fight" && read.activities[0].posture == "bipedal" && read.activities[0].activity->Type() == "punches");
 			auto const* punches = dynamic_cast<Punches const*>(read.activities[0].activity.get());
 			PR_EXPECT(punches != nullptr);
 			auto list = punches->punches();
 			PR_EXPECT(list.size() == 4 && list[1].hand == ESide::Left && list[1].kind == EPunchKind::Hook && list[2].duration == 0.7f && list[3].kind == EPunchKind::BodyJab);
+			auto const* strikes = dynamic_cast<Strikes const*>(read.activities[1].activity.get());
+			PR_EXPECT(read.activities[1].name == "chop" && strikes != nullptr);
+			PR_EXPECT(strikes->swing().hands == EStrikeHands::Left && strikes->swing().duration == 1.0f && strikes->swing().cock == StrikeSwing{}.cock);
+
+			// A strike's phases must be in order
+			auto shuffled = gait;
+			shuffled.activities[1].activity = std::make_shared<Strikes const>(StrikeSwing{ .hands = EStrikeHands::Left, .contact = 0.3f });
+			PR_EXPECT(Validate(shuffled, rig).size() == 1);
 
 			// A right hand has no arm in the test rig, the posture must be a family, and names must be unique
 			auto bad = gait;

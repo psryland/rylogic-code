@@ -68,3 +68,16 @@ def test_shipped_description_has_punches():
 	assert punches.kind == "list" and punches.min_items == 1
 	assert [f.name for f in punches.fields] == ["hand", "kind", "duration"]
 	assert punches.fields[2].options["default"] == 0.6
+
+def test_shipped_description_has_strike():
+	"""The shipped description gives a strike its hands and a flat set of numbers for the blow's shape and timing, ready to edit with their defaults."""
+	desc = activity_types.LoadDescription()
+	assert [item[0] for item in activity_types.TypeItems(desc)] == ["punches", "strike"]
+	fields = activity_types.EditorFields(desc, "strike")
+	assert fields[0].name == "hands" and fields[0].options["default"] == "right"
+	assert [item[0] for item in fields[0].options["items"]] == ["left", "right", "both"]
+	assert all(f.kind == "float" for f in fields[1:])
+	contact = next(f for f in fields if f.name == "contact")
+	assert contact.options["default"] == 0.6
+	values = SimpleNamespace(**{f.name: f.options["default"] for f in fields})
+	assert activity_types.ValidateParams(fields, activity_types.ReadParams(fields, values), "Activity 'chop'") == []

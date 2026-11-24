@@ -304,7 +304,7 @@ namespace pr::animation
 			for (auto const& activity : m_gait.activities)
 				m_activities.push_back(ActivityData{ .posture = FamilyIndex(m_gait, activity.posture), .chains = activity.activity->Chains(rig) });
 			for (auto const& limb : m_limbs)
-				m_activity_limbs.push_back(ActivityLimb{ .chain = limb.chain, .reach = limb.reach, .sole_up = limb.sole_up });
+				m_activity_limbs.push_back(ActivityLimb{ .chain = limb.chain, .reach = limb.reach, .sole_up = limb.sole_up, .grip = limb.grip });
 
 			// Grasping elbows stay outside the torso: the capsule around the spine whose radius reaches the nearest arm root in the rest pose
 			if (m_spine >= 0 && !m_reaches.empty())
@@ -3977,38 +3977,42 @@ namespace pr::animation::tests
 			// activity from the start, because the activity is a function of its time
 			auto rig = TestRig();
 			auto gait = TestActivityGait();
-			auto fight = ActivityIndex(gait, "fist-fight");
 			auto ground = TestGround();
 			auto dt = 1.0f / 60;
-			auto body = BodyState{ .gravity = v4(0, 0, -9.8f, 0) };
 			auto hand = rig.BoneIndex("hand.L");
 			auto chest = rig.BoneIndex("chest");
-			auto a = Locomotion(rig, gait);
-			a.StartActivity(fight, body.time, 0.5f);
-			for (int i = 0; i != 120; ++i, body.time += dt)
-				a.Step(dt, body, ground);
-
-			// The late body joins with no fade, and both play on until the late body has settled into the posture
-			auto b = Locomotion(rig, gait);
-			b.StartActivity(fight, 0.0, 0.0f);
-			for (int i = 0; i != 180; ++i, body.time += dt)
+			for (int activity = 0, aend = static_cast<int>(gait.activities.size()); activity != aend; ++activity)
 			{
-				// Both bodies see the same time
-				a.Step(dt, body, ground);
-				b.Step(dt, body, ground);
-			}
+				// The early body plays from the start
+				auto body = BodyState{ .gravity = v4(0, 0, -9.8f, 0) };
+				auto a = Locomotion(rig, gait);
+				a.StartActivity(activity, body.time, 0.5f);
+				for (int i = 0; i != 120; ++i, body.time += dt)
+					a.Step(dt, body, ground);
 
-			// Over one pass of the sequence, the hands and chests match
-			auto worst = 0.0f;
-			for (int i = 0; i != 144; ++i, body.time += dt)
-			{
-				// Compare the bodies at each frame
-				a.Step(dt, body, ground);
-				b.Step(dt, body, ground);
-				worst = std::max(worst, Length(a.pose().model[hand].pos - b.pose().model[hand].pos));
-				worst = std::max(worst, Length(a.pose().model[chest].pos - b.pose().model[chest].pos));
+				// The late body joins with no fade, and both play on until the late body has settled into the posture
+				auto b = Locomotion(rig, gait);
+				b.StartActivity(activity, 0.0, 0.0f);
+				for (int i = 0; i != 180; ++i, body.time += dt)
+				{
+					// Both bodies see the same time
+					a.Step(dt, body, ground);
+					b.Step(dt, body, ground);
+				}
+
+				// Over one pass of the timeline, the hands and chests match
+				auto worst = 0.0f;
+				auto frames = static_cast<int>(std::ceil(gait.activities[activity].activity->Timeline().length / dt));
+				for (int i = 0; i != frames; ++i, body.time += dt)
+				{
+					// Compare the bodies at each frame
+					a.Step(dt, body, ground);
+					b.Step(dt, body, ground);
+					worst = std::max(worst, Length(a.pose().model[hand].pos - b.pose().model[hand].pos));
+					worst = std::max(worst, Length(a.pose().model[chest].pos - b.pose().model[chest].pos));
+				}
+				PR_EXPECT(worst < 1e-3f);
 			}
-			PR_EXPECT(worst < 1e-3f);
 		}
 		PRUnitTestMethod(StoppedActivityFadesOut, Quick)
 		{
@@ -4053,18 +4057,16 @@ namespace pr::animation::tests
 			PR_EXPECT(fighter.family() == biped);
 			PR_EXPECT(FEqlAbsolute(fighter.pose().model[hand].pos, stander.pose().model[hand].pos, 0.02f));
 		}
-		PRUnitTestMethod(PunchesAreAFunctionOfTime, Quick)
+		PRUnitTestMethod(ActivitiesAreAFunctionOfTime, Quick)
 		{
-			// Evaluating punches at a time gives the same goals whatever was evaluated before. The goals change only the activity's chains, and the
-			// sequence ends where it starts so that the loop wraps without a jump.
+			// Evaluating an activity at a time gives the same goals whatever was evaluated before. The goals change only the activity's chains, and
+			// the timeline ends where it starts so that the loop wraps without a jump.
 			auto rig = TestRig();
 			auto gait = TestActivityGait();
-			auto fight = ActivityIndex(gait, "fist-fight");
-			auto const& punches = *gait.activities[fight].activity;
 			auto loco = Locomotion(rig, gait);
 			auto limbs = std::vector<ActivityLimb>{};
 			for (auto const& limb : loco.limbs())
-				limbs.push_back(ActivityLimb{ .chain = limb.chain, .reach = limb.reach, .stance_rot = limb.stance_rot, .sole_up = limb.sole_up });
+				limbs.push_back(ActivityLimb{ .chain = limb.chain, .reach = limb.reach, .stance_rot = limb.stance_rot, .sole_up = limb.sole_up, .grip = limb.grip });
 
 			auto spine = static_cast<int>(std::ranges::find(rig.chains, EChainRole::Spine, &Chain::role) - rig.chains.begin());
 			auto guide = PoseTargets(rig, rig.rest_model);
@@ -4078,50 +4080,55 @@ namespace pr::animation::tests
 				.world_to_model = xform::Identity(),
 				.targets = targets,
 			};
-			auto evaluate = [&](float time)
-			{
-				// The goals and curls at 'time', starting from the guide's goals
-				auto out = guide;
-				auto curl = std::vector<float>(rig.chains.size());
-				punches.Evaluate(time, input, ActivityOutput{ .targets = out, .curl = curl });
-				return std::pair{ out, curl };
-			};
 			auto same = [](Target const& l, Target const& r)
 			{
 				// Bitwise equal, because the evaluation must not depend on anything but its inputs
 				return std::memcmp(&l, &r, sizeof(Target)) == 0;
 			};
-
-			// The same time gives the same goals
-			auto [first, first_curl] = evaluate(1.3f);
-			(void)evaluate(0.2f);
-			auto [again, again_curl] = evaluate(1.3f);
-			for (int c = 0, cend = static_cast<int>(rig.chains.size()); c != cend; ++c)
-				PR_EXPECT(same(first[c], again[c]) && first_curl[c] == again_curl[c]);
-
-			// Only the declared chains change, and some of them do
-			auto declared = punches.Chains(rig);
-			auto changed = 0;
-			for (int c = 0, cend = static_cast<int>(rig.chains.size()); c != cend; ++c)
+			for (auto const& entry : gait.activities)
 			{
-				// Undeclared chains keep the gait's goal and curl nothing
-				if (std::ranges::find(declared, c) != declared.end())
+				// Times are fractions of the timeline
+				auto const& activity = *entry.activity;
+				auto length = activity.Timeline().length;
+				auto evaluate = [&](float time)
 				{
-					// Count the declared chains that moved
-					changed += same(first[c], guide[c]) ? 0 : 1;
-					continue;
-				}
-				PR_EXPECT(same(first[c], guide[c]) && first_curl[c] == 0);
-			}
-			PR_EXPECT(changed != 0);
-			PR_EXPECT(first_curl[loco.limbs()[1].chain] > 0);
+					// The goals and curls at 'time', starting from the guide's goals
+					auto out = guide;
+					auto curl = std::vector<float>(rig.chains.size());
+					activity.Evaluate(time, input, ActivityOutput{ .targets = out, .curl = curl });
+					return std::pair{ out, curl };
+				};
 
-			// The end of the sequence meets its start
-			auto length = punches.Timeline().length;
-			auto [start, start_curl] = evaluate(0.0f);
-			auto [end, end_curl] = evaluate(length - 1e-4f);
-			for (auto c : declared)
-				PR_EXPECT(FEqlAbsolute(start[c].frame.pos, end[c].frame.pos, 1e-3f));
+				// The same time gives the same goals
+				auto [first, first_curl] = evaluate(0.54f * length);
+				(void)evaluate(0.08f * length);
+				auto [again, again_curl] = evaluate(0.54f * length);
+				for (int c = 0, cend = static_cast<int>(rig.chains.size()); c != cend; ++c)
+					PR_EXPECT(same(first[c], again[c]) && first_curl[c] == again_curl[c]);
+
+				// Only the declared chains change, and some of them do
+				auto declared = activity.Chains(rig);
+				auto changed = 0;
+				for (int c = 0, cend = static_cast<int>(rig.chains.size()); c != cend; ++c)
+				{
+					// Undeclared chains keep the gait's goal and curl nothing
+					if (std::ranges::find(declared, c) != declared.end())
+					{
+						// Count the declared chains that moved
+						changed += same(first[c], guide[c]) ? 0 : 1;
+						continue;
+					}
+					PR_EXPECT(same(first[c], guide[c]) && first_curl[c] == 0);
+				}
+				PR_EXPECT(changed != 0);
+				PR_EXPECT(first_curl[loco.limbs()[1].chain] > 0);
+
+				// The end of the timeline meets its start
+				auto [start, start_curl] = evaluate(0.0f);
+				auto [end, end_curl] = evaluate(length - 1e-4f);
+				for (auto c : declared)
+					PR_EXPECT(FEqlAbsolute(start[c].frame.pos, end[c].frame.pos, 1e-3f));
+			}
 		}
 		PRUnitTestMethod(PunchesMarkContacts, Quick)
 		{
@@ -4238,6 +4245,80 @@ namespace pr::animation::tests
 			}
 			PR_EXPECT(loco.activity_running(fight));
 			PR_EXPECT(worst < 1e-2f);
+		}
+		PRUnitTestMethod(StrikeMarksContact, Quick)
+		{
+			// A strike's timeline loops over one blow, with one "contact" mark at its contact fraction
+			auto rig = TestRig();
+			auto gait = TestActivityGait();
+			auto chop = ActivityIndex(gait, "chop");
+			auto loco = Locomotion(rig, gait);
+			auto info = loco.activity_info(chop);
+			PR_EXPECT(info.root_mode == ERootMode::Planted && info.posture == FamilyIndex(gait, "bipedal"));
+			PR_EXPECT(std::ranges::find(info.chains, loco.limbs()[1].chain) != info.chains.end());
+
+			auto const& timeline = *info.timeline;
+			auto const& swing = dynamic_cast<Strikes const&>(*gait.activities[chop].activity).swing();
+			PR_EXPECT(timeline.loop && timeline.length == swing.duration);
+			PR_EXPECT(timeline.marks.size() == 1 && timeline.marks[0].name == "contact");
+			PR_EXPECT(FEqlAbsolute(timeline.marks[0].time, swing.contact * swing.duration, 1e-6f));
+		}
+		PRUnitTestMethod(StrikesHitTargetAtContact, Quick)
+		{
+			// At the "contact" mark the tool point is on the strike target's surface, facing the body at the height of the target's centre. This holds
+			// for a bare fist and a held tool, and for a near target and a low, distant one that the body must stoop to reach.
+			auto rig = TestRig();
+			auto gait = TestActivityGait();
+			auto chop = ActivityIndex(gait, "chop");
+			auto ground = TestGround();
+			auto dt = 1.0f / 60;
+			auto probe = Locomotion(rig, gait);
+			auto const& arm = probe.limbs()[1];
+			auto limb = ActivityLimb{ .chain = arm.chain, .reach = arm.reach, .stance_rot = arm.stance_rot, .sole_up = arm.sole_up, .grip = arm.grip };
+			auto hand = rig.chains[arm.chain].bones.back();
+			auto shoulder = rig.rest_model[rig.chains[arm.chain].bones.front()].pos;
+			auto contact = static_cast<double>(gait.activities[chop].activity->Timeline().marks[0].time);
+			auto blow = [&](std::optional<Strike> strike, std::optional<Tool> tool)
+			{
+				// The model-space tool point and wrist at the third contact, once the activity has faded in and the feet have settled
+				auto loco = Locomotion(rig, gait);
+				auto body = BodyState{ .gravity = v4(0, 0, -9.8f, 0) };
+				loco.StartActivity(chop, 0.0, 0.25f);
+				loco.SetActivityTargets(chop, ActivityTargets{ .strike = strike, .tool = tool });
+				auto when = 2.0 + contact;
+				for (; body.time < when - 0.5 * dt; body.time += dt)
+					loco.Step(dt, body, ground);
+
+				body.time = when;
+				loco.Step(dt, body, ground);
+				auto const& frame = loco.pose().model[hand];
+				return std::pair{ frame * ToolPoint(limb, GripAxes(limb, ESide::Left), tool), frame.pos };
+			};
+			auto on_surface = [&](Strike const& strike, v4 const& tip)
+			{
+				// The tip is at the target's height, at its radius from the centre, on the side towards the shoulder
+				auto out = (tip - strike.point).w0();
+				auto facing = (shoulder - strike.point).w0();
+				out.z = facing.z = 0;
+				return std::abs(tip.z - strike.point.z) < 0.02f && std::abs(Length(out) - strike.radius) < 0.02f && Dot(out, facing) > 0;
+			};
+
+			auto axe = Tool{ .grip = v4(0, 0, 0, 1), .head = v4(0, 0.4f, 0.05f, 1) };
+			auto close = Strike{ .point = shoulder + v4(0, -0.55f * arm.reach, -0.45f * arm.reach, 0), .radius = 0.1f };
+			auto distant = Strike{ .point = shoulder + v4(0.1f, -0.85f * arm.reach, -0.6f * arm.reach, 0), .radius = 0.05f };
+			for (auto const& strike : { close, distant })
+			{
+				// The axe's head lands where the fist does, so the hand holding the axe stays further back
+				auto [fist, fist_wrist] = blow(strike, std::nullopt);
+				auto [head, axe_wrist] = blow(strike, axe);
+				PR_EXPECT(on_surface(strike, fist));
+				PR_EXPECT(on_surface(strike, head));
+				PR_EXPECT(Length(axe_wrist - fist_wrist) > 0.2f);
+			}
+
+			// Without a target the blow lands ahead of the shoulder and below it
+			auto [ahead, ahead_wrist] = blow(std::nullopt, std::nullopt);
+			PR_EXPECT(ahead.y < shoulder.y - 0.5f * arm.reach && ahead.z < shoulder.z);
 		}
 	};
 }

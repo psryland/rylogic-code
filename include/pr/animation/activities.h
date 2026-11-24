@@ -21,6 +21,7 @@
 #include "pr/animation/forward.h"
 #include "pr/animation/activity.h"
 #include "pr/animation/activity_punches.h"
+#include "pr/animation/activity_strike.h"
 
 namespace pr::animation
 {
@@ -38,8 +39,9 @@ namespace pr::animation
 	};
 
 	// Every activity type
-	inline constexpr std::array<ActivityType, 1> ActivityTypes = {
+	inline constexpr std::array<ActivityType, 2> ActivityTypes = {
 		ActivityType{ .name = "punches", .describe = &Punches::Describe, .read = &Punches::Read },
+		ActivityType{ .name = "strike", .describe = &Strikes::Describe, .read = &Strikes::Read },
 	};
 
 	// Read an activity of the type 'type' from its parameters. Throws 'std::runtime_error' if the type is not in the registry or the parameters

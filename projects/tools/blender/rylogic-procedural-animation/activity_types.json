@@ -23,5 +23,122 @@
 						"default": 0.6000000238418579
 					}]
 			}]
+	},
+	"strike": {
+		"root_mode": "planted",
+		"params": [{
+				"name": "hands",
+				"kind": "enum",
+				"items": ["left","right","both"],
+				"default": "right"
+			},{
+				"name": "duration",
+				"kind": "float",
+				"min": 0.20000000298023224,
+				"max": 5,
+				"default": 1.2000000476837158
+			},{
+				"name": "windup",
+				"kind": "float",
+				"min": 0.05000000074505806,
+				"max": 0.8999999761581421,
+				"default": 0.44999998807907104
+			},{
+				"name": "contact",
+				"kind": "float",
+				"min": 0.10000000149011612,
+				"max": 0.949999988079071,
+				"default": 0.6000000238418579
+			},{
+				"name": "follow",
+				"kind": "float",
+				"min": 0.15000000596046448,
+				"max": 0.9900000095367432,
+				"default": 0.75
+			},{
+				"name": "ready_angle",
+				"kind": "float",
+				"min": -1,
+				"max": 3,
+				"default": 0.6000000238418579
+			},{
+				"name": "ready_bend",
+				"kind": "float",
+				"min": 0.30000001192092896,
+				"max": 1,
+				"default": 0.800000011920929
+			},{
+				"name": "windup_angle",
+				"kind": "float",
+				"min": 0,
+				"max": 3.0999999046325684,
+				"default": 2.200000047683716
+			},{
+				"name": "windup_bend",
+				"kind": "float",
+				"min": 0.30000001192092896,
+				"max": 1,
+				"default": 0.6499999761581421
+			},{
+				"name": "follow_angle",
+				"kind": "float",
+				"min": 0,
+				"max": 1.5,
+				"default": 0.4000000059604645
+			},{
+				"name": "cock",
+				"kind": "float",
+				"min": -0.5,
+				"max": 1.600000023841858,
+				"default": 1
+			},{
+				"name": "swing_tilt",
+				"kind": "float",
+				"min": -1,
+				"max": 1,
+				"default": 0
+			},{
+				"name": "spacing",
+				"kind": "float",
+				"min": 0,
+				"max": 1,
+				"default": 0.30000001192092896
+			},{
+				"name": "lean",
+				"kind": "float",
+				"min": 0,
+				"max": 1,
+				"default": 0.25
+			},{
+				"name": "windup_lean",
+				"kind": "float",
+				"min": 0,
+				"max": 0.6000000238418579,
+				"default": 0.15000000596046448
+			},{
+				"name": "twist",
+				"kind": "float",
+				"min": 0,
+				"max": 1,
+				"default": 0.4000000059604645
+			},{
+				"name": "crouch",
+				"kind": "float",
+				"min": 0,
+				"max": 0.4000000059604645,
+				"default": 0.07999999821186066
+			},{
+				"name": "max_stoop",
+				"kind": "float",
+				"min": 0,
+				"max": 1.2000000476837158,
+				"default": 0.6000000238418579
+			},{
+				"name": "stagger",
+				"kind": "float",
+				"min": 0,
+				"max": 0.4000000059604645,
+				"default": 0.10000000149011612
+			}]
 	}
 }
