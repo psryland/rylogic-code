@@ -975,7 +975,8 @@ namespace pr
 		{
 			Mat4x4                m_t2s;
 			DXGI_FORMAT           m_format;
-			int                   m_mips;
+			int                   m_mips;      // The number of mip levels. Zero means the full chain down to 1x1.
+			BOOL                  m_mip_data;  // True if the initialisation data holds every mip level, so none are generated. See View3D_TextureCreate.
 			D3D12_RESOURCE_FLAGS  m_usage;
 			D3D12_RESOURCE_STATES m_resource_state;
 			D3D12_CLEAR_VALUE     m_clear_value;
@@ -2783,6 +2784,9 @@ extern "C"
 	// Set 'data' to nullptr to leave the texture uninitialised, if not null then data must point to width x height pixel data
 	// of the size appropriate for the given format. e.g. 'uint32_t px_data[width * height]' for D3DFMT_A8R8G8B8
 	// Note: careful with stride, 'data' is expected to have the appropriate stride for BytesPerPixel(format) * width
+	// If 'options.m_mip_data' is true, 'data' holds every mip level instead of only the first, and no levels are generated. The levels are packed
+	// one after another from level 0, and level i is max(1, width >> i) x max(1, height >> i) pixels. There are 'options.m_mips' levels, or the
+	// full chain down to 1x1 when 'm_mips' is zero. 'data_size' must be the total size of all the levels.
 	VIEW3D_API pr::view3d::Texture __stdcall View3D_TextureCreate(int width, int height, void const* data, size_t data_size, pr::view3d::TextureOptions const& options);
 
 	// Create one of the stock textures
