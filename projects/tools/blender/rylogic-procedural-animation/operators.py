@@ -439,7 +439,7 @@ def _ReportUnmatched(operator: Operator, unmatched: list[str]) -> None:
 
 # The rig's editable lists
 _COLLECTIONS = [
-	("CHAINS", "Chains", ""), ("CONTACTS", "Contacts", ""), ("FAMILIES", "Families", ""), ("CYCLES", "Movement Cycles", ""), ("ACTIVITIES", "Activities", ""),
+	("CHAINS", "Chains", ""), ("CONTACTS", "Contacts", ""), ("ATTACHMENTS", "Attachments", ""), ("FAMILIES", "Families", ""), ("CYCLES", "Movement Cycles", ""), ("ACTIVITIES", "Activities", ""),
 	("ACTIVITY_LIST", "Activity List", "The list parameter, named by 'param', of the active activity"),
 ]
 
@@ -535,7 +535,7 @@ class RYLOGIC_OT_gait_template(_ArmatureOperator):
 
 
 class RYLOGIC_OT_rig_item_add(_ArmatureOperator):
-	"""Add a chain, contact, family, movement cycle, activity or activity list item"""
+	"""Add a chain, contact, attachment, family, movement cycle, activity or activity list item"""
 
 	bl_idname = "rylogic_rig.item_add"
 	bl_label = "Add"
@@ -555,6 +555,10 @@ class RYLOGIC_OT_rig_item_add(_ArmatureOperator):
 				contact = rig.contacts.add()
 				contact.name = f"contact.{len(rig.contacts)}"
 				rig.active_contact = len(rig.contacts) - 1
+			case "ATTACHMENTS":
+				attachment = rig.attachments.add()
+				attachment.name = f"attachment.{len(rig.attachments)}"
+				rig.active_attachment = len(rig.attachments) - 1
 			case "FAMILIES":
 				family = rig.families.add()
 				family.name = f"family.{len(rig.families)}"
@@ -584,7 +588,7 @@ class RYLOGIC_OT_rig_item_add(_ArmatureOperator):
 
 
 class RYLOGIC_OT_rig_item_remove(_ArmatureOperator):
-	"""Remove the active chain, contact, family, movement cycle, activity or activity list item"""
+	"""Remove the active chain, contact, attachment, family, movement cycle, activity or activity list item"""
 
 	bl_idname = "rylogic_rig.item_remove"
 	bl_label = "Remove"
@@ -605,6 +609,10 @@ class RYLOGIC_OT_rig_item_remove(_ArmatureOperator):
 				if 0 <= rig.active_contact < len(rig.contacts):
 					rig.contacts.remove(rig.active_contact)
 					rig.active_contact = max(0, min(rig.active_contact, len(rig.contacts) - 1))
+			case "ATTACHMENTS":
+				if 0 <= rig.active_attachment < len(rig.attachments):
+					rig.attachments.remove(rig.active_attachment)
+					rig.active_attachment = max(0, min(rig.active_attachment, len(rig.attachments) - 1))
 			case "FAMILIES":
 				if 0 <= rig.active_family < len(rig.families):
 					rig.families.remove(rig.active_family)

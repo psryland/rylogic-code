@@ -29,6 +29,16 @@ class RYLOGIC_UL_rig_contacts(UIList):
 		row.label(text=f"{item.kind.title()} on {item.bone}")
 
 
+class RYLOGIC_UL_rig_attachments(UIList):
+	"""Lists an armature's attachments."""
+
+	def draw_item(self, context, layout, data, item, icon, active_data, active_property, index):
+		# Show the editable name with its bone
+		row = layout.row()
+		row.prop(item, "name", text="", emboss=False, icon="EMPTY_AXIS")
+		row.label(text=f"on {item.bone}")
+
+
 class RYLOGIC_UL_rig_families(UIList):
 	"""Lists an armature's gait families."""
 
@@ -134,6 +144,7 @@ class RYLOGIC_PT_rig_overlay(_RigSubPanel, Panel):
 		row.prop(rig, "show_poles", toggle=True)
 		row.prop(rig, "show_facing", toggle=True)
 		row.prop(rig, "show_contacts", toggle=True)
+		row.prop(rig, "show_attachments", toggle=True)
 
 
 class RYLOGIC_PT_rig_skeleton(_RigSubPanel, Panel):
@@ -259,6 +270,33 @@ class RYLOGIC_PT_rig_contacts(_RigSubPanel, Panel):
 		row = box.row()
 		row.column().prop(contact, "offset")
 		row.column().prop(contact, "normal")
+
+
+class RYLOGIC_PT_rig_attachments(_RigSubPanel, Panel):
+	"""The frames on bones where objects are attached, such as a tool carried on the back, with the active attachment's details."""
+
+	bl_label = "Attachments"
+
+	def draw(self, context):
+		# The list of attachments
+		layout = self.layout
+		armature = context.active_object.data
+		rig = armature.rylogic_rig
+		row = layout.row()
+		row.template_list("RYLOGIC_UL_rig_attachments", "", rig, "attachments", rig, "active_attachment", rows=2)
+		column = row.column(align=True)
+		column.operator("rylogic_rig.item_add", icon="ADD", text="").collection = "ATTACHMENTS"
+		column.operator("rylogic_rig.item_remove", icon="REMOVE", text="").collection = "ATTACHMENTS"
+		if not 0 <= rig.active_attachment < len(rig.attachments):
+			return
+
+		# The active attachment's frame, relative to its bone's rest pose
+		attachment = rig.attachments[rig.active_attachment]
+		box = layout.box()
+		box.prop_search(attachment, "bone", armature, "bones")
+		row = box.row()
+		row.column().prop(attachment, "offset")
+		row.column().prop(attachment, "rotation")
 
 
 class RYLOGIC_PT_rig_locomotion(_RigSubPanel, Panel):
@@ -419,6 +457,7 @@ class RYLOGIC_PT_rig_bone(Panel):
 CLASSES = (
 	RYLOGIC_UL_rig_chains,
 	RYLOGIC_UL_rig_contacts,
+	RYLOGIC_UL_rig_attachments,
 	RYLOGIC_UL_rig_families,
 	RYLOGIC_UL_rig_activities,
 	RYLOGIC_UL_activity_list_items,
@@ -431,6 +470,7 @@ CLASSES = (
 	RYLOGIC_PT_rig_range_of_motion,
 	RYLOGIC_PT_rig_ragdoll,
 	RYLOGIC_PT_rig_contacts,
+	RYLOGIC_PT_rig_attachments,
 	RYLOGIC_PT_rig_locomotion,
 	RYLOGIC_PT_rig_families,
 	RYLOGIC_PT_rig_cycles,

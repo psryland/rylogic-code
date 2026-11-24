@@ -104,5 +104,5 @@ void CookRig(p3d::File const& p3d, std::filesystem::path const& infile, std::fil
 	// Write the cooked rig
 	SaveRigDesc(outfile, desc);
 	if (verbosity >= 1)
-		std::cout << "Cooked rig written to '" << outfile.string() << "' (" << bone_count << " bones, " << desc.chains.size() << " chains, " << desc.contacts.size() << " contacts)." << std::endl;
+		std::cout << "Cooked rig written to '" << outfile.string() << "' (" << bone_count << " bones, " << desc.chains.size() << " chains, " << desc.contacts.size() << " contacts, " << desc.attachments.size() << " attachments)." << std::endl;
 }
