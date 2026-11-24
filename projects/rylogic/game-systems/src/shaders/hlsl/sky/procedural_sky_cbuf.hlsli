@@ -23,6 +23,9 @@ namespace pr::game_systems::sky
 	using pr::rdr12::shaders::CloudConstants;
 #endif
 
+// The number of cloud glows from fork lightning: two per strike (where the bolt starts, and where it leaves the cloud base).
+#define PR_SKY_FORK_GLOW_MAX 8
+
 // Procedural sky constant buffer. Bound to b3.
 struct CBufProceduralSky //:reg(b3)
 {
@@ -38,6 +41,13 @@ struct CBufProceduralSky //:reg(b3)
 
 	// Lightning flashes inside the cloud: xy = position in the atmosphere frame, z = radius, w = brightness (0 = no flash).
 	float4 lightning[PR_SKY_LIGHTNING_MAX];
+
+	// Glow in the cloud around the fork lightning bolts' channels, in the same form as 'lightning'. The sky fills these from its own strikes.
+	float4 fork_glow[PR_SKY_FORK_GLOW_MAX];
+
+	// x = scale for all natural light in the sky (sun, moon, stars, night air and the cubemap background), but not lightning.
+	// 1 is normal. Callers lower it to make a lightning flash dazzle, so the sky goes dark while the lightning stays bright.
+	float4 exposure;
 
 	// Direction transform from the current scene frame into the source cube frame.
 	row_major float4x4 world_to_cube;
