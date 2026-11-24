@@ -2921,8 +2921,10 @@ static game_systems::ProceduralSkySettings ToSkySettings(view3d::ProceduralSkySe
 		.m_moon_direction = To<v4>(s.m_moon_direction),
 		.m_moon_light_direction = To<v4>(s.m_moon_light_direction),
 		.m_sky_to_stars = To<m4x4>(s.m_sky_to_stars),
+		.m_exposure = s.m_exposure,
+		.m_lightning_time = s.m_lightning_time,
 	};
-	static_assert(sizeof(view3d::ProceduralSkySettings) == 232, "Must match the managed View3d.ProceduralSkySettings layout");
+	static_assert(sizeof(view3d::ProceduralSkySettings) == 240, "Must match the managed View3d.ProceduralSkySettings layout");
 	static_assert(std::extent_v<decltype(view3d::ProceduralSkySettings::m_lightning)> == game_systems::ProceduralSkySettings::LightningMax);
 	for (int i = 0; i != game_systems::ProceduralSkySettings::LightningMax; ++i)
 		settings.m_lightning[i] = To<v4>(s.m_lightning[i]);
@@ -2965,6 +2967,59 @@ VIEW3D_API BOOL __stdcall View3D_ObjectProceduralSkyWeatherSet(view3d::Object ob
 		return TRUE;
 	}
 	CatchAndReport(View3D_ObjectProceduralSkyWeatherSet, , FALSE);
+}
+
+// Start a fork lightning strike. Invalid input is reported and starts nothing.
+VIEW3D_API BOOL __stdcall View3D_ObjectProceduralSkyStrike(view3d::Object object, view3d::Vec4 ground, uint32_t seed)
+{
+	try
+	{
+		Validate(object);
+		DllLockGuard;
+		Dll().ObjectProceduralSkyStrike(object, To<v4>(ground), seed);
+		return TRUE;
+	}
+	CatchAndReport(View3D_ObjectProceduralSkyStrike, , FALSE);
+}
+
+// Read the strikes' dazzle of a window's camera at a lightning time.
+VIEW3D_API BOOL __stdcall View3D_ObjectProceduralSkyDazzle(view3d::Object object, view3d::Window window, double lightning_time, float away_scale, float* dazzle)
+{
+	try
+	{
+		Validate(object);
+		Validate(window);
+		if (dazzle == nullptr)
+			throw std::invalid_argument("'dazzle' must not be null");
+
+		DllLockGuard;
+		*dazzle = Dll().ObjectProceduralSkyDazzle(object, lightning_time, window->m_scene.m_cam, away_scale);
+		return TRUE;
+	}
+	CatchAndReport(View3D_ObjectProceduralSkyDazzle, window, FALSE);
+}
+
+// Read the strikes' ground lights at a lightning time, up to the caller's capacity.
+VIEW3D_API int __stdcall View3D_ObjectProceduralSkyGroundLights(view3d::Object object, double lightning_time, view3d::Vec4* lights, int capacity)
+{
+	try
+	{
+		Validate(object);
+		if (capacity < 0 || (lights == nullptr && capacity != 0))
+			throw std::invalid_argument("'lights' must hold 'capacity' entries");
+
+		// Pack each light as its scene-frame position with the brightness in w.
+		DllLockGuard;
+		auto ground_lights = Dll().ObjectProceduralSkyGroundLights(object, lightning_time);
+		auto count = std::min(s_cast<int>(ground_lights.size()), capacity);
+		for (int i = 0; i != count; ++i)
+		{
+			auto const& light = ground_lights[i];
+			lights[i] = To<view3d::Vec4>(v4(light.m_position.xyz, light.m_brightness));
+		}
+		return count;
+	}
+	CatchAndReport(View3D_ObjectProceduralSkyGroundLights, , -1);
 }
 
 // Create a weather map. The caller owns the returned reference.

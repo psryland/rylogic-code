@@ -908,6 +908,12 @@ namespace pr::rdr12
 		obj->m_sko.Group(ESortGroup::Skybox);
 		obj->Flags(ldraw::ELdrFlags::SceneBoundsExclude | ldraw::ELdrFlags::HitTestExclude | ldraw::ELdrFlags::ShadowCastExclude, true);
 		obj->m_user_data.get<ICloudSky const*>() = sky.get();
+
+		// The fork lightning strikes are separate instances, added with the background.
+		obj->OnAddToScene += [sky = sky.get()](ldraw::LdrObject&, Scene& scene)
+		{
+			sky->AddStrikesToScene(scene);
+		};
 		obj->m_user_data.get<std::unique_ptr<game_systems::ProceduralSky>>() = std::move(sky);
 		return obj;
 	}
@@ -953,6 +959,41 @@ namespace pr::rdr12
 			throw std::invalid_argument("The object is not a procedural sky");
 
 		object->m_user_data.get<std::unique_ptr<game_systems::ProceduralSky>>()->Weather(std::move(weather));
+	}
+
+	// Start a fork lightning strike; a normal object cannot be reinterpreted as a procedural sky.
+	void Context::ObjectProceduralSkyStrike(ldraw::LdrObject* object, v4 const& ground, uint32_t seed)
+	{
+		// The strike can replace an older strike whose model a window drew in its last frame. Windows keep their draw lists until their next render,
+		// so the windows that draw the sky clear them first, as for removed objects. Captures clear their own draw lists after each face.
+		if (!object->m_user_data.has<std::unique_ptr<game_systems::ProceduralSky>>())
+			throw std::invalid_argument("The object is not a procedural sky");
+
+		for (auto* wnd : m_windows)
+		{
+			// Only windows that draw the sky can refer to its strikes
+			if (wnd->Has(object, true))
+				wnd->m_scene.ClearDrawlists();
+		}
+		object->m_user_data.get<std::unique_ptr<game_systems::ProceduralSky>>()->Strike(ground, seed);
+	}
+
+	// Read the strikes' dazzle; a normal object cannot be reinterpreted as a procedural sky.
+	float Context::ObjectProceduralSkyDazzle(ldraw::LdrObject const* object, double lightning_time, Camera const& camera, float away_scale) const
+	{
+		if (!object->m_user_data.has<std::unique_ptr<game_systems::ProceduralSky>>())
+			throw std::invalid_argument("The object is not a procedural sky");
+
+		return object->m_user_data.get<std::unique_ptr<game_systems::ProceduralSky>>()->Dazzle(lightning_time, camera, away_scale);
+	}
+
+	// Read the strikes' ground lights; a normal object cannot be reinterpreted as a procedural sky.
+	std::vector<game_systems::LightningGroundLight> Context::ObjectProceduralSkyGroundLights(ldraw::LdrObject const* object, double lightning_time) const
+	{
+		if (!object->m_user_data.has<std::unique_ptr<game_systems::ProceduralSky>>())
+			throw std::invalid_argument("The object is not a procedural sky");
+
+		return object->m_user_data.get<std::unique_ptr<game_systems::ProceduralSky>>()->GroundLights(lightning_time);
 	}
 
 	// Change only the shared sky's blend parameters, retaining the source independently of caller ownership.

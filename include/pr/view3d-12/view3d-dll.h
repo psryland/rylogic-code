@@ -693,6 +693,8 @@ namespace pr
 		// 'm_moon_direction' points toward the moon. 'm_moon_light_direction' points from the moon toward the light that lights it, which sets the phase:
 		// equal to m_moon_direction is a new moon, equal to -m_moon_direction is a full moon. Both must be finite and nonzero when the moon is shown.
 		// 'm_sky_to_stars' rotates sky-frame directions into the star frame (Z = north celestial pole, X = right ascension 0h). Must be a rotation.
+		// 'm_exposure' (finite, >= 0, 1 = normal) scales the sky's natural light but not fork lightning, so lowering it during a strike makes the bolt dazzle.
+		// 'm_lightning_time' (finite, seconds) is the fork lightning clock. Strikes start at its current value; use real time, not game time.
 		struct ProceduralSkySettings
 		{
 			Vec4 m_sun_direction = { 0.5f, 0.3f, 0.8f, 0.0f };
@@ -709,6 +711,8 @@ namespace pr
 			Vec4 m_moon_direction = { -0.5f, -0.3f, 0.5f, 0.0f };
 			Vec4 m_moon_light_direction = { 0.5f, 0.3f, -0.5f, 0.0f };
 			Mat4x4 m_sky_to_stars = { {1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}, {0, 0, 0, 1} };
+			float m_exposure = 1.0f;
+			double m_lightning_time = 0.0;
 		};
 
 		// Sun, moon and star state from the Sun–Earth–Moon model, in the procedural sky's frame (+Z up, +Y north, +X east). See CelestialState
@@ -2267,6 +2271,21 @@ extern "C"
 	// Set the weather map that varies cloud cover across the sky, or null to use only the default cover. The sky retains the map.
 	// Returns FALSE on a non-sky object, without changing the previous weather.
 	VIEW3D_API BOOL __stdcall View3D_ObjectProceduralSkyWeatherSet(pr::view3d::Object object, pr::view3d::WeatherMap weather);
+
+	// Start a fork lightning strike at 'ground' (a sky-frame point below the cloud base) at the sky's current lightning time. The same 'seed' always
+	// grows the same bolt. Returns FALSE on a non-sky object or an invalid ground point, without starting a strike.
+	VIEW3D_API BOOL __stdcall View3D_ObjectProceduralSkyStrike(pr::view3d::Object object, pr::view3d::Vec4 ground, uint32_t seed);
+
+	// Get how strongly the sky's fork lightning strikes dazzle the camera of 'window' at 'lightning_time', in [0,1]. A strike dazzles fully while
+	// any part of its bolt is in view, fading to 'away_scale' (in [0,1]) times as much once the bolt is well outside the view. The sky does not
+	// darken the scene itself; callers lower ProceduralSkySettings::m_exposure and their own scene lighting by it. Returns FALSE on a non-sky object
+	// or an invalid 'away_scale'.
+	VIEW3D_API BOOL __stdcall View3D_ObjectProceduralSkyDazzle(pr::view3d::Object object, pr::view3d::Window window, double lightning_time, float away_scale, float* dazzle);
+
+	// Get the ground light of each strike whose return strokes are lighting the ground at 'lightning_time'. Each entry of 'lights' receives the
+	// bolt's ground point in the scene frame (xyz) and the flash brightness in (0,1] (w). The sky adds no lights; callers place their own.
+	// Writes at most 'capacity' entries (the sky has at most 4 strikes) and returns the number written, or -1 on a non-sky object.
+	VIEW3D_API int __stdcall View3D_ObjectProceduralSkyGroundLights(pr::view3d::Object object, double lightning_time, pr::view3d::Vec4* lights, int capacity);
 
 	// Retain and blend a source cube map (0=cubemap, 1=atmosphere). Direction transforms must be finite rotations.
 	// The cubemap's own orientation is composed with world_to_background. Null background requires weight 1. FALSE leaves the sky unchanged.

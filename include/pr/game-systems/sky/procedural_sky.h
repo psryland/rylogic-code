@@ -5,6 +5,7 @@
 // Atmospheric sky shared by native scenes and View3D objects.
 #pragma once
 #include "pr/game-systems/forward.h"
+#include "pr/game-systems/sky/lightning.h"
 
 namespace pr::game_systems
 {
@@ -62,6 +63,14 @@ namespace pr::game_systems
 		// Stars, the Milky Way and the Magellanic Clouds are fixed in the star frame, so the caller turns this to set the observer's latitude
 		// and to wheel the stars through the night. Must be a rotation (orthonormal, no translation).
 		m4x4 m_sky_to_stars = m4x4::Identity();
+
+		// Scale for the natural light of the sky (sun, moon, stars, night air and the cubemap background), finite and nonnegative. 1 is normal.
+		// Fork lightning and its glow in the cloud are not scaled, so lowering the exposure during a strike makes the bolt dazzle (see ProceduralSky::Dazzle).
+		float m_exposure = 1.0f;
+
+		// The clock for fork lightning strikes, in seconds. It must be finite. Strikes start at the current time on this clock, and each strike's
+		// light follows the time since it started, so strikes play at the speed of this clock. A clock that runs slower than real time gives slow motion.
+		double m_lightning_time = 0.0;
 	};
 
 	// Owns a Z-up atmospheric sky with an optional retained cubemap. Create, update and release on the renderer owner thread.
@@ -100,11 +109,50 @@ namespace pr::game_systems
 		// The total distance the low cloud has moved with the wind, in world units in the sky frame. Views use it to follow the cloud between frames.
 		double m_low_cloud_drift[2];
 
+		// The most fork lightning strikes shown at once. A new strike replaces the oldest when the sky is full.
+		static constexpr int StrikesMax = 4;
+
+		// The radius of the glow in the cloud around where a bolt starts and where it leaves the cloud base, in world units.
+		static constexpr float ForkGlowRadius = 1200.0f;
+
+		// The fork lightning strikes, and the lightning clock at the last update. Slots are never moved, because scenes refer to their instances.
+		std::vector<LightningStrike> m_strikes;
+		double m_lightning_time;
+
+		// Creates the strikes' models. It persists because a temporary factory waits for the GPU when it is destroyed.
+		std::unique_ptr<ResourceFactory> m_factory;
+
 		// Create the model and shader once; no image files or runtime shader compiler are required.
 		explicit ProceduralSky(Renderer& rdr);
+		ProceduralSky(ProceduralSky const&) = delete;
+		ProceduralSky& operator=(ProceduralSky const&) = delete;
+		~ProceduralSky();
 
 		// Set the atmosphere and cloud parameters. Invalid settings throw and leave the previous sky unchanged.
 		void Update(ProceduralSkySettings const& settings);
+
+		// Start a fork lightning strike at 'ground', a point in the sky frame below the cloud, at the current lightning time (see
+		// ProceduralSkySettings::m_lightning_time). The bolt grows from inside the cloud above the point, lights the cloud around it, and fades.
+		// The same 'seed' always grows the same bolt. Throws if 'ground' is not finite or is not below the cloud base.
+		// When all strike slots are in use, the strike replaces the one that ends first and releases its model, so every scene that drew the strikes
+		// must clear its draw lists before this call.
+		void Strike(v4 const& ground, uint32_t seed);
+
+		// How strongly the fork lightning strikes dazzle a viewer at 'lightning_time' (see ProceduralSkySettings::m_lightning_time), in [0,1].
+		// See LightningLight::m_dazzle. A strike dazzles fully while any part of its bolt is inside the view of 'camera' (in the scene frame),
+		// and its dazzle fades to 'away_scale' times as much once the whole bolt is DazzleViewFade or more outside the edge of the view.
+		// 'away_scale' must be in [0,1]. The view is the camera's perspective field of view.
+		// The sky does not darken the scene: callers that want the dazzle get it for the frame they are about to draw, then lower
+		// ProceduralSkySettings::m_exposure and their own scene lighting by it.
+		float Dazzle(double lightning_time, Camera const& camera, float away_scale) const;
+
+		// The angle beyond the edge of the view, in radians, over which a strike's dazzle fades from full to the caller's 'away_scale' (see Dazzle).
+		static constexpr float DazzleViewFade = 30.0f * constants<float>::tau / 360.0f;
+
+		// Get the ground light (see LightningGroundLight) of each strike whose return strokes are flashing at 'lightning_time'
+		// (see ProceduralSkySettings::m_lightning_time). At most StrikesMax strikes light the ground at once.
+		// The sky adds no lights to the scene: callers that want the light place their own.
+		std::vector<LightningGroundLight> GroundLights(double lightning_time) const;
 
 		// Use 'weather' as the cloud cover field, or null for uniform cover. The map is retained, and later uploads to it are used automatically.
 		void Weather(WeatherMapPtr weather);
@@ -114,8 +162,12 @@ namespace pr::game_systems
 		// With no cubemap only weight 1 is valid. Updates must not overlap rendering.
 		void Blend(TextureCubePtr background, float weight, m4x4 const& world_to_sky, m4x4 const& world_to_background);
 
-		// Add the background, independent of camera translation and clip distances. The scene also uses this sky for cloud shadows.
+		// Add the background and the fork lightning strikes, independent of camera translation and clip distances.
+		// The scene also uses this sky for cloud shadows.
 		void AddToScene(Scene& scene);
+
+		// Add only the fork lightning strikes that are visible at the last update. For owners that draw the background themselves.
+		void AddStrikesToScene(Scene& scene);
 
 		// Get the cloud field for cloud shadows on the scene, and the sky's texture table (cube, weather map, cloud noise) that the cloud field reads.
 		// Returns false, with 'clouds' still filled, when the sky casts no cloud shadows.

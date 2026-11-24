@@ -46,6 +46,12 @@ static const float TauMie = 2.4e-3;
 // Scale from the caller's sun colour and intensity to sky radiance. Radiance is tone mapped with 1 - exp(-L).
 static const float SkyExposure = 3.5;
 
+// The faint light of the night air when no sun or moon lights it, scaled by the caller's exposure.
+float3 NightFloor()
+{
+	return float3(0.002, 0.003, 0.006) * g_sky.exposure.x;
+}
+
 // The relative length of the path through the atmosphere toward 'sin_elevation', compared with straight up.
 // Paths lengthen quickly near the horizon, but stay finite because the atmosphere is curved.
 float AirMass(float sin_elevation)
@@ -100,7 +106,7 @@ float3 SkyRadiance(float3 view_dir, float3 sun_dir, float3 sun_light)
 
 	// Fade to night as the sun sets below the horizon, leaving a faint blue night sky.
 	float day = saturate(sun_dir.z * 12.0 + 1.0);
-	return radiance * day * day + float3(0.002, 0.003, 0.006);
+	return radiance * day * day + NightFloor();
 }
 
 // Scale for the radiance seen in the clear daytime sky along a view with vertical component 'view_z', when the sun's vertical component is 'sun_z'.
@@ -449,8 +455,8 @@ float4 Moon(float3 view_dir, float3 moon_dir, float3 light_dir, float brightness
 // The colour and radiance of lightning light in cloud at brightness 1.
 static const float3 LightningColour = float3(0.75, 0.82, 1.0) * 4.0;
 
-// Lightning light at 'pos' on a cloud layer, from the flashes in g_sky.lightning. Each flash lights a soft patch around its position,
-// and a faint wide glow spreads through the rest of the deck.
+// Lightning light at 'pos' on a cloud layer, from the flashes in g_sky.lightning and the fork lightning glows in g_sky.fork_glow.
+// Each flash lights a soft patch around its position, and a faint wide glow spreads through the rest of the deck.
 float LightningGlow(float2 pos)
 {
 	// Sum the flashes. Unused slots have zero brightness.
@@ -459,6 +465,19 @@ float LightningGlow(float2 pos)
 	{
 		// Skip unused slots so their radius is never read.
 		float4 flash = g_sky.lightning[i];
+		if (flash.w <= 0)
+			continue;
+
+		float2 d = (pos - flash.xy) / flash.z;
+		float r2 = dot(d, d);
+		glow += flash.w * (exp(-r2) + 0.15 * exp(-0.05 * r2));
+	}
+
+	// The fork lightning glows light the cloud in the same way.
+	[unroll] for (int j = 0; j != PR_SKY_FORK_GLOW_MAX; ++j)
+	{
+		// Skip unused slots so their radius is never read.
+		float4 flash = g_sky.fork_glow[j];
 		if (flash.w <= 0)
 			continue;
 
@@ -824,9 +843,10 @@ float3 ProceduralSkyColour(float3 dir, float3 cam, float pixel_angle, uint2 pixe
 {
 	// Sky radiance, lit by the sun above the atmosphere. 'air' is the scattered light that lights the clouds. 'haze' is the air as seen,
 	// without the sun disc, which distant clouds fade into. Under heavy cloud the clear sky is not seen deep blue (see below).
+	// The caller's exposure scales the sunlight, and so everything it lights, but not the lightning.
 	CloudConstants clouds = g_sky.clouds;
 	float3 sun_dir = clouds.sun_direction.xyz;
-	float3 sun_top = g_sky.sun_colour.rgb * g_sky.sun_intensity * SkyExposure;
+	float3 sun_top = g_sky.sun_colour.rgb * g_sky.sun_intensity * SkyExposure * g_sky.exposure.x;
 	float heavy = smoothstep(0.6, 1.0, CloudCover(clouds, cam.xy));
 	float3 air = SkyRadiance(dir, sun_dir, sun_top);
 	float3 haze = air * DaytimeSkyDepth(dir.z, sun_dir.z, heavy);
@@ -842,7 +862,7 @@ float3 ProceduralSkyColour(float3 dir, float3 cam, float pixel_angle, uint2 pixe
 	{
 		float lit_fraction = 0.5 - 0.5 * dot(moon_light_dir, moon_dir);
 		float3 moon_top = sun_top * 0.012 * g_sky.moon_intensity * lit_fraction;
-		moon_air = SkyRadiance(dir, moon_dir, moon_top) - float3(0.002, 0.003, 0.006);
+		moon_air = SkyRadiance(dir, moon_dir, moon_top) - NightFloor();
 		moon_level = saturate(g_sky.moon_intensity * lit_fraction) * smoothstep(-0.05, 0.1, moon_dir.z);
 		sky += moon_air;
 		air += moon_air;
@@ -865,9 +885,9 @@ float3 ProceduralSkyColour(float3 dir, float3 cam, float pixel_angle, uint2 pixe
 		float3 night = Stars(stars_dir, pixel_angle * 300.0, GalacticPlane(stars_dir), g_sky.time) * (1.0 - 0.6 * moon_level);
 		night += NamedStarLight(stars_dir, pixel_angle, g_sky.time);
 		night += MilkyWay(stars_dir) * (1.0 - 0.85 * moon_level);
-		sky += night * star_visibility;
+		sky += night * star_visibility * g_sky.exposure.x;
 	}
-	sky += moon.rgb;
+	sky += moon.rgb * g_sky.exposure.x;
 
 	// Under heavy cloud little sunlight reaches the air below it, so the clear air seen toward the horizon and below it is dim and grey.
 	float gloom = lerp(1.0, 0.17, heavy);
@@ -986,7 +1006,7 @@ PSOut PSProceduralSky(PSIn In)
 	if (g_sky.blend_weight < 1)
 	{
 		float3 cube_dir = mul(float4(view_dir, 0), g_sky.world_to_cube).xyz;
-		float3 background = g_background.SampleLevel(g_background_sampler, cube_dir, 0).rgb;
+		float3 background = g_background.SampleLevel(g_background_sampler, cube_dir, 0).rgb * g_sky.exposure.x;
 		sky = lerp(background, sky, g_sky.blend_weight);
 	}
 
