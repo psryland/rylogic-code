@@ -372,7 +372,7 @@ let adding = false;
 // The pseudo ID that selects the pool of unassigned recordings
 const POOL = "(unassigned)";
 
-// Recipe step kinds, their parameters and the values a new step starts with
+// Recipe step kinds, their parameters, display names for parameters whose recipe key is unclear, and the values a new step starts with
 const STEPS = {
 	trim: { label: "Trim", params: { start: "s", end: "s" }, init: { start: 0 } },
 	cut: { label: "Cut", params: { start: "s", end: "s" }, init: { start: 0, end: 1 } },
@@ -384,7 +384,7 @@ const STEPS = {
 	low_pass: { label: "Low-pass", params: { frequency: "Hz", slope: "slope" }, init: { frequency: 12000, slope: 12 } },
 	eq: { label: "EQ", params: { frequency: "Hz", db: "dB", q: "Q" }, init: { frequency: 1000, db: 0, q: 1 } },
 	denoise: { label: "Denoise", params: { start: "s", end: "s", db: "dB" }, init: { start: 0, end: 0.5, db: 12 } },
-	loop: { label: "Loop", params: { duration: "s", start: "s" }, init: { duration: 3 } },
+	loop: { label: "Loop", params: { duration: "s", start: "s" }, names: { duration: "crossfade", start: "loop start" }, init: { duration: 3 } },
 	mix: { label: "Mix", params: { db: "dB" }, init: { db: 0, inputs: [] } },
 };
 
@@ -1493,7 +1493,7 @@ function render_step(step, i)
 	for (const [name, unit] of Object.entries(STEPS[step.step]?.params ?? {}))
 	{
 		const label = document.createElement("label");
-		label.textContent = name;
+		label.textContent = STEPS[step.step].names?.[name] ?? name;
 		let input;
 		if (unit === "curve" || unit === "slope")
 		{
