@@ -1187,6 +1187,14 @@ namespace pr
 			double m_warp_power;         // Growth of the vertex spacing with distance (1 is uniform).
 			double m_breaking_ratio;     // Waves break at this height-to-depth ratio.
 			double m_shore_sharpness;    // Crest sharpness that waves reach at the breaking height, in [0, WaterFieldMaxCrestSharpness]. See WaterFieldShoreSharpness.
+
+			// Rain falling on the water, drawn as rings that spread from each drop near the camera. The drops follow the wave clock, and their pattern
+			// continues smoothly when the clock wraps at a multiple of 1024 seconds. A zero intensity, radius, wavelength or slope draws no rings.
+			double m_rain_intensity;         // How hard it rains on the water, in [0, 1]: the fraction of a downpour's drops that fall. A downpour churns the surface.
+			double m_rain_ring_radius_m;     // The largest radius (m) that a drop's ring spreads to, finite and non-negative.
+			double m_rain_ring_wavelength_m; // The wavelength (m) of a new ring's ripples, finite and non-negative. It doubles as the ring spreads. Rings show only where pixels are a few times smaller.
+			double m_rain_ring_slope;        // The steepest slope of a new ring's ripples, finite and non-negative. It falls to zero as the ring spreads.
+
 			uint32_t m_colour_argb;      // Surface tint. Alpha is the opacity when viewed from directly above.
 			uint32_t m_depth_effects;    // Non-zero to apply shoaling and breaking.
 		};
