@@ -69,13 +69,15 @@ namespace pr::compute
 			using is_transparent = void;
 			size_t operator()(std::span<Descriptor const> descriptors) const
 			{
+				// Mix whole identity fields. The table comparison, not the hash, decides whether a cached GPU handle can be reused.
 				auto key = hash::FNV_offset_basis64;
-				for (auto& des : descriptors)
+				for (auto const& des : descriptors)
 				{
-					key = hash::HashBytes64(&des.m_index, &des.m_index + 1, key);
-					key = hash::HashBytes64(&des.m_generation, &des.m_generation + 1, key);
+					// Preserve slot order as well as reuse of a slot within this frame.
+					key = (key ^ static_cast<uint32_t>(des.m_index)) * hash::FNV_prime64;
+					key = (key ^ des.m_generation) * hash::FNV_prime64;
 				}
-				return s_cast<size_t>(key);
+				return s_cast<size_t>(key ^ (key >> 32));
 			}
 		};
 
