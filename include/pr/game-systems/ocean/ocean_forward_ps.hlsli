@@ -2,8 +2,8 @@
 // Ocean Surface Forward Pixel
 //  Copyright (c) Rylogic Ltd 2026
 //************************************
-// Forward shading for the world-view water surface: the stock detail-normal shading, with a dark lip where the water laps the terrain, and
-// textured foam on the shore and on breaking wave crests.
+// Forward shading for the world-view water surface: the stock detail-normal shading, with a dark lip where the water laps the terrain, textured
+// foam on the shore and on breaking wave crests, and rings where rain lands on the water (see ApplyRainRings).
 //
 // The water's vertical depth is read from a caller-supplied shore height source (see ShoreDepth). A flat surface meets the terrain in a
 // knife edge, so the thinnest water at the waterline is darkened, as if the front were a rounded lip in its own shadow.
@@ -302,6 +302,128 @@ float4 RippleStrength(float2 xy)
 	return float4(OceanRippleSteepness(speed) / OceanRippleReferenceSteepness, OceanRippleSlopeVariance(speed), wind);
 }
 
+// Rain rings (see OceanConstants.rain). Each drop that lands on the water spreads one ring of ripples outwards from where it fell, and the ring fades
+// as it grows. The drops land in a few independent layers of square cells. In each layer, each cell can take one drop per drop period, at a random
+// place in the cell and a random time in the period, so the drops show no grid or rhythm. A cell is wider than the largest ring and its band of
+// ripples, so only the drops in a pixel's cell and its eight neighbours can reach the pixel. Heavier rain fills more of the cells, and the many
+// overlapping rings of a downpour churn the surface. The rings are a normal tilt only; they do not move the surface.
+static const int RainLayerCount = 16;
+static const float RainDropPeriod = 1.0f;           // Seconds between the drops that one cell of one layer can take. 1024 s is a whole number of periods.
+static const float RainRingLife = 0.9f;             // Lifetime of a ring, as a fraction of the drop period, so the rings of one cell never overlap.
+static const float RainEnvelopeWavelengths = 0.6f;  // Width of the band of ripples around a ring's front, in wavelengths.
+static const float RainRoughnessFade = 0.04f;       // Pixel size, in wavelengths, at which the rings' roughness starts to fade in.
+static const float RainResolvedFade = 0.4f;         // Pixel size, in wavelengths, at which a ring's ripples start to fade out.
+static const float RainUnresolvedFade = 1.5f;       // Pixel size, in wavelengths, at which a ring's ripples have faded out and their roughness is complete.
+static const float RainSlopeVariance = 0.12f;       // Mean square slope of a downpour's rings, relative to the square of the new-ring slope.
+static const uint RainPhaseSeed = RainLayerCount * 1024u; // Hash seeds of the cells' phases, after the 1024 seeds of each layer's drops.
+
+// Return 1 where a pixel spans at most 'start' wavelengths of the ripples, 0 where it spans at least 'end', and a smooth blend between. The
+// blend runs over the ratio of the pixel size to the wavelength, not its difference, so it spreads evenly over a long distance instead of a
+// short band, even where the pixels grow quickly with distance at grazing views.
+float RainPixelFade(float pixel_wavelengths, float start, float end)
+{
+	// Fade on a log scale between the two pixel sizes.
+	return 1.0f - smoothstep(log2(start), log2(end), log2(max(pixel_wavelengths, 1e-6f)));
+}
+
+// Tilt the normal of 'In' by the rings of the rain falling on the water, where 'footprint' is the pixel size in metres. Rings too small for the
+// pixels to show add their roughness to the unresolved slope variance instead. The drops follow the wave clock. Their pattern repeats every
+// 1024 drop periods, so it continues smoothly when the caller wraps the clock at a multiple of 1024 seconds.
+void ApplyRainRings(inout PSIn In, float footprint)
+{
+	// Rings need rain, a size, a wavelength and a slope, and fragments without an interpolated normal keep the stock fallback normal.
+	float intensity = g_ocean.rain.x;
+	float radius = g_ocean.rain.y;
+	float slope = g_ocean.rain.z;
+	float wavelength0 = g_ocean.rain.w;
+	float3 normal = In.ws_norm.xyz;
+	if (intensity <= 0.0f || radius <= 0.0f || slope <= 0.0f || wavelength0 <= 0.0f || dot(normal, normal) == 0.0f)
+		return;
+
+	// Ripples shorter than about a pixel flicker, so each ring fades out as the pixels grow, and an estimate of the rings' mean square slope
+	// replaces them in the roughness. The estimate grows with the number of drops. The roughness fades in over a much longer distance than the
+	// rings fade out, starting close to the camera, so the mirror between the near rings blends into the matte far water without a visible line.
+	// Beyond the pixel size where even the oldest, longest ripples (twice the new wavelength) have faded, the drops are not visited at all.
+	float rough = 1.0f - RainPixelFade(footprint / (1.5f * wavelength0), RainRoughnessFade, RainUnresolvedFade);
+	g_unresolved_slope_variance += RainSlopeVariance * intensity * slope * slope * rough;
+	if (footprint >= 2.0f * RainUnresolvedFade * wavelength0)
+		return;
+
+	// Sum the height gradients of the rings of every drop that can reach the pixel. A cell spans the largest ring and three widths of its widest
+	// band, beyond which the ripples are flat. The clock is counted in drop periods.
+	float cell_size = radius + 3.0f * RainEnvelopeWavelengths * 2.0f * wavelength0;
+	float clock = g_ocean.camera_time.w / RainDropPeriod;
+	float2 gradient = float2(0, 0);
+	[loop]
+	for (int layer = 0; layer != RainLayerCount; ++layer)
+	{
+		// Each layer holds an equal share of a downpour's drops, and lighter rain fills the first layers first. Each layer's cells are offset by a
+		// different fraction of a cell, so the layers' cell corners do not line up.
+		float chance = saturate(intensity * RainLayerCount - layer);
+		if (chance <= 0.0f)
+			break;
+
+		float2 p = In.ws_vert.xy / cell_size + float(layer) * float2(0.37f, 0.61f);
+		int2 home = int2(floor(p));
+		[loop]
+		for (int j = -1; j != 2; ++j)
+		{
+			// One row of the neighbouring cells.
+			[loop]
+			for (int i = -1; i != 2; ++i)
+			{
+				// Each cell takes its drops at its own phase in the period, so neighbouring cells do not land drops together. The ring of the cell's
+				// newest drop has 'age' in [0, 1) of its life, and between rings the cell is calm.
+				int2 cell = home + int2(i, j);
+				float phase = float(DetailNoiseHash(cell, RainPhaseSeed + uint(layer)) & 0xFFFFu) * (1.0f / 65536.0f);
+				float drops = clock + phase;
+				float age = frac(drops) / RainRingLife;
+				if (age >= 1.0f)
+					continue;
+
+				// Each drop falls by chance, at its own place in the cell and with its own size, from a hash of its cell, layer, and its slot in the
+				// cycle of 1024 drop periods. Masking the slot keeps the drops continuous when the clock wraps at a multiple of the cycle.
+				uint slot = uint(int(floor(drops))) & 1023u;
+				uint bits = DetailNoiseHash(cell, uint(layer) * 1024u + slot);
+				if (float(bits & 0xFFu) * (1.0f / 256.0f) >= chance)
+					continue;
+
+				float2 centre = float2(cell) + float2((bits >> 8) & 0xFFu, (bits >> 16) & 0xFFu) * (1.0f / 256.0f);
+				float size = 0.6f + 0.4f * float(bits >> 24) * (1.0f / 255.0f);
+
+				// The ring's front spreads at a steady speed to the drop's largest radius, its ripples lengthen, and its slope falls to zero. The
+				// slope rises over the first twentieth of the life, so new rings do not pop in. Ripples too short for the pixel fade out.
+				float front = size * radius * age;
+				float wavelength = wavelength0 * (1.0f + age);
+				float k = 6.28318530718f / wavelength;
+				float width = RainEnvelopeWavelengths * wavelength;
+				float amplitude = slope * size * (1.0f - age) * (1.0f - age) * saturate(20.0f * age) * RainPixelFade(footprint / wavelength, RainResolvedFade, RainUnresolvedFade);
+
+				// The ring's height is a ripple of wavenumber 'k' under a bell-shaped band around the front, h(s) = (amplitude / k) e^(-(s / width)^2) cos(k s),
+				// where 's' is the distance outside the front, so its steepest slope is about 'amplitude'. Pixels beyond three band widths are flat.
+				float2 offset = (p - centre) * cell_size;
+				float r = length(offset);
+				float s = r - front;
+				if (abs(s) >= 3.0f * width)
+					continue;
+
+				// The gradient points along the offset from the drop. Softening the distance near the centre avoids dividing by zero where a new ring is a point.
+				float sn, cs;
+				sincos(k * s, sn, cs);
+				float band = exp(-(s * s) / (width * width));
+				float dh_ds = amplitude * band * (-(2.0f * s / (k * width * width)) * cs - sn);
+				gradient += dh_ds * offset * rsqrt(r * r + 0.0625f * width * width);
+			}
+		}
+	}
+
+	// A height field displaced along the normal tilts the normal against the tangential part of its gradient.
+	normal = normalize(normal);
+	float3 tilt = float3(gradient, 0.0f);
+	tilt -= dot(tilt, normal) * normal;
+	In.ws_norm = float4(normalize(normal - tilt), 0.0f);
+}
+
 // Shade the opaque curtain at the domain wall: the stock shading with the ripples, and no foam or lip.
 float4 RippleShade(inout PSIn In, bool is_front_face)
 {
@@ -343,18 +465,19 @@ float4 WaterShade(inout PSIn In, bool is_front_face)
 		g_reflection_plane_weight = 1.0f - smoothstep(ReflectionFadeWinds.x, ReflectionFadeWinds.y, length(ripple.zw));
 
 	// Tilt the normal by the detail layers, and measure the pixel's extent while the control flow is still uniform. The wave normal without the
-	// detail layers is kept, because foam floats over the ripples and hides them.
+	// detail layers is kept, because foam floats over the ripples and hides them. The rain rings tilt the normal further, at any wind.
 	float3 wave_normal = normalize(In.ws_norm.xyz);
 	if ((g_ocean.layout.y & OceanFlagRipples) != 0)
 		In = ApplyDetailNormals(In, ripple);
 
-	// Without foam the water has only the stock shading, and none of the foam's costs.
-	if ((g_ocean.layout.y & OceanFlagFoam) == 0)
-		return ForwardShade(In, is_front_face).diff;
-
 	float2 ws_dx = ddx(In.ws_vert.xy);
 	float2 ws_dy = ddy(In.ws_vert.xy);
 	float footprint = length(fwidth(In.ws_vert.xyz));
+	ApplyRainRings(In, footprint);
+
+	// Without foam the water has only the stock shading, and none of the foam's costs.
+	if ((g_ocean.layout.y & OceanFlagFoam) == 0)
+		return ForwardShade(In, is_front_face).diff;
 
 	// Crests get their steepness at pixel resolution, so they stay narrow out to the pixel crest range (see PixelCrest). Keys without crest foam, and
 	// shallow water, skip the cost.

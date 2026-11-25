@@ -105,6 +105,25 @@ public sealed partial class View3d
 		/// <summary>Crest sharpness that waves reach as they near the breaking height, in [0, 0.9], so waves peak as they run into the shore.</summary>
 		public double ShoreSharpness;
 
+		/// <summary>
+		/// How hard it rains on the water, in [0, 1]: the fraction of a downpour's drops that fall. Each drop spreads a ring near the camera, and a downpour
+		/// churns the surface. The drops follow the wave clock, and their pattern continues smoothly when the clock wraps at a multiple of 1024 seconds.
+		/// A zero intensity, ring radius, ring wavelength or ring slope draws no rings.
+		/// </summary>
+		public double RainIntensity;
+
+		/// <summary>The largest radius (m) that a drop's ring spreads to, finite and non-negative.</summary>
+		public double RainRingRadiusMetres;
+
+		/// <summary>
+		/// The wavelength (m) of a new ring's ripples, finite and non-negative. It doubles as the ring spreads. Rings show only where the pixels are a few
+		/// times smaller than their wavelength, so longer ripples show further from the camera.
+		/// </summary>
+		public double RainRingWavelengthMetres;
+
+		/// <summary>The steepest slope of a new ring's ripples, finite and non-negative. It falls to zero as the ring spreads.</summary>
+		public double RainRingSlope;
+
 		/// <summary>Surface tint; alpha is the opacity when viewed from directly above.</summary>
 		public uint ColourArgb;
 
@@ -569,7 +588,7 @@ public class OceanTests
 	public void Layouts()
 	{
 		Assert.Equal(56, Marshal.SizeOf<View3d.OceanWindSeaGrid>());
-		Assert.Equal(88, Marshal.SizeOf<View3d.OceanFrame>());
+		Assert.Equal(120, Marshal.SizeOf<View3d.OceanFrame>());
 		Assert.Equal(112, Marshal.SizeOf<View3d.OceanFoam>());
 	}
 }

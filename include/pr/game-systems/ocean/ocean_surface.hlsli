@@ -73,7 +73,8 @@ struct OceanConstants
 	uint4 foam_history;     // Byte offset of the foam history region (x), the slot (0 or 1) that holds the latest history (y), and 1 while the history may hold foam, or 0 when it is empty and is not updated or read (z). w is unused.
 	float4 foam_churn;      // Offsets, in warp noise cells, of the noise that warps the foam texture in x (xy) and in y (zw). They move slowly so the foam pattern wanders in place. Each is wrapped to [0, OceanFoamNoisePeriod).
 	uint4 shore_source[3];  // Parameters of the caller's shore depth source, which the ocean passes through unchanged. See ocean_forward_ps.hlsli.
-	float4 reserved[40];
+	float4 rain;            // Rain rings: intensity in [0, 1] (x), the largest ring radius in metres (y), the steepest slope of a new ring (z), and the wavelength in metres of a new ring's ripples (w). Zero in any component draws no rings.
+	float4 reserved[39];
 };
 
 // Foam history: two square windows of foam amounts that follow the camera, a near window with fine texels and a far window with coarse ones.

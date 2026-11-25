@@ -981,6 +981,14 @@ namespace pr::game_systems::ocean
 			RequirePositiveFinite(frame.m_breaking_ratio, "Water surface breaking ratio must be finite and positive");
 			if (!(frame.m_shore_sharpness >= 0.0 && frame.m_shore_sharpness <= WaterFieldMaxCrestSharpness))
 				throw std::invalid_argument(std::format("Water surface shore sharpness must be in [0, {}]", WaterFieldMaxCrestSharpness));
+			if (!(frame.m_rain_intensity >= 0.0 && frame.m_rain_intensity <= 1.0))
+				throw std::invalid_argument("Water surface rain intensity must be in [0, 1]");
+			for (auto value : { frame.m_rain_ring_radius_m, frame.m_rain_ring_wavelength_m, frame.m_rain_ring_slope })
+			{
+				// Each ring dimension is a size or slope, so zero is allowed and draws no rings.
+				if (!std::isfinite(value) || value < 0.0)
+					throw std::invalid_argument("Water surface rain ring radius, wavelength and slope must be finite and non-negative");
+			}
 
 			// The disk reaches from the camera to the far side of the domain, wherever the camera is.
 			auto constants = m_constants;
@@ -992,6 +1000,7 @@ namespace pr::game_systems::ocean
 			constants.waves = WavesConstants(static_cast<float>(frame.m_shore_sharpness));
 			auto const colour = pr::Colour(pr::Colour32(frame.m_colour_argb));
 			constants.colour = pr::hlsl::float4(colour.r, colour.g, colour.b, colour.a);
+			constants.rain = pr::hlsl::float4(static_cast<float>(frame.m_rain_intensity), static_cast<float>(frame.m_rain_ring_radius_m), static_cast<float>(frame.m_rain_ring_slope), static_cast<float>(frame.m_rain_ring_wavelength_m));
 			return constants;
 		}
 

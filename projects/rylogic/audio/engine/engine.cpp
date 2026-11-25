@@ -149,14 +149,39 @@ namespace pr::audio
 		}
 
 		// Immutable decoded metadata and resident sample storage.
+		// 'm_loop_begin' is the first frame of the looped region, which always runs to the end of the clip. It is 0 when the whole clip loops.
 		struct Clip
 		{
 			std::vector<std::byte> m_format;
 			std::vector<std::byte> m_samples;
 			std::uint32_t m_sample_count;
+			std::uint32_t m_loop_begin;
 			std::uint16_t m_channel_count;
 			std::uint32_t m_sample_rate;
 		};
+
+		// Read the loop start from a WAV 'smpl' chunk. Only one forward loop that ends on the last frame is supported, because the loop region
+		// always runs to the end of the clip. A chunk without loops leaves the whole clip looping.
+		std::uint32_t ParseSampleLoop(std::span<std::byte const> smpl, std::uint32_t sample_count)
+		{
+			// The loop count is at offset 28 and each 24-byte loop record starts at offset 36
+			auto loop_count = Read<std::uint32_t>(smpl, 28);
+			if (loop_count == 0)
+				return 0;
+			if (loop_count != 1)
+				throw Exception(EStatus::UnsupportedFormat, "WAV 'smpl' chunk has more than one loop; only one loop is supported");
+
+			// The loop end is inclusive, so a loop that runs to the end of the clip ends on the last frame
+			auto loop_type = Read<std::uint32_t>(smpl, 36 + 4);
+			auto loop_start = Read<std::uint32_t>(smpl, 36 + 8);
+			auto loop_end = Read<std::uint32_t>(smpl, 36 + 12);
+			if (loop_type != 0)
+				throw Exception(EStatus::UnsupportedFormat, "WAV 'smpl' loop is not a forward loop");
+			if (sample_count == 0 || loop_end != sample_count - 1 || loop_start > loop_end)
+				throw Exception(EStatus::UnsupportedFormat, "WAV 'smpl' loop must end on the last frame of the clip");
+
+			return loop_start;
+		}
 
 		// Parse the supported PCM/float subset of a complete RIFF/WAVE file.
 		Clip ParseWave(std::span<std::byte const> wave_file)
@@ -165,6 +190,7 @@ namespace pr::audio
 			constexpr auto WAVE = std::uint32_t{0x45564157};
 			constexpr auto FMT = std::uint32_t{0x20746D66};
 			constexpr auto DATA = std::uint32_t{0x61746164};
+			constexpr auto SMPL = std::uint32_t{0x6C706D73};
 
 			if (wave_file.size() < 12 || Read<std::uint32_t>(wave_file, 0) != RIFF || Read<std::uint32_t>(wave_file, 8) != WAVE)
 				throw std::invalid_argument("Audio clip is not a RIFF/WAVE file");
@@ -175,6 +201,7 @@ namespace pr::audio
 
 			auto fmt = std::span<std::byte const>{};
 			auto data = std::span<std::byte const>{};
+			auto smpl = std::span<std::byte const>{};
 			for (auto offset = std::size_t{12}; offset + 8 <= riff_size;)
 			{
 				auto chunk_id = Read<std::uint32_t>(wave_file, offset + 0);
@@ -187,6 +214,8 @@ namespace pr::audio
 					fmt = wave_file.subspan(chunk_data, chunk_size);
 				if (chunk_id == DATA && data.empty())
 					data = wave_file.subspan(chunk_data, chunk_size);
+				if (chunk_id == SMPL && smpl.empty())
+					smpl = wave_file.subspan(chunk_data, chunk_size);
 
 				auto padded_size = chunk_size + (chunk_size & 1U);
 				if (padded_size > riff_size - chunk_data)
@@ -219,10 +248,12 @@ namespace pr::audio
 			if (format_size > fmt.size())
 				throw std::invalid_argument("WAV format extension exceeds the fmt chunk");
 
+			auto sample_count = static_cast<std::uint32_t>(data.size() / block_align);
 			return Clip{
 				.m_format = std::vector<std::byte>(fmt.begin(), fmt.begin() + format_size),
 				.m_samples = std::vector<std::byte>(data.begin(), data.end()),
-				.m_sample_count = static_cast<std::uint32_t>(data.size() / block_align),
+				.m_sample_count = sample_count,
+				.m_loop_begin = smpl.empty() ? 0 : ParseSampleLoop(smpl, sample_count),
 				.m_channel_count = channels,
 				.m_sample_rate = sample_rate,
 			};
@@ -362,7 +393,9 @@ namespace pr::audio
 			bool m_has_emitter;
 			bool m_virtualized;
 			EPlaybackState m_playback;
-			std::uint64_t m_samples_played;
+			std::uint64_t m_samples_played; // Cumulative frames played, counting every loop pass. Current only while the voice has no source.
+			std::uint64_t m_submit_position; // Cumulative position at which the current source buffer was submitted.
+			std::uint64_t m_submit_origin; // The source voice's SamplesPlayed when the current buffer was submitted.
 			VoiceCallback m_callback;
 			XAudioVoicePtr<IXAudio2SourceVoice> m_source;
 			Ramp m_gain;
@@ -377,6 +410,8 @@ namespace pr::audio
 				, m_virtualized(false)
 				, m_playback(EPlaybackState::Stopped)
 				, m_samples_played(0)
+				, m_submit_position(0)
+				, m_submit_origin(0)
 				, m_callback()
 				, m_source()
 				, m_gain(desc.volume)
@@ -578,9 +613,7 @@ namespace pr::audio
 				if (!slot.m_object || !slot.m_object->m_source)
 					continue;
 
-				auto state = XAUDIO2_VOICE_STATE{};
-				slot.m_object->m_source->GetState(&state);
-				slot.m_object->m_samples_played = state.SamplesPlayed;
+				slot.m_object->m_samples_played = SamplesPlayed(*slot.m_object);
 				slot.m_object->m_source.reset();
 			}
 			for (auto& slot : m_streams)
@@ -990,9 +1023,7 @@ namespace pr::audio
 			if (!voice.m_source)
 				return;
 
-			auto state = XAUDIO2_VOICE_STATE{};
-			voice.m_source->GetState(&state);
-			voice.m_samples_played = state.SamplesPlayed;
+			voice.m_samples_played = SamplesPlayed(voice);
 			voice.m_source->Stop();
 			voice.m_source->FlushSourceBuffers();
 			voice.m_source.reset();
@@ -1001,20 +1032,58 @@ namespace pr::audio
 				AddEvent(EEvent::VoiceVirtualized, handle);
 		}
 
-		// Queue the resident clip from the beginning.
+		// Return a voice's cumulative transport position in frames, counting every loop pass.
+		std::uint64_t SamplesPlayed(Voice const& voice) const
+		{
+			// XAudio2 counts frames from the submitted play position, not from the start of the clip, so the submission position is added back
+			if (!voice.m_source)
+				return voice.m_samples_played;
+
+			auto state = XAUDIO2_VOICE_STATE{};
+			voice.m_source->GetState(&state);
+			return voice.m_submit_position + (state.SamplesPlayed - voice.m_submit_origin);
+		}
+
+		// Queue the resident clip, resuming from the voice's cumulative transport position.
 		void Submit(Voice& voice)
 		{
+			// The first pass plays the whole clip and later passes repeat only the loop region, [m_loop_begin, m_sample_count)
 			auto& clip = ClipFromHandle(voice.m_desc.clip);
 			auto buffer = XAUDIO2_BUFFER{
 				.Flags = XAUDIO2_END_OF_STREAM,
 				.AudioBytes = static_cast<UINT32>(clip.m_samples.size()),
 				.pAudioData = reinterpret_cast<BYTE const*>(clip.m_samples.data()),
 			};
-			if (clip.m_sample_count != 0)
-				buffer.PlayBegin = static_cast<UINT32>(voice.m_samples_played % clip.m_sample_count);
-			buffer.LoopCount =
+			auto loop_length = static_cast<std::uint64_t>(clip.m_sample_count - clip.m_loop_begin);
+			auto position = voice.m_samples_played;
+			auto loops_done = std::uint64_t{};
+			if (clip.m_sample_count != 0 && position >= clip.m_sample_count)
+			{
+				// Map a position beyond the first pass into the loop region, and count the loop passes already played
+				loops_done = (position - clip.m_sample_count) / loop_length + 1;
+				buffer.PlayBegin = static_cast<UINT32>(clip.m_loop_begin + (position - clip.m_sample_count) % loop_length);
+			}
+			else
+			{
+				buffer.PlayBegin = static_cast<UINT32>(position);
+			}
+
+			// Only the remaining loop passes are requested, so a resumed voice does not repeat the passes it has already played
+			auto loop_count =
 				voice.m_desc.loop_count == AUDIO_INFINITE_LOOP ? XAUDIO2_LOOP_INFINITE :
-				static_cast<UINT32>(std::min<std::uint32_t>(voice.m_desc.loop_count, XAUDIO2_MAX_LOOP_COUNT));
+				static_cast<UINT32>(std::min<std::uint64_t>(voice.m_desc.loop_count - std::min<std::uint64_t>(loops_done, voice.m_desc.loop_count), XAUDIO2_MAX_LOOP_COUNT));
+			buffer.LoopCount = loop_count;
+			if (loop_count != 0)
+			{
+				buffer.LoopBegin = clip.m_loop_begin;
+				buffer.LoopLength = static_cast<UINT32>(loop_length);
+			}
+
+			// Record where this buffer starts so the cumulative position can be recovered from the voice's own counter
+			auto state = XAUDIO2_VOICE_STATE{};
+			voice.m_source->GetState(&state);
+			voice.m_submit_position = position;
+			voice.m_submit_origin = state.SamplesPlayed;
 			voice.m_callback.m_ended.store(false, std::memory_order_release);
 			CheckHR(voice.m_source->SubmitSourceBuffer(&buffer), "IXAudio2SourceVoice::SubmitSourceBuffer");
 		}
@@ -1341,9 +1410,7 @@ namespace pr::audio
 		auto& voice = m_impl->VoiceFromHandle(voice_handle);
 		if (voice.m_source)
 		{
-			auto state = XAUDIO2_VOICE_STATE{};
-			voice.m_source->GetState(&state);
-			voice.m_samples_played = state.SamplesPlayed;
+			voice.m_samples_played = m_impl->SamplesPlayed(voice);
 			CheckHR(voice.m_source->Stop(), "IXAudio2SourceVoice::Stop");
 		}
 		voice.m_playback = EPlaybackState::Paused;
@@ -1370,13 +1437,7 @@ namespace pr::audio
 	{
 		m_impl->CheckThread();
 		auto& voice = m_impl->VoiceFromHandle(voice_handle);
-		auto samples_played = voice.m_samples_played;
-		if (voice.m_source)
-		{
-			auto state = XAUDIO2_VOICE_STATE{};
-			voice.m_source->GetState(&state);
-			samples_played = state.SamplesPlayed;
-		}
+		auto samples_played = m_impl->SamplesPlayed(voice);
 
 		return {
 			.header = {sizeof(VoiceState), AUDIO_STRUCT_VERSION},

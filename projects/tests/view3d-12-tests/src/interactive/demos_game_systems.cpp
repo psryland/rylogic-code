@@ -1258,7 +1258,8 @@ namespace view3d_test
 				auto frame = api::OceanFrame
 				{
 					.m_camera_x_m = c2w.w.x, .m_camera_y_m = c2w.w.y, .m_camera_z_m = c2w.w.z, .m_wave_time_s = m_wave_time, .m_level_m = 0, .m_wave_radius_m = 300,
-					.m_min_spacing_m = 0.1, .m_warp_power = 2, .m_breaking_ratio = 0.8, .m_shore_sharpness = 0, .m_colour_argb = 0xE0103848, .m_depth_effects = 1,
+					.m_min_spacing_m = 0.1, .m_warp_power = 2, .m_breaking_ratio = 0.8, .m_shore_sharpness = 0,
+					.m_rain_intensity = 0, .m_rain_ring_radius_m = 0, .m_rain_ring_wavelength_m = 0, .m_rain_ring_slope = 0, .m_colour_argb = 0xE0103848, .m_depth_effects = 1,
 				};
 				View3D_OceanUpdate(m_ocean, m_ocean_object, frame);
 				MoveEmitters(c2w, false);

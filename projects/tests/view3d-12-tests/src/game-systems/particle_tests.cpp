@@ -1476,7 +1476,8 @@ namespace render_tests
 			auto frame = api::OceanFrame
 			{
 				.m_camera_x_m = 0, .m_camera_y_m = 0, .m_camera_z_m = 30, .m_wave_time_s = m_time, .m_level_m = 0, .m_wave_radius_m = 300,
-				.m_min_spacing_m = 0.25, .m_warp_power = 2, .m_breaking_ratio = 0.8, .m_shore_sharpness = 0, .m_colour_argb = 0xFF204060, .m_depth_effects = 1,
+				.m_min_spacing_m = 0.25, .m_warp_power = 2, .m_breaking_ratio = 0.8, .m_shore_sharpness = 0,
+				.m_rain_intensity = 0, .m_rain_ring_radius_m = 0, .m_rain_ring_wavelength_m = 0, .m_rain_ring_slope = 0, .m_colour_argb = 0xFF204060, .m_depth_effects = 1,
 			};
 			Require(View3D_OceanUpdate(m_ocean, m_object, frame) != FALSE, "Ocean update failed");
 			m_fixture.CheckErrors();
