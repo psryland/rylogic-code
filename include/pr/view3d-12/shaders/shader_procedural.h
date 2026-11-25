@@ -21,7 +21,7 @@ namespace pr::rdr12
 	{
 		static constexpr size_t ConstantsSize = 1024;
 		static constexpr int BufferSlotCount = 2;
-		static constexpr int TextureSlotCount = 4;
+		static constexpr int TextureSlotCount = 16;
 
 		ERenderStep m_rdr_step;
 		ForwardPixelFamily m_pixel_family;

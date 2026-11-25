@@ -36,7 +36,7 @@
 // e.g. 'Texture2D<float4> g_textures[VIEW3D_PROCEDURAL_TEXTURE_COUNT] : register(VIEW3D_PROCEDURAL_TEXTURE_REGISTER);'
 //      'SamplerState g_texture_sampler : register(VIEW3D_PROCEDURAL_SAMPLER_REGISTER);'
 #define VIEW3D_PROCEDURAL_TEXTURE_REGISTER t31
-#define VIEW3D_PROCEDURAL_TEXTURE_COUNT 4
+#define VIEW3D_PROCEDURAL_TEXTURE_COUNT 16
 #define VIEW3D_PROCEDURAL_SAMPLER_REGISTER s10
 
 // The per-draw index into the step's element constants table. Bind as 'ConstantBuffer<View3DElementIndex>' at the step's element index register.
