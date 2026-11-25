@@ -502,7 +502,7 @@ public static class NativeRuntimePackage
 	// Returns the source files of the packaged Blender add-ons, keyed by their path relative to 'projects/tools/blender'.
 	private static IEnumerable<KeyValuePair<string, string>> BlenderAddonFiles(string workspace)
 	{
-		// Only Python sources are packaged; byte-code caches written by a local Blender session are machine state.
+		// Only Python sources and their JSON data files are packaged; byte-code caches written by a local Blender session are machine state.
 		var addons_root = IOPath.Combine(workspace, "projects", "tools", "blender");
 		foreach (var addon_name in PackagedBlenderAddons)
 		{
@@ -510,7 +510,8 @@ public static class NativeRuntimePackage
 			if (!Directory.Exists(addon_dir))
 				throw new DirectoryNotFoundException($"Packaged Blender add-on is missing: {addon_dir}");
 
-			foreach (var source_path in Directory.EnumerateFiles(addon_dir, "*.py", SearchOption.AllDirectories).OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
+			var source_paths = Directory.EnumerateFiles(addon_dir, "*.py", SearchOption.AllDirectories).Concat(Directory.EnumerateFiles(addon_dir, "*.json", SearchOption.AllDirectories));
+			foreach (var source_path in source_paths.OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
 				yield return KeyValuePair.Create(IOPath.GetRelativePath(addons_root, source_path).Replace('\\', '/'), source_path);
 		}
 	}

@@ -19,12 +19,13 @@ def ValidateRigDesc(desc: dict[str, Any]) -> list[str]:
 	"""Return a description of each problem in a '.rig' description, or an empty list if it is valid."""
 	# The file-level structure must match the schema before its contents can be checked
 	errors: list[str] = []
-	if desc.get("schema_version") != 3:
+	if desc.get("schema_version") != 4:
 		errors.append(f"Unsupported schema_version {desc.get('schema_version')!r}")
 
 	bones = desc.get("bones", [])
 	chains = desc.get("chains", [])
 	contacts = desc.get("contacts", [])
+	attachments = desc.get("attachments", [])
 	if not bones:
 		errors.append("The rig has no bones")
 
@@ -78,6 +79,21 @@ def ValidateRigDesc(desc: dict[str, Any]) -> list[str]:
 			errors.append(f"Contact '{name}' needs a unit 'normal' direction")
 		if contact.get("kind") not in CONTACT_KINDS:
 			errors.append(f"Contact '{name}' has an unknown kind '{contact.get('kind')}'")
+
+	# Attachments must name a bone and give a rigid frame, so that attached objects keep their shape
+	attachment_names: set[str] = set()
+	for i, attachment in enumerate(attachments):
+		name = attachment.get("name", "")
+		if not name:
+			errors.append(f"Attachment {i} has no name")
+		elif name in attachment_names:
+			errors.append(f"Attachment '{name}' is not uniquely named")
+
+		attachment_names.add(name)
+		if attachment.get("bone") not in index_of:
+			errors.append(f"Attachment '{name}' refers to bone '{attachment.get('bone')}', which does not exist")
+		if not math.isclose(Vector(attachment["rotation"]).length, 1.0, abs_tol=1e-4):
+			errors.append(f"Attachment '{name}' has a non-unit rotation")
 
 	# The body axis needs existing bones with separate ends to define a direction. A single bone runs from its head to its tip, so it always has one.
 	body_axis = desc.get("body_axis", {})

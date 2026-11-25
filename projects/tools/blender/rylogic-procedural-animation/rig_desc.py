@@ -10,9 +10,9 @@ from pathlib import Path
 from typing import Any
 
 import bpy
-from mathutils import Matrix, Vector
+from mathutils import Euler, Matrix, Vector
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 class ModelSpace:
@@ -123,10 +123,21 @@ def BuildRigDesc(armature_obj: bpy.types.Object) -> dict[str, Any]:
 			"normal": _List(Vector(contact.normal).normalized()),
 		})
 
+	# Describe each attachment frame. Like contacts, these are in bone space, which is rigid apart from the uniform scale.
+	attachments: list[dict[str, Any]] = []
+	for attachment in armature.rylogic_rig.attachments:
+		rotation = Euler(attachment.rotation, "XYZ").to_quaternion().normalized()
+		attachments.append({
+			"name": attachment.name,
+			"bone": attachment.bone,
+			"position": _List(Vector(attachment.offset) * space.scale),
+			"rotation": [rotation.x, rotation.y, rotation.z, rotation.w],
+		})
+
 	# The body axis is the line between two bone heads that the collision shape follows
 	rig = armature.rylogic_rig
 	body_axis = {"from": rig.body_axis_from, "to": rig.body_axis_to}
-	return {"schema_version": SCHEMA_VERSION, "bones": bones, "chains": chains, "contacts": contacts, "body_axis": body_axis}
+	return {"schema_version": SCHEMA_VERSION, "bones": bones, "chains": chains, "contacts": contacts, "attachments": attachments, "body_axis": body_axis}
 
 
 def WriteRigDesc(desc: dict[str, Any], path: Path) -> None:

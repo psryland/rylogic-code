@@ -178,6 +178,15 @@ namespace pr::animation
 		EContactKind kind = EContactKind::Sole;
 	};
 
+	// A named frame on a bone where an object is attached, e.g. a tool carried on the back or held in a hand.
+	// The attached object's own frame is placed at 'offset' in the bone's space, so it moves with the bone as the skeleton is posed.
+	struct Attachment
+	{
+		std::string name;                         // Unique, non-empty name, e.g. "back" or "hand.R"
+		int bone = -1;                            // The index of the bone that the attachment moves with
+		xform offset;                             // The attached object's frame in bone space. Unit scale.
+	};
+
 	// The line through the body that a collision shape follows. It runs from the head of bone 'from' to the head of bone 'to'.
 	// When 'from' and 'to' are the same bone, the axis runs along that bone, from its head to its tip.
 	struct BodyAxis
@@ -192,6 +201,7 @@ namespace pr::animation
 		std::vector<Bone> bones;
 		std::vector<Chain> chains;
 		std::vector<Contact> contacts;
+		std::vector<Attachment> attachments;
 		BodyAxis body_axis;
 	};
 
@@ -383,6 +393,23 @@ namespace pr::animation
 			}
 		}
 
+		// Attachments must name a bone and give a rigid frame, so that attached objects keep their shape
+		for (int i = 0, iend = static_cast<int>(desc.attachments.size()); i != iend; ++i)
+		{
+			auto const& attachment = desc.attachments[i];
+			if (attachment.name.empty())
+				errors.push_back(std::format("Attachment {} has no name", i));
+			else if (std::any_of(desc.attachments.begin(), desc.attachments.begin() + i, [&](Attachment const& a) { return a.name == attachment.name; }))
+				errors.push_back(std::format("Attachment '{}' is not uniquely named", attachment.name));
+
+			if (attachment.bone < 0 || attachment.bone >= bone_count)
+				errors.push_back(std::format("Attachment '{}' refers to bone {}, which does not exist", attachment.name, attachment.bone));
+			if (!FEqlAbsolute(Length(attachment.offset.rot), 1.0f, 1e-4f))
+				errors.push_back(std::format("Attachment '{}' has a non-unit rotation", attachment.name));
+			if (!FEqlAbsolute(attachment.offset.scl.xyz, v4::One().xyz, 1e-4f))
+				errors.push_back(std::format("Attachment '{}' has a non-unit scale", attachment.name));
+		}
+
 		// The body axis needs existing bones with separate ends, so that it has a direction. A single bone has a positive length, so it always has one.
 		auto const& axis = desc.body_axis;
 		if (axis.from < 0 || axis.from >= bone_count || axis.to < 0 || axis.to >= bone_count)
@@ -434,16 +461,20 @@ namespace pr::animation
 		for (auto& contact : result.contacts)
 			contact.bone = remap(contact.bone);
 
+		for (auto& attachment : result.attachments)
+			attachment.bone = remap(attachment.bone);
+
 		result.body_axis = BodyAxis{ .from = remap(desc.body_axis.from), .to = remap(desc.body_axis.to) };
 		return result;
 	}
 
-	// A validated rig: the skeleton plus its chains, contacts and body axis, with derived rest-pose data
+	// A validated rig: the skeleton plus its chains, contacts, attachments and body axis, with derived rest-pose data
 	struct Rig
 	{
 		std::vector<Bone> bones;
 		std::vector<Chain> chains;
 		std::vector<Contact> contacts;
+		std::vector<Attachment> attachments;
 		BodyAxis body_axis;
 		std::vector<xform> rest_model;                          // The model-space rest transform of each bone
 		std::vector<int> solve_order;                          // Chain indices ordered so that ancestor chains are solved first
@@ -454,6 +485,7 @@ namespace pr::animation
 			: bones()
 			, chains()
 			, contacts()
+			, attachments()
 			, body_axis()
 			, rest_model()
 			, solve_order()
@@ -472,6 +504,7 @@ namespace pr::animation
 			bones = std::move(desc.bones);
 			chains = std::move(desc.chains);
 			contacts = std::move(desc.contacts);
+			attachments = std::move(desc.attachments);
 			body_axis = desc.body_axis;
 
 			// Cache the rest pose and the chain solve order
@@ -517,6 +550,18 @@ namespace pr::animation
 			for (int i = 0, iend = static_cast<int>(bones.size()); i != iend; ++i)
 			{
 				if (bones[i].name == name)
+					return i;
+			}
+			return -1;
+		}
+
+		// Return the index of the attachment called 'name', or -1 if there is none
+		int AttachmentIndex(std::string_view name) const
+		{
+			// Linear search; rigs have few attachments and this is not for per-frame use
+			for (int i = 0, iend = static_cast<int>(attachments.size()); i != iend; ++i)
+			{
+				if (attachments[i].name == name)
 					return i;
 			}
 			return -1;
@@ -579,8 +624,14 @@ namespace pr::animation::tests
 			Contact{ .name = "sole.L", .bone = 8, .offset = v4(0, 0.1f, 0, 1), .normal = Invert(model[8]) * down, .kind = EContactKind::Sole },
 			Contact{ .name = "palm.L", .bone = 11, .offset = v4(0, 0.05f, 0, 1), .normal = Invert(model[11]) * down, .kind = EContactKind::Palm },
 		};
+		// A tool hangs behind the chest, and the left hand has a grip frame
+		std::vector<Attachment> attachments = {
+			Attachment{ .name = "back", .bone = 3, .offset = xform(v4(0, 0.1f, 0.15f, 1), quat(v4::ZAxis(), 0.5f)) },
+			Attachment{ .name = "hand.L", .bone = 11, .offset = xform(v4(0, 0.05f, 0, 1), quat::Identity()) },
+		};
+
 		// The body axis runs from the hips to the neck
-		return RigDesc{ .bones = std::move(bones), .chains = std::move(chains), .contacts = std::move(contacts), .body_axis = { .from = 1, .to = 4 } };
+		return RigDesc{ .bones = std::move(bones), .chains = std::move(chains), .contacts = std::move(contacts), .attachments = std::move(attachments), .body_axis = { .from = 1, .to = 4 } };
 	}
 	inline Rig TestRig()
 	{
@@ -634,6 +685,9 @@ namespace pr::animation::tests
 			expect_error([](RigDesc& d) { d.contacts[1].name = "sole.L"; });
 			expect_error([](RigDesc& d) { d.contacts[0].bone = 99; });
 			expect_error([](RigDesc& d) { d.contacts[0].normal = v4::Zero(); });
+			expect_error([](RigDesc& d) { d.attachments[1].name = "back"; });
+			expect_error([](RigDesc& d) { d.attachments[0].bone = 99; });
+			expect_error([](RigDesc& d) { d.attachments[0].offset.rot = quat(0, 0, 0, 2); });
 			expect_error([](RigDesc& d) { d.body_axis.to = 99; });
 			expect_error([](RigDesc& d) { d.body_axis.to = 12; });
 			PR_EXPECT(Validate(desc).empty());
@@ -668,6 +722,7 @@ namespace pr::animation::tests
 			auto restored = ReorderBones(reordered, std::vector<std::string>{ order.begin(), order.end() });
 			PR_EXPECT(restored.bones[12].name == "tail.0" && restored.bones[13].parent == 12);
 			PR_EXPECT(restored.contacts[0].bone == 8);
+			PR_EXPECT(reordered.attachments[0].bone == 3 && restored.attachments[1].bone == 11);
 			PR_EXPECT(restored.body_axis.from == 1 && restored.body_axis.to == 4);
 			PR_EXPECT(Validate(restored).empty());
 

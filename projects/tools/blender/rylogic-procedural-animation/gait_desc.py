@@ -9,8 +9,8 @@ the last frame is the pose at the first frame moved by the stride. Feet that sta
 Most cycles move forward, but a family may travel in any horizontal direction, as long as all of its cycles agree. A family with a mirror name is
 also written a second time as its left-right mirror image, so that a crab that runs to its right can also run to its left.
 
-An action family has no cycles. It is written as just its action, such as a collapse or a punch sequence, and the runtime plays it in place starting
-from its base family's stance.
+Activities are procedural motions that the game starts and stops by name, such as a fist fight. Each one has a type from the runtime's registry
+(see 'activity_types.py'), the family whose stance it holds, and its type's parameters.
 """
 
 import json
@@ -22,10 +22,12 @@ from typing import Any
 import bpy
 from mathutils import Matrix, Quaternion, Vector
 
+from . import activity_types
 from .limits import MirrorPartners
+from .props import ACTIVITY_FIELDS
 from .rig_desc import BonesParentFirst, ModelSpace
 
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 
 # The number of harmonics in each bone motion
 HARMONICS = 2
@@ -108,8 +110,6 @@ def BuildGaitDesc(armature_obj: bpy.types.Object, context: bpy.types.Context) ->
 			raise ValueError(f"Cycle '{cycle.name}' has no action")
 		if cycle.family not in rig.families:
 			raise ValueError(f"Cycle '{cycle.name}' belongs to family '{cycle.family}', which is not in the Families list")
-		if rig.families[cycle.family].action_kind != "NONE":
-			raise ValueError(f"Cycle '{cycle.name}' belongs to family '{cycle.family}', which is an action family and cannot have cycles")
 
 		params = {"hip_height": cycle.hip_height, "spine_sway": cycle.spine_sway, "weight_shift": cycle.weight_shift, "arm_swing": cycle.arm_swing}
 		swing_out = {"leg": cycle.leg_swing_out, "arm": cycle.arm_swing_out}
@@ -118,14 +118,9 @@ def BuildGaitDesc(armature_obj: bpy.types.Object, context: bpy.types.Context) ->
 	# Measure each cycle, then order each family's cycles by speed. Each cycle's stance is its mean pose. Swimming limbs never stand, even when a
 	# stroke holds a hand still in the water, so water families have no walking limbs.
 	# Families are written in the order of the Families list, each followed by its mirror image if it has one, and those without exported cycles are left out.
-	# An action family has no cycles; it writes only its action, which the runtime completes from the base family.
 	out: list[dict[str, Any]] = []
 	root = _RootBone(armature_obj.data)
 	for family in rig.families:
-		if family.action_kind != "NONE":
-			out.append({"name": family.name, "action": _ActionDesc(family)})
-			continue
-
 		cycles = families.get(family.name)
 		if not cycles:
 			continue
@@ -145,21 +140,13 @@ def BuildGaitDesc(armature_obj: bpy.types.Object, context: bpy.types.Context) ->
 				"cycles": sorted((cycle for cycle, _ in measured), key=lambda c: c["speed"]),
 			})
 
-	return {"schema_version": SCHEMA_VERSION, "families": out}
+	# Each activity writes only the parameters of its type, read through the editors generated from the type description
+	activities = [{
+		"name": activity.name, "type": activity.type, "posture": activity.posture,
+		"params": activity_types.ReadParams(ACTIVITY_FIELDS[activity.type], getattr(activity, f"params_{activity.type}")),
+	} for activity in rig.activities]
 
-
-def _ActionDesc(family: Any) -> dict[str, Any]:
-	"""Return the '.gait' action of an action family (a 'RYLOGIC_PG_GaitFamily' whose action kind is not 'NONE')."""
-	action: dict[str, Any] = {"kind": family.action_kind.lower(), "base": family.action_base}
-	match family.action_kind:
-		case "COLLAPSE":
-			action["duration"] = family.action_duration
-		case "PUNCHES":
-			action["punches"] = [{"hand": p.hand.lower(), "kind": p.kind.lower(), "duration": p.duration} for p in family.punches]
-		case _:
-			raise ValueError(f"Family '{family.name}' has an unknown action kind '{family.action_kind}'")
-
-	return action
+	return {"schema_version": SCHEMA_VERSION, "families": out, "activities": activities}
 
 
 def ValidateGaitDesc(desc: dict[str, Any]) -> list[str]:
@@ -171,32 +158,22 @@ def ValidateGaitDesc(desc: dict[str, Any]) -> list[str]:
 	if not desc["families"]:
 		errors.append("There are no exported movement cycles")
 
+	# Activities are started by name and hold the stance of a family, so names must be unique and postures must name families
 	names = [family["name"] for family in desc["families"]]
-	actions = {family["name"] for family in desc["families"] if "action" in family}
+	activity_names = [activity["name"] for activity in desc["activities"]]
+	for activity in desc["activities"]:
+		ctx = f"Activity '{activity['name']}'"
+		if not activity["name"] or activity_names.count(activity["name"]) != 1:
+			errors.append(f"{ctx} needs a unique, non-empty name")
+		if activity["posture"] not in names:
+			errors.append(f"{ctx} needs a posture that names an exported family, not '{activity['posture']}'")
+		errors.extend(activity_types.ValidateParams(ACTIVITY_FIELDS[activity["type"]], activity["params"], ctx))
+
 	for family in desc["families"]:
 		# Families are chosen by name, so names must be unique and not empty
 		ctx = f"Family '{family['name']}'"
 		if not family["name"] or names.count(family["name"]) != 1:
 			errors.append(f"{ctx} needs a unique, non-empty name")
-
-		# An action family needs a base family that moves, and the details of its action
-		if "action" in family:
-			action = family["action"]
-			if action["base"] not in names or action["base"] in actions:
-				errors.append(f"{ctx} needs a base family without an action, not '{action['base']}'")
-			match action["kind"]:
-				case "collapse":
-					if not action["duration"] > 0:
-						errors.append(f"{ctx} needs a collapse duration greater than zero")
-				case "punches":
-					if not action["punches"]:
-						errors.append(f"{ctx} throws punches, so it needs at least one punch")
-					for i, punch in enumerate(action["punches"]):
-						if not punch["duration"] > 0:
-							errors.append(f"{ctx} punch {i + 1} needs a duration greater than zero")
-				case _:
-					errors.append(f"{ctx} has an unknown action kind '{action['kind']}'")
-			continue
 
 		# Blender stores angles as 32-bit floats, so a max slope of pi reads back slightly larger than 'math.pi'
 		if not 0 < family["max_slope"] <= math.pi + 1e-6:

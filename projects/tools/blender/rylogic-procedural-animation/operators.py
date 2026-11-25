@@ -4,6 +4,7 @@ import math
 import subprocess
 import tempfile
 from pathlib import Path
+from typing import Any
 
 import bpy
 from bpy.props import EnumProperty, FloatProperty, StringProperty
@@ -13,7 +14,7 @@ from bpy_extras.io_utils import ExportHelper
 from mathutils import Vector
 from mathutils.interpolate import poly_3d_calc
 
-from . import gait_desc, gait_template, limits, props, ragdoll, rig_desc, validate
+from . import activity_types, gait_desc, gait_template, limits, props, ragdoll, rig_desc, validate
 
 # The result of the most recent validation, shown in the Rig panel
 LAST_REPORT: list[str] = []
@@ -437,7 +438,27 @@ def _ReportUnmatched(operator: Operator, unmatched: list[str]) -> None:
 
 
 # The rig's editable lists
-_COLLECTIONS = [("CHAINS", "Chains", ""), ("CONTACTS", "Contacts", ""), ("FAMILIES", "Families", ""), ("PUNCHES", "Punches", "The active family's punches"), ("CYCLES", "Movement Cycles", "")]
+_COLLECTIONS = [
+	("CHAINS", "Chains", ""), ("CONTACTS", "Contacts", ""), ("ATTACHMENTS", "Attachments", ""), ("FAMILIES", "Families", ""), ("CYCLES", "Movement Cycles", ""), ("ACTIVITIES", "Activities", ""),
+	("ACTIVITY_LIST", "Activity List", "The list parameter, named by 'param', of the active activity"),
+]
+
+
+def _ActivityParamList(rig: Any, param: str) -> tuple[Any, str] | None:
+	"""Return the active activity's parameter group and the name of its list parameter 'param', or None if there is no active activity."""
+	if not 0 <= rig.active_activity < len(rig.activities):
+		return None
+
+	activity = rig.activities[rig.active_activity]
+	return getattr(activity, f"params_{activity.type}"), param
+
+
+def _AddListItems(group: Any, fields: list[activity_types.EditorField]) -> None:
+	"""Give each list parameter of 'group' its fewest allowed items, so that a new activity is valid without editing."""
+	for f in fields:
+		if f.kind == "list":
+			while len(getattr(group, f.name)) < f.min_items:
+				getattr(group, f.name).add()
 
 
 class RYLOGIC_OT_gait_validate(_ArmatureOperator):
@@ -459,7 +480,7 @@ class RYLOGIC_OT_gait_validate(_ArmatureOperator):
 		if not errors:
 			lines.append("Valid gait")
 			for family in desc["families"]:
-				for cycle in family.get("cycles", []):
+				for cycle in family["cycles"]:
 					steps = ", ".join(f"{f['contact']} @{f['touchdown']:.2f}/{f['duty']:.2f}" for f in cycle["footfalls"])
 					lines.append(f"{family['name']}.{cycle['name']}: speed {cycle['speed']:.3g}, stride {cycle['stride']:.3g}; {steps}")
 
@@ -514,13 +535,14 @@ class RYLOGIC_OT_gait_template(_ArmatureOperator):
 
 
 class RYLOGIC_OT_rig_item_add(_ArmatureOperator):
-	"""Add a chain, contact, family, punch or movement cycle"""
+	"""Add a chain, contact, attachment, family, movement cycle, activity or activity list item"""
 
 	bl_idname = "rylogic_rig.item_add"
 	bl_label = "Add"
 	bl_options = {"REGISTER", "UNDO"}
 
 	collection: EnumProperty(items=_COLLECTIONS)
+	param: StringProperty(options={"HIDDEN"}, description="Activity lists only. The name of the list parameter")
 
 	def execute(self, context):
 		# Append a new item and make it active
@@ -533,15 +555,28 @@ class RYLOGIC_OT_rig_item_add(_ArmatureOperator):
 				contact = rig.contacts.add()
 				contact.name = f"contact.{len(rig.contacts)}"
 				rig.active_contact = len(rig.contacts) - 1
+			case "ATTACHMENTS":
+				attachment = rig.attachments.add()
+				attachment.name = f"attachment.{len(rig.attachments)}"
+				rig.active_attachment = len(rig.attachments) - 1
 			case "FAMILIES":
 				family = rig.families.add()
 				family.name = f"family.{len(rig.families)}"
 				rig.active_family = len(rig.families) - 1
-			case "PUNCHES":
-				if 0 <= rig.active_family < len(rig.families):
-					family = rig.families[rig.active_family]
-					family.punches.add()
-					family.active_punch = len(family.punches) - 1
+			case "ACTIVITIES":
+				# Start from the active family's posture, with every type's lists at their fewest items
+				activity = rig.activities.add()
+				activity.name = f"activity.{len(rig.activities)}"
+				activity.posture = rig.families[rig.active_family].name if 0 <= rig.active_family < len(rig.families) else ""
+				for name, fields in props.ACTIVITY_FIELDS.items():
+					_AddListItems(getattr(activity, f"params_{name}"), fields)
+				rig.active_activity = len(rig.activities) - 1
+			case "ACTIVITY_LIST":
+				found = _ActivityParamList(rig, self.param)
+				if found is not None:
+					group, param = found
+					getattr(group, param).add()
+					setattr(group, f"active_{param}", len(getattr(group, param)) - 1)
 			case "CYCLES":
 				cycle = rig.cycles.add()
 				cycle.name = f"cycle.{len(rig.cycles)}"
@@ -553,13 +588,14 @@ class RYLOGIC_OT_rig_item_add(_ArmatureOperator):
 
 
 class RYLOGIC_OT_rig_item_remove(_ArmatureOperator):
-	"""Remove the active chain, contact, family, punch or movement cycle"""
+	"""Remove the active chain, contact, attachment, family, movement cycle, activity or activity list item"""
 
 	bl_idname = "rylogic_rig.item_remove"
 	bl_label = "Remove"
 	bl_options = {"REGISTER", "UNDO"}
 
 	collection: EnumProperty(items=_COLLECTIONS)
+	param: StringProperty(options={"HIDDEN"}, description="Activity lists only. The name of the list parameter")
 
 	def execute(self, context):
 		# Remove the active item and keep the selection in range
@@ -573,16 +609,26 @@ class RYLOGIC_OT_rig_item_remove(_ArmatureOperator):
 				if 0 <= rig.active_contact < len(rig.contacts):
 					rig.contacts.remove(rig.active_contact)
 					rig.active_contact = max(0, min(rig.active_contact, len(rig.contacts) - 1))
+			case "ATTACHMENTS":
+				if 0 <= rig.active_attachment < len(rig.attachments):
+					rig.attachments.remove(rig.active_attachment)
+					rig.active_attachment = max(0, min(rig.active_attachment, len(rig.attachments) - 1))
 			case "FAMILIES":
 				if 0 <= rig.active_family < len(rig.families):
 					rig.families.remove(rig.active_family)
 					rig.active_family = max(0, min(rig.active_family, len(rig.families) - 1))
-			case "PUNCHES":
-				if 0 <= rig.active_family < len(rig.families):
-					family = rig.families[rig.active_family]
-					if 0 <= family.active_punch < len(family.punches):
-						family.punches.remove(family.active_punch)
-						family.active_punch = max(0, min(family.active_punch, len(family.punches) - 1))
+			case "ACTIVITIES":
+				if 0 <= rig.active_activity < len(rig.activities):
+					rig.activities.remove(rig.active_activity)
+					rig.active_activity = max(0, min(rig.active_activity, len(rig.activities) - 1))
+			case "ACTIVITY_LIST":
+				found = _ActivityParamList(rig, self.param)
+				if found is not None:
+					group, param = found
+					items, active = getattr(group, param), getattr(group, f"active_{param}")
+					if 0 <= active < len(items):
+						items.remove(active)
+						setattr(group, f"active_{param}", max(0, min(active, len(items) - 1)))
 			case "CYCLES":
 				if 0 <= rig.active_cycle < len(rig.cycles):
 					rig.cycles.remove(rig.active_cycle)

@@ -5,7 +5,7 @@ are placed on surfaces. It is written as a '.rig' JSON file next to the skinned 
 validation. The schema is owned by 'pr/animation/rig_json.h' in the Rylogic code library.
 
 The Rylogic Rig panel, in the armature's Data properties, holds the validate and export tools. Its sections are collapsible sub-panels: Overlay,
-Skeleton (Chains, Body Axis, Range of Motion), Contacts, and Locomotion (Families, Movement Cycles). Drag a section's header to reorder it.
+Skeleton (Chains, Body Axis, Range of Motion), Contacts, Attachments, and Locomotion (Families, Movement Cycles, Activities). Drag a section's header to reorder it.
 
 Joint limits bound each bone's rotation from its rest pose as a swing of the bone's direction and a twist about it (see 'limits.py'). The swing range is
 set separately about the bone's rest +X and +Z axes, so roll the bone to align those axes with the joint. A zero-width range on one swing axis makes a
@@ -32,6 +32,10 @@ a posed mesh. Esc or right-click puts the contact back. The offset and normal ca
 A GRIP contact on a hand bone is the point that holds a grasped object. Place it on the skin that wraps around a held thing, e.g. mid-way along the
 inside of the fingers. Picking a grip keeps it on its bone, even over a finger, so set the bone to the hand first. A hand without one grips at its
 PALM contact.
+
+Attachments are named frames on bones where objects are attached, e.g. 'back' for a tool carried on the back or 'hand.R' for a tool held in the right
+hand. Each has a bone, and an offset and rotation in that bone's rest space that give the attached object's origin and orientation. The runtime finds
+attachments by name, so use the names that the game expects. The overlay draws each attachment's axes (red X, green Y, blue Z).
 
 Selecting a chain in the panel selects its bones. Selecting a bone makes a chain and a contact that use it active, unless the active ones already do.
 
@@ -65,6 +69,11 @@ family, the runtime blends the cycles by speed. Adding a template cycle adds its
 	   validation and export, e.g. while it is unfinished.
 The walking limbs are the LEG chains ending on a SOLE contact and the ARM chains ending on a PALM contact.
 
+Activities are procedural motions, such as a fist fight, that the game starts and stops by name. They are exported in the '.gait' with the movement
+cycles. Under Locomotion > Activities, add an activity, choose its type, and set its posture: the family whose stance the body holds while it plays.
+The editor below shows the parameters of the chosen type, e.g. the sequence of punches for a 'punches' activity. The types and their parameters are
+owned by the runtime (see 'pr/animation/activities.h'); 'activity_types.json' is a copy of their description, from which the editors are built.
+
 A ragdoll replaces the animated character with linked rigid capsules when it goes limp, e.g. when it dies. Under Skeleton > Ragdoll, select the
 'link' bones (e.g. hips, chest, head and the limb bones) and press 'Generate Ragdoll Capsules'. Each link bone gets a capsule object, 'RAG_<bone>',
 parented to the bone in the chosen physics collection. A capsule also covers the bones that continue its bone end-to-end up to the next link, and its
@@ -82,7 +91,7 @@ Scripted use, e.g. from an asset exporter:
 bl_info = {
 	"name": "Rylogic Procedural Animation",
 	"author": "Paul Ryland",
-	"version": (2, 2, 0),
+	"version": (2, 3, 0),
 	"blender": (4, 2, 0),
 	"description": "Author and export rig and gait descriptions for the Rylogic procedural animation system",
 	"location": "Properties > Armature > Rylogic Rig (including Movement Cycles), and Properties > Bone > Rylogic Rig Joint",
@@ -95,7 +104,7 @@ import bpy
 # Dependencies come before the modules that import names from them.
 if "operators" in locals():
 	import importlib
-	for _name in ("limits", "rig_desc", "gait_desc", "gait_template", "validate", "props", "pin", "ragdoll", "operators", "ui", "draw"):
+	for _name in ("activity_types", "limits", "rig_desc", "props", "gait_desc", "gait_template", "validate", "pin", "ragdoll", "operators", "ui", "draw"):
 		# A module added since the last load has not been imported yet, and is imported below
 		if _name in locals():
 			importlib.reload(locals()[_name])

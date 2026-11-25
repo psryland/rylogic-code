@@ -5,7 +5,7 @@
 // A '.rig' file is a JSON rig description. Bones, chains and contacts refer to bones by name. Angles are in radians and lengths are in model units.
 //
 //  {
-//    "schema_version": 3,
+//    "schema_version": 4,
 //    "bones": [{
 //      "name": "thigh.L",
 //      "parent": "hips",                 // or null for a root bone
@@ -32,6 +32,12 @@
 //      "offset": [x, y, z],              // bone-space point
 //      "normal": [x, y, z]               // bone-space outward surface direction
 //    }],
+//    "attachments": [{                   // frames on bones where objects are attached, e.g. a tool carried on the back
+//      "name": "back",
+//      "bone": "chest",
+//      "position": [x, y, z],            // the attached object's origin in bone space
+//      "rotation": [x, y, z, w]          // the attached object's orientation in bone space, as a unit quaternion
+//    }],
 //    "body_axis": {                      // the line from the head of bone 'from' to the head of bone 'to' that a body collision shape follows.
 //      "from": "hips",                   //   when 'from' and 'to' name the same bone, the line runs along that bone from its head to its tip
 //      "to": "neck"
@@ -44,7 +50,7 @@
 namespace pr::animation
 {
 	// The '.rig' schema version that this code reads and writes
-	inline constexpr int RigSchemaVersion = 3;
+	inline constexpr int RigSchemaVersion = 4;
 
 	namespace rig_json
 	{
@@ -262,6 +268,20 @@ namespace pr::animation
 			});
 		}
 
+		// Read the attachments
+		auto const& attachments = ReadArray(Member(root, "attachments", "rig"), "rig.attachments");
+		for (size_t i = 0; i != attachments.size(); ++i)
+		{
+			// All attachment members are required
+			auto context = std::format("rig.attachments[{}]", i);
+			auto const& obj = ReadObject(attachments[i], context);
+			desc.attachments.push_back(Attachment{
+				.name = ReadString(Member(obj, "name", context), context + ".name"),
+				.bone = bone_index(Member(obj, "bone", context), context + ".bone"),
+				.offset = xform(ReadVec(Member(obj, "position", context), 1, context + ".position"), ReadQuat(Member(obj, "rotation", context), context + ".rotation")),
+			});
+		}
+
 		// Read the body axis
 		auto const& body_axis = ReadObject(Member(root, "body_axis", "rig"), "rig.body_axis");
 		desc.body_axis = BodyAxis{
@@ -356,6 +376,19 @@ namespace pr::animation
 		}
 		root["contacts"] = std::move(contacts);
 
+		// Write the attachments
+		json::Array attachments;
+		for (auto const& attachment : desc.attachments)
+		{
+			attachments.push_back(json::Object{
+				{ "name", attachment.name },
+				{ "bone", desc.bones[attachment.bone].name },
+				{ "position", WriteVec(attachment.offset.pos) },
+				{ "rotation", WriteQuat(attachment.offset.rot) },
+			});
+		}
+		root["attachments"] = std::move(attachments);
+
 		// Write the body axis
 		root["body_axis"] = json::Object{
 			{ "from", desc.bones[desc.body_axis.from].name },
@@ -425,6 +458,13 @@ namespace pr::animation::tests
 				auto const& r = desc.contacts[i];
 				PR_EXPECT(l.name == r.name && l.bone == r.bone && l.kind == r.kind && FEql(l.offset, r.offset) && FEql(l.normal, r.normal));
 			}
+			PR_EXPECT(read.attachments.size() == desc.attachments.size());
+			for (size_t i = 0; i != desc.attachments.size(); ++i)
+			{
+				auto const& l = read.attachments[i];
+				auto const& r = desc.attachments[i];
+				PR_EXPECT(l.name == r.name && l.bone == r.bone && FEql(l.offset.pos, r.offset.pos) && FEql(l.offset.rot, r.offset.rot));
+			}
 			PR_EXPECT(read.body_axis.from == desc.body_axis.from && read.body_axis.to == desc.body_axis.to);
 		}
 		PRUnitTestMethod(SchemaErrors, Quick)
@@ -450,10 +490,11 @@ namespace pr::animation::tests
 					PR_EXPECT(std::string_view(ex.what()).find(field) != std::string_view::npos);
 				}
 			};
-			expect_error("\"schema_version\": 3", "\"schema_version\": 2", "schema_version");
+			expect_error("\"schema_version\": 4", "\"schema_version\": 3", "schema_version");
 			expect_error("\"parent\": \"root\"", "\"parent\": \"nobody\"", "rig.bones[1].parent");
 			expect_error("\"role\": \"spine\"", "\"role\": \"wing\"", "rig.chains[0].role");
 			expect_error("\"kind\": \"sole\"", "\"kind\": \"hoof\"", "rig.contacts[0].kind");
+			expect_error("\"bone\": \"chest\"", "\"bone\": \"nobody\"", "rig.attachments[0].bone");
 			expect_error("\"twist\"", "\"spin\"", "rig.bones[14].limit");
 			expect_error("\"to\": \"neck\"", "\"to\": \"nobody\"", "rig.body_axis.to");
 		}
