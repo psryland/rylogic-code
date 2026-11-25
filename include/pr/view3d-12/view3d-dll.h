@@ -1051,7 +1051,7 @@ namespace pr
 			static constexpr size_t MaxBufferSize = 64 * 1024 * 1024;
 			static constexpr size_t ForwardPixelCount = 4;
 			static constexpr int BufferSlotCount = 2;
-			static constexpr int TextureSlotCount = 4;
+			static constexpr int TextureSlotCount = 16;
 
 			ERenderStep m_rdr_step;
 			void const* m_constants;

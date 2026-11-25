@@ -59,7 +59,7 @@ namespace pr::rdr12::shaders
 		inline static constexpr auto PopulationDraw = ECBufReg::b8;
 		inline static constexpr auto ReflectionPlane = ESRVReg::t28;
 		inline static constexpr auto PbrTintMaskTexture = ESRVReg::t30;
-		inline static constexpr auto ProceduralTextures = ESRVReg::t31; // and t32, t33, t34
+		inline static constexpr auto ProceduralTextures = ESRVReg::t31; // through t46, one per texture slot
 	};
 	struct ESamp
 	{
