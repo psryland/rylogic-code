@@ -198,12 +198,17 @@ namespace view3d_test
 		// The time (in seconds) after a strike starts during which the sky is updated every frame. Longer than any strike lasts.
 		constexpr double StrikeActiveTime = 2.0;
 
+		// The colour of the rain under a clear sky and under storm overcast (linear rgb). Drops are grey rather than white, because they only show the dim sky light.
+		constexpr view3d::Vec4 RainColourClear = { 0.55f, 0.6f, 0.65f, 1.0f };
+		constexpr view3d::Vec4 RainColourOvercast = { 0.3f, 0.32f, 0.35f, 1.0f };
+
 		// Cube map and procedural skyboxes, with environment map reflections on a row of spheres
 		struct SkyboxDemo :IDemo
 		{
 			DemoContext m_ctx;
 			demo::SceneObjects m_scene;
 			view3d::Object m_sky;
+			view3d::Object m_rain;
 			view3d::CubeMapPtr m_env_map;
 			view3d::CubeMapPtr m_sky_env_map;
 			view3d::WeatherMapPtr m_weather;
@@ -218,6 +223,12 @@ namespace view3d_test
 			float m_wind_direction;
 			float m_storm_progress;
 			float m_exposure;
+			float m_rain_intensity;
+			float m_rain_wind;
+			float m_fly_speed;
+			float m_cover_overhead;
+			view3d::Vec4 m_camera_velocity;
+			view3d::Vec4 m_last_camera_pos;
 			double m_time;
 			double m_since_capture;
 			double m_next_strike;
@@ -233,6 +244,7 @@ namespace view3d_test
 				: m_ctx(ctx)
 				, m_scene(ctx.m_window)
 				, m_sky()
+				, m_rain()
 				, m_env_map()
 				, m_sky_env_map()
 				, m_weather()
@@ -247,6 +259,12 @@ namespace view3d_test
 				, m_wind_direction(45.0f)
 				, m_storm_progress(0.0f)
 				, m_exposure(1.0f)
+				, m_rain_intensity(0.0f)
+				, m_rain_wind(3.0f)
+				, m_fly_speed(0.0f)
+				, m_cover_overhead(0.0f)
+				, m_camera_velocity()
+				, m_last_camera_pos(View3D_CameraToWorldGet(ctx.m_window).w)
 				, m_time(0.0)
 				, m_since_capture(0.0)
 				, m_next_strike(0.0)
@@ -371,11 +389,33 @@ namespace view3d_test
 					m_auto_lightning = on;
 					m_next_strike = m_time;
 				});
+
+				// Rain fills all space around the camera. Flying the camera shows the density holds at any speed, and the streaks lean into the motion.
+				m_rain = View3D_ObjectCreateRain("rain", RainSettings(), nullptr);
+				if (m_rain == nullptr)
+					throw std::runtime_error("Rain creation failed");
+
+				View3D_WindowAddObject(m_ctx.m_window, m_rain);
+				ui.AddLabel(L"Rain:");
+				ui.AddSlider(L"Intensity", 0, 1, m_rain_intensity, [this](float v)
+				{
+					m_rain_intensity = v;
+				});
+				ui.AddSlider(L"Rain wind (m/s)", 0, 20, m_rain_wind, [this](float v)
+				{
+					m_rain_wind = v;
+				});
+				ui.AddSlider(L"Camera fly speed (m/s)", 0, 300, m_fly_speed, [this](float v)
+				{
+					m_fly_speed = v;
+				});
 			}
 			~SkyboxDemo()
 			{
 				// The host clears the window's environment map before destroying the demo, so the cube map is no longer in use
 				RemoveSky();
+				if (m_rain != nullptr)
+					View3D_ObjectDelete(m_rain);
 			}
 
 			// Animate the clouds, then recapture the procedural sky's reflections at most once per frame
@@ -404,6 +444,29 @@ namespace view3d_test
 				auto striking = m_time < m_strike_active_until;
 				if (m_sky_kind == ESky::Procedural && (m_wind_speed != 0 || m_storm_front || striking))
 					UpdateSun();
+
+				// Fly the camera horizontally along its view direction, then measure its velocity from its motion, whether flown or navigated by hand.
+				auto c2w = View3D_CameraToWorldGet(m_ctx.m_window);
+				if (m_fly_speed != 0)
+				{
+					auto forward = view3d::Vec2{ -c2w.z.x, -c2w.z.y };
+					auto len = std::sqrt(forward.x * forward.x + forward.y * forward.y);
+					if (len > 1e-3f)
+					{
+						auto step = m_fly_speed * static_cast<float>(dt) / len;
+						c2w.w.x += forward.x * step;
+						c2w.w.y += forward.y * step;
+						View3D_CameraToWorldSet(m_ctx.m_window, c2w);
+					}
+				}
+				if (dt > 0)
+				{
+					auto inv_dt = static_cast<float>(1.0 / dt);
+					m_camera_velocity = view3d::Vec4{ (c2w.w.x - m_last_camera_pos.x) * inv_dt, (c2w.w.y - m_last_camera_pos.y) * inv_dt, (c2w.w.z - m_last_camera_pos.z) * inv_dt, 0 };
+				}
+				m_last_camera_pos = c2w.w;
+				if (!View3D_ObjectUpdateRain(m_rain, RainSettings()))
+					throw std::runtime_error("Rain update failed");
 
 				// Spheres are hidden during the capture so they do not appear in their own reflections
 				// Animation requests a recapture every frame, so a request skipped by the period is dropped rather than carried to the next frame
@@ -494,6 +557,26 @@ namespace view3d_test
 				};
 			}
 
+			// The rain's settings for the current intensity, wind, camera motion and light
+			view3d::RainSettings RainSettings() const
+			{
+				// The rain drifts with the surface wind, which blows the same way as the clouds. Overcast skies and dazzling strikes darken the drops.
+				auto wind = WindDirection();
+				auto overcast = std::clamp((m_cover_overhead - 0.4f) / 0.6f, 0.0f, 1.0f);
+				auto lit = [&](float clear, float dark)
+				{
+					// Blend toward the overcast colour, then dim by the exposure
+					return (clear + (dark - clear) * overcast) * m_exposure;
+				};
+				return view3d::RainSettings{
+					.m_wind = view3d::Vec4{ wind.x * m_rain_wind, wind.y * m_rain_wind, 0, 0 },
+					.m_camera_velocity = m_camera_velocity,
+					.m_colour = view3d::Vec4{ lit(RainColourClear.x, RainColourOvercast.x), lit(RainColourClear.y, RainColourOvercast.y), lit(RainColourClear.z, RainColourOvercast.z), 1 },
+					.m_intensity = m_rain_intensity,
+					.m_time = m_time,
+				};
+			}
+
 			// Strike a random point on the ground in front of the camera with fork lightning
 			void Strike()
 			{
@@ -557,6 +640,7 @@ namespace view3d_test
 				m_exposure = 1.0f + (DazzleExposure - 1.0f) * dazzle;
 
 				// Thick cloud overhead blocks the direct light, leaving a flat grey ambient
+				m_cover_overhead = cover;
 				auto overcast = std::clamp((cover - 0.4f) / 0.6f, 0.0f, 1.0f);
 				auto ambient = LerpColour(LerpColour(m_base_ambient, 0xFF5A5E64U, overcast), 0xFF000000U, 1.0f - m_exposure);
 				View3D_AmbientSet(m_ctx.m_window, ambient);

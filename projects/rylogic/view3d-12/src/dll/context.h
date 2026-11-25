@@ -150,6 +150,10 @@ namespace pr::rdr12
 		// Change the retained background and direction frames without replacing the scene object.
 		void ObjectBlendProceduralSky(ldraw::LdrObject* object, TextureCubePtr background, float weight, m4x4 const& world_to_sky, m4x4 const& world_to_background);
 
+		// Create or update camera-centred rain; its native owner is tied to the ordinary object lifetime.
+		ldraw::LdrObject* ObjectCreateRain(char const* name, game_systems::RainSettings const& settings, Guid const* context_id);
+		void ObjectUpdateRain(ldraw::LdrObject* object, game_systems::RainSettings const& settings);
+
 		// Modify an ldr object using a callback to populate the model data.
 		ldraw::LdrObject* ObjectCreateByCallback(char const* name, Colour32 colour, int vcount, int icount, int ncount, view3d::EditObjectCB edit_cb, Guid const& context_id);
 		void ObjectEdit(ldraw::LdrObject* object, view3d::EditObjectCB edit_cb);

@@ -137,6 +137,7 @@
 		<ClCompile Include="src\game-systems\atmosphere_record_tests.cpp" />
 		<ClCompile Include="src\game-systems\particle_tests.cpp" />
 		<ClCompile Include="src\game-systems\lightning_tests.cpp" />
+		<ClCompile Include="src\game-systems\rain_tests.cpp" />
 		<!-- Test particle types build into their own compiled directory, which particle_tests.cpp includes by path. -->
 		<ShaderBuild Include="src\game-systems\shaders\hlsl\particle_marker_cs.hlsl" ComputeEntryPoints="particle_marker_emit_cs=ParticleEmitCS;particle_marker_update_cs=ParticleUpdateCS" StampDir="$(MSBuildProjectDirectory)\src\game-systems\shaders\hlsl\compiled\$(Configuration)\" />
 		<None Include="src\game-systems\shaders\hlsl\particle_marker.hlsli" />

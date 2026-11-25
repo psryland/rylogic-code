@@ -13,6 +13,9 @@
     <ClInclude Include="$(RylogicRoot)include\pr\game-systems\sky\procedural_sky.h">
       <Filter>pr\sky</Filter>
     </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\game-systems\sky\rain.h">
+      <Filter>pr\sky</Filter>
+    </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\game-systems\sky\weather_map.h">
       <Filter>pr\sky</Filter>
     </ClInclude>
@@ -20,6 +23,9 @@
       <Filter>src\sky</Filter>
     </ClCompile>
     <ClCompile Include="src\sky\procedural_sky.cpp">
+      <Filter>src\sky</Filter>
+    </ClCompile>
+    <ClCompile Include="src\sky\rain.cpp">
       <Filter>src\sky</Filter>
     </ClCompile>
     <ClCompile Include="src\sky\weather_map.cpp">
@@ -31,7 +37,13 @@
     <None Include="src\shaders\hlsl\sky\procedural_sky_cbuf.hlsli">
       <Filter>src\shaders</Filter>
     </None>
+    <None Include="src\shaders\hlsl\sky\rain_cbuf.hlsli">
+      <Filter>src\shaders</Filter>
+    </None>
     <ShaderBuild Include="src\shaders\hlsl\sky\lightning.hlsl">
+      <Filter>src\shaders</Filter>
+    </ShaderBuild>
+    <ShaderBuild Include="src\shaders\hlsl\sky\rain.hlsl">
       <Filter>src\shaders</Filter>
     </ShaderBuild>
     <ShaderBuild Include="src\shaders\hlsl\sky\procedural_sky.hlsl">
