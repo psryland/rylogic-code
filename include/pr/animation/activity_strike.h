@@ -25,7 +25,8 @@
 //    "windup_bend": 0.65,   // in (0,1]. The wrist's distance from the shoulder at the top of the wind-up, as a fraction of its distance at contact.
 //    "follow_angle": 0.4,   // the arm's swing angle past the contact at the end of the follow-through
 //    "cock": 1.0,           // the wrist's turn at contact from a thumb-up grip towards the arm's line, which puts the tool's handle along the arm
-//    "swing_tilt": 0.0,     // the turn of the swing plane about the arm's line at contact, tilting the swing across the body. One-hand strikes only.
+//    "swing_tilt": 0.0,     // the turn of the swing plane about the arm's line at contact, tilting the swing across the body. Negative tilts
+//                           // the wind-up out to the striking hand's side; near -pi/2 the swing is a sideways cut. One-hand strikes only.
 //    "spacing": 0.3,        // the distance between the fists of a two-hand strike, as a fraction of the arm's reach
 //    "lean": 0.25,          // the torso's forward lean at contact
 //    "windup_lean": 0.15,   // the torso's backward lean at the top of the wind-up
@@ -186,7 +187,7 @@ namespace pr::animation
 			real("windup_bend", 0.3f, 1.0f, defaults.windup_bend);
 			real("follow_angle", 0.0f, 1.5f, defaults.follow_angle);
 			real("cock", -0.5f, 1.6f, defaults.cock);
-			real("swing_tilt", -1.0f, 1.0f, defaults.swing_tilt);
+			real("swing_tilt", -1.6f, 1.6f, defaults.swing_tilt);
 			real("spacing", 0.0f, 1.0f, defaults.spacing);
 			real("lean", 0.0f, 1.0f, defaults.lean);
 			real("windup_lean", 0.0f, 0.6f, defaults.windup_lean);
@@ -322,7 +323,10 @@ namespace pr::animation
 				auto swing = quat(hand.axis, phase.angle);
 				auto& target = output.targets[hand.limb->chain];
 				target.frame = xform(root + Rotate(swing, hand.wrist - hand.shoulder) * phase.bend, Normalise(swing * hand.orientation));
-				target.pole = Normalise(Rotate(swing, -hand.up) + v4(hand.side * 0.5f, 0, 0, 0));
+				// The elbow points away from the swing's 'up' direction, out to the hand's side. A tilted swing plane also lowers the elbow, so a
+				// sideways cut keeps its elbow down instead of pointing it across the chest.
+				auto droop = std::abs(std::sin(m_swing.swing_tilt));
+				target.pole = Normalise(Rotate(swing, -hand.up) + v4(hand.side * 0.5f, 0, -droop, 0));
 				output.curl[hand.limb->chain] = GripCurl;
 			}
 		}

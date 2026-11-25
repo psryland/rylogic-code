@@ -4320,6 +4320,51 @@ namespace pr::animation::tests
 			auto [ahead, ahead_wrist] = blow(std::nullopt, std::nullopt);
 			PR_EXPECT(ahead.y < shoulder.y - 0.5f * arm.reach && ahead.z < shoulder.z);
 		}
+		PRUnitTestMethod(SideStrikesWindUpBesideTheBody, Quick)
+		{
+			// A strike with a swing tilt near a right angle is a sideways cut: the arm winds up out to the striking hand's side rather than overhead,
+			// and the blow still lands on the target at contact
+			auto rig = TestRig();
+			auto gait = TestActivityGait();
+			auto swing = StrikeSwing{ .hands = EStrikeHands::Left, .duration = 1.0f, .swing_tilt = -1.5f };
+			gait.activities.push_back(GaitActivity{ .name = "side-chop", .posture = "bipedal", .activity = std::make_shared<Strikes const>(swing) });
+			auto overhead = ActivityIndex(gait, "chop");
+			auto side = ActivityIndex(gait, "side-chop");
+			auto ground = TestGround();
+			auto dt = 1.0f / 60;
+			auto probe = Locomotion(rig, gait);
+			auto const& arm = probe.limbs()[1];
+			auto hand = rig.chains[arm.chain].bones.back();
+			auto shoulder = rig.rest_model[rig.chains[arm.chain].bones.front()].pos;
+			auto target = Strike{ .point = shoulder + v4(0, -0.6f * arm.reach, -0.5f * arm.reach, 0), .radius = 0.1f };
+			auto wrist_at = [&](int activity, float fraction)
+			{
+				// The model-space wrist 'fraction' of the way through the third blow, once the activity has faded in and the feet have settled
+				auto loco = Locomotion(rig, gait);
+				auto body = BodyState{ .gravity = v4(0, 0, -9.8f, 0) };
+				loco.StartActivity(activity, 0.0, 0.25f);
+				loco.SetActivityTargets(activity, ActivityTargets{ .strike = target });
+				auto when = 2.0 + fraction * swing.duration;
+				for (; body.time < when - 0.5 * dt; body.time += dt)
+					loco.Step(dt, body, ground);
+
+				body.time = when;
+				loco.Step(dt, body, ground);
+				return loco.pose().model[hand].pos;
+			};
+
+			// At the top of the wind-up the side cut's wrist is further out to the left (+X) and lower than the overhead chop's
+			auto side_top = wrist_at(side, swing.windup);
+			auto overhead_top = wrist_at(overhead, swing.windup);
+			PR_EXPECT(side_top.x > overhead_top.x + 0.2f * arm.reach);
+			PR_EXPECT(side_top.z < overhead_top.z - 0.2f * arm.reach);
+
+			// At contact the fist is on the target's surface, at the height of its centre
+			auto side_hit = wrist_at(side, swing.contact);
+			auto out = (side_hit - target.point).w0();
+			PR_EXPECT(std::abs(side_hit.z - target.point.z) < 0.05f);
+			PR_EXPECT(std::abs(Length(v4(out.x, out.y, 0, 0)) - target.radius) < 0.15f);
+		}
 	};
 }
 #endif
