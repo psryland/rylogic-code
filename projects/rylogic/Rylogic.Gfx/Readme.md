@@ -135,6 +135,30 @@ authored environment to this sky unless a separate reflection source is intended
 `View3D_ObjectProceduralSkyStrike`, `View3D_ObjectProceduralSkyDazzle` and `View3D_ObjectProceduralSkyGroundLights`;
 destruction uses `View3D_ObjectDelete`.
 
+### Rain
+
+`View3d.Rain` owns rain that fills all of space around whichever camera draws it, so the density never drops however
+fast the camera moves. Drops live in four nested layers of repeating tiles (8, 24, 72 and 216 units), each drawn in a
+shell around the camera, so near drops are fine and close while far drops are sparse and merge into a haze about 100
+units away. Each drop is drawn as a thin streak along its motion relative to the camera (`FallVelocity + Wind -
+CameraVelocity`) over `StreakTime`, so moving the camera leans the streaks.
+
+```csharp
+using var rain = new View3d.Rain("Rain", View3d.RainSettings.Default);
+window.AddObject(rain.Object);
+
+// Each frame
+var settings = View3d.RainSettings.Default;
+settings.Intensity = 0.7f;              // 0 = none, small = light sparse shower, 1 = heavy downpour
+settings.CameraVelocity = camera_velocity;
+settings.Colour = sky_ambient;          // the caller lights the rain
+settings.Time = game_time;              // drops move by the change in time, so slow time gives slow-motion rain
+rain.Update(settings);
+```
+
+Rain draws after opaque geometry with premultiplied alpha. It has no fog, no shelter under roofs, and the C ABI is
+`View3D_ObjectCreateRain` and `View3D_ObjectUpdateRain`; destruction uses `View3D_ObjectDelete`.
+
 ## Game systems
 
 The procedural sky above, `View3d.Ocean` and `View3d.Atmosphere` wrap native game-agnostic systems from the Rylogic `game-systems` library

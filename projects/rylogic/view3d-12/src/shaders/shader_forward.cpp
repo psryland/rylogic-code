@@ -176,6 +176,7 @@ namespace pr::rdr12::shaders
 		SetLightingConstants(cb0, scene);
 		SetEnvMapConstants(cb0.env_map, scene.m_global_envmap.get(), scene.m_global_envmap_prev.get(), scene.m_global_envmap_blend, scene.m_global_envmap_parallax_bounds);
 		cb0.output = v4(scene.wnd().m_dither_amount, 0, 0, 0);
+		cb0.wetness = v4(scene.m_wetness_up.xyz, scene.m_wetness);
 		if (m_sky_history != nullptr)
 			cb0.sky_history = *m_sky_history;
 		if (m_reflection_plane != nullptr)

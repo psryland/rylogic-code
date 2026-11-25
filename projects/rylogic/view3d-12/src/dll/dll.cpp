@@ -26,6 +26,7 @@
 #include "pr/view3d-12/texture/texture_cube.h"
 #include "pr/game-systems/sky/celestial_clock.h"
 #include "pr/game-systems/sky/procedural_sky.h"
+#include "pr/game-systems/sky/rain.h"
 #include "pr/game-systems/sky/weather_map.h"
 #include "pr/game-systems/ocean/ocean_surface.h"
 #include "pr/game-systems/atmosphere/atmosphere.h"
@@ -1599,6 +1600,54 @@ VIEW3D_API void __stdcall View3D_WindowEnvMapParallaxBoundsSet(view3d::Window wi
 		window->EnvMapParallaxBounds(To<pr::BBox>(bounds));
 	}
 	CatchAndReport(View3D_WindowEnvMapParallaxBoundsSet, window, );
+}
+
+// Get/Set how wet the window's PBR surfaces are
+VIEW3D_API float __stdcall View3D_WindowWetnessGet(view3d::Window window)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		return window->Wetness();
+	}
+	CatchAndReport(View3D_WindowWetnessGet, window, 0.0f);
+}
+VIEW3D_API void __stdcall View3D_WindowWetnessSet(view3d::Window window, float wetness)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		window->Wetness(wetness);
+	}
+	CatchAndReport(View3D_WindowWetnessSet, window, );
+}
+
+// Get/Set the world-space direction that surfaces face to be fully wet
+VIEW3D_API view3d::Vec4 __stdcall View3D_WindowWetnessUpGet(view3d::Window window)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		return To<view3d::Vec4>(window->WetnessUp());
+	}
+	CatchAndReport(View3D_WindowWetnessUpGet, window, To<view3d::Vec4>(pr::v4::ZAxis()));
+}
+VIEW3D_API void __stdcall View3D_WindowWetnessUpSet(view3d::Window window, view3d::Vec4 up)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		window->WetnessUp(To<pr::v4>(up));
+	}
+	CatchAndReport(View3D_WindowWetnessUpSet, window, );
 }
 
 // Get/Set the world-space plane whose surfaces reflect the rendered scene
@@ -4192,6 +4241,48 @@ VIEW3D_API BOOL __stdcall View3D_ObjectBlendProceduralSky(view3d::Object object,
 		return TRUE;
 	}
 	CatchAndReport(View3D_ObjectBlendProceduralSky, , FALSE);
+}
+
+// Convert the DLL rain settings to the renderer's settings.
+static game_systems::RainSettings ToRainSettings(view3d::RainSettings const& s)
+{
+	// Copy field by field because the DLL vector types differ from the renderer's
+	static_assert(sizeof(view3d::RainSettings) == 88, "Must match the managed View3d.RainSettings layout");
+	return game_systems::RainSettings{
+		.m_intensity = s.m_intensity,
+		.m_wind = To<v4>(s.m_wind),
+		.m_fall_velocity = To<v4>(s.m_fall_velocity),
+		.m_camera_velocity = To<v4>(s.m_camera_velocity),
+		.m_colour = To<v4>(s.m_colour),
+		.m_opacity = s.m_opacity,
+		.m_streak_time = s.m_streak_time,
+		.m_drop_width = s.m_drop_width,
+		.m_time = s.m_time,
+	};
+}
+
+// Create camera-centred rain with ordinary View3D object ownership.
+VIEW3D_API view3d::Object __stdcall View3D_ObjectCreateRain(char const* name, view3d::RainSettings const& settings, GUID const* context_id)
+{
+	try
+	{
+		DllLockGuard;
+		return Dll().ObjectCreateRain(name, ToRainSettings(settings), context_id);
+	}
+	CatchAndReport(View3D_ObjectCreateRain, , {});
+}
+
+// Report update failure explicitly so managed callers cannot mistake rejected parameters for success.
+VIEW3D_API BOOL __stdcall View3D_ObjectUpdateRain(view3d::Object object, view3d::RainSettings const& settings)
+{
+	try
+	{
+		Validate(object);
+		DllLockGuard;
+		Dll().ObjectUpdateRain(object, ToRainSettings(settings));
+		return TRUE;
+	}
+	CatchAndReport(View3D_ObjectUpdateRain, , FALSE);
 }
 
 // Evaluate the Sun–Earth–Moon model. It is pure maths, so it needs no context or lock.

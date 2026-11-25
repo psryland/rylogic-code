@@ -447,6 +447,16 @@ namespace pr::rdr12
 		BBox EnvMapParallaxBounds() const;
 		void EnvMapParallaxBounds(BBox const& bounds);
 
+		// Get/Set how wet the scene's PBR surfaces are, in [0,1]. Water darkens porous (non-metallic) surfaces, smooths them, and makes them reflect the
+		// environment map, even when the instance itself has no reflectivity. Surfaces facing 'WetnessUp' are fully wet, vertical surfaces less so,
+		// and surfaces facing away from it stay dry. Zero (the default) leaves surfaces unchanged.
+		float Wetness() const;
+		void Wetness(float wetness);
+
+		// Get/Set the world-space unit direction that surfaces face to be fully wet. The default is +Z.
+		v4 WetnessUp() const;
+		void WetnessUp(v4 const& up);
+
 		// Get/Set the world-space plane whose surfaces reflect the rendered scene, as (unit normal, distance along the normal). Shaders that opt in
 		// reflect the opaque scene visible on screen and fall back to the environment map where it has no data. Zero (the default) disables it.
 		v4 ReflectionPlane() const;

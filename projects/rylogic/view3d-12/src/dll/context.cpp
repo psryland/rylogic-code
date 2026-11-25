@@ -15,6 +15,7 @@
 #include "pr/view3d-12/resource/resource_factory.h"
 #include "pr/view3d-12/texture/texture_desc.h"
 #include "pr/game-systems/sky/procedural_sky.h"
+#include "pr/game-systems/sky/rain.h"
 #include "pr/game-systems/sky/weather_map.h"
 #include "pr/view3d-12/shaders/shader_procedural.h"
 #include "pr/view3d-12/utility/conversion.h"
@@ -1003,6 +1004,34 @@ namespace pr::rdr12
 			throw std::invalid_argument("The object is not a procedural sky");
 
 		object->m_user_data.get<std::unique_ptr<game_systems::ProceduralSky>>()->Blend(std::move(background), weight, world_to_sky, world_to_background);
+	}
+
+	// Create rain as a scene object. The rain surrounds whichever camera draws it, so it is excluded from bounds, hit tests, shadows and env map captures.
+	ldraw::LdrObject* Context::ObjectCreateRain(char const* name, game_systems::RainSettings const& settings, Guid const* context_id)
+	{
+		// Keep ownership local until parameter validation and resource creation have succeeded.
+		auto rain = std::make_unique<game_systems::Rain>(m_rdr);
+		rain->Update(settings);
+
+		// The object owns the rain so the shader state lives as long as the model it draws.
+		auto id = context_id ? *context_id : GenerateGUID();
+		auto obj = ldraw::LdrObjectPtr(new ldraw::LdrObject(ldraw::ELdrObject::Custom, nullptr, id), true);
+		obj->m_model = rain->m_inst.m_model;
+		obj->m_name = name;
+		obj->m_sko.Group(ESortGroup::PostOpaques);
+		obj->Flags(ldraw::ELdrFlags::SceneBoundsExclude | ldraw::ELdrFlags::HitTestExclude | ldraw::ELdrFlags::ShadowCastExclude | ldraw::ELdrFlags::EnvMapCaptureExclude, true);
+		obj->m_user_data.get<std::unique_ptr<game_systems::Rain>>() = std::move(rain);
+		m_sources.Add(obj);
+		return obj.get();
+	}
+
+	// Update the rain; a normal object cannot be reinterpreted as rain.
+	void Context::ObjectUpdateRain(ldraw::LdrObject* object, game_systems::RainSettings const& settings)
+	{
+		if (!object->m_user_data.has<std::unique_ptr<game_systems::Rain>>())
+			throw std::invalid_argument("The object is not rain");
+
+		object->m_user_data.get<std::unique_ptr<game_systems::Rain>>()->Update(settings);
 	}
 
 	// The inputs to 'EditModel'. 'factory' records the geometry uploads; its owner decides when they are submitted.

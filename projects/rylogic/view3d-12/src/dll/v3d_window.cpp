@@ -2220,6 +2220,40 @@ namespace pr::rdr12
 		Invalidate();
 	}
 
+	// Get/Set how wet the scene's PBR surfaces are
+	float V3dWindow::Wetness() const
+	{
+		return m_scene.m_wetness;
+	}
+	void V3dWindow::Wetness(float wetness)
+	{
+		// Wetness is a fraction, so values outside [0,1] are caller errors
+		if (!(wetness >= 0.0f && wetness <= 1.0f))
+			throw std::runtime_error("Wetness must be in the range [0,1]");
+		if (wetness == m_scene.m_wetness)
+			return;
+
+		m_scene.m_wetness = wetness;
+		Invalidate();
+	}
+
+	// Get/Set the world-space direction that surfaces face to be fully wet
+	v4 V3dWindow::WetnessUp() const
+	{
+		return m_scene.m_wetness_up;
+	}
+	void V3dWindow::WetnessUp(v4 const& up)
+	{
+		// The shaders compare surface normals with it, so it must be a unit direction
+		if (!IsFinite(up) || up.w != 0.0f || !FEql(LengthSq(up.xyz), 1.0f))
+			throw std::runtime_error("The wetness up direction must be a unit direction vector");
+		if (All(up == m_scene.m_wetness_up))
+			return;
+
+		m_scene.m_wetness_up = up;
+		Invalidate();
+	}
+
 	// Get/Set the world-space plane whose surfaces reflect the rendered scene
 	v4 V3dWindow::ReflectionPlane() const
 	{

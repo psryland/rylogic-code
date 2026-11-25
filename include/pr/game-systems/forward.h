@@ -43,6 +43,8 @@ namespace pr::game_systems
 	struct ProceduralSky;
 	struct ProceduralSkySettings;
 	struct LightningGroundLight;
+	struct Rain;
+	struct RainSettings;
 	struct WeatherMap;
 	using WeatherMapPtr = pr::RefPtr<WeatherMap>;
 

@@ -58,6 +58,9 @@ struct CBufFrame// :reg(b0)
 	// Output settings
 	float4 output;     // x = dither amount applied before 8-bit colour output (see DitherSrgb8); 0 disables dithering
 
+	// Scene-wide surface wetness. xyz = the world-space unit up direction, w = how wet surfaces are, in [0,1]. 0 leaves PBR surfaces unchanged.
+	float4 wetness;
+
 	// EnvMap
 	EnvMap env_map;
 

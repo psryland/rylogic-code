@@ -406,7 +406,7 @@ namespace pr::rdr12
 		cb.w2env.pos = v4::Origin();
 
 		// Without a previous map, only the current map contributes
-		cb.blend = v4(env_map_prev != nullptr ? Clamp(blend, 0.0f, 1.0f) : 1.0f, 0, 0, 0);
+		cb.blend = v4(env_map_prev != nullptr ? Clamp(blend, 0.0f, 1.0f) : 1.0f, 1, 0, 0);
 
 		// Only the current map's distances are marched. A map without a distance cube has no distances, whatever its scale.
 		auto const& prev = env_map_prev != nullptr ? *env_map_prev : *env_map;
