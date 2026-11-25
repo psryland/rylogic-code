@@ -82,7 +82,12 @@ public enum ERecipeStep
 	/// </summary>
 	Denoise,
 
-	/// <summary>Crossfade the last 'duration' seconds into the start, so the result loops seamlessly. The result is 'duration' seconds shorter.</summary>
+	/// <summary>
+	/// Make the sound loop seamlessly with a crossfade of 'duration' seconds. Without 'start', the last 'duration' seconds crossfade into the start
+	/// and the result is 'duration' seconds shorter. With 'start' (seconds), the sound keeps its length: it plays once from the beginning, then only
+	/// the region from 'start' to the end repeats, and the end crossfades into the audio just before 'start'. Steps that change the length cannot
+	/// follow a loop with a start.
+	/// </summary>
 	Loop,
 
 	/// <summary>

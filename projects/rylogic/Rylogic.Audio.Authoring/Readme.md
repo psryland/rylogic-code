@@ -96,6 +96,12 @@ About 12 dB sounds natural; much more can make the remaining sound 'watery'. It 
 between them. Do not use it on textures that are themselves noise-like, such as wind, rain or surf, because it removes them too; a `low_pass` step
 is better there.
 
+`loop` makes a sound repeat seamlessly with a crossfade of `duration` seconds. Without `start`, the end crossfades into the beginning and the sound
+gets `duration` seconds shorter. With `start`, the sound keeps its length and plays once from the beginning, then only the region from `start` to the
+end repeats, like an engine starting and then idling. The end crossfades into the audio just before `start`, so `start` must be at least `duration`,
+and `duration` at most half the region. The prepared WAV records the loop start in a `smpl` chunk, which the game and the tool's playback both use.
+Steps that change the length (`trim`, `cut`, `loop`, `mix`) cannot follow a loop with a `start`.
+
 ## Resolving prepared audio
 
 `PreparedSounds.ResolveAsync` returns the prepared file of every accepted variant, in runtime order, rendering through the `RenderCache` as needed. A

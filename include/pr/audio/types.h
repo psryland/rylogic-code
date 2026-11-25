@@ -159,6 +159,8 @@ namespace pr::audio
 	// stereo recording can be approximated by setting width to the cosine of the angle between the listener and the recording's forward direction.
 	// 'pan' is the left/right balance in [-1,1] for non-spatial stereo clips. 0 leaves both sides at full level; a positive pan lowers the left
 	// side toward silence at 1, and a negative pan lowers the right side. Pan never raises either side, so it cannot make a sound louder.
+	// 'loop_count' is the number of extra passes after the first, or AUDIO_INFINITE_LOOP. The first pass plays the whole clip; each extra pass repeats only the clip's
+	// loop region, which runs from its loop start to the end (see Engine::ClipCreateWave), so an intro plays once before the loop.
 	struct VoiceDesc
 	{
 		StructHeader header;
@@ -173,7 +175,7 @@ namespace pr::audio
 		float pan;
 	};
 
-	// Observable transport state for one voice.
+	// Observable transport state for one voice. 'samples_played' counts frames from the start of the clip across every loop pass.
 	struct VoiceState
 	{
 		StructHeader header;
@@ -186,6 +188,7 @@ namespace pr::audio
 
 	// Initial playback and routing properties for one decoded Ogg Vorbis stream.
 	// 'group', 'spatial', 'width', and 'pan' have the same meaning as in VoiceDesc. A spatial stream must decode to a single channel.
+	// 'loop_count' has the same meaning as in VoiceDesc, with the loop region read from the stream (see Engine::StreamCreateOgg).
 	struct StreamDesc
 	{
 		StructHeader header;

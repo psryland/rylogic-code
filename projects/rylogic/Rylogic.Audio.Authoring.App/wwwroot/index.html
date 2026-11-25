@@ -4,154 +4,332 @@
 <meta charset="utf-8">
 <title>Audio authoring</title>
 <style>
-	body { margin: 0; font: 14px "Segoe UI", sans-serif; background: #1e1f22; color: #ddd; display: flex; height: 100vh; }
-	#ids { width: 300px; overflow-y: auto; border-right: 1px solid #333; padding: 8px; box-sizing: border-box; }
-	#ids h3 { font-size: 12px; color: #888; margin: 12px 0 4px; text-transform: uppercase; }
-	#ids div.id { padding: 3px 6px; cursor: pointer; border-radius: 3px; display: flex; justify-content: space-between; }
-	#ids div.id:hover { background: #2b2d31; }
-	#ids div.id.sel { background: #3a4d6b; }
-	#ids div.id.final { color: #4ae57a; }
-	#ids span.count { color: #888; font-size: 12px; }
-	#ids span.count.done { color: #6c6; }
-	#main { flex: 1; overflow-y: auto; padding: 12px 16px; }
-	#player { position: sticky; top: 0; z-index: 1; background: #26282c; padding: 10px; border-radius: 6px; margin-bottom: 12px; }
-	#player .ab { display: flex; gap: 8px; margin-bottom: 8px; }
-	#player .slot { flex: 1; padding: 6px 8px; border: 2px solid #444; border-radius: 4px; overflow: hidden; hidden; white-space: nowrap; text-overflow: ellipsis; }
-	#player .slot.live { border-color: #5a9; background: #2e3b35; }
-	#pos { width: 100%; }
-	#recipe { background: #24262a; border: 1px solid #3a3d43; border-radius: 6px; padding: 8px 10px; margin-bottom: 12px; }
-	#recipe h3 { margin: 0 0 6px; font-size: 15px; }
-	#recipe .step { display: flex; align-items: center; gap: 6px; padding: 3px 0; border-bottom: 1px solid #333; }
-	#recipe .step.bypass { opacity: 0.5; }
-	#recipe .step .kind { width: 90px; font-weight: 600; }
-	#recipe .step label { color: #aaa; font-size: 12px; }
-	#recipe .mixinput { display: flex; align-items: center; gap: 6px; padding: 3px 0 3px 96px; border-bottom: 1px solid #333; }
-	#recipe .mixinput.bypass { opacity: 0.5; }
-	#recipe .mixinput label { color: #aaa; font-size: 12px; }
-	#recipe .mixinput .credit { font-size: 12px; }
-	#recipe .mixadd { margin: 3px 0 3px 96px; }
-	#recipe input[type=number] { width: 72px; }
-	#clips { margin-top: 10px; border-top: 1px solid #444; padding-top: 8px; }
-	#clips .range { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0; }
+	:root
+	{
+		--bg: #15161a; --panel: #1d1f24; --panel2: #23262c; --raised: #2b2f36; --hover: #343942; --border: #31353c; --border2: #434851;
+		--text: #e3e6ea; --muted: #8b919b; --accent: #5b8def; --accent-bg: #22314b; --good: #3fb871; --good-bg: #1b3125;
+		--warn: #e5b04a; --bad: #e5675c; --bad-bg: #3a2224; --radius: 8px;
+	}
+	* { box-sizing: border-box; }
+	[hidden] { display: none !important; }
+	html, body { height: 100%; }
+	body
+	{
+		margin: 0; font: 13.5px/1.45 "Segoe UI", system-ui, sans-serif; background: var(--bg); color: var(--text);
+		display: grid; grid-template: "top top" auto "side main" 1fr "side player" auto / 280px 1fr; overflow: hidden;
+	}
+	a { color: #8ab4f8; text-decoration: none; }
+	a:hover { text-decoration: underline; }
+	code { background: var(--raised); padding: 0 4px; border-radius: 4px; }
+	.muted { color: var(--muted); }
+	.warn { color: var(--warn); }
+	.error { color: var(--bad); }
+	kbd { background: var(--raised); border: 1px solid var(--border2); border-radius: 4px; padding: 0 5px; font-size: 11px; }
+
+	/* Controls */
+	button
+	{
+		background: var(--raised); color: var(--text); border: 1px solid var(--border2); border-radius: 6px; padding: 4px 10px;
+		font: inherit; cursor: pointer; transition: background .12s, border-color .12s; white-space: nowrap;
+	}
+	button:hover { background: var(--hover); }
+	button:disabled { opacity: 0.4; cursor: default; background: var(--raised); }
+	button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+	button.primary:hover { background: #6d9bf2; }
+	button.on { background: var(--accent-bg); border-color: var(--accent); color: #cfe0ff; }
+	button.icon { width: 28px; height: 28px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+	button.ghost { background: transparent; border-color: transparent; color: var(--muted); }
+	button.ghost:hover { background: var(--hover); color: var(--text); }
+	button.danger:hover { background: var(--bad-bg); border-color: var(--bad); color: #ffd6d2; }
+	input[type=text], input[type=search], input[type=number], select
+	{
+		background: var(--bg); color: var(--text); border: 1px solid var(--border2); border-radius: 6px; padding: 4px 8px; font: inherit; min-width: 0;
+	}
+	input:focus, select:focus, button:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px #5b8def40; }
+	input:disabled, select:disabled { opacity: 0.45; }
+	input[type=number] { width: 80px; }
+	input[type=checkbox]
+	{
+		appearance: none; width: 30px; height: 17px; border-radius: 9px; background: var(--border2); position: relative; cursor: pointer;
+		margin: 0; flex: none; transition: background .15s; vertical-align: middle;
+	}
+	input[type=checkbox]::before
+	{
+		content: ""; position: absolute; top: 2px; left: 2px; width: 13px; height: 13px; border-radius: 50%; background: #d7dbe0; transition: left .15s;
+	}
+	input[type=checkbox]:checked { background: var(--accent); }
+	input[type=checkbox]:checked::before { left: 15px; background: #fff; }
+	label.toggle { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; color: var(--muted); }
+	label.toggle:hover { color: var(--text); }
+	.seg { display: inline-flex; }
+	.seg button { border-radius: 0; margin-left: -1px; }
+	.seg button:first-child { border-radius: 6px 0 0 6px; margin-left: 0; }
+	.seg button:last-child { border-radius: 0 6px 6px 0; }
+	.seg button.on { position: relative; z-index: 1; }
+
+	/* Top bar */
+	#topbar
+	{
+		grid-area: top; display: flex; align-items: center; gap: 16px; padding: 0 16px; height: 46px;
+		background: var(--panel); border-bottom: 1px solid var(--border);
+	}
+	#topbar .brand { font-weight: 600; font-size: 15px; display: flex; align-items: center; gap: 8px; }
+	#topbar .brand .logo { color: var(--accent); font-size: 18px; }
+	#status { flex: 1; display: flex; align-items: center; gap: 16px; min-width: 0; font-size: 12.5px; }
+	#status > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	#status #message { flex: 1; min-width: 0; text-align: right; }
+	#fssetup { display: inline-flex; gap: 6px; align-items: center; }
+	#fssetup[hidden] { display: none; }
+	.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; }
+	.dot.ok { background: var(--good); }
+	.dot.no { background: var(--warn); }
+
+	/* Sound list */
+	#sidebar { grid-area: side; display: flex; flex-direction: column; background: var(--panel); border-right: 1px solid var(--border); min-height: 0; }
+	#sidebar .side-head { display: flex; gap: 8px; padding: 12px; border-bottom: 1px solid var(--border); }
+	#sidebar .side-head input { flex: 1; }
+	#ids { flex: 1; overflow-y: auto; padding: 6px 8px 16px; }
+	#ids h3 { font-size: 11px; font-weight: 600; color: var(--muted); margin: 14px 8px 4px; text-transform: uppercase; letter-spacing: .6px; }
+	#ids div.id
+	{
+		padding: 5px 8px; cursor: pointer; border-radius: 6px; display: flex; align-items: center; gap: 8px; justify-content: space-between;
+	}
+	#ids div.id > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	#ids div.id:hover { background: var(--hover); }
+	#ids div.id.sel { background: var(--accent-bg); box-shadow: inset 3px 0 var(--accent); }
+	#ids div.id.final > span:first-child::before { content: "\25CF"; color: var(--good); margin-right: 6px; font-size: 9px; vertical-align: 2px; }
+	#ids div.id.pool { margin-bottom: 4px; font-weight: 600; }
+	.badges { display: inline-flex; gap: 4px; flex: none; }
+	.badge { font-size: 11px; padding: 0 6px; border-radius: 9px; background: var(--raised); color: var(--muted); line-height: 17px; }
+	.badge.good { background: var(--good-bg); color: var(--good); }
+	.badge.new { background: var(--accent-bg); color: #9dbdff; }
+
+	/* Main panel */
+	#main { grid-area: main; overflow-y: auto; padding: 20px 28px 28px; min-height: 0; }
+	#main.dropping { outline: 2px dashed var(--accent); outline-offset: -8px; }
+	#head { margin-bottom: 16px; }
+	#head h1 { font-size: 22px; font-weight: 600; margin: 0 0 8px; }
+	#chips { display: flex; flex-wrap: wrap; gap: 6px; }
+	.chip { font-size: 12px; padding: 1px 9px; border-radius: 10px; background: var(--raised); border: 1px solid var(--border); color: #c2c7cf; }
+	.chip.k { color: var(--muted); }
+	#desc { margin: 8px 0 0; max-width: 900px; }
+	#desc:empty { display: none; }
+	.card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 16px; }
+	.card-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+	.card-head h2 { font-size: 14px; font-weight: 600; margin: 0; }
+	.card-head .sub { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+	.card-body { padding: 12px 14px; }
+	.spacer { flex: 1; }
+	details.card > summary
+	{
+		padding: 10px 14px; cursor: pointer; font-weight: 600; font-size: 14px; list-style: none; display: flex; align-items: center; gap: 8px;
+	}
+	details.card > summary::-webkit-details-marker { display: none; }
+	details.card > summary::before { content: "\25B8"; color: var(--muted); transition: transform .15s; }
+	details.card[open] > summary::before { transform: rotate(90deg); }
+	details.card[open] > summary { border-bottom: 1px solid var(--border); }
+
+	/* Sound settings */
+	.fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px 16px; padding: 14px; }
+	.f { display: flex; flex-direction: column; gap: 4px; }
+	.f > span:first-child { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+	.f.w2 { grid-column: span 2; }
+	.f.wide { grid-column: 1 / -1; }
+	.f.check { flex-direction: row; align-items: center; gap: 8px; padding-top: 18px; }
+	.f.check > span:first-child { order: 2; text-transform: none; letter-spacing: 0; font-size: 13.5px; color: var(--text); }
+	.f .range-pair { display: flex; align-items: center; gap: 6px; }
+	.f .range-pair input { flex: 1; width: 0; }
+	.actions { display: flex; align-items: center; gap: 8px; padding: 0 14px 14px; }
+
+	/* Recordings */
 	table { border-collapse: collapse; width: 100%; }
-	td, th { padding: 4px 6px; border-bottom: 1px solid #333; text-align: left; vertical-align: middle; }
-	tr.accepted td { background: #2e3b35; }
-	tr.section th { padding-top: 14px; color: #9c9; font-size: 1.05em; }
+	td, th { padding: 6px 10px; text-align: left; vertical-align: middle; }
+	tr.section th { padding: 14px 14px 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); font-weight: 600; }
+	tr.section th button { margin-left: 10px; text-transform: none; letter-spacing: 0; font-weight: normal; }
+	tr.cols th { font-size: 11px; color: #6c727b; font-weight: 500; padding-top: 0; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+	tr.row td { border-bottom: 1px solid var(--border); }
+	tr.row:hover td { background: #ffffff05; }
+	tr.row td:first-child { white-space: nowrap; padding-left: 14px; }
+	tr.row td:first-child button { margin-right: 3px; }
+	tr.accepted td:first-child { box-shadow: inset 3px 0 var(--good); }
 	tr.rejected td { opacity: 0.45; }
-	tr.current td { outline: 1px solid #59f; }
-	tr.current td:first-child { box-shadow: inset 3px 0 #59f; }
-	button { background: #3a3d43; color: #ddd; border: 1px solid #555; border-radius: 3px; padding: 2px 8px; cursor: pointer; }
-	button:hover { background: #4a4e55; }
-	button:disabled { opacity: 0.4; cursor: default; }
-	button.on { background: #3a4d6b; border-color: #59f; }
-	button.on.finalised { background: #2e6b3a; border-color: #4ae57a; }
-	input[type=text], input[type=number], select { background: #2b2d31; color: #ddd; border: 1px solid #555; border-radius: 3px; padding: 2px 4px; }
+	tr.current td { background: var(--accent-bg) !important; }
+	tr.current td:first-child { box-shadow: inset 3px 0 var(--accent); }
+	td.rec { min-width: 140px; }
+	.decide .seg.status button { padding-left: 8px; padding-right: 8px; }
+	.order { display: inline-flex; flex-direction: column; vertical-align: middle; margin-right: 4px; }
+	.order button.icon { height: 18px; font-size: 10px; }
+	.decide { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+	.decide input.note { flex: 1 1 140px; width: auto; min-width: 120px; }
+	.decide select { flex: 0 1 auto; max-width: 180px; }
+	td.rec .vid { font-size: 11px; color: var(--muted); background: var(--raised); border-radius: 4px; padding: 0 5px; margin-right: 6px; }
+	.seg.status button.on.s-accepted { background: var(--good-bg); border-color: var(--good); color: #a6e8bf; }
+	.seg.status button.on.s-candidate { background: var(--accent-bg); border-color: var(--accent); }
+	.seg.status button.on.s-rejected { background: var(--bad-bg); border-color: var(--bad); color: #ffc4bf; }
+	button.fin.on { background: var(--good-bg); border-color: var(--good); color: #a6e8bf; }
 	input.note { width: 100%; }
-	a { color: #8ab4f8; }
-	.muted { color: #888; }
-	.warn { color: #e5b04a; }
-	.error { color: #f28b82; }
-	kbd { background: #333; border: 1px solid #555; border-radius: 3px; padding: 0 4px; font-size: 12px; }
-	#status { margin-top: 6px; font-size: 13px; }
-	#soundform { background: #24262a; border: 1px solid #3a3d43; border-radius: 6px; padding: 6px 10px; margin-bottom: 12px; }
-	#soundform .row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 3px 0; }
-	#soundform label { color: #aaa; font-size: 13px; }
-	#soundform label.wide { flex: 1; display: flex; gap: 6px; align-items: center; }
-	#soundform input[type=number] { width: 64px; }
-	#ids button.addsound { width: 100%; margin-bottom: 6px; }
-	#importform { background: #24262a; border: 1px solid #3a3d43; border-radius: 6px; padding: 6px 10px; margin-top: 6px; }
+	.empty { padding: 10px 14px; color: var(--muted); font-style: italic; }
+	#sources { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-top: 1px solid var(--border); background: var(--panel2); border-radius: 0 0 var(--radius) var(--radius); }
+	#sources .src { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+	#sources .src > .lbl { width: 120px; color: var(--muted); font-size: 12.5px; }
+	#findrow[hidden] { display: none; }
+	#importform { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; }
 	#importform .row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 3px 0; }
-	#importform label { color: #aaa; font-size: 13px; }
-	#importform label.wide { flex: 1; display: flex; gap: 6px; align-items: center; }
-	#main.dropping { outline: 2px dashed #59f; outline-offset: -4px; }
+	#importform label.wide { flex: 1; display: flex; gap: 6px; align-items: center; color: var(--muted); }
+
+	/* Recipe */
+	#recipe .listen { display: flex; align-items: center; gap: 10px; padding: 12px 14px 4px; flex-wrap: wrap; }
+	#recipe .lbl { color: var(--muted); font-size: 12.5px; }
+	#recipe .steps { padding: 8px 14px; display: flex; flex-direction: column; gap: 6px; }
+	#recipe .step
+	{
+		display: flex; align-items: center; gap: 10px; padding: 6px 8px; background: var(--panel2); border: 1px solid var(--border); border-radius: 6px;
+	}
+	#recipe .step.bypass { opacity: 0.45; }
+	#recipe .step .num { width: 20px; height: 20px; border-radius: 50%; background: var(--raised); color: var(--muted); font-size: 11px; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+	#recipe .step .kind { width: 80px; font-weight: 600; flex: none; }
+	#recipe .params { display: flex; flex-wrap: wrap; gap: 6px 14px; flex: 1; }
+	#recipe .params label, #recipe .mixinput label { color: var(--muted); font-size: 12px; display: inline-flex; align-items: center; gap: 5px; }
+	#recipe .tools { display: flex; gap: 3px; flex: none; }
+	#recipe .mixinput { display: flex; align-items: center; gap: 8px; padding: 4px 8px 4px 40px; flex-wrap: wrap; }
+	#recipe .mixinput.bypass { opacity: 0.45; }
+	#recipe .mixinput .credit { font-size: 12px; }
+	#recipe .mixadd { margin: 2px 0 4px 40px; }
+	#recipe .addstep { padding: 4px 14px 14px; }
+	#recipe .note { margin: 8px 14px 0; }
+	#recipestate, #editstate { font-size: 12.5px; }
+	#clips { margin: 0 14px 14px; border-top: 1px solid var(--border); padding-top: 10px; }
+	#clips summary { cursor: pointer; color: var(--muted); }
+	#clips summary:hover { color: var(--text); }
+	#clips p { color: var(--muted); max-width: 900px; }
+	#clips .range { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 6px 0; }
+
+	/* Player */
+	#player
+	{
+		grid-area: player; display: flex; align-items: center; gap: 16px; padding: 10px 20px; background: var(--panel);
+		border-top: 1px solid var(--border); box-shadow: 0 -6px 18px #0004;
+	}
+	#play
+	{
+		width: 44px; height: 44px; border-radius: 50%; padding: 0; font-size: 16px; background: var(--accent); border-color: var(--accent); color: #fff; flex: none;
+	}
+	#play:hover { background: #6d9bf2; }
+	#player .np { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+	#player .np-top { display: flex; gap: 12px; align-items: baseline; }
+	#current { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 500; }
+	#time { font-variant-numeric: tabular-nums; font-size: 12px; }
+	#wave { width: 100%; height: 44px; display: block; cursor: pointer; border-radius: 4px; background: var(--bg); }
+	#player .ptools { display: flex; align-items: center; gap: 14px; flex: none; }
 </style>
 </head>
 <body>
-<div id="ids"></div>
-<div id="main">
-	<div id="player">
-		<div class="ab">
-			<div class="slot live" id="current" title="The current sound. Its recipe is shown below.">(pick a sound)</div>
-		</div>
-		<div>
-			<button id="play" title="Play or stop the current sound">Play <kbd>Space</kbd></button>
-			<button id="seam" title="Play the last 3 s running into the first 3 s, to hear the loop join">Loop seam</button>
-			<label title="Scales playback only, so different recordings can be compared at similar levels. Prepared files are not changed. Turn off to hear the actual prepared gain.">
-				<input type="checkbox" id="match"> Match loudness (playback only)</label>
-			<label title="Repeat playback here. Starts as the selected sound's 'Loops in game' setting.">
-				<input type="checkbox" id="loopplay" checked> Loop playback</label>
-			<button id="apply" hidden>Apply</button>
-			<span class="muted" id="time"></span>
-		</div>
-		<input type="range" id="pos" min="0" max="1000" value="0">
-		<div id="status">
-			<span id="fsstatus"></span>
-			<span id="fssetup" hidden>
-				Freesound API <input type="text" id="fsid" placeholder="client id" size="14"> <input type="text" id="fssecret" placeholder="client secret" size="24">
-				<button id="fssave">Save</button>
-			</span>
-			<span class="muted" id="pending"></span>
-			<span id="publish"></span>
-			<span id="message"></span>
-		</div>
+<header id="topbar">
+	<div class="brand"><span class="logo">&#9835;</span> Audio authoring</div>
+	<div id="status">
+		<span id="fsstatus"></span>
+		<span id="fssetup" hidden>
+			<input type="text" id="fsid" placeholder="Freesound client id" size="16"> <input type="text" id="fssecret" placeholder="client secret" size="24">
+			<button id="fssave">Save</button>
+		</span>
+		<span class="muted" id="pending"></span>
+		<span id="publish"></span>
+		<span id="message"></span>
 	</div>
-	<div id="recipe" hidden></div>
-	<h2 id="title">Pick a sound ID</h2>
-	<div id="soundform" hidden title="The sound's entry in the project's catalog. Saved changes reach the game after a short pause.">
-		<div class="row">
-			<label title="Lower-case dotted name, e.g. 'shore.lapping'. Renaming also renames the sound's preparation file and reference masters, but game code that names the ID must be changed by hand.">ID <input type="text" id="sf_id" size="28"></label>
-			<label title="Pick a section or type a new name; a new section is added at the end of the catalog">Section <input type="text" id="sf_section" list="sf_sections" size="16"></label>
-			<label title="The mix group whose volume controls this sound">Group <input type="text" id="sf_group" list="sf_groups" size="14"></label>
-			<label title="Linear gain applied in the game">Gain <input type="number" id="sf_gain" min="0" step="0.01"></label>
+	<button id="apply" hidden>Cook now</button>
+</header>
+<aside id="sidebar">
+	<div class="side-head">
+		<input type="search" id="filter" placeholder="Filter sounds..." aria-label="Filter sounds">
+		<button id="addsound" class="primary" title="Add a new sound ID to the project's catalog">+ New</button>
+	</div>
+	<div id="ids"></div>
+</aside>
+<main id="main">
+	<header id="head">
+		<h1 id="title">Pick a sound</h1>
+		<div id="chips"></div>
+		<p id="desc" class="muted"></p>
+	</header>
+	<details id="soundform" class="card" hidden title="The sound's entry in the project's catalog. Saved changes reach the game after a short pause.">
+		<summary>Sound settings</summary>
+		<div class="fields">
+			<label class="f w2" title="Lower-case dotted name, e.g. 'shore.lapping'. Renaming also renames the sound's preparation file and reference masters, but game code that names the ID must be changed by hand."><span>ID</span><input type="text" id="sf_id"></label>
+			<label class="f" title="Pick a section or type a new name; a new section is added at the end of the catalog"><span>Section</span><input type="text" id="sf_section" list="sf_sections"></label>
+			<label class="f" title="The mix group whose volume controls this sound"><span>Group</span><input type="text" id="sf_group" list="sf_groups"></label>
+			<label class="f" title="Linear gain applied in the game"><span>Gain</span><input type="number" id="sf_gain" min="0" step="0.01"></label>
+			<label class="f" title="A bed surrounds the listener. A positioned sound comes from a point in the world, so it must be mono and needs a range."><span>Placement</span><select id="sf_placement"><option value="bed">Bed (surrounds)</option><option value="positioned">Positioned (from a point)</option></select></label>
+			<label class="f"><span>Channels</span><select id="sf_channels"><option value="mono">Mono</option><option value="stereo">Stereo</option></select></label>
+			<label class="f" title="Distance in metres at which a positioned sound becomes silent"><span>Range (m)</span><input type="number" id="sf_range" min="0" step="0.5"></label>
+			<label class="f" title="Memory keeps the whole sound uncompressed in memory, which suits short sounds that play often. Stream decodes compressed (Ogg) audio as it plays, which suits anything long."><span>Load</span><select id="sf_load"><option value="memory">Memory (short sounds)</option><option value="stream">Stream (long sounds)</option></select></label>
+			<label class="f" title="Optional expected length range in seconds; leave both blank for none"><span>Length (s)</span><span class="range-pair"><input type="number" id="sf_len_min" min="0" step="0.1" placeholder="min"> to <input type="number" id="sf_len_max" min="0" step="0.1" placeholder="max"></span></label>
+			<label class="f check" title="Whether the game repeats the sound"><span>Loops in game</span><input type="checkbox" id="sf_loop"></label>
+			<label class="f wide"><span>Description</span><input type="text" id="sf_desc"></label>
 		</div>
-		<div class="row">
-			<label title="A bed surrounds the listener. A positioned sound comes from a point in the world, so it must be mono and needs a range.">Placement <select id="sf_placement"><option value="bed">bed (surrounds)</option><option value="positioned">positioned (from a point)</option></select></label>
-			<label>Channels <select id="sf_channels"><option value="mono">mono</option><option value="stereo">stereo</option></select></label>
-			<label title="Distance in metres at which a positioned sound becomes silent">Range (m) <input type="number" id="sf_range" min="0" step="0.5"></label>
-			<label title="Whether the game repeats the sound"><input type="checkbox" id="sf_loop"> Loops</label>
-			<label title="Memory keeps the whole sound uncompressed in memory, which suits short sounds that play often. Stream decodes compressed (Ogg) audio as it plays, which suits anything long.">Load <select id="sf_load"><option value="memory">memory (short sounds)</option><option value="stream">stream (long sounds)</option></select></label>
-			<label title="Optional expected length range in seconds; leave both blank for none">Length (s) <input type="number" id="sf_len_min" min="0" step="0.1"> to <input type="number" id="sf_len_max" min="0" step="0.1"></label>
-		</div>
-		<div class="row"><label class="wide">Description <input type="text" id="sf_desc" class="note"></label></div>
-		<div class="row">
-			<button id="sf_save">Save</button>
+		<div class="actions">
+			<button id="sf_save" class="primary">Save</button>
 			<button id="sf_cancel" hidden>Cancel</button>
-			<button id="sf_delete" title="Remove the sound from the catalog and delete its preparation file and reference masters">Delete sound</button>
 			<span class="muted" id="sf_active"></span>
+			<span class="spacer"></span>
+			<button id="sf_delete" class="danger" title="Remove the sound from the catalog and delete its preparation file and reference masters">Delete sound</button>
 		</div>
-	</div>
+	</details>
 	<datalist id="sf_sections"></datalist>
 	<datalist id="sf_groups"></datalist>
-	<table id="list"></table>
-	<p>
-		Add a Freesound sound <span id="addto"></span>: <input type="text" id="addnum" placeholder="number or page address" size="28">
-		<button id="add">Add</button>
-	</p>
-	<div id="importrow">
-		Add a file from disk <span id="importto"></span>: <button id="importpick" title="Choose an audio file, or drop one anywhere on this page">Choose file...</button>
-		<span class="muted">or drop one on this page</span>
-		<input type="file" id="importfile" accept=".wav,.mp3,.flac,.ogg,.opus" hidden>
-		<div id="importform" hidden>
-			<div class="row"><span id="im_file"></span></div>
-			<div class="row">
-				<label class="wide">Title <input type="text" id="im_title" class="note"></label>
-				<label class="wide">Author <input type="text" id="im_author" class="note"></label>
+	<section id="recordings" class="card">
+		<div class="card-head"><h2>Recordings</h2></div>
+		<table id="list"></table>
+		<div id="sources">
+			<div class="src">
+				<span class="lbl">From Freesound</span>
+				<input type="text" id="addnum" placeholder="sound number or page address" size="30">
+				<button id="add">Add <span id="addto"></span></button>
 			</div>
-			<div class="row">
-				<label class="wide">Licence <input type="text" id="im_licence" class="note" placeholder="e.g. CC0, CC-BY 4.0"></label>
-				<label class="wide">URL <input type="text" id="im_url" class="note" placeholder="optional"></label>
+			<div class="src" id="importrow">
+				<span class="lbl">From disk</span>
+				<button id="importpick" title="Choose an audio file, or drop one anywhere on this page">Choose file...</button>
+				<span class="muted">or drop a file anywhere on this page, to add it <span id="importto"></span></span>
+				<input type="file" id="importfile" accept=".wav,.mp3,.flac,.ogg,.opus" hidden>
 			</div>
-			<div class="row">
-				<button id="im_add" title="Copy the file into the originals folder, which is kept with the project. Rejecting it later removes the copy again.">Add</button>
-				<button id="im_cancel">Cancel</button>
+			<div id="importform" hidden>
+				<div class="row"><b id="im_file"></b></div>
+				<div class="row">
+					<label class="wide">Title <input type="text" id="im_title" class="note"></label>
+					<label class="wide">Author <input type="text" id="im_author" class="note"></label>
+				</div>
+				<div class="row">
+					<label class="wide">Licence <input type="text" id="im_licence" class="note" placeholder="e.g. CC0, CC-BY 4.0"></label>
+					<label class="wide">URL <input type="text" id="im_url" class="note" placeholder="optional"></label>
+				</div>
+				<div class="row">
+					<button id="im_add" class="primary" title="Copy the file into the originals folder, which is kept with the project. Rejecting it later removes the copy again.">Add</button>
+					<button id="im_cancel">Cancel</button>
+				</div>
+			</div>
+			<div class="src" id="findrow" hidden>
+				<span class="lbl">Search with AI</span>
+				<button id="find">Find more candidates</button>
+				<span id="findinfo"></span>
 			</div>
 		</div>
+	</section>
+	<section id="recipe" class="card" hidden></section>
+</main>
+<footer id="player">
+	<button id="play" title="Play or stop the current sound (Space)">&#9654;</button>
+	<div class="np">
+		<div class="np-top">
+			<span id="current" title="The current sound. Its recipe is shown in the main panel.">Nothing selected</span>
+			<span class="muted" id="time"></span>
+		</div>
+		<canvas id="wave" title="Click or drag to seek. The shaded part is the loop region."></canvas>
 	</div>
-	<p id="findrow" hidden>
-		<button id="find">Find more candidates</button>
-		<span id="findinfo"></span>
-	</p>
-</div>
+	<div class="ptools">
+		<button id="seam" title="Play the last 3 s running into the loop start, to hear the loop join">Loop seam</button>
+		<label class="toggle" title="Repeat playback here. Starts as the selected sound's 'Loops in game' setting."><input type="checkbox" id="loopplay" checked> Repeat</label>
+		<label class="toggle" title="Scales playback only, so different recordings can be compared at similar levels. Prepared files are not changed. Turn off to hear the actual prepared gain."><input type="checkbox" id="match"> Match loudness</label>
+	</div>
+</footer>
 <script>
 "use strict";
 
@@ -194,7 +372,7 @@ let adding = false;
 // The pseudo ID that selects the pool of unassigned recordings
 const POOL = "(unassigned)";
 
-// Recipe step kinds, their parameters and the values a new step starts with
+// Recipe step kinds, their parameters, display names for parameters whose recipe key is unclear, and the values a new step starts with
 const STEPS = {
 	trim: { label: "Trim", params: { start: "s", end: "s" }, init: { start: 0 } },
 	cut: { label: "Cut", params: { start: "s", end: "s" }, init: { start: 0, end: 1 } },
@@ -206,7 +384,7 @@ const STEPS = {
 	low_pass: { label: "Low-pass", params: { frequency: "Hz", slope: "slope" }, init: { frequency: 12000, slope: 12 } },
 	eq: { label: "EQ", params: { frequency: "Hz", db: "dB", q: "Q" }, init: { frequency: 1000, db: 0, q: 1 } },
 	denoise: { label: "Denoise", params: { start: "s", end: "s", db: "dB" }, init: { start: 0, end: 0.5, db: 12 } },
-	loop: { label: "Loop", params: { duration: "s" }, init: { duration: 3 } },
+	loop: { label: "Loop", params: { duration: "s", start: "s" }, names: { duration: "crossfade", start: "loop start" }, init: { duration: 3 } },
 	mix: { label: "Mix", params: { db: "dB" }, init: { db: 0, inputs: [] } },
 };
 
@@ -305,13 +483,28 @@ function url_of(slot)
 	}
 }
 
-// Decode a file once and remember its RMS level for playback-only loudness matching
+// Decode a file once, remembering its RMS level for playback-only loudness matching and its peaks for the waveform display.
+// Concurrent requests for the same file share one decode.
+const WAVE_SLICES = 1200;
+const decoding = new Map();
 async function buffer_for(url)
 {
+	// Finished decodes are kept in 'buffers'; decodes in progress in 'decoding'
 	if (buffers.has(url))
 		return buffers.get(url);
 
+	if (!decoding.has(url))
+		decoding.set(url, decode(url).finally(() => decoding.delete(url)));
+
+	return decoding.get(url);
+}
+
+// Decode one file into a 'buffers' entry; see buffer_for
+async function decode(url)
+{
+	// Read the loop start before decoding, because decoding takes ownership of the bytes and ignores the 'smpl' chunk
 	const data = await (await fetch(url)).arrayBuffer();
+	const loop_start = wav_loop_start(data);
 	const buf = await ctx.decodeAudioData(data);
 	let sum = 0, n = 0;
 	for (let c = 0; c != buf.numberOfChannels; ++c)
@@ -319,9 +512,71 @@ async function buffer_for(url)
 		const d = buf.getChannelData(c);
 		for (let i = 0; i < d.length; i += 4) { sum += d[i] * d[i]; ++n; }
 	}
-	const entry = { buf, rms: Math.sqrt(sum / Math.max(n, 1)) || 1e-6 };
+
+	// The loudest sample of each of a fixed number of slices, over all channels, normalised so quiet sounds are still visible
+	const peaks = new Float32Array(WAVE_SLICES);
+	const per_slice = Math.max(1, Math.floor(buf.length / WAVE_SLICES));
+	for (let c = 0; c != buf.numberOfChannels; ++c)
+	{
+		const d = buf.getChannelData(c);
+		for (let s = 0; s != WAVE_SLICES; ++s)
+		{
+			const end = Math.min(d.length, (s + 1) * per_slice);
+			for (let i = s * per_slice; i < end; i += 2)
+				peaks[s] = Math.max(peaks[s], Math.abs(d[i]));
+		}
+	}
+	const top = Math.max(...peaks) || 1;
+	for (let s = 0; s != WAVE_SLICES; ++s)
+		peaks[s] /= top;
+
+	const entry = { buf, loop_start, peaks, rms: Math.sqrt(sum / Math.max(n, 1)) || 1e-6 };
 	buffers.set(url, entry);
 	return entry;
+}
+
+// Draw the play state on the transport button
+function show_playing(on)
+{
+	const b = document.getElementById("play");
+	b.innerHTML = on ? "&#9632;" : "&#9654;";
+	b.title = (on ? "Stop" : "Play") + " the current sound (Space)";
+}
+
+// The loop start in seconds from a WAV file's 'smpl' chunk, or null when the file has none (then the whole sound loops) or is not a WAV file
+function wav_loop_start(data)
+{
+	// Walk the RIFF chunks, noting the sample rate from 'fmt ' and the first loop's start frame from 'smpl'
+	const view = new DataView(data);
+	if (view.byteLength < 12 || view.getUint32(0, false) !== 0x52494646 || view.getUint32(8, false) !== 0x57415645)
+		return null;
+
+	let rate = 0, start = null;
+	for (let at = 12; at + 8 <= view.byteLength; )
+	{
+		// Chunks are padded to an even size
+		const id = view.getUint32(at, false);
+		const size = view.getUint32(at + 4, true);
+		if (id === 0x666d7420 && size >= 8)
+			rate = view.getUint32(at + 12, true);
+		else if (id === 0x736d706c && size >= 36 + 24 && view.getUint32(at + 8 + 28, true) > 0)
+			start = view.getUint32(at + 8 + 36 + 8, true);
+
+		at += 8 + size + (size & 1);
+	}
+	return rate && start !== null ? start / rate : null;
+}
+
+// Map a playback time that may have repeated past the end onto the position in the sound. Only the region from the loop start to the end repeats.
+function wrap_time(entry, t)
+{
+	// Before the end the time is the position; after it, the time cycles through the loop region
+	const duration = entry.buf.duration;
+	if (t < duration)
+		return t;
+
+	const loop_start = entry.loop_start ?? 0;
+	return loop_start + (t - duration) % (duration - loop_start);
 }
 
 function position()
@@ -340,7 +595,7 @@ function stop()
 		source.stop();
 		source = null;
 	}
-	document.getElementById("play").textContent = "Play";
+	show_playing(false);
 }
 
 // Start the current sound at the shared position. Playback repeats when 'Loop playback' is on or 'force_loop' is set; otherwise it stops at the end.
@@ -352,32 +607,39 @@ async function start(at, force_loop)
 	waiting = !url && is_rendering(current);
 	if (!url)
 	{
-		document.getElementById("play").textContent = waiting ? "Stop" : "Play";
+		show_playing(waiting);
 		render_player();
 		return;
 	}
 
-	const { buf, rms } = await buffer_for(url);
+	const entry = await buffer_for(url);
+	const { buf, rms } = entry;
 	await ctx.resume();
 	stop();
 	gain.gain.value = document.getElementById("match").checked ? Math.min(0.1 / rms, 8) : 1;
 	source = ctx.createBufferSource();
 	source.buffer = buf;
 	source.loop = !!force_loop || document.getElementById("loopplay").checked;
+	if (entry.loop_start !== null)
+	{
+		// Repeat only the loop region, as the game does
+		source.loopStart = entry.loop_start;
+		source.loopEnd = buf.duration;
+	}
 	source.onended = () =>
 	{
 		// Playback reached the end without looping, so return to the start ready to play again
 		source = null;
 		offset = 0;
-		document.getElementById("play").textContent = "Play";
+		show_playing(false);
 		render_player();
 	};
 	source.connect(gain);
 	source_url = url;
-	offset = (at ?? offset) % buf.duration;
+	offset = wrap_time(entry, at ?? offset);
 	started_at = ctx.currentTime;
 	source.start(0, offset);
-	document.getElementById("play").textContent = "Stop";
+	show_playing(true);
 	render_player();
 }
 
@@ -388,7 +650,7 @@ function follow_live_url()
 		start(position());
 }
 
-// Play the end of the current sound running into its start to hear the loop join
+// Play the end of the current sound running into its loop start to hear the loop join
 async function seam()
 {
 	const url = url_of(current);
@@ -430,17 +692,21 @@ function origin_label(origin)
 	return o ? `${o.title ?? origin} (${o.user ?? "?"}, ${o.licence ?? "?"})` : origin;
 }
 
-const VIEW_NAMES = { game: "", render: " [recipe]", reference: " [reference master]", original: " [original]" };
-function slot_label(slot)
+const VIEW_NAMES = { game: "", render: "recipe output", reference: "reference master", original: "original" };
+
+// The transport's description of a slot: the sound and variant, the recording, and which view of it plays
+function player_label(slot)
 {
+	// An unassigned recording has no sound ID or variant
 	if (!slot)
-		return null;
+		return `<span class="muted">Nothing selected</span>`;
 
 	if (slot.origin)
-		return origin_label(slot.origin);
+		return `${esc(origin_label(slot.origin))} <span class="muted">unassigned</span>`;
 
 	const v = variant_of(slot.id, slot.variant);
-	return v ? `${slot.id} ${v.id}: ${origin_label(v.origin)}${VIEW_NAMES[slot.view]}` : `${slot.id} ${slot.variant}`;
+	const view = VIEW_NAMES[slot.view] ? ` <span class="chip">${VIEW_NAMES[slot.view]}</span>` : "";
+	return `<b>${esc(slot.id)}</b> <span class="muted">${esc(slot.variant)}</span> &nbsp;${v ? esc(origin_label(v.origin)) : ""}${view}`;
 }
 
 // The name cell of an origin: Freesound recordings link to their page. An edit is named like the recording it was made from.
@@ -462,7 +728,75 @@ function esc(text)
 function render_player()
 {
 	const el = document.getElementById("current");
-	el.textContent = (slot_label(current) ?? "pick a sound") + availability(current);
+	const note = availability(current);
+	el.innerHTML = player_label(current) + (note ? ` <span class="warn">${note}</span>` : "");
+}
+
+// Files the transport could not decode, so it does not fetch them again on every redraw
+const wave_failed = new Set();
+
+// Draw the playback position over the waveform of the sound that plays now, or of the current sound when stopped.
+// The loop region is shaded, because only it repeats.
+function draw_transport()
+{
+	// Match the canvas resolution to its displayed size so the waveform stays sharp
+	const cv = document.getElementById("wave");
+	const dpr = window.devicePixelRatio || 1;
+	const w = Math.round(cv.clientWidth * dpr), h = Math.round(cv.clientHeight * dpr);
+	if (cv.width !== w || cv.height !== h)
+	{
+		cv.width = w;
+		cv.height = h;
+	}
+	const g = cv.getContext("2d");
+	g.clearRect(0, 0, w, h);
+
+	// Without decoded audio there is only a centre line; decoding starts so the waveform appears shortly
+	const url = source ? source_url : url_of(current);
+	const entry = url && buffers.get(url);
+	const time = document.getElementById("time");
+	if (!entry)
+	{
+		if (url && !wave_failed.has(url))
+			buffer_for(url).catch(() => wave_failed.add(url));
+
+		g.fillStyle = "#31353c";
+		g.fillRect(0, h / 2 - dpr / 2, w, dpr);
+		time.textContent = "";
+		return;
+	}
+
+	// The loop region, when the file names one, is shaded with a marker at its start
+	const duration = entry.buf.duration;
+	const t = wrap_time(entry, position());
+	if (entry.loop_start !== null)
+	{
+		const x = w * entry.loop_start / duration;
+		g.fillStyle = "#e5b04a18";
+		g.fillRect(x, 0, w - x, h);
+		g.fillStyle = "#e5b04a";
+		g.fillRect(x, 0, dpr, h);
+	}
+
+	// Bars, brighter for the part already played
+	const bar = 2 * dpr, gap = dpr, played = w * t / duration;
+	for (let x = 0; x < w; x += bar + gap)
+	{
+		// Each bar shows the loudest slice it covers
+		const s0 = Math.floor(WAVE_SLICES * x / w), s1 = Math.max(s0 + 1, Math.floor(WAVE_SLICES * (x + bar) / w));
+		let peak = 0;
+		for (let s = s0; s < s1 && s < WAVE_SLICES; ++s)
+			peak = Math.max(peak, entry.peaks[s]);
+
+		const bh = Math.max(dpr, peak * (h - 4 * dpr));
+		g.fillStyle = x < played ? "#5b8def" : "#4a505a";
+		g.fillRect(x, (h - bh) / 2, bar, bh);
+	}
+
+	// The playhead
+	g.fillStyle = "#e3e6ea";
+	g.fillRect(played, 0, dpr, h);
+	time.textContent = `${t.toFixed(1)} / ${duration.toFixed(1)} s`;
 }
 
 // True when the slot's audio is a render still in progress
@@ -479,7 +813,7 @@ function availability(slot)
 	if (!slot || url_of(slot))
 		return "";
 
-	return is_rendering(slot) ? " (rendering...)" : " (not available)";
+	return is_rendering(slot) ? "(rendering...)" : "(not available)";
 }
 
 // The origins with no live variant anywhere, split by whether they are marked not useful. A recording that a live edit was made from counts as used.
@@ -497,23 +831,23 @@ function render_ids()
 {
 	const el = document.getElementById("ids");
 	el.innerHTML = "";
-
-	// New sounds start in the selected sound's section
-	const add = button("+ Add sound", "Add a new sound ID to the project's catalog", () => start_add());
-	add.className = "addsound";
-	el.appendChild(add);
+	const filter = document.getElementById("filter").value.trim().toLowerCase();
+	const badge = (cls, text, title) => `<span class="badge${cls ? " " + cls : ""}" title="${title}">${text}</span>`;
 
 	// The unassigned pool comes first, as it is where new finds wait to be given a use
 	const pool = pool_origins();
 	const p = document.createElement("div");
-	p.className = "id" + (sel_id === POOL ? " sel" : "");
-	p.innerHTML = `<span><b>Unassigned</b></span><span class="count">${pool.open.length ? pool.open.length + " to sort / " : ""}${pool.open.length + pool.not_useful.length}</span>`;
+	p.className = "id pool" + (sel_id === POOL ? " sel" : "");
+	p.innerHTML = `<span>Unassigned</span><span class="badges">${pool.open.length ? badge("new", pool.open.length, "To sort") : ""}${badge("", pool.open.length + pool.not_useful.length, "Recordings in the pool")}</span>`;
 	p.onclick = () => select_id(POOL);
 	el.appendChild(p);
 
-	// Sections keep their catalog order; the IDs within each section are alphabetical so a sound is easy to find
+	// Sections keep their catalog order; the IDs within each section are alphabetical so a sound is easy to find.
+	// The filter matches the ID or the section name.
 	const section_order = [...new Set(state.ids.map(x => x.section))];
-	const ordered = [...state.ids].sort((a, b) => section_order.indexOf(a.section) - section_order.indexOf(b.section) || a.id.localeCompare(b.id));
+	const ordered = [...state.ids]
+		.filter(x => !filter || x.id.toLowerCase().includes(filter) || x.section.toLowerCase().includes(filter))
+		.sort((a, b) => section_order.indexOf(a.section) - section_order.indexOf(b.section) || a.id.localeCompare(b.id));
 	let section = null;
 	for (const { id, section: sec } of ordered)
 	{
@@ -532,10 +866,13 @@ function render_ids()
 		const final = mine.length !== 0 && mine.every(v => v.status === "accepted" && v.finalised);
 		const d = document.createElement("div");
 		d.className = "id" + (id === sel_id ? " sel" : "") + (final ? " final" : "");
-		d.innerHTML = `<span>${esc(id)}</span><span class="count${accepted ? " done" : ""}">${accepted ? "&#10003;" + accepted + " " : ""}${unheard ? unheard + " new / " : ""}${mine.length}</span>`;
+		d.title = final ? "Finalised: every accepted variant has been heard through and needs no more work" : "";
+		d.innerHTML = `<span>${esc(id)}</span><span class="badges">${accepted ? badge("good", "&#10003; " + accepted, "Accepted") : ""}${unheard ? badge("new", unheard + " new", "Not listened to yet") : ""}${badge("", mine.length, "Live variants")}</span>`;
 		d.onclick = () => select_id(id);
 		el.appendChild(d);
 	}
+	if (filter && ordered.length === 0)
+		el.insertAdjacentHTML("beforeend", `<div class="empty">No sound matches '${esc(filter)}'</div>`);
 }
 
 // Select an ID (or the unassigned pool) and clear the player and recipe editor
@@ -560,6 +897,7 @@ function start_add()
 	const section = state.ids.find(x => x.id === sel_id)?.section ?? state.ids.at(-1)?.section ?? "";
 	adding = true;
 	fill_form({ id: "", section, placement: "bed", channels: "stereo", loop: true, load: "stream", group: "", gain: 1.0 });
+	document.getElementById("soundform").open = true;
 	render_list();
 	document.getElementById("sf_id").focus();
 }
@@ -688,10 +1026,13 @@ function render_pool(t)
 		h.innerHTML = `<th colspan="4">${text}</th>`;
 		t.appendChild(h);
 		const cols = document.createElement("tr");
+		cols.className = "cols";
 		cols.innerHTML = "<th></th><th>Recording</th><th>Earlier decisions</th><th>Assign to</th>";
 		t.appendChild(cols);
 		for (const o of origins)
 			t.appendChild(render_pool_row(o));
+		if (!origins.length)
+			add_empty(t, 4, "None");
 	}
 }
 
@@ -701,17 +1042,18 @@ function render_pool_row(origin)
 	// Not-useful rows are dimmed; the current sound's row is marked
 	const o = state.origins[origin];
 	const tr = document.createElement("tr");
-	tr.className = (o.not_useful ? "rejected" : "") + (current?.origin === origin ? " current" : "");
+	tr.className = "row" + (o.not_useful ? " rejected" : "") + (current?.origin === origin ? " current" : "");
 
 	// Play it, and toggle whether it is useful
 	const td_play = document.createElement("td");
-	td_play.appendChild(button("\u25B6", "Play", () => set_current({ origin }, true)));
-	const nu = button("not useful", "Hide from the list of recordings to sort", () => post({ action: "useful", origin, useful: !!o.not_useful }));
+	td_play.appendChild(icon_button("\u25B6", "Play", () => set_current({ origin }, true)));
+	const nu = button("Not useful", "Hide from the list of recordings to sort", () => post({ action: "useful", origin, useful: !!o.not_useful }));
 	nu.className = o.not_useful ? "on" : "";
 	td_play.appendChild(nu);
 	tr.appendChild(td_play);
 
 	const td_name = document.createElement("td");
+	td_name.className = "rec";
 	td_name.innerHTML = name_html(origin);
 	tr.appendChild(td_name);
 
@@ -723,7 +1065,7 @@ function render_pool_row(origin)
 
 	// Give the recording a possible use; it then leaves the pool
 	const td_assign = document.createElement("td");
-	td_assign.appendChild(id_select([], id => post({ action: "assign", id, origin })));
+	td_assign.appendChild(id_select([], id => post({ action: "assign", id, origin }), "Assign to..."));
 	tr.appendChild(td_assign);
 	return tr;
 }
@@ -734,13 +1076,15 @@ function render_list()
 {
 	const t = document.getElementById("list");
 	t.innerHTML = "";
-	document.getElementById("title").textContent = adding ? "New sound" : sel_id === POOL ? "Unassigned recordings" : (sel_id ?? "Pick a sound ID");
-	document.getElementById("addto").textContent = sel_id && sel_id !== POOL ? `to ${sel_id}` : "to the unassigned pool";
-	document.getElementById("importto").textContent = sel_id && sel_id !== POOL ? `to ${sel_id}` : "to the unassigned pool";
+	const target = sel_id && sel_id !== POOL ? `to ${sel_id}` : "to the unassigned pool";
+	document.getElementById("addto").textContent = target;
+	document.getElementById("importto").textContent = target;
+	render_head();
 
 	// The form shows while adding or when a sound is selected; its choice lists follow the catalog
 	const sound = state.ids.find(x => x.id === sel_id);
 	document.getElementById("soundform").hidden = !adding && !sound;
+	document.getElementById("recordings").hidden = adding || !sel_id;
 	document.getElementById("sf_sections").innerHTML = [...new Set(state.ids.map(x => x.section))].map(x => `<option value="${esc(x)}">`).join("");
 	document.getElementById("sf_groups").innerHTML = [...new Set(state.ids.map(x => x.group))].sort().map(x => `<option value="${esc(x)}">`).join("");
 	if (!sel_id || adding)
@@ -755,10 +1099,57 @@ function render_list()
 	const variants = variants_of(sel_id);
 	const accepted = variants.filter(v => v.status === "accepted");
 	const others = variants.filter(v => v.status !== "accepted" && v.status !== "rejected");
-	add_section(t, `Accepted (${accepted.length}), in runtime order`);
+	add_section(t, `Accepted &middot; ${accepted.length} &middot; runtime order`);
 	accepted.forEach((v, i) => t.appendChild(render_row(v, i, accepted.length)));
-	add_section(t, `Candidates (${others.length})`, others.some(v => !v.source) ? button("Import originals", "Fetch the original recordings of the candidates, so their recipes can be edited", () => post({ action: "prepare", id: sel_id, import: true })) : null);
+	if (!accepted.length)
+		add_empty(t, 3, "Nothing accepted yet. Accept a candidate to use it in the game.");
+
+	add_section(t, `Candidates &middot; ${others.length}`, others.some(v => !v.source) ? button("Import originals", "Fetch the original recordings of the candidates, so their recipes can be edited", () => post({ action: "prepare", id: sel_id, import: true })) : null);
 	others.forEach(v => t.appendChild(render_row(v, -1, 0)));
+	if (!others.length)
+		add_empty(t, 3, "No candidates. Add recordings below.");
+}
+
+// The page heading: the sound's ID, a summary of its catalog settings and its description
+function render_head()
+{
+	// The title names what the main panel shows
+	const sound = state.ids.find(x => x.id === sel_id);
+	document.getElementById("title").textContent = adding ? "New sound" : sel_id === POOL ? "Unassigned recordings" : (sel_id ?? "Pick a sound");
+
+	// Chips summarise the settings that matter when listening, so the settings card can stay closed
+	const chips = [];
+	const chip = (k, v) => chips.push(`<span class="chip">${k ? `<span class="muted">${k}</span> ` : ""}${esc(String(v))}</span>`);
+	if (sound && !adding)
+	{
+		chip("", sound.section);
+		if (sound.group)
+			chip("group", sound.group);
+
+		chip("", sound.placement === "positioned" ? `positioned${sound.range_m ? " \u00B7 " + sound.range_m + " m" : ""}` : "bed");
+		chip("", sound.channels);
+		chip("", sound.loop ? "\u21BB loops" : "one-shot");
+		chip("", sound.load);
+		if (sound.gain !== undefined && sound.gain !== 1)
+			chip("gain", sound.gain);
+	}
+	document.getElementById("chips").innerHTML = chips.join("");
+
+	// The description explains what the sound is for; the pool and the add form have their own help
+	const desc = document.getElementById("desc");
+	desc.textContent =
+		adding ? "Describe the new sound below. Recordings can be added once it is saved." :
+		sel_id === POOL ? "Recordings with no use yet. Listen to them, then assign each to a sound or mark it not useful." :
+		!sel_id ? "Choose a sound from the list on the left, or add a new one." :
+		(sound?.description ?? "");
+}
+
+// A placeholder row for an empty list section
+function add_empty(t, columns, text)
+{
+	const tr = document.createElement("tr");
+	tr.innerHTML = `<td colspan="${columns}" class="empty">${text}</td>`;
+	t.appendChild(tr);
 }
 
 // Add a section heading and column headings to the list
@@ -766,13 +1157,14 @@ function add_section(t, text, extra)
 {
 	const h = document.createElement("tr");
 	h.className = "section";
-	h.innerHTML = `<th colspan="5">${text} </th>`;
+	h.innerHTML = `<th colspan="3">${text} </th>`;
 	if (extra)
 		h.firstChild.appendChild(extra);
 
 	t.appendChild(h);
 	const cols = document.createElement("tr");
-	cols.innerHTML = "<th></th><th>Recording</th><th>Status</th><th>Note</th><th>Also try for</th>";
+	cols.className = "cols";
+	cols.innerHTML = "<th></th><th>Recording</th><th>Decision</th>";
 	t.appendChild(cols);
 }
 
@@ -785,11 +1177,19 @@ function button(text, title, onclick)
 	return b;
 }
 
-// A sound ID picker that calls 'pick' with the chosen ID, leaving out 'exclude'
-function id_select(exclude, pick)
+// A small square button showing a symbol; 'ghost' draws it without a frame until hovered
+function icon_button(text, title, onclick, ghost = false)
+{
+	const b = button(text, title, onclick);
+	b.className = "icon" + (ghost ? " ghost" : "");
+	return b;
+}
+
+// A sound ID picker that calls 'pick' with the chosen ID, leaving out 'exclude'. 'prompt' is the text shown before a choice is made.
+function id_select(exclude, pick, prompt = "...")
 {
 	const sel = document.createElement("select");
-	sel.innerHTML = "<option value=''>...</option>" + state.ids.map(x => x.id).filter(x => !exclude.includes(x)).sort().map(x => `<option>${esc(x)}</option>`).join("");
+	sel.innerHTML = `<option value=''>${esc(prompt)}</option>` + state.ids.map(x => x.id).filter(x => !exclude.includes(x)).sort().map(x => `<option>${esc(x)}</option>`).join("");
 	sel.onchange = () => { if (sel.value) pick(sel.value); };
 	return sel;
 }
@@ -800,22 +1200,25 @@ function render_row(v, index, count)
 	// Rows are styled by status; the current sound's row is marked
 	const tr = document.createElement("tr");
 	const is_current = !!edit && edit.id === sel_id && edit.variant === v.id;
-	tr.className = v.status + (is_current ? " current" : "");
+	tr.className = "row " + v.status + (is_current ? " current" : "");
 
-	// Accepted variants move within the runtime order
+	// Accepted variants move within the runtime order; the arrows stack to keep the column narrow
 	const td_play = document.createElement("td");
 	if (v.status === "accepted")
 	{
+		const order = document.createElement("span");
+		order.className = "order";
 		for (const [text, delta] of [["\u25B2", -1], ["\u25BC", 1]])
 		{
-			const mv = button(text, delta < 0 ? "Earlier in runtime order" : "Later in runtime order", () => post({ action: "move", id: sel_id, variant: v.id, delta }));
+			const mv = icon_button(text, delta < 0 ? "Earlier in runtime order" : "Later in runtime order", () => post({ action: "move", id: sel_id, variant: v.id, delta }), true);
 			mv.disabled = delta < 0 ? index === 0 : index === count - 1;
-			td_play.appendChild(mv);
+			order.appendChild(mv);
 		}
+		td_play.appendChild(order);
 	}
 
 	// Play what the game would play; listening to an unheard variant makes it a candidate
-	td_play.appendChild(button("\u25B6", "Play what the game plays, and show its recipe", () =>
+	td_play.appendChild(icon_button("\u25B6", "Play what the game plays, and show its recipe", () =>
 	{
 		if (v.status === "unheard")
 			post({ action: "status", id: sel_id, variant: v.id, status: "candidate" });
@@ -824,23 +1227,36 @@ function render_row(v, index, count)
 	}));
 
 	// Show this variant's recipe without playing it
-	const e = button("\u270E recipe", "Show how this variant is prepared, without playing it", () => { if (!is_current) set_current({ id: sel_id, variant: v.id, view: "game" }, false); });
+	const e = button("\u270E Recipe", "Show how this variant is prepared, without playing it", () =>
+	{
+		if (!is_current)
+			set_current({ id: sel_id, variant: v.id, view: "game" }, false);
+
+		document.getElementById("recipe").scrollIntoView({ behavior: "smooth", block: "start" });
+	});
 	e.className = v.recipe?.length ? "on" : "";
 	td_play.appendChild(e);
 	tr.appendChild(td_play);
 
 	// The recording, with the state of its preparation
 	const td_name = document.createElement("td");
+	td_name.className = "rec";
 	const prep_state = v.render_pending ? ` <span class="muted">rendering...</span>` : v.render_error ? ` <span class="error" title="${esc(v.render_error)}">render failed</span>` : "";
 	const reference = v.reference_master ? ` <span class="warn" title="The game plays ${esc(v.reference_master)} until the recipe is edited">reference master</span>` : "";
-	td_name.innerHTML = `<span class="muted">${v.id}</span> ${name_html(v.origin)}${reference}${prep_state}`;
+	const unheard = v.status === "unheard" ? ` <span class="badge new">new</span>` : "";
+	td_name.innerHTML = `<span class="vid">${esc(v.id)}</span>${name_html(v.origin)}${unheard}${reference}${prep_state}`;
 	tr.appendChild(td_name);
 
-	// Status buttons; several variants can be accepted for one ID
+	// Status buttons; several variants can be accepted for one ID. The decision, note and reuse controls share one cell so they wrap in narrow windows.
 	const td_status = document.createElement("td");
+	const box = document.createElement("div");
+	box.className = "decide";
+	td_status.appendChild(box);
+	const seg = document.createElement("span");
+	seg.className = "seg status";
 	for (const st of ["accepted", "candidate", "rejected"])
 	{
-		const b = button(st, "", () =>
+		const b = button(st[0].toUpperCase() + st.slice(1), "", () =>
 		{
 			// A rejected recording is no longer worth hearing, so stop it if it is the one playing
 			if (st === "rejected" && current && !current.origin && current.id === sel_id && current.variant === v.id)
@@ -848,30 +1264,29 @@ function render_row(v, index, count)
 
 			post({ action: "status", id: sel_id, variant: v.id, status: st });
 		});
-		b.className = v.status === st ? "on" : "";
-		td_status.appendChild(b);
+		b.className = v.status === st ? `on s-${st}` : "";
+		seg.appendChild(b);
 	}
+	box.appendChild(seg);
 
 	// Finalised is separate from status: it marks a variant that has been heard all the way through and needs no more work
-	const fin = button("finalised", "Listened to all the way through, and happy with it", () => post({ action: "finalised", id: sel_id, variant: v.id, finalised: !v.finalised }));
-	fin.className = v.finalised ? "on finalised" : "";
-	td_status.appendChild(fin);
-	tr.appendChild(td_status);
+	const fin = button("\u2713 Finalised", "Listened to all the way through, and happy with it", () => post({ action: "finalised", id: sel_id, variant: v.id, finalised: !v.finalised }));
+	fin.className = "fin" + (v.finalised ? " on" : "");
+	box.appendChild(fin);
 
-	const td_note = document.createElement("td");
+	// A free note about the variant
 	const note = document.createElement("input");
 	note.type = "text";
 	note.className = "note";
+	note.placeholder = "Add a note";
 	note.value = v.note ?? "";
 	note.onchange = () => post({ action: "note", id: sel_id, variant: v.id, note: note.value });
-	td_note.appendChild(note);
-	tr.appendChild(td_note);
+	box.appendChild(note);
 
 	// Assign the same recording to another ID. IDs it is already live for are left out.
-	const td_try = document.createElement("td");
 	const taken = Object.entries(state.preps).filter(([, vs]) => vs.some(x => x.origin === v.origin && x.status !== "rejected")).map(([id]) => id);
-	td_try.appendChild(id_select(taken, id => post({ action: "assign", id, origin: v.origin })));
-	tr.appendChild(td_try);
+	box.appendChild(id_select(taken, id => post({ action: "assign", id, origin: v.origin }), "Also try for..."));
+	tr.appendChild(td_status);
 	return tr;
 }
 
@@ -886,22 +1301,38 @@ function render_recipe()
 		return;
 
 	// Heading, preparation state and the listening choices for this variant
-	const h = document.createElement("h3");
-	h.textContent = `Recipe: ${edit.id} ${v.id} - ${origin_label(v.origin)}`;
-	el.appendChild(h);
+	const head = document.createElement("div");
+	head.className = "card-head";
+	head.innerHTML = `<h2>Recipe</h2><span class="sub">${esc(edit.id)} &middot; ${esc(v.id)} &middot; ${esc(origin_label(v.origin))}</span><span class="spacer"></span>`;
+	const edit_info = document.createElement("span");
+	edit_info.id = "editstate";
+	head.appendChild(edit_info);
+	const info = document.createElement("span");
+	info.id = "recipestate";
+	head.appendChild(info);
+	el.appendChild(head);
+
+	// Each view of this variant plays in place of the current one; the view playing now is marked
 	const bar = document.createElement("div");
+	bar.className = "listen";
+	bar.insertAdjacentHTML("beforeend", `<span class="lbl">Listen to</span>`);
+	const views = document.createElement("span");
+	views.className = "seg";
 	const view_button = (text, view, title) =>
 	{
-		// Each view of this variant plays in place of the current one; the view playing now is marked
+		// The marked view is the one the transport plays now
 		const b = button(text, title, () => set_current({ id: edit.id, variant: v.id, view }, true));
-		b.className = current?.view === view ? "on" : "";
-		return b;
+		b.className = current?.id === edit.id && current?.variant === v.id && current?.view === view ? "on" : "";
+		views.appendChild(b);
 	};
-	bar.appendChild(view_button("Game \u25B6", "game", "Play what the game plays"));
-	bar.appendChild(view_button("Original \u25B6", "original", "Play the unprocessed original"));
-	bar.appendChild(view_button("Recipe \u25B6", "render", "Play the recipe's output. It updates automatically after each edit"));
+	view_button("\u25B6 Game", "game", "Play what the game plays");
+	view_button("\u25B6 Original", "original", "Play the unprocessed original");
+	view_button("\u25B6 Recipe output", "render", "Play the recipe's output. It updates automatically after each edit");
 	if (v.reference_master)
-		bar.appendChild(view_button("Reference \u25B6", "reference", "Play the reference master the game currently uses. The first recipe edit replaces it."));
+		view_button("\u25B6 Reference", "reference", "Play the reference master the game currently uses. The first recipe edit replaces it.");
+
+	bar.appendChild(views);
+	bar.insertAdjacentHTML("beforeend", `<span class="spacer"></span>`);
 
 	// Fix the recording itself in an external editor; the recipe still applies to the edited recording
 	const editor = state.editor;
@@ -911,30 +1342,31 @@ function render_recipe()
 		: !v.source ? "Import the original first."
 		: `Open a copy of the unprocessed original in ${editor.name}. Use File > Export Audio over the same file to replace this variant's original; the status, note and recipe are kept.`;
 	bar.appendChild(open);
-	const edit_info = document.createElement("span");
-	edit_info.id = "editstate";
-	bar.appendChild(edit_info);
-
-	const info = document.createElement("span");
-	info.id = "recipestate";
-	bar.appendChild(info);
 	el.appendChild(bar);
 
 	// A variant without an imported original cannot be prepared yet
 	if (!v.source)
 	{
 		const p = document.createElement("p");
-		p.className = "warn";
+		p.className = "warn note";
 		p.textContent = v.origin.startsWith("hand_made:") ? "Hand-made: import its file into the originals folder to edit a recipe." : "The original has not been imported yet. Accept the variant or use 'Import originals'.";
 		el.appendChild(p);
 	}
 
-	// One row per step, in processing order
-	edit_recipe.forEach((step, i) => el.appendChild(render_step(step, i)));
+	// One numbered row per step, in processing order
+	const steps = document.createElement("div");
+	steps.className = "steps";
+	edit_recipe.forEach((step, i) => steps.appendChild(render_step(step, i)));
+	if (!edit_recipe.length)
+		steps.insertAdjacentHTML("beforeend", `<div class="empty">No processing steps. The game plays the original as it is.</div>`);
+
+	el.appendChild(steps);
 
 	// Add a step at the end
+	const add_row = document.createElement("div");
+	add_row.className = "addstep";
 	const add = document.createElement("select");
-	add.innerHTML = "<option value=''>Add step...</option>" + Object.entries(STEPS).map(([k, s]) => `<option value="${k}">${s.label}</option>`).join("");
+	add.innerHTML = "<option value=''>+ Add step...</option>" + Object.entries(STEPS).map(([k, s]) => `<option value="${k}">${s.label}</option>`).join("");
 	add.onchange = () =>
 	{
 		if (!add.value)
@@ -943,7 +1375,8 @@ function render_recipe()
 		edit_recipe.push({ step: add.value, ...structuredClone(STEPS[add.value].init) });
 		recipe_changed(true);
 	};
-	el.appendChild(add);
+	add_row.appendChild(add);
+	el.appendChild(add_row);
 	if (v.source)
 		render_clips(el);
 
@@ -995,8 +1428,8 @@ function render_clips(parent)
 					show_message("Select Play original before setting a clip boundary from the playhead.", true);
 					return;
 				}
-				const buf = buffers.get(url_of(current))?.buf;
-				range[name] = Number((buf ? position() % buf.duration : position()).toFixed(3));
+				const entry = buffers.get(url_of(current));
+				range[name] = Number((entry ? wrap_time(entry, position()) : position()).toFixed(3));
 				input.value = range[name];
 			}));
 		}
@@ -1047,16 +1480,20 @@ function render_step(step, i)
 {
 	const row = document.createElement("div");
 	row.className = "step" + (step.bypass ? " bypass" : "");
+	row.insertAdjacentHTML("beforeend", `<span class="num">${i + 1}</span>`);
 	const kind = document.createElement("span");
 	kind.className = "kind";
 	kind.textContent = STEPS[step.step]?.label ?? step.step;
 	row.appendChild(kind);
 
 	// Parameters, each changing the edited recipe directly
+	const params = document.createElement("span");
+	params.className = "params";
+	row.appendChild(params);
 	for (const [name, unit] of Object.entries(STEPS[step.step]?.params ?? {}))
 	{
 		const label = document.createElement("label");
-		label.textContent = ` ${name} `;
+		label.textContent = STEPS[step.step].names?.[name] ?? name;
 		let input;
 		if (unit === "curve" || unit === "slope")
 		{
@@ -1084,24 +1521,26 @@ function render_step(step, i)
 			};
 		}
 		label.appendChild(input);
-		label.append(unit === "curve" || unit === "slope" ? "" : ` ${unit}`);
-		row.appendChild(label);
+		if (unit !== "curve" && unit !== "slope")
+			label.append(unit);
+
+		params.appendChild(label);
 	}
 
 	// Bypass, reorder and remove
-	const spacer = document.createElement("span");
-	spacer.style.flex = "1";
-	row.appendChild(spacer);
-	const bypass = button("bypass", "Skip this step without removing it", () => { if (step.bypass) delete step.bypass; else step.bypass = true; recipe_changed(true); });
+	const tools = document.createElement("span");
+	tools.className = "tools";
+	row.appendChild(tools);
+	const bypass = button("Bypass", "Skip this step without removing it", () => { if (step.bypass) delete step.bypass; else step.bypass = true; recipe_changed(true); });
 	bypass.className = step.bypass ? "on" : "";
-	row.appendChild(bypass);
-	const up = button("\u25B2", "Earlier", () => { [edit_recipe[i - 1], edit_recipe[i]] = [edit_recipe[i], edit_recipe[i - 1]]; recipe_changed(true); });
+	tools.appendChild(bypass);
+	const up = icon_button("\u25B2", "Earlier", () => { [edit_recipe[i - 1], edit_recipe[i]] = [edit_recipe[i], edit_recipe[i - 1]]; recipe_changed(true); }, true);
 	up.disabled = i === 0;
-	row.appendChild(up);
-	const down = button("\u25BC", "Later", () => { [edit_recipe[i + 1], edit_recipe[i]] = [edit_recipe[i], edit_recipe[i + 1]]; recipe_changed(true); });
+	tools.appendChild(up);
+	const down = icon_button("\u25BC", "Later", () => { [edit_recipe[i + 1], edit_recipe[i]] = [edit_recipe[i], edit_recipe[i + 1]]; recipe_changed(true); }, true);
 	down.disabled = i === edit_recipe.length - 1;
-	row.appendChild(down);
-	row.appendChild(button("\u2715", "Remove", () => { edit_recipe.splice(i, 1); recipe_changed(true); }));
+	tools.appendChild(down);
+	tools.appendChild(icon_button("\u2715", "Remove", () => { edit_recipe.splice(i, 1); recipe_changed(true); }, true));
 	if (step.step !== "mix")
 		return row;
 
@@ -1143,7 +1582,7 @@ function render_mix_input(step, input, j)
 	for (const [name, unit, step_size] of [["start", "s", "0.05"], ["db", "dB", "0.5"]])
 	{
 		const label = document.createElement("label");
-		label.textContent = ` ${name} `;
+		label.textContent = name;
 		const field = document.createElement("input");
 		field.type = "number";
 		field.step = step_size;
@@ -1156,15 +1595,15 @@ function render_mix_input(step, input, j)
 			recipe_changed(false);
 		};
 		label.appendChild(field);
-		label.append(` ${unit}`);
+		label.append(unit);
 		row.appendChild(label);
 	}
 
 	// Listen to the recording alone, or take it out of the mix
-	const listen = button("\u25B6", "Play this recording on its own", () => set_current({ origin: input.origin }, true));
+	const listen = icon_button("\u25B6", "Play this recording on its own", () => set_current({ origin: input.origin }, true));
 	listen.disabled = !state.origins[input.origin];
 	row.appendChild(listen);
-	row.appendChild(button("\u2715", "Remove this recording from the mix", () => { step.inputs.splice(j, 1); recipe_changed(true); }));
+	row.appendChild(icon_button("\u2715", "Remove this recording from the mix", () => { step.inputs.splice(j, 1); recipe_changed(true); }, true));
 
 	// The credit the recording carries into the game, and whether its original is ready to mix
 	const credit = document.createElement("span");
@@ -1300,11 +1739,11 @@ function render_status()
 	const status = document.getElementById("fsstatus");
 	document.getElementById("fssetup").hidden = fs.configured;
 	if (!fs.configured)
-		status.innerHTML = `<span class="warn">To download originals, create credentials at <a href="https://freesound.org/apiv2/apply/" target="_blank">freesound.org/apiv2/apply</a> with callback <code>${location.origin}/freesound/callback</code>.</span> `;
+		status.innerHTML = `<span class="dot no"></span><span class="warn">To download originals, create credentials at <a href="https://freesound.org/apiv2/apply/" target="_blank">freesound.org/apiv2/apply</a> with callback <code>${location.origin}/freesound/callback</code>.</span> `;
 	else if (!fs.connected)
-		status.innerHTML = `<a href="/freesound/connect">Connect to Freesound</a> <a href="#" id="fschange">(change credentials)</a> `;
+		status.innerHTML = `<span class="dot no"></span><a href="/freesound/connect">Connect to Freesound</a> <a href="#" id="fschange">(change credentials)</a> `;
 	else
-		status.innerHTML = `Freesound connected <a href="#" id="fschange">(change)</a> `;
+		status.innerHTML = `<span class="dot ok"></span>Freesound <a href="#" id="fschange">(change)</a> `;
 
 	const change = document.getElementById("fschange");
 	if (change)
@@ -1366,30 +1805,45 @@ document.getElementById("fssave").onclick = async () =>
 	await refresh();
 };
 
-// Show the playback position and let the slider seek
-setInterval(() =>
+// Keep the transport moving while playing, and sharp when the window resizes
+setInterval(draw_transport, 50);
+window.addEventListener("resize", draw_transport);
+
+// Clicking or dragging on the waveform seeks the sound it shows
 {
-	const entry = source_url && buffers.get(source_url);
-	if (!entry)
-		return;
+	// Seeking restarts playback at the new point, or moves the start point when stopped
+	const wave = document.getElementById("wave");
+	const seek = e =>
+	{
+		const url = source ? source_url : url_of(current);
+		const entry = url && buffers.get(url);
+		if (!entry)
+			return;
 
-	const p = position() % entry.buf.duration;
-	document.getElementById("pos").value = Math.round(1000 * p / entry.buf.duration);
-	document.getElementById("time").textContent = `${p.toFixed(1)} / ${entry.buf.duration.toFixed(1)} s`;
-}, 100);
+		const rect = wave.getBoundingClientRect();
+		const frac = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+		const at = entry.buf.duration * frac;
+		if (source)
+			start(at);
+		else
+			offset = at;
 
-document.getElementById("pos").oninput = e =>
-{
-	const entry = source_url && buffers.get(source_url);
-	if (!entry)
-		return;
-
-	const at = entry.buf.duration * e.target.value / 1000;
-	if (source)
-		start(at);
-	else
-		offset = at;
-};
+		draw_transport();
+	};
+	wave.addEventListener("pointerdown", e =>
+	{
+		wave.setPointerCapture(e.pointerId);
+		seek(e);
+	});
+	wave.addEventListener("pointermove", e =>
+	{
+		if (wave.hasPointerCapture(e.pointerId))
+			seek(e);
+	});
+}
+document.getElementById("filter").oninput = render_ids;
+document.getElementById("addsound").onclick = start_add;
+show_playing(false);
 document.getElementById("play").onclick = () => source || waiting ? stop() : start();
 document.getElementById("seam").onclick = seam;
 document.getElementById("match").onchange = () => { if (source) start(position()); };

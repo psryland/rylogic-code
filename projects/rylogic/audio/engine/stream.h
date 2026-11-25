@@ -77,6 +77,7 @@ namespace pr::audio
 		std::uint32_t m_sample_rate;
 		std::uint32_t m_block_align; // channel_count * sizeof(std::int16_t)
 		std::uint64_t m_pcm_total;
+		std::uint64_t m_loop_begin; // First frame of the looped region, from the 'LOOPSTART' comment. The region runs to the end of the stream.
 		std::uint32_t m_loops_remaining; // AUDIO_INFINITE_LOOP for an unbounded loop, else remaining automatic replays.
 		bool m_decode_ended; // True once decode has produced its final chunk (loops exhausted or a corrupt read).
 		bool m_decode_error; // True if decode ended because of corrupt compressed data rather than a clean EOF.

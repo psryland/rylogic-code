@@ -33,7 +33,14 @@ public static class RecipeRenderer
 
 			try
 			{
+				// A loop region is a frame index, so steps that change the length cannot follow it. Other steps keep it.
+				var loop_start = buffer.LoopStart;
+				if (loop_start is not null && ChangesLength(step.Step))
+					throw new InvalidDataException("This step changes the sound's length, so it must come before the loop step that sets a loop start.");
+
 				buffer = Apply(buffer, step, inputs);
+				if (loop_start is not null && buffer.LoopStart is null)
+					buffer = new AudioBuffer(buffer.Samples, buffer.Channels, loop_start);
 			}
 			catch (InvalidDataException ex)
 			{
@@ -67,6 +74,36 @@ public static class RecipeRenderer
 		return input.Origin.Length == 0
 			? new InvalidDataException("Pick a recording for each mix input.")
 			: new InvalidDataException($"The mix input '{input.Origin}' has not been imported yet.");
+	}
+
+	/// <summary>True if a step of kind 'step' can change the number of frames.</summary>
+	private static bool ChangesLength(ERecipeStep step)
+	{
+		switch (step)
+		{
+			case ERecipeStep.Trim:
+			case ERecipeStep.Cut:
+			case ERecipeStep.Loop:
+			case ERecipeStep.Mix:
+			{
+				return true;
+			}
+			case ERecipeStep.FadeIn:
+			case ERecipeStep.FadeOut:
+			case ERecipeStep.Gain:
+			case ERecipeStep.Loudness:
+			case ERecipeStep.HighPass:
+			case ERecipeStep.LowPass:
+			case ERecipeStep.Eq:
+			case ERecipeStep.Denoise:
+			{
+				return false;
+			}
+			default:
+			{
+				throw new InvalidDataException($"Unknown step '{step}'.");
+			}
+		}
 	}
 
 	/// <summary>Apply one step.</summary>
@@ -155,11 +192,21 @@ public static class RecipeRenderer
 			}
 			case ERecipeStep.Loop:
 			{
+				// Without a start the whole sound loops; with one, the sound keeps its length and only the region from the start to the end loops
 				var length = buffer.FrameAt(Positive(step.Duration, "duration"));
-				if (length == 0 || length > buffer.Frames / 2)
-					throw new InvalidDataException("The loop crossfade must be at least one sample and at most half the sound's length.");
+				if (step.Start is not double start_s)
+				{
+					if (length == 0 || length > buffer.Frames / 2)
+						throw new InvalidDataException("The loop crossfade must be at least one sample and at most half the sound's length.");
 
-				return Loop(buffer, length);
+					return Loop(buffer, length);
+				}
+
+				var start = buffer.FrameAt(NonNegative(start_s, "start"));
+				if (length == 0 || length > start || length > (buffer.Frames - start) / 2)
+					throw new InvalidDataException("The loop crossfade must be at least one sample, no longer than the audio before 'start', and at most half the loop's length.");
+
+				return LoopRegion(buffer, start, length);
 			}
 			case ERecipeStep.Mix:
 			{
@@ -263,6 +310,28 @@ public static class RecipeRenderer
 				output[i * channels + c] = (float)(src[i * channels + c] * head_gain + src[(frames + i) * channels + c] * tail_gain);
 		}
 		return new AudioBuffer(output, channels);
+	}
+
+	/// <summary>
+	/// Make the region from frame 'start' to the end loop seamlessly, keeping the sound's length. The last 'length' frames crossfade into the
+	/// 'length' frames before 'start', so the last frame is followed, when the region repeats, by what originally followed its partner.
+	/// </summary>
+	private static AudioBuffer LoopRegion(AudioBuffer buffer, int start, int length)
+	{
+		// At the start of the overlap the end dominates (continuing from the frame before it); by its end only the audio before 'start' remains
+		var channels = buffer.Channels;
+		var frames = buffer.Frames;
+		var src = buffer.Samples;
+		var output = (float[])src.Clone();
+		for (int i = 0; i != length; ++i)
+		{
+			var t = (double)i / length;
+			var end_gain = Math.Cos(t * Math.PI / 2);
+			var lead_gain = Math.Sin(t * Math.PI / 2);
+			for (int c = 0; c != channels; ++c)
+				output[(frames - length + i) * channels + c] = (float)(src[(frames - length + i) * channels + c] * end_gain + src[(start - length + i) * channels + c] * lead_gain);
+		}
+		return new AudioBuffer(output, channels, start);
 	}
 
 	/// <summary>One part of a mix: 'audio' from frame 'start', scaled by 'gain'.</summary>

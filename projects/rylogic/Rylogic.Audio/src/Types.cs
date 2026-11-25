@@ -405,6 +405,11 @@ public sealed class VoiceOptions
 	/// <summary>The submix group the voice feeds, or null for the master output. The group must belong to the same engine.</summary>
 	public AudioGroup? Group { get; set; }
 	public bool Spatial { get; set; }
+
+	/// <summary>
+	/// Extra passes after the first, or <see cref="InfiniteLoopCount"/>. The first pass plays the whole clip; extra passes repeat only the clip's loop region,
+	/// which runs from the WAV 'smpl' loop start (or the first frame) to the end, so an intro plays once before the loop.
+	/// </summary>
 	public uint LoopCount { get; set; }
 	public uint Priority { get; set; } = 100;
 	public float Volume { get; set; } = 1.0f;
@@ -431,6 +436,11 @@ public sealed class StreamOptions
 
 	/// <summary>True to position the stream with default emitter properties from creation. A spatial stream must decode to a single channel.</summary>
 	public bool Spatial { get; set; }
+
+	/// <summary>
+	/// Extra passes after the first, or <see cref="InfiniteLoopCount"/>. Extra passes repeat only the stream's loop region, which runs from its 'LOOPSTART'
+	/// Vorbis comment (or the first frame) to the end, so an intro plays once before the loop.
+	/// </summary>
 	public uint LoopCount { get; set; }
 	public uint Priority { get; set; } = 100;
 	public float Volume { get; set; } = 1.0f;

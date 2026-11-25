@@ -44,6 +44,8 @@ namespace pr::audio
 		Engine& operator=(Engine const&) = delete;
 
 		// Create an immutable resident clip by copying a complete WAV file.
+		// An optional 'smpl' chunk sets the loop region. It must hold one forward loop that ends on the last frame; the region then runs from the loop's
+		// start frame to the end of the clip. Without the chunk, the whole clip loops. Other loop shapes fail with EStatus::UnsupportedFormat.
 		ClipHandle ClipCreateWave(std::span<std::byte const> wave_file);
 
 		// Release a resident clip that is not referenced by a live voice.
@@ -107,6 +109,8 @@ namespace pr::audio
 		void GroupFilterSet(GroupHandle group, float low_pass_hz, float high_pass_hz, float ramp_s);
 
 		// Create a resident stream by copying the complete bytes of an Ogg Vorbis file for background decoding.
+		// An optional 'LOOPSTART=<frame>' comment sets the loop region, which runs from that frame to the end of the stream. An optional 'LOOPLENGTH'
+		// comment must then equal the remaining frame count. Without 'LOOPSTART', the whole stream loops. Invalid values fail with EStatus::UnsupportedFormat.
 		StreamHandle StreamCreateOgg(StreamDesc const& desc, std::span<std::byte const> ogg_file);
 
 		// Stop and release a stream, discarding any buffered decode state.
