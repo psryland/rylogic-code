@@ -8,6 +8,24 @@
 
 namespace pr::audio
 {
+	// Read the frame number in a Vorbis comment such as 'LOOPSTART=1234'. Returns an empty inner value when the comment is absent,
+	// and no value at all when it is present but not a whole non-negative number.
+	static std::optional<std::optional<std::uint64_t>> ParseCommentFrame(vorbis_comment* comments, char const* tag)
+	{
+		// 'vorbis_comment_query' matches the tag case-insensitively and returns the text after '='
+		auto const* text = comments != nullptr ? vorbis_comment_query(comments, tag, 0) : nullptr;
+		if (text == nullptr)
+			return std::optional<std::uint64_t>{};
+
+		auto value = std::uint64_t{};
+		auto const* end = text + std::strlen(text);
+		auto [ptr, ec] = std::from_chars(text, end, value);
+		if (ec != std::errc{} || ptr != end)
+			return std::nullopt;
+
+		return std::optional<std::uint64_t>{value};
+	}
+
 	MemorySource::MemorySource(std::span<std::byte const> bytes)
 		: m_bytes(bytes)
 		, m_pos(0)
@@ -117,6 +135,7 @@ namespace pr::audio
 		, m_sample_rate(0)
 		, m_block_align(0)
 		, m_pcm_total(0)
+		, m_loop_begin(0)
 		, m_loops_remaining(desc.loop_count)
 		, m_decode_ended(false)
 		, m_decode_error(false)
@@ -152,6 +171,23 @@ namespace pr::audio
 
 		auto total = ov_pcm_total(&m_ogg, -1);
 		m_pcm_total = total >= 0 ? static_cast<std::uint64_t>(total) : 0;
+
+		// Read the optional loop region. It must run to the end of the stream, so a malformed comment or a 'LOOPLENGTH' that ends anywhere else is rejected
+		// rather than misplayed. The decoder is released here because a throwing constructor does not run the destructor.
+		auto* comments = ov_comment(&m_ogg, -1);
+		auto loop_start = ParseCommentFrame(comments, "LOOPSTART");
+		auto loop_length = ParseCommentFrame(comments, "LOOPLENGTH");
+		auto loop_valid =
+			loop_start.has_value() && loop_length.has_value() &&
+			(loop_start->has_value()
+				? **loop_start < m_pcm_total && (!loop_length->has_value() || **loop_length == m_pcm_total - **loop_start)
+				: !loop_length->has_value());
+		if (!loop_valid)
+		{
+			ov_clear(&m_ogg);
+			throw Exception(EStatus::UnsupportedFormat, "Ogg Vorbis loop region must be whole frame numbers that start inside the stream and run to its end");
+		}
+		m_loop_begin = loop_start->value_or(0);
 	}
 
 	Stream::~Stream()
@@ -203,13 +239,13 @@ namespace pr::audio
 			}
 			if (read == 0)
 			{
-				// Clean end of the compressed stream: loop back to the start, or end decoding permanently.
+				// Clean end of the compressed stream: loop back to the start of the loop region, or end decoding permanently.
 				if (m_loops_remaining == AUDIO_INFINITE_LOOP || m_loops_remaining != 0)
 				{
 					if (m_loops_remaining != AUDIO_INFINITE_LOOP)
 						--m_loops_remaining;
 
-					ov_pcm_seek(&m_ogg, 0);
+					ov_pcm_seek(&m_ogg, static_cast<ogg_int64_t>(m_loop_begin));
 					continue;
 				}
 

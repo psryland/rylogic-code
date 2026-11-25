@@ -132,6 +132,42 @@ public sealed class TestAuthoring
 		Assert.Equal((float)(rate * 3 / 4 - 1), looped.Samples[^1]);
 	}
 
+	/// <summary>A loop step with a start keeps the length, loops only from the start to the end, and keeps that region through to the WAV file.</summary>
+	[Test]
+	public void LoopRegionStep()
+	{
+		// The audio before the crossfade is unchanged, the crossfade begins where the original was, and the end flows into the frame at the loop start
+		var rate = AudioBuffer.SampleRate;
+		var looped = RecipeRenderer.Render(Ramp(rate), [new() { Step = ERecipeStep.Loop, Start = 0.5, Duration = 0.1 }, new() { Step = ERecipeStep.Gain, Db = 0 }]);
+		Assert.Equal(rate, looped.Frames);
+		Assert.Equal((int?)(rate / 2), looped.LoopStart);
+		Assert.Equal((float)(rate * 9 / 10 - 1), looped.Samples[rate * 9 / 10 - 1]);
+		Assert.Equal((float)(rate * 9 / 10), looped.Samples[rate * 9 / 10]);
+		Assert.Equal(rate / 2 - 1, looped.Samples[^1], rate / 1000.0);
+
+		// The loop start survives the WAV file, and plain audio has none
+		var decoded = WavFile.Decode(new MemoryStream(WavFile.Encode(looped)));
+		Assert.Equal((int?)(rate / 2), decoded.LoopStart);
+		Assert.True(looped.Samples.AsSpan().SequenceEqual(decoded.Samples));
+		Assert.True(WavFile.Decode(new MemoryStream(WavFile.Encode(Ramp(rate)))).LoopStart is null);
+
+		// The loop start can be read from a file without decoding it
+		using (var temp = new TempFolder())
+		{
+			var looped_path = Path.Combine(temp.Path, "looped.wav");
+			var plain_path = Path.Combine(temp.Path, "plain.wav");
+			File.WriteAllBytes(looped_path, WavFile.Encode(looped));
+			File.WriteAllBytes(plain_path, WavFile.Encode(Ramp(rate)));
+			Assert.Equal((double?)0.5, WavFile.ReadLoopStart(looped_path));
+			Assert.True(WavFile.ReadLoopStart(plain_path) is null);
+		}
+
+		// The crossfade must fit before the start and within half the loop, and the length cannot change after the loop start is set
+		Assert.Throws<InvalidDataException>(() => RecipeRenderer.Render(Ramp(rate), [new() { Step = ERecipeStep.Loop, Start = 0.05, Duration = 0.1 }]));
+		Assert.Throws<InvalidDataException>(() => RecipeRenderer.Render(Ramp(rate), [new() { Step = ERecipeStep.Loop, Start = 0.9, Duration = 0.1 }]));
+		Assert.Throws<InvalidDataException>(() => RecipeRenderer.Render(Ramp(rate), [new() { Step = ERecipeStep.Loop, Start = 0.5, Duration = 0.1 }, new() { Step = ERecipeStep.Trim, Start = 0.1 }]));
+	}
+
 	/// <summary>Denoise turns down hiss by about its reduction where there is only hiss, leaves a sound clearly above the hiss unchanged, and keeps the length.</summary>
 	[Test]
 	public void DenoiseStep()

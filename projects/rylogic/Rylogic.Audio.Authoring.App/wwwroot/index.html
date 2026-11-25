@@ -206,7 +206,7 @@ const STEPS = {
 	low_pass: { label: "Low-pass", params: { frequency: "Hz", slope: "slope" }, init: { frequency: 12000, slope: 12 } },
 	eq: { label: "EQ", params: { frequency: "Hz", db: "dB", q: "Q" }, init: { frequency: 1000, db: 0, q: 1 } },
 	denoise: { label: "Denoise", params: { start: "s", end: "s", db: "dB" }, init: { start: 0, end: 0.5, db: 12 } },
-	loop: { label: "Loop", params: { duration: "s" }, init: { duration: 3 } },
+	loop: { label: "Loop", params: { duration: "s", start: "s" }, init: { duration: 3 } },
 	mix: { label: "Mix", params: { db: "dB" }, init: { db: 0, inputs: [] } },
 };
 
@@ -311,7 +311,9 @@ async function buffer_for(url)
 	if (buffers.has(url))
 		return buffers.get(url);
 
+	// Read the loop start before decoding, because decoding takes ownership of the bytes and ignores the 'smpl' chunk
 	const data = await (await fetch(url)).arrayBuffer();
+	const loop_start = wav_loop_start(data);
 	const buf = await ctx.decodeAudioData(data);
 	let sum = 0, n = 0;
 	for (let c = 0; c != buf.numberOfChannels; ++c)
@@ -319,9 +321,45 @@ async function buffer_for(url)
 		const d = buf.getChannelData(c);
 		for (let i = 0; i < d.length; i += 4) { sum += d[i] * d[i]; ++n; }
 	}
-	const entry = { buf, rms: Math.sqrt(sum / Math.max(n, 1)) || 1e-6 };
+	const entry = { buf, loop_start, rms: Math.sqrt(sum / Math.max(n, 1)) || 1e-6 };
 	buffers.set(url, entry);
 	return entry;
+}
+
+// The loop start in seconds from a WAV file's 'smpl' chunk, or null when the file has none (then the whole sound loops) or is not a WAV file
+function wav_loop_start(data)
+{
+	// Walk the RIFF chunks, noting the sample rate from 'fmt ' and the first loop's start frame from 'smpl'
+	const view = new DataView(data);
+	if (view.byteLength < 12 || view.getUint32(0, false) !== 0x52494646 || view.getUint32(8, false) !== 0x57415645)
+		return null;
+
+	let rate = 0, start = null;
+	for (let at = 12; at + 8 <= view.byteLength; )
+	{
+		// Chunks are padded to an even size
+		const id = view.getUint32(at, false);
+		const size = view.getUint32(at + 4, true);
+		if (id === 0x666d7420 && size >= 8)
+			rate = view.getUint32(at + 12, true);
+		else if (id === 0x736d706c && size >= 36 + 24 && view.getUint32(at + 8 + 28, true) > 0)
+			start = view.getUint32(at + 8 + 36 + 8, true);
+
+		at += 8 + size + (size & 1);
+	}
+	return rate && start !== null ? start / rate : null;
+}
+
+// Map a playback time that may have repeated past the end onto the position in the sound. Only the region from the loop start to the end repeats.
+function wrap_time(entry, t)
+{
+	// Before the end the time is the position; after it, the time cycles through the loop region
+	const duration = entry.buf.duration;
+	if (t < duration)
+		return t;
+
+	const loop_start = entry.loop_start ?? 0;
+	return loop_start + (t - duration) % (duration - loop_start);
 }
 
 function position()
@@ -357,13 +395,20 @@ async function start(at, force_loop)
 		return;
 	}
 
-	const { buf, rms } = await buffer_for(url);
+	const entry = await buffer_for(url);
+	const { buf, rms } = entry;
 	await ctx.resume();
 	stop();
 	gain.gain.value = document.getElementById("match").checked ? Math.min(0.1 / rms, 8) : 1;
 	source = ctx.createBufferSource();
 	source.buffer = buf;
 	source.loop = !!force_loop || document.getElementById("loopplay").checked;
+	if (entry.loop_start !== null)
+	{
+		// Repeat only the loop region, as the game does
+		source.loopStart = entry.loop_start;
+		source.loopEnd = buf.duration;
+	}
 	source.onended = () =>
 	{
 		// Playback reached the end without looping, so return to the start ready to play again
@@ -374,7 +419,7 @@ async function start(at, force_loop)
 	};
 	source.connect(gain);
 	source_url = url;
-	offset = (at ?? offset) % buf.duration;
+	offset = wrap_time(entry, at ?? offset);
 	started_at = ctx.currentTime;
 	source.start(0, offset);
 	document.getElementById("play").textContent = "Stop";
@@ -388,7 +433,7 @@ function follow_live_url()
 		start(position());
 }
 
-// Play the end of the current sound running into its start to hear the loop join
+// Play the end of the current sound running into its loop start to hear the loop join
 async function seam()
 {
 	const url = url_of(current);
@@ -995,8 +1040,8 @@ function render_clips(parent)
 					show_message("Select Play original before setting a clip boundary from the playhead.", true);
 					return;
 				}
-				const buf = buffers.get(url_of(current))?.buf;
-				range[name] = Number((buf ? position() % buf.duration : position()).toFixed(3));
+				const entry = buffers.get(url_of(current));
+				range[name] = Number((entry ? wrap_time(entry, position()) : position()).toFixed(3));
 				input.value = range[name];
 			}));
 		}
@@ -1373,7 +1418,7 @@ setInterval(() =>
 	if (!entry)
 		return;
 
-	const p = position() % entry.buf.duration;
+	const p = wrap_time(entry, position());
 	document.getElementById("pos").value = Math.round(1000 * p / entry.buf.duration);
 	document.getElementById("time").textContent = `${p.toFixed(1)} / ${entry.buf.duration.toFixed(1)} s`;
 }, 100);
