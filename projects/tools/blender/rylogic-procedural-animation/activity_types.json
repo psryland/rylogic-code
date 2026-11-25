@@ -122,10 +122,22 @@
 				"max": 1,
 				"default": 0.4000000059604645
 			},{
+				"name": "side_bend",
+				"kind": "float",
+				"min": 0,
+				"max": 0.800000011920929,
+				"default": 0
+			},{
+				"name": "windup_crouch",
+				"kind": "float",
+				"min": 0,
+				"max": 0.800000011920929,
+				"default": 0
+			},{
 				"name": "crouch",
 				"kind": "float",
 				"min": 0,
-				"max": 0.4000000059604645,
+				"max": 0.800000011920929,
 				"default": 0.07999999821186066
 			},{
 				"name": "max_stoop",

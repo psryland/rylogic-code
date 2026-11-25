@@ -75,7 +75,9 @@ def ValidateParams(fields: list[EditorField], params: dict[str, Any], ctx: str) 
 				for i, item in enumerate(value):
 					errors.extend(ValidateParams(f.fields, item, f"{ctx} {f.name} {i + 1}"))
 			case "float" | "int":
-				if not f.options["min"] <= value <= f.options["max"]:
+				# Blender stores floats in single precision, so compare at the precision the limits are read with
+				compared = _Single(value) if f.kind == "float" else value
+				if not f.options["min"] <= compared <= f.options["max"]:
 					errors.append(f"{ctx} needs '{f.name}' in [{f.options['min']:g}, {f.options['max']:g}], not {value:g}")
 			case "enum":
 				if value not in (item[0] for item in f.options["items"]):

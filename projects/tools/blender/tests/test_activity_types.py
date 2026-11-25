@@ -60,6 +60,12 @@ def test_params_are_read_and_validated_through_the_editors():
 	assert len(activity_types.ValidateParams(fields, params, "Activity 'a'")) == 2
 
 
+def test_single_precision_limit_is_in_range():
+	"""A float that Blender stores at a range limit in single precision, e.g. 0.4 as 0.4000000059604645, is not reported as out of range."""
+	fields = activity_types.EditorFields({"d": {"root_mode": "free", "params": [{"name": "x", "kind": "float", "min": 0.0, "max": 0.4000000059604645, "default": 0.0}]}}, "d")
+	assert activity_types.ValidateParams(fields, {"x": 0.4000000059604645}, "Activity 'a'") == []
+
+
 def test_shipped_description_has_punches():
 	"""The shipped description, kept up to date by the native 'ActivityTypesMatchAddon' test, gives punches a list of punches."""
 	desc = activity_types.LoadDescription()

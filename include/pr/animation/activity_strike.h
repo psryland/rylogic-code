@@ -9,8 +9,8 @@
 //  - Follow-through: the arm carries on past the contact a little, while the body stays leaned into the blow.
 //  - Recovery: the arm and torso return to the ready position, where the next cycle starts.
 // The arm and the held tool swing as one rigid piece about the shoulder, in a plane through the shoulder and the contact point. The feet stay
-// planted, with the foot opposite the striking hand a little forward. To reach a low target, the torso leans (stoops) further forward at contact
-// until the wrist is within the arm's reach. The striking hands clench.
+// planted, with the foot opposite the striking hand a little forward. The hips sink during the wind-up and sink further into the blow. To reach a
+// low target, the torso leans (stoops) further forward at contact until the wrist is within the arm's reach. The striking hands clench.
 //
 // Parameters ('.gait' file, see activities.h). Angles are in radians. Every parameter is required.
 //  "params": {
@@ -31,6 +31,8 @@
 //    "lean": 0.25,          // the torso's forward lean at contact
 //    "windup_lean": 0.15,   // the torso's backward lean at the top of the wind-up
 //    "twist": 0.4,          // the torso's turn at contact, which brings the striking shoulder forward. The wind-up turns half as far back. One-hand strikes only.
+//    "side_bend": 0.0,      // the torso's sideways bend at contact, which lowers the striking shoulder. One-hand strikes only.
+//    "windup_crouch": 0.0,  // the hips' drop at the top of the wind-up, as a fraction of the spine's length
 //    "crouch": 0.08,        // the hips' drop at contact, as a fraction of the spine's length
 //    "max_stoop": 0.6,      // >= 0. The most extra forward lean at contact for reaching a low or distant target.
 //    "stagger": 0.1         // the distance that the foot opposite a one-hand strike stands forward, and the other foot back, as a fraction of the legs' reach
@@ -84,6 +86,8 @@ namespace pr::animation
 		float lean = 0.25f;
 		float windup_lean = 0.15f;
 		float twist = 0.4f;
+		float side_bend = 0.0f;
+		float windup_crouch = 0.0f;
 		float crouch = 0.08f;
 		float max_stoop = 0.6f;
 		float stagger = 0.1f;
@@ -154,6 +158,8 @@ namespace pr::animation
 				.lean = real("lean"),
 				.windup_lean = real("windup_lean"),
 				.twist = real("twist"),
+				.side_bend = real("side_bend"),
+				.windup_crouch = real("windup_crouch"),
 				.crouch = real("crouch"),
 				.max_stoop = real("max_stoop"),
 				.stagger = real("stagger"),
@@ -192,7 +198,9 @@ namespace pr::animation
 			real("lean", 0.0f, 1.0f, defaults.lean);
 			real("windup_lean", 0.0f, 0.6f, defaults.windup_lean);
 			real("twist", 0.0f, 1.0f, defaults.twist);
-			real("crouch", 0.0f, 0.4f, defaults.crouch);
+			real("side_bend", 0.0f, 0.8f, defaults.side_bend);
+			real("windup_crouch", 0.0f, 0.8f, defaults.windup_crouch);
+			real("crouch", 0.0f, 0.8f, defaults.crouch);
 			real("max_stoop", 0.0f, 1.2f, defaults.max_stoop);
 			real("stagger", 0.0f, 0.4f, defaults.stagger);
 			return json::Object{ { "root_mode", rig_json::EnumName(ERootMode::Planted, RootModeNames) }, { "params", std::move(params) } };
@@ -285,6 +293,8 @@ namespace pr::animation
 				{ "lean", s.lean },
 				{ "windup_lean", s.windup_lean },
 				{ "twist", s.twist },
+				{ "side_bend", s.side_bend },
+				{ "windup_crouch", s.windup_crouch },
 				{ "crouch", s.crouch },
 				{ "max_stoop", s.max_stoop },
 				{ "stagger", s.stagger },
@@ -307,7 +317,7 @@ namespace pr::animation
 				auto drive = TorsoDrive{
 					.yaw = phase.windup_weight * plan.windup.yaw + phase.contact_weight * plan.contact.yaw,
 					.lean = phase.windup_weight * plan.windup.lean + phase.contact_weight * plan.contact.lean,
-					.tilt = 0,
+					.tilt = phase.windup_weight * plan.windup.tilt + phase.contact_weight * plan.contact.tilt,
 					.hips = plan.windup.hips * phase.windup_weight + plan.contact.hips * phase.contact_weight,
 				};
 				DriveChest(drive, guide.base.pos, guide.frame.pos);
@@ -423,17 +433,19 @@ namespace pr::animation
 		// The torso drives at the top of the wind-up and at contact, with 'stoop' extra forward lean at contact
 		BlowPlan Drives(ActivityInput const& input, float stoop) const
 		{
-			// The hips drop in proportion to the spine's length
+			// The hips drop in proportion to the spine's length. The sideways bend is towards the striking side (-X for the right hand).
 			auto plan = BlowPlan{
 				.windup = TorsoDrive{ .yaw = 0.5f * HandSign() * m_swing.twist, .lean = -m_swing.windup_lean },
-				.contact = TorsoDrive{ .yaw = -HandSign() * m_swing.twist, .lean = m_swing.lean + stoop },
+				.contact = TorsoDrive{ .yaw = -HandSign() * m_swing.twist, .lean = m_swing.lean + stoop, .tilt = HandSign() * m_swing.side_bend },
 				.hands = {},
 			};
 			if (input.spine >= 0)
 			{
 				// The chest swings about the hips
 				auto const& guide = input.guide[input.spine];
-				plan.contact.hips = v4(0, 0, -m_swing.crouch * Length(guide.frame.pos - guide.base.pos), 0);
+				auto spine = Length(guide.frame.pos - guide.base.pos);
+				plan.windup.hips = v4(0, 0, -m_swing.windup_crouch * spine, 0);
+				plan.contact.hips = v4(0, 0, -m_swing.crouch * spine, 0);
 				DriveChest(plan.windup, guide.base.pos, guide.frame.pos);
 				DriveChest(plan.contact, guide.base.pos, guide.frame.pos);
 			}
