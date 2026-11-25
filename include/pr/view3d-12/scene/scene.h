@@ -59,6 +59,8 @@ namespace pr::rdr12
 		TextureCubePtr   m_global_envmap_prev;  // An optional environment map that 'm_global_envmap' fades in over. It is sampled with 'm_global_envmap's orientation
 		float            m_global_envmap_blend; // The weight of 'm_global_envmap' over 'm_global_envmap_prev', in [0,1]. Ignored when 'm_global_envmap_prev' is null
 		BBox             m_global_envmap_parallax_bounds; // Reflections correct parallax for captured geometry inside these world-space bounds. Anything beyond them, or everything when invalid, is infinitely distant
+		float            m_wetness;          // How wet the scene's PBR surfaces are, in [0,1]. Zero leaves them unchanged
+		v4               m_wetness_up;       // The world-space unit direction that wet surfaces face to be fully wet. Surfaces facing away from it stay dry
 		v4               m_reflection_plane; // The world-space plane (unit normal xyz, distance w along the normal) whose surfaces reflect the rendered scene. Zero for none
 		float            m_reflection_min_population_radius; // Populations whose prototype bounding radius is smaller than this are not drawn into the reflection's mirror view. Zero draws them all
 		float            m_reflection_resolution_scale; // The reflection's mirror view resolution as a fraction of the viewport's, in (0,1]

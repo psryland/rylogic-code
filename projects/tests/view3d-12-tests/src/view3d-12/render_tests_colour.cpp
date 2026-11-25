@@ -276,6 +276,66 @@ namespace render_tests
 		std::cout << "PASS PBR tint alpha on an opaque material: MSAA " << samples << '\n';
 	}
 
+	// Check that scene wetness darkens a non-metal in proportion to how much it faces the wetness up direction, with or without an environment map.
+	void WetnessTests()
+	{
+		// Light the scene with white ambient light only, so the rendered colour is the albedo alone.
+		Fixture fixture(1);
+		auto light = SceneLightingGet(fixture.m_window);
+		light.m_ambient = 0xFFFFFFFF;
+		light.m_diffuse = light.m_specular = 0xFF000000;
+		light.m_on = TRUE;
+		light.m_intensity = 1;
+		SceneLightingSet(fixture.m_window, light);
+
+		// A grey rough dielectric plane that faces the camera along +Z.
+		auto plane = View3D_ObjectCreateLdrA("*Plane Ground { *Data {90 90} *Material {*BaseColour{FF808080} *Metallic{0} *Roughness{1}} *o2w{*pos{0 0 -50}}}", FALSE, nullptr, nullptr);
+		Require(plane != nullptr, "Ground plane creation failed");
+		fixture.m_objects.push_back(plane);
+		View3D_WindowAddObject(fixture.m_window, plane);
+		auto red = [&]
+		{
+			// Average the centre of the plane, away from its edges.
+			return RegionRed(fixture.Image(), 32, 96, 32, 96);
+		};
+		Require(View3D_WindowWetnessGet(fixture.m_window) == 0.0f, "New window is not dry");
+		auto dry = red();
+		Require(dry > 0.1f, "Dry plane is not lit");
+
+		// A fully wet surface facing the up direction keeps 35% of its albedo, a vertical one is partly darkened, and one facing away stays dry.
+		auto check = [&](api::Vec4 up, float expected_scale, char const* message)
+		{
+			// Only the up direction changes between cases.
+			View3D_WindowWetnessUpSet(fixture.m_window, up);
+			fixture.CheckErrors();
+			Require(std::abs(red() / dry - expected_scale) < 0.03f, message);
+		};
+		View3D_WindowWetnessSet(fixture.m_window, 1.0f);
+		Require(View3D_WindowWetnessGet(fixture.m_window) == 1.0f, "Wetness did not round-trip");
+		check(api::Vec4{0, 0, 1, 0}, 0.35f, "Wet surface facing up was not darkened");
+		check(api::Vec4{1, 0, 0, 0}, 0.74f, "Wet vertical surface was not partly darkened");
+		check(api::Vec4{0, 0, -1, 0}, 1.0f, "Wet surface facing down was darkened");
+
+		// With an environment map, the wet surface also samples its reflection even though the plane has no reflectivity. Capturing the scene without
+		// the plane gives a black map, which adds nothing.
+		auto cube = api::CubeMapPtr(View3D_CubeMapCreate(32));
+		Require(cube != nullptr, "Cube map creation failed");
+		View3D_ObjectFlagsSet(plane, api::ELdrFlags::EnvMapCaptureExclude, TRUE, nullptr);
+		View3D_WindowEnvMapCapture(fixture.m_window, cube.get(), api::Vec4{0, 0, 0, 1});
+		View3D_WindowEnvMapSet(fixture.m_window, cube.get());
+		check(api::Vec4{0, 0, 1, 0}, 0.35f, "Wet surface with an environment map was not darkened");
+		View3D_WindowEnvMapSet(fixture.m_window, nullptr);
+
+		// Drying the scene restores the plain material.
+		View3D_WindowWetnessSet(fixture.m_window, 0.0f);
+		fixture.CheckErrors();
+		Require(std::abs(red() / dry - 1.0f) < 0.01f, "Dry surface did not return to its plain colour");
+
+		// Any DLL or GPU validation error fails the fixture.
+		fixture.CheckDebugLayer();
+		std::cout << "PASS wetness darkening by facing\n";
+	}
+
 	// Check that a region update replaces texture pixels for later frames and rejects regions the texture cannot hold.
 	void TextureUpdateRegionTests(int samples)
 	{
@@ -558,6 +618,10 @@ namespace pr::unittests::view3d12
 	{
 		render_tests::PbrTintAlphaTests(1);
 		render_tests::PbrTintAlphaTests(4);
+	}
+	PRUnitTest(View3d12_Wetness, Extended | Serial)
+	{
+		render_tests::WetnessTests();
 	}
 	PRUnitTest(View3d12_TextureUpdateRegion, Extended | Serial)
 	{

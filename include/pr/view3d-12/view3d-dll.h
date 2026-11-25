@@ -2007,6 +2007,16 @@ extern "C"
 	VIEW3D_API pr::view3d::BBox __stdcall View3D_WindowEnvMapParallaxBoundsGet(pr::view3d::Window window);
 	VIEW3D_API void __stdcall View3D_WindowEnvMapParallaxBoundsSet(pr::view3d::Window window, pr::view3d::BBox bounds);
 
+	// Get/Set how wet the window's PBR surfaces are, in [0,1]. Water darkens porous (non-metallic) surfaces, smooths them, and makes them reflect the
+	// environment map, even when the instance itself has no reflectivity. Surfaces facing the wetness up direction are fully wet, vertical surfaces
+	// less so, and surfaces facing away from it stay dry. Zero (the default) leaves surfaces unchanged.
+	VIEW3D_API float __stdcall View3D_WindowWetnessGet(pr::view3d::Window window);
+	VIEW3D_API void __stdcall View3D_WindowWetnessSet(pr::view3d::Window window, float wetness);
+
+	// Get/Set the world-space unit direction (w = 0) that surfaces face to be fully wet. The default is +Z.
+	VIEW3D_API pr::view3d::Vec4 __stdcall View3D_WindowWetnessUpGet(pr::view3d::Window window);
+	VIEW3D_API void __stdcall View3D_WindowWetnessUpSet(pr::view3d::Window window, pr::view3d::Vec4 up);
+
 	// Get/Set the world-space plane whose surfaces reflect the rendered scene, as (unit normal xyz, distance w along the normal). Shaders that opt in
 	// reflect the opaque scene visible on screen and fall back to the environment map where it has no data. Zero (the default) disables it.
 	VIEW3D_API pr::view3d::Vec4 __stdcall View3D_WindowReflectionPlaneGet(pr::view3d::Window window);
