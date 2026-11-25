@@ -281,6 +281,12 @@
 								Margin="3"
 								/>
 							<CheckBox
+								Content="Show the animation controls when animated content is loaded"
+								IsChecked="{Binding Profile.ShowAnimationControlsOnLoad}"
+								ToolTip="When a newly loaded file adds animation or flipbooks to a scene, show the animation controls where they were last shown"
+								Margin="3"
+								/>
+							<CheckBox
 								Content="Automatically reload files when changes are detected"
 								IsChecked="{Binding Profile.AutoRefresh}"
 								Margin="3"

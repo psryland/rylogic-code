@@ -8,9 +8,9 @@
 	d:DesignHeight="480"
 	d:DesignWidth="640"
 	Background="{x:Static SystemColors.ControlBrush}"
-	WindowStartupLocation="CenterOwner"
+	WindowStartupLocation="Manual"
 	ResizeMode="CanResizeWithGrip"
-	ShowInTaskbar="True"
+	ShowInTaskbar="False"
 	Height="480"
 	Width="640"
 	/>

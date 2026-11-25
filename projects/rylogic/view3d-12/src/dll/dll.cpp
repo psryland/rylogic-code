@@ -26,6 +26,7 @@
 #include "pr/view3d-12/texture/texture_cube.h"
 #include "pr/game-systems/sky/celestial_clock.h"
 #include "pr/game-systems/sky/procedural_sky.h"
+#include "pr/game-systems/sky/rain.h"
 #include "pr/game-systems/sky/weather_map.h"
 #include "pr/game-systems/ocean/ocean_surface.h"
 #include "pr/game-systems/atmosphere/atmosphere.h"
@@ -1601,6 +1602,54 @@ VIEW3D_API void __stdcall View3D_WindowEnvMapParallaxBoundsSet(view3d::Window wi
 	CatchAndReport(View3D_WindowEnvMapParallaxBoundsSet, window, );
 }
 
+// Get/Set how wet the window's PBR surfaces are
+VIEW3D_API float __stdcall View3D_WindowWetnessGet(view3d::Window window)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		return window->Wetness();
+	}
+	CatchAndReport(View3D_WindowWetnessGet, window, 0.0f);
+}
+VIEW3D_API void __stdcall View3D_WindowWetnessSet(view3d::Window window, float wetness)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		window->Wetness(wetness);
+	}
+	CatchAndReport(View3D_WindowWetnessSet, window, );
+}
+
+// Get/Set the world-space direction that surfaces face to be fully wet
+VIEW3D_API view3d::Vec4 __stdcall View3D_WindowWetnessUpGet(view3d::Window window)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		return To<view3d::Vec4>(window->WetnessUp());
+	}
+	CatchAndReport(View3D_WindowWetnessUpGet, window, To<view3d::Vec4>(pr::v4::ZAxis()));
+}
+VIEW3D_API void __stdcall View3D_WindowWetnessUpSet(view3d::Window window, view3d::Vec4 up)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		window->WetnessUp(To<pr::v4>(up));
+	}
+	CatchAndReport(View3D_WindowWetnessUpSet, window, );
+}
+
 // Get/Set the world-space plane whose surfaces reflect the rendered scene
 VIEW3D_API view3d::Vec4 __stdcall View3D_WindowReflectionPlaneGet(view3d::Window window)
 {
@@ -2921,8 +2970,10 @@ static game_systems::ProceduralSkySettings ToSkySettings(view3d::ProceduralSkySe
 		.m_moon_direction = To<v4>(s.m_moon_direction),
 		.m_moon_light_direction = To<v4>(s.m_moon_light_direction),
 		.m_sky_to_stars = To<m4x4>(s.m_sky_to_stars),
+		.m_exposure = s.m_exposure,
+		.m_lightning_time = s.m_lightning_time,
 	};
-	static_assert(sizeof(view3d::ProceduralSkySettings) == 232, "Must match the managed View3d.ProceduralSkySettings layout");
+	static_assert(sizeof(view3d::ProceduralSkySettings) == 240, "Must match the managed View3d.ProceduralSkySettings layout");
 	static_assert(std::extent_v<decltype(view3d::ProceduralSkySettings::m_lightning)> == game_systems::ProceduralSkySettings::LightningMax);
 	for (int i = 0; i != game_systems::ProceduralSkySettings::LightningMax; ++i)
 		settings.m_lightning[i] = To<v4>(s.m_lightning[i]);
@@ -2965,6 +3016,59 @@ VIEW3D_API BOOL __stdcall View3D_ObjectProceduralSkyWeatherSet(view3d::Object ob
 		return TRUE;
 	}
 	CatchAndReport(View3D_ObjectProceduralSkyWeatherSet, , FALSE);
+}
+
+// Start a fork lightning strike. Invalid input is reported and starts nothing.
+VIEW3D_API BOOL __stdcall View3D_ObjectProceduralSkyStrike(view3d::Object object, view3d::Vec4 ground, uint32_t seed)
+{
+	try
+	{
+		Validate(object);
+		DllLockGuard;
+		Dll().ObjectProceduralSkyStrike(object, To<v4>(ground), seed);
+		return TRUE;
+	}
+	CatchAndReport(View3D_ObjectProceduralSkyStrike, , FALSE);
+}
+
+// Read the strikes' dazzle of a window's camera at a lightning time.
+VIEW3D_API BOOL __stdcall View3D_ObjectProceduralSkyDazzle(view3d::Object object, view3d::Window window, double lightning_time, float away_scale, float* dazzle)
+{
+	try
+	{
+		Validate(object);
+		Validate(window);
+		if (dazzle == nullptr)
+			throw std::invalid_argument("'dazzle' must not be null");
+
+		DllLockGuard;
+		*dazzle = Dll().ObjectProceduralSkyDazzle(object, lightning_time, window->m_scene.m_cam, away_scale);
+		return TRUE;
+	}
+	CatchAndReport(View3D_ObjectProceduralSkyDazzle, window, FALSE);
+}
+
+// Read the strikes' ground lights at a lightning time, up to the caller's capacity.
+VIEW3D_API int __stdcall View3D_ObjectProceduralSkyGroundLights(view3d::Object object, double lightning_time, view3d::Vec4* lights, int capacity)
+{
+	try
+	{
+		Validate(object);
+		if (capacity < 0 || (lights == nullptr && capacity != 0))
+			throw std::invalid_argument("'lights' must hold 'capacity' entries");
+
+		// Pack each light as its scene-frame position with the brightness in w.
+		DllLockGuard;
+		auto ground_lights = Dll().ObjectProceduralSkyGroundLights(object, lightning_time);
+		auto count = std::min(s_cast<int>(ground_lights.size()), capacity);
+		for (int i = 0; i != count; ++i)
+		{
+			auto const& light = ground_lights[i];
+			lights[i] = To<view3d::Vec4>(v4(light.m_position.xyz, light.m_brightness));
+		}
+		return count;
+	}
+	CatchAndReport(View3D_ObjectProceduralSkyGroundLights, , -1);
 }
 
 // Create a weather map. The caller owns the returned reference.
@@ -4137,6 +4241,48 @@ VIEW3D_API BOOL __stdcall View3D_ObjectBlendProceduralSky(view3d::Object object,
 		return TRUE;
 	}
 	CatchAndReport(View3D_ObjectBlendProceduralSky, , FALSE);
+}
+
+// Convert the DLL rain settings to the renderer's settings.
+static game_systems::RainSettings ToRainSettings(view3d::RainSettings const& s)
+{
+	// Copy field by field because the DLL vector types differ from the renderer's
+	static_assert(sizeof(view3d::RainSettings) == 88, "Must match the managed View3d.RainSettings layout");
+	return game_systems::RainSettings{
+		.m_intensity = s.m_intensity,
+		.m_wind = To<v4>(s.m_wind),
+		.m_fall_velocity = To<v4>(s.m_fall_velocity),
+		.m_camera_velocity = To<v4>(s.m_camera_velocity),
+		.m_colour = To<v4>(s.m_colour),
+		.m_opacity = s.m_opacity,
+		.m_streak_time = s.m_streak_time,
+		.m_drop_width = s.m_drop_width,
+		.m_time = s.m_time,
+	};
+}
+
+// Create camera-centred rain with ordinary View3D object ownership.
+VIEW3D_API view3d::Object __stdcall View3D_ObjectCreateRain(char const* name, view3d::RainSettings const& settings, GUID const* context_id)
+{
+	try
+	{
+		DllLockGuard;
+		return Dll().ObjectCreateRain(name, ToRainSettings(settings), context_id);
+	}
+	CatchAndReport(View3D_ObjectCreateRain, , {});
+}
+
+// Report update failure explicitly so managed callers cannot mistake rejected parameters for success.
+VIEW3D_API BOOL __stdcall View3D_ObjectUpdateRain(view3d::Object object, view3d::RainSettings const& settings)
+{
+	try
+	{
+		Validate(object);
+		DllLockGuard;
+		Dll().ObjectUpdateRain(object, ToRainSettings(settings));
+		return TRUE;
+	}
+	CatchAndReport(View3D_ObjectUpdateRain, , FALSE);
 }
 
 // Evaluate the Sun–Earth–Moon model. It is pure maths, so it needs no context or lock.

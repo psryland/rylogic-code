@@ -72,6 +72,18 @@ public sealed partial class View3d
 		public m4x4 SkyToStars;
 
 		/// <summary>
+		/// Scale for the sky's natural light (sun, moon, stars, night air and cubemap background), finite and nonnegative; 1 is normal. Fork lightning and
+		/// its glow in the cloud are not scaled, so lowering the exposure during a strike makes the bolt dazzle (see <see cref="ProceduralSky.Dazzle"/>).
+		/// </summary>
+		public float Exposure;
+
+		/// <summary>
+		/// The fork lightning clock in seconds, finite. Strikes start at its current value and each strike's light follows the time since it started.
+		/// Use real time, not game time, so strikes look the same at any game speed.
+		/// </summary>
+		public double LightningTime;
+
+		/// <summary>
 		/// Lightning flash 'i' inside the cloud: xy = position in the sky frame, z = radius (> 0), w = finite brightness (>= 0, 1 is a strong flash,
 		/// 0 is no flash). The caller decides when flashes happen and how they flicker; the sky shows each flash's current brightness.
 		/// </summary>
@@ -109,9 +121,27 @@ public sealed partial class View3d
 					MoonDirection = new v4(-0.5f, -0.3f, 0.5f, 0f),
 					MoonLightDirection = new v4(0.5f, 0.3f, -0.5f, 0f),
 					SkyToStars = m4x4.Identity,
+					Exposure = 1f,
 				};
 			}
 		}
+	}
+
+	/// <summary>The light a fork lightning strike sheds where its bolt touches the ground: the ground point in the scene frame (w = 1), and the flash brightness in (0,1].</summary>
+	public readonly struct LightningGroundLight
+	{
+		/// <summary>Create a ground light at 'position' with flash 'brightness'.</summary>
+		public LightningGroundLight(v4 position, float brightness)
+		{
+			Position = position;
+			Brightness = brightness;
+		}
+
+		/// <summary>The ground point in the scene frame (w = 1).</summary>
+		public v4 Position { get; }
+
+		/// <summary>The flash brightness in (0,1].</summary>
+		public float Brightness { get; }
 	}
 
 	/// <summary>Owns a Z-up GPU atmosphere. Create, update and dispose on the render owner while the View3d context is alive.</summary>
@@ -161,6 +191,68 @@ public sealed partial class View3d
 			if (!View3D_ObjectProceduralSkyWeatherSet(m_skybox.Handle, weather?.Handle ?? IntPtr.Zero))
 				throw new ArgumentException("The weather map was rejected.");
 		}
+
+		/// <summary>
+		/// Start a fork lightning strike at 'ground', a sky-frame point below the cloud base, at the current <see cref="ProceduralSkySettings.LightningTime"/>.
+		/// The bolt grows from inside the cloud above the point, lights the cloud around it, and fades. The same 'seed' always grows the same bolt.
+		/// </summary>
+		public void Strike(v4 ground, uint seed)
+		{
+			if (m_skybox.Handle == IntPtr.Zero)
+				throw new ObjectDisposedException(nameof(ProceduralSky));
+
+			if (!View3D_ObjectProceduralSkyStrike(m_skybox.Handle, ground, seed))
+				throw new ArgumentException("The lightning strike was rejected. The ground point must be finite and below the cloud base.");
+		}
+
+		/// <summary>
+		/// How strongly the fork lightning strikes dazzle the camera of 'window' at 'lightning_time', in [0,1]. A strike dazzles fully while any part
+		/// of its bolt is in view, and fades to 'away_scale' (in [0,1]) times as much once the bolt is well outside the view. The sky does not darken
+		/// the scene itself: callers read this for the frame they are about to draw, then lower <see cref="ProceduralSkySettings.Exposure"/> and their
+		/// own scene lighting by it.
+		/// </summary>
+		public float Dazzle(View3d.Window window, double lightning_time, float away_scale)
+		{
+			if (m_skybox.Handle == IntPtr.Zero)
+				throw new ObjectDisposedException(nameof(ProceduralSky));
+
+			if (!(away_scale >= 0 && away_scale <= 1))
+				throw new ArgumentOutOfRangeException(nameof(away_scale), "The dazzle away scale must be in [0,1].");
+
+			if (!View3D_ObjectProceduralSkyDazzle(m_skybox.Handle, window.Handle, lightning_time, away_scale, out var dazzle))
+				throw new InvalidOperationException("Failed to read the lightning dazzle.");
+
+			return dazzle;
+		}
+
+		/// <summary>
+		/// The ground light of each fork lightning strike whose return strokes are lighting the ground at 'lightning_time'. The sky adds no lights to the
+		/// scene: callers that want the light place their own at each ground point. Most of the time there are none.
+		/// </summary>
+		public LightningGroundLight[] GroundLights(double lightning_time)
+		{
+			if (m_skybox.Handle == IntPtr.Zero)
+				throw new ObjectDisposedException(nameof(ProceduralSky));
+
+			// Each packed entry is the ground point (xyz) and brightness (w).
+			Span<v4> packed = stackalloc v4[StrikesMax];
+			var count = View3D_ObjectProceduralSkyGroundLights(m_skybox.Handle, lightning_time, ref packed[0], packed.Length);
+			if (count < 0)
+				throw new InvalidOperationException("Failed to read the lightning ground lights.");
+
+			if (count == 0)
+				return [];
+
+			// Positions are points, so their w is 1.
+			var lights = new LightningGroundLight[count];
+			for (var i = 0; i != count; ++i)
+				lights[i] = new LightningGroundLight(new v4(packed[i].x, packed[i].y, packed[i].z, 1), packed[i].w);
+
+			return lights;
+		}
+
+		/// <summary>The most fork lightning strikes a sky shows at once.</summary>
+		public const int StrikesMax = 4;
 
 		/// <summary>Blend a retained cubemap (weight 0) into the atmosphere (weight 1), using rotations from current scene directions into each background's frame.</summary>
 		/// <remarks>Transforms must be finite rotations without scale or translation. The cubemap's own orientation is also respected.
@@ -274,6 +366,17 @@ public sealed partial class View3d
 	[return: MarshalAs(UnmanagedType.Bool)]
 	private static extern bool View3D_ObjectProceduralSkyWeatherSet(IntPtr obj, IntPtr weather);
 
+	[DllImport(Dll)]
+	[return: MarshalAs(UnmanagedType.Bool)]
+	private static extern bool View3D_ObjectProceduralSkyStrike(IntPtr obj, v4 ground, uint seed);
+
+	[DllImport(Dll)]
+	[return: MarshalAs(UnmanagedType.Bool)]
+	private static extern bool View3D_ObjectProceduralSkyDazzle(IntPtr obj, IntPtr window, double lightning_time, float away_scale, out float dazzle);
+
+	[DllImport(Dll)]
+	private static extern int View3D_ObjectProceduralSkyGroundLights(IntPtr obj, double lightning_time, ref v4 lights, int capacity);
+
 	// Configure background blending without transferring managed ownership of the source.
 	[DllImport(Dll)]
 	[return: MarshalAs(UnmanagedType.Bool)]
@@ -317,7 +420,7 @@ public class ProceduralSkyTests
 	public void SettingsLayoutAndLightning()
 	{
 		var settings = View3d.ProceduralSkySettings.Default;
-		Assert.Equal(232, Marshal.SizeOf<View3d.ProceduralSkySettings>());
+		Assert.Equal(240, Marshal.SizeOf<View3d.ProceduralSkySettings>());
 		Assert.Equal(48, Marshal.OffsetOf<View3d.ProceduralSkySettings>(nameof(View3d.ProceduralSkySettings.Time)).ToInt32());
 		Assert.Equal(56, Marshal.OffsetOf<View3d.ProceduralSkySettings>(nameof(View3d.ProceduralSkySettings.HiddenCloudLayers)).ToInt32());
 		Assert.Equal(60, Marshal.OffsetOf<View3d.ProceduralSkySettings>("m_lightning").ToInt32());
@@ -326,6 +429,9 @@ public class ProceduralSkyTests
 		Assert.Equal(132, Marshal.OffsetOf<View3d.ProceduralSkySettings>(nameof(View3d.ProceduralSkySettings.MoonDirection)).ToInt32());
 		Assert.Equal(148, Marshal.OffsetOf<View3d.ProceduralSkySettings>(nameof(View3d.ProceduralSkySettings.MoonLightDirection)).ToInt32());
 		Assert.Equal(164, Marshal.OffsetOf<View3d.ProceduralSkySettings>(nameof(View3d.ProceduralSkySettings.SkyToStars)).ToInt32());
+		Assert.Equal(228, Marshal.OffsetOf<View3d.ProceduralSkySettings>(nameof(View3d.ProceduralSkySettings.Exposure)).ToInt32());
+		Assert.Equal(232, Marshal.OffsetOf<View3d.ProceduralSkySettings>(nameof(View3d.ProceduralSkySettings.LightningTime)).ToInt32());
+		Assert.Equal(1f, settings.Exposure);
 		Assert.Equal(1f, settings.CloudShadowStrength);
 		Assert.Equal(0f, settings.MoonIntensity);
 		Assert.Equal(m4x4.Identity, settings.SkyToStars);

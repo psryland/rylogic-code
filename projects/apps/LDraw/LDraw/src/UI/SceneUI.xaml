@@ -29,7 +29,17 @@
 					<StaticResource	ResourceKey="ChartMenuItem_ValueAtPointer"/>
 					<StaticResource	ResourceKey="ChartMenuItem_Axes"/>
 					<StaticResource	ResourceKey="ChartMenuItem_GridLines"/>
-					<StaticResource	ResourceKey="View3dMenuItem_Animation"/>
+					<MenuItem Header="Animation..."
+						Command="{Binding ShowAnimationControls}"
+						>
+						<MenuItem.Icon>
+							<Image
+								Source="{StaticResource animation}"
+								RenderOptions.BitmapScalingMode="Fant"
+								MaxHeight="22"
+								/>
+						</MenuItem.Icon>
+					</MenuItem>
 					<StaticResource	ResourceKey="View3dMenuItem_MeasureTool"/>
 				</MenuItem>
 				<MenuItem Header="Camera">

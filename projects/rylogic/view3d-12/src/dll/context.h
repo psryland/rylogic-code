@@ -142,8 +142,17 @@ namespace pr::rdr12
 		// Attach or detach the weather map that varies cloud cover across a procedural sky.
 		void ObjectProceduralSkyWeatherSet(ldraw::LdrObject* object, game_systems::WeatherMapPtr weather);
 
+		// Start a fork lightning strike in a procedural sky, and read how strongly its strikes dazzle 'camera' and light the ground at a lightning time.
+		void ObjectProceduralSkyStrike(ldraw::LdrObject* object, v4 const& ground, uint32_t seed);
+		float ObjectProceduralSkyDazzle(ldraw::LdrObject const* object, double lightning_time, Camera const& camera, float away_scale) const;
+		std::vector<game_systems::LightningGroundLight> ObjectProceduralSkyGroundLights(ldraw::LdrObject const* object, double lightning_time) const;
+
 		// Change the retained background and direction frames without replacing the scene object.
 		void ObjectBlendProceduralSky(ldraw::LdrObject* object, TextureCubePtr background, float weight, m4x4 const& world_to_sky, m4x4 const& world_to_background);
+
+		// Create or update camera-centred rain; its native owner is tied to the ordinary object lifetime.
+		ldraw::LdrObject* ObjectCreateRain(char const* name, game_systems::RainSettings const& settings, Guid const* context_id);
+		void ObjectUpdateRain(ldraw::LdrObject* object, game_systems::RainSettings const& settings);
 
 		// Modify an ldr object using a callback to populate the model data.
 		ldraw::LdrObject* ObjectCreateByCallback(char const* name, Colour32 colour, int vcount, int icount, int ncount, view3d::EditObjectCB edit_cb, Guid const& context_id);

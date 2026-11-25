@@ -237,6 +237,14 @@ namespace LDraw
 							AutoRangeScenesContaining(e.ContextIds);
 					}
 
+					// Show the animation controls when a newly added source puts animated content in a scene. Reloads do not reopen closed controls.
+					// This runs after new sources have been added to their scenes above.
+					if (e.After && Profile.ShowAnimationControlsOnLoad && e.Initiator == View3d.EStoreChangeInitiator.NewSource && e.ChangeFlags.HasFlag(View3d.EStoreChangeFlags.ObjectsAdded))
+					{
+						if (ScenesContaining(e.ContextIds).Any(x => x.SceneView.Scene.Window.AnimationDuration > 0))
+							SceneHost?.ShowAnimationControls(activate: false);
+					}
+
 					// Just prior to reloading sources
 					if (e.Before && Profile.ClearErrorLogOnReload)
 						Log.Clear();
@@ -616,8 +624,17 @@ namespace LDraw
 		/// <summary>Auto-range scenes that contain any of the reloaded source contexts.</summary>
 		private void AutoRangeScenesContaining(Guid[] context_ids)
 		{
+			// Only scenes showing the reloaded sources need their view reset
+			foreach (var scene in ScenesContaining(context_ids))
+				scene.SceneView.AutoRange();
+		}
+
+		/// <summary>The scenes that contain objects from any of the given source contexts</summary>
+		private IEnumerable<SceneUI> ScenesContaining(Guid[] context_ids)
+		{
+			// Search each scene's context ids, stopping at the first match
 			var context_set = new HashSet<Guid>(context_ids);
-			foreach (var scene in Scenes)
+			foreach (var scene in Scenes.ToArray())
 			{
 				var contains_context = false;
 				scene.SceneView.Scene.Window.EnumGuids(context_id =>
@@ -626,7 +643,7 @@ namespace LDraw
 					return !contains_context;
 				});
 				if (contains_context)
-					scene.SceneView.AutoRange();
+					yield return scene;
 			}
 		}
 

@@ -40,6 +40,23 @@ namespace pr::game_systems
 			return h;
 		}
 
+		// The angle, in radians, by which the camera-space point 'p' lies outside a view that looks along -Z with half-angle tangents 'tan_x'
+		// and 'tan_y'. The angle is measured from the view axis, through the point, to the edge of the view. Negative inside the view.
+		float AngleOutsideView(v4 p, float tan_x, float tan_y)
+		{
+			// The point's angle from the view axis, in its plane through the axis.
+			auto r = std::hypot(p.x, p.y);
+			auto angle = std::atan2(r, -p.z);
+			if (r == 0)
+				return angle - std::atan(std::min(tan_x, tan_y));
+
+			// The edge of the view, in the same plane, is on whichever side of the view's rectangle that plane crosses first.
+			auto ax = std::abs(p.x);
+			auto ay = std::abs(p.y);
+			auto edge = tan_x * ay < tan_y * ax ? tan_x * r / ax : tan_y * r / ay;
+			return angle - std::atan(edge);
+		}
+
 		// Smooth gradient noise that repeats every 'period' lattice cells in x and y. Values lie in about [-0.7, 0.7] with a mean of 0.
 		struct PeriodicNoise
 		{
@@ -177,6 +194,7 @@ namespace pr::game_systems
 				.sun_colour = v4(1.0f, 0.95f, 0.85f, 1),
 				.sun_intensity = 1.0f,
 				.blend_weight = 1.0f,
+				.exposure = v4(1, 0, 0, 0),
 				.world_to_cube = m4x4::Identity(),
 				.moon_direction = Normalise(v4(-0.5f, -0.3f, 0.5f, 0)),
 				.moon_light_direction = Normalise(v4(0.5f, 0.3f, -0.5f, 0)),
@@ -189,7 +207,7 @@ namespace pr::game_systems
 				},
 			}
 		{
-			static_assert(sizeof(m_cbuf) == 464);
+			static_assert(sizeof(m_cbuf) == 608);
 			m_code.VS = shader_code::procedural_sky_vs;
 			m_code.PS = shader_code::procedural_sky_ps;
 
@@ -265,7 +283,13 @@ namespace pr::game_systems
 		, m_frame_blend(1.0)
 		, m_cloud_evolve()
 		, m_low_cloud_drift()
+		, m_strikes()
+		, m_lightning_time()
+		, m_factory(new ResourceFactory(rdr, EResourceFactoryLifetime::Retained))
 	{
+		// Strike slots are reserved so they never move. Scenes refer to their instances until the next frame.
+		m_strikes.reserve(StrikesMax);
+
 		// A full-screen triangle covers perspective and orthographic views without cube seams or clip-distance dependence.
 		rdr12::ModelGenerator::Buffers<Vert> buf;
 		buf.Reset(3, 0, 0, sizeof(uint16_t));
@@ -311,6 +335,13 @@ namespace pr::game_systems
 		m_inst.m_sko.Group(ESortGroup::Skybox);
 		shdr->m_cloud_noise = CreateCloudNoise(factory);
 		factory.FlushToGpu(EGpuFlush::Block);
+	}
+
+	// Release the strikes' resources before the factory that created them.
+	ProceduralSky::~ProceduralSky()
+	{
+		m_strikes.clear();
+		m_factory.reset();
 	}
 
 	// True when 'matrix' is a finite pure rotation of directions, with no scale or translation.
@@ -370,6 +401,8 @@ namespace pr::game_systems
 		}
 		if (!IsDirectionRotation(settings.m_sky_to_stars))
 			throw std::invalid_argument("Procedural sky requires the sky-to-stars transform to be a finite rotation");
+		if (!std::isfinite(settings.m_exposure) || settings.m_exposure < 0 || !std::isfinite(settings.m_lightning_time))
+			throw std::invalid_argument("Procedural sky requires a finite nonnegative exposure and a finite lightning time");
 
 		// Align the wind frames with the wind. The first update aligns frame 1 immediately. Later, once any cross-fade has finished, a wind that
 		// has turned too far from frame 1 starts a cross-fade to a new frame. The new frame keeps the old frame's offsets, which is harmless
@@ -443,6 +476,107 @@ namespace pr::game_systems
 			m_shader->m_cbuf.moon_light_direction = Normalise(moon_light_direction);
 		}
 		m_shader->m_cbuf.sky_to_stars = settings.m_sky_to_stars;
+		m_shader->m_cbuf.exposure = v4(settings.m_exposure, 0, 0, 0);
+
+		// Each strike lights the cloud where the bolt starts and where it leaves the cloud base. Strikes that have ended add no glow.
+		static_assert(StrikesMax * 2 == PR_SKY_FORK_GLOW_MAX);
+		m_lightning_time = settings.m_lightning_time;
+		for (int i = 0; i != PR_SKY_FORK_GLOW_MAX; ++i)
+			m_shader->m_cbuf.fork_glow[i] = v4::Zero();
+
+		for (int i = 0; i != isize(m_strikes); ++i)
+		{
+			// The glow follows the bolt's brightness, so it flickers with the return strokes.
+			auto& strike = m_strikes[i];
+			auto light = strike.Show(s_cast<float>(m_lightning_time - strike.m_start_time));
+			auto const& bolt = strike.m_bolt;
+			m_shader->m_cbuf.fork_glow[2 * i + 0] = v4(bolt.m_origin.x, bolt.m_origin.y, ForkGlowRadius, 0.8f * light.m_glow);
+			m_shader->m_cbuf.fork_glow[2 * i + 1] = v4(bolt.m_exit.x, bolt.m_exit.y, ForkGlowRadius, 0.8f * light.m_glow);
+		}
+	}
+
+	// Grow the bolt below the cloud base at the strike point, and use a free slot, or the slot of the strike that ends first.
+	void ProceduralSky::Strike(v4 const& ground, uint32_t seed)
+	{
+		// The cloud base is lowered over storms in the same way as the shader lowers it (see CloudLowerScale).
+		auto const& clouds = m_shader->m_cbuf.clouds;
+		auto cover = m_shader->m_weather ? m_shader->m_weather->CoverAt(v2(ground.x, ground.y), clouds.cover) : clouds.cover;
+		auto cloud_base = v4(PR_SKY_CLOUD_LAYER0).x * Lerp(1.0f, PR_SKY_CLOUD_LOWER_SCALE, SmoothStep(PR_SKY_CLOUD_LOWER_START, 1.0f, cover));
+		if (!IsFinite(ground.w1()) || !(ground.z < cloud_base))
+			throw std::invalid_argument("A lightning strike requires a finite ground point below the cloud base");
+
+		// A new strike replaces a strike that has ended, or the one that will end soonest.
+		LightningStrike strike(*m_factory, LightningBolt(ground, cloud_base, seed), m_lightning_time);
+		m_factory->FlushToGpu(EGpuFlush::Async);
+		if (isize(m_strikes) != StrikesMax)
+		{
+			m_strikes.push_back(std::move(strike));
+			return;
+		}
+		auto end_time = [](LightningStrike const& s)
+		{
+			return s.m_start_time + s.m_bolt.m_duration;
+		};
+		auto slot = std::min_element(m_strikes.begin(), m_strikes.end(), [&](auto const& a, auto const& b) { return end_time(a) < end_time(b); });
+		*slot = std::move(strike);
+	}
+
+	// The strongest dazzle of any strike at the given time, weakened for strikes outside the camera's view.
+	float ProceduralSky::Dazzle(double lightning_time, Camera const& camera, float away_scale) const
+	{
+		// The away scale blends between full and reduced dazzle, so it must be a fraction.
+		if (!(away_scale >= 0 && away_scale <= 1))
+			throw std::invalid_argument("The dazzle away scale must be in [0,1]");
+
+		// Bolt nodes are in the sky frame. Rotate them into the scene, as AddStrikesToScene does, then into camera space.
+		auto sky_to_world = Transpose3x3(m_shader->m_cbuf.clouds.world_to_sky);
+		sky_to_world.pos = v4::Origin();
+		auto sky_to_camera = camera.WorldToCamera() * sky_to_world;
+		auto tan_x = s_cast<float>(std::tan(camera.FovX() / 2));
+		auto tan_y = s_cast<float>(std::tan(camera.FovY() / 2));
+
+		auto dazzle = 0.0f;
+		for (auto const& strike : m_strikes)
+		{
+			// A strike that cannot beat the current dazzle, even in full view, needs no view test.
+			auto strike_dazzle = strike.m_bolt.LightAt(s_cast<float>(lightning_time - strike.m_start_time)).m_dazzle;
+			if (strike_dazzle <= dazzle)
+				continue;
+
+			// The bolt is as visible as its node nearest to the view. Any node inside the view gives full dazzle.
+			auto outside = constants<float>::tau;
+			for (auto const& node : strike.m_bolt.m_nodes)
+			{
+				outside = std::min(outside, AngleOutsideView(sky_to_camera * node.m_pos, tan_x, tan_y));
+				if (outside <= 0)
+					break;
+			}
+
+			// Fade smoothly from full dazzle at the edge of the view to the away scale.
+			auto view = Lerp(1.0f, away_scale, SmoothStep(0.0f, DazzleViewFade, outside));
+			dazzle = std::max(dazzle, strike_dazzle * view);
+		}
+		return dazzle;
+	}
+
+	// The ground point and stroke flash of each strike that is lighting the ground.
+	std::vector<LightningGroundLight> ProceduralSky::GroundLights(double lightning_time) const
+	{
+		// Ground points are in the sky frame. Rotate them into the scene, as AddStrikesToScene does.
+		auto sky_to_world = Transpose3x3(m_shader->m_cbuf.clouds.world_to_sky);
+		sky_to_world.pos = v4::Origin();
+
+		std::vector<LightningGroundLight> lights;
+		for (auto const& strike : m_strikes)
+		{
+			// Only strikes whose return strokes are flashing light the ground.
+			auto flash = strike.m_bolt.LightAt(s_cast<float>(lightning_time - strike.m_start_time)).m_flash;
+			if (!(flash > 0))
+				continue;
+
+			lights.push_back(LightningGroundLight{ .m_position = sky_to_world * strike.m_bolt.m_ground, .m_brightness = flash });
+		}
+		return lights;
 	}
 
 	// Retain the weather map; the shader reads its area and texture each frame.
@@ -465,6 +599,24 @@ namespace pr::game_systems
 		m_inst.m_i2w.pos = scene.m_cam.CameraToWorld().pos;
 		scene.AddInstance(m_inst);
 		scene.CloudSky(this);
+		AddStrikesToScene(scene);
+	}
+
+	// Strikes are positioned in the sky frame, so their instances rotate the sky frame into the scene.
+	void ProceduralSky::AddStrikesToScene(Scene& scene)
+	{
+		// Only strikes that are visible at the last update are drawn.
+		auto sky_to_world = Transpose3x3(m_shader->m_cbuf.clouds.world_to_sky);
+		sky_to_world.pos = v4::Origin();
+		for (auto& strike : m_strikes)
+		{
+			auto age = m_lightning_time - strike.m_start_time;
+			if (!(age >= 0 && age < strike.m_bolt.m_duration))
+				continue;
+
+			strike.m_inst.m_i2w = sky_to_world;
+			scene.AddInstance(strike.m_inst);
+		}
 	}
 
 	// The shadows weaken with the atmosphere's share of the background, so a cubemap-only background casts none.

@@ -693,6 +693,8 @@ namespace pr
 		// 'm_moon_direction' points toward the moon. 'm_moon_light_direction' points from the moon toward the light that lights it, which sets the phase:
 		// equal to m_moon_direction is a new moon, equal to -m_moon_direction is a full moon. Both must be finite and nonzero when the moon is shown.
 		// 'm_sky_to_stars' rotates sky-frame directions into the star frame (Z = north celestial pole, X = right ascension 0h). Must be a rotation.
+		// 'm_exposure' (finite, >= 0, 1 = normal) scales the sky's natural light but not fork lightning, so lowering it during a strike makes the bolt dazzle.
+		// 'm_lightning_time' (finite, seconds) is the fork lightning clock. Strikes start at its current value; use real time, not game time.
 		struct ProceduralSkySettings
 		{
 			Vec4 m_sun_direction = { 0.5f, 0.3f, 0.8f, 0.0f };
@@ -709,6 +711,27 @@ namespace pr
 			Vec4 m_moon_direction = { -0.5f, -0.3f, 0.5f, 0.0f };
 			Vec4 m_moon_light_direction = { 0.5f, 0.3f, -0.5f, 0.0f };
 			Mat4x4 m_sky_to_stars = { {1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}, {0, 0, 0, 1} };
+			float m_exposure = 1.0f;
+			double m_lightning_time = 0.0;
+		};
+
+		// Rain around the camera. See RainSettings in pr/game-systems/sky/rain.h for the full contract. The frame is any right-handed frame.
+		// 'm_wind' is the air's velocity (finite). 'm_fall_velocity' is a drop's velocity in still air (finite, nonzero); it decides which way is down.
+		// 'm_camera_velocity' (finite) is the camera's velocity, which leans the streaks. 'm_colour' is the lit drop colour (linear rgb, finite, >= 0).
+		// 'm_intensity' in [0,1] is how hard it rains (0 = none, 1 = a heavy downpour). 'm_opacity' in [0,1] is the most a single streak covers.
+		// 'm_streak_time' (> 0, seconds) is the streak exposure time. 'm_drop_width' (> 0) is a drop's width in world units at full intensity.
+		// 'm_time' (finite, seconds) is the caller's clock; drops move by its change between updates, so a slow clock gives slow-motion rain.
+		struct RainSettings
+		{
+			Vec4 m_wind = { 0.0f, 0.0f, 0.0f, 0.0f };
+			Vec4 m_fall_velocity = { 0.0f, 0.0f, -7.0f, 0.0f };
+			Vec4 m_camera_velocity = { 0.0f, 0.0f, 0.0f, 0.0f };
+			Vec4 m_colour = { 0.6f, 0.65f, 0.7f, 1.0f };
+			float m_intensity = 0.0f;
+			float m_opacity = 0.25f;
+			float m_streak_time = 0.02f;
+			float m_drop_width = 0.0015f;
+			double m_time = 0.0;
 		};
 
 		// Sun, moon and star state from the Sun–Earth–Moon model, in the procedural sky's frame (+Z up, +Y north, +X east). See CelestialState
@@ -1984,6 +2007,16 @@ extern "C"
 	VIEW3D_API pr::view3d::BBox __stdcall View3D_WindowEnvMapParallaxBoundsGet(pr::view3d::Window window);
 	VIEW3D_API void __stdcall View3D_WindowEnvMapParallaxBoundsSet(pr::view3d::Window window, pr::view3d::BBox bounds);
 
+	// Get/Set how wet the window's PBR surfaces are, in [0,1]. Water darkens porous (non-metallic) surfaces, smooths them, and makes them reflect the
+	// environment map, even when the instance itself has no reflectivity. Surfaces facing the wetness up direction are fully wet, vertical surfaces
+	// less so, and surfaces facing away from it stay dry. Zero (the default) leaves surfaces unchanged.
+	VIEW3D_API float __stdcall View3D_WindowWetnessGet(pr::view3d::Window window);
+	VIEW3D_API void __stdcall View3D_WindowWetnessSet(pr::view3d::Window window, float wetness);
+
+	// Get/Set the world-space unit direction (w = 0) that surfaces face to be fully wet. The default is +Z.
+	VIEW3D_API pr::view3d::Vec4 __stdcall View3D_WindowWetnessUpGet(pr::view3d::Window window);
+	VIEW3D_API void __stdcall View3D_WindowWetnessUpSet(pr::view3d::Window window, pr::view3d::Vec4 up);
+
 	// Get/Set the world-space plane whose surfaces reflect the rendered scene, as (unit normal xyz, distance w along the normal). Shaders that opt in
 	// reflect the opaque scene visible on screen and fall back to the environment map where it has no data. Zero (the default) disables it.
 	VIEW3D_API pr::view3d::Vec4 __stdcall View3D_WindowReflectionPlaneGet(pr::view3d::Window window);
@@ -2268,9 +2301,31 @@ extern "C"
 	// Returns FALSE on a non-sky object, without changing the previous weather.
 	VIEW3D_API BOOL __stdcall View3D_ObjectProceduralSkyWeatherSet(pr::view3d::Object object, pr::view3d::WeatherMap weather);
 
+	// Start a fork lightning strike at 'ground' (a sky-frame point below the cloud base) at the sky's current lightning time. The same 'seed' always
+	// grows the same bolt. Returns FALSE on a non-sky object or an invalid ground point, without starting a strike.
+	VIEW3D_API BOOL __stdcall View3D_ObjectProceduralSkyStrike(pr::view3d::Object object, pr::view3d::Vec4 ground, uint32_t seed);
+
+	// Get how strongly the sky's fork lightning strikes dazzle the camera of 'window' at 'lightning_time', in [0,1]. A strike dazzles fully while
+	// any part of its bolt is in view, fading to 'away_scale' (in [0,1]) times as much once the bolt is well outside the view. The sky does not
+	// darken the scene itself; callers lower ProceduralSkySettings::m_exposure and their own scene lighting by it. Returns FALSE on a non-sky object
+	// or an invalid 'away_scale'.
+	VIEW3D_API BOOL __stdcall View3D_ObjectProceduralSkyDazzle(pr::view3d::Object object, pr::view3d::Window window, double lightning_time, float away_scale, float* dazzle);
+
+	// Get the ground light of each strike whose return strokes are lighting the ground at 'lightning_time'. Each entry of 'lights' receives the
+	// bolt's ground point in the scene frame (xyz) and the flash brightness in (0,1] (w). The sky adds no lights; callers place their own.
+	// Writes at most 'capacity' entries (the sky has at most 4 strikes) and returns the number written, or -1 on a non-sky object.
+	VIEW3D_API int __stdcall View3D_ObjectProceduralSkyGroundLights(pr::view3d::Object object, double lightning_time, pr::view3d::Vec4* lights, int capacity);
+
 	// Retain and blend a source cube map (0=cubemap, 1=atmosphere). Direction transforms must be finite rotations.
 	// The cubemap's own orientation is composed with world_to_background. Null background requires weight 1. FALSE leaves the sky unchanged.
 	VIEW3D_API BOOL __stdcall View3D_ObjectBlendProceduralSky(pr::view3d::Object object, pr::view3d::CubeMap background, float weight, pr::view3d::Mat4x4 const& world_to_sky, pr::view3d::Mat4x4 const& world_to_background);
+
+	// Create rain that fills all of space around whichever camera draws it, as motion-blurred streaks. See RainSettings for the parameter contract.
+	// The rain draws after opaque geometry. Returns null for invalid settings.
+	VIEW3D_API pr::view3d::Object __stdcall View3D_ObjectCreateRain(char const* name, pr::view3d::RainSettings const& settings, GUID const* context_id);
+
+	// Change the rain and move its drops by the change in 'm_time'. FALSE for invalid settings or a non-rain object, leaving the rain unchanged.
+	VIEW3D_API BOOL __stdcall View3D_ObjectUpdateRain(pr::view3d::Object object, pr::view3d::RainSettings const& settings);
 
 	// Place the sun, moon and stars for an observer at 'latitude' (degrees in [-90, 90], negative is south), 'day' days since midnight at the start of
 	// 1 January (the fraction is the time of day), and 'moon_age' days since the last new moon. Any finite day and moon age are valid because both repeat.

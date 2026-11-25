@@ -535,6 +535,30 @@ PbrFragmentDetail PbrFragmentDetailFromRoughness(float roughness_scale)
 	return detail;
 }
 
+// How much water in its pores darkens a fully wet non-metal, and the roughness and environment reflectivity of the water film on a fully wet surface.
+// The film is thin and follows the surface texture, so it gives a faint, broad sheen rather than a mirror. Both are kept weak: a smoother film concentrates
+// the sun into glints many times brighter than the darkened surface, and distant ground is seen at grazing angles, where a stronger reflection of a bright
+// sky would outweigh the darkening and make wet ground look paler than dry ground.
+static const float WetAlbedoScale = 0.35f;
+static const float WetRoughness = 0.5f;
+static const float WetReflectivity = 0.05f;
+
+// Return how wet a surface with the world-space unit 'normal' is, in [0,1], from the frame's wetness. Surfaces facing the wetness up direction are
+// fully wet, vertical surfaces are partly wet because water runs off them, and surfaces facing down stay dry.
+float SurfaceWetness(float3 normal)
+{
+	// 'facing' is 1 facing up, 0 vertical, and -1 facing down. Wetness reaches zero a little below vertical.
+	float facing = dot(normal, g_frame.wetness.xyz);
+	return g_frame.wetness.w * saturate(0.4f + 0.6f * facing);
+}
+
+// Return 'albedo' darkened by the water that a surface with wetness 'wet' (see SurfaceWetness) holds. Metals do not absorb water, so they keep their colour.
+float3 WetAlbedo(float3 albedo, float metallic, float wet)
+{
+	// Water in the pores lets light scatter further into the surface, where more of it is absorbed.
+	return albedo * lerp(1.0f, WetAlbedoScale, wet * (1.0f - metallic));
+}
+
 // Direct-lighting PBR pixel shader path using the supplied UV coordinates for each texture slot. 'detail' adjusts the material per fragment.
 PSOut PSForwardPbrSampledUV(PSIn In, bool is_front_face, float2 base_uv, float2 metallic_uv, float2 roughness_uv, float2 emissive_uv, float2 normal_uv, PbrFragmentDetail detail)
 {
@@ -620,13 +644,22 @@ PSOut PSForwardPbrSampledUV(PSIn In, bool is_front_face, float2 base_uv, float2 
 	if (has_procedural || any(detail.height_gradient != 0.0f))
 		normal = ProceduralWorldNormal(normal, detail.procedural_strength * procedural.gradient + detail.height_gradient);
 
+	// Wet the surface. Water filling the pores of a non-metal darkens it, and the water film over any surface makes it smoother.
+	float wet = SurfaceWetness(normal);
+	albedo = WetAlbedo(albedo, metallic, wet);
+	roughness = lerp(roughness, min(roughness, WetRoughness), wet);
+
 	// Evaluate direct PBR lighting using the shared PBR material lighting helper.
 	float3 view = normalize(g_frame.cam.c2w[3].xyz - In.ws_vert.xyz);
 	float3 colour = PbrIlluminate(g_lights, g_frame.light_info.x, g_frame.ambient.rgb, In.ws_vert.xyz, normal, view, albedo, metallic, roughness, emissive);
 
 	// Add specular reflection of the environment map. Rougher surfaces sample blurrier mips, and the Fresnel term keeps dielectrics mostly
-	// non-reflective except at grazing angles. 'env_reflectivity' scales the whole term so reflections remain opt-in per instance.
-	if (HasEnvMap(g_nugget.flags))
+	// non-reflective except at grazing angles. 'reflectivity' scales the whole term so reflections remain opt-in per instance, except that a wet
+	// surface reflects at least as much as its water film. 'g_frame.env_map.blend.y' is 0 when there is no environment map to reflect.
+	float reflectivity = HasEnvMap(g_nugget.flags) ? g_nugget.env_reflectivity : 0.0f;
+	if (g_frame.env_map.blend.y != 0.0f)
+		reflectivity = max(reflectivity, wet * WetReflectivity);
+	if (reflectivity > 0.0f)
 	{
 		uint env_w, env_h, env_mips;
 		g_envmap_texture.GetDimensions(0, env_w, env_h, env_mips);
@@ -635,12 +668,12 @@ PSOut PSForwardPbrSampledUV(PSIn In, bool is_front_face, float2 base_uv, float2 
 		float3 f0 = lerp(0.04f, albedo, metallic);
 		float n_dot_v = saturate(dot(normal, view));
 		float3 fresnel = f0 + (max(1.0f - roughness, f0) - f0) * pow(1.0f - n_dot_v, 5.0f);
-		float importance = max(max(fresnel.r, fresnel.g), fresnel.b) * saturate(g_nugget.env_reflectivity);
+		float importance = max(max(fresnel.r, fresnel.g), fresnel.b) * saturate(reflectivity);
 
 		float3 r, r_prev;
 		EnvMapDirections(In.ws_vert.xyz, reflect(-view, normal), In.ss_vert.xy, importance, lod, r, r_prev);
 		float3 env = SampleEnvMapLevel(r, r_prev, lod).rgb;
-		colour += env * fresnel * g_nugget.env_reflectivity;
+		colour += env * fresnel * reflectivity;
 	}
 
 	Out.diff = float4(saturate(colour), alpha);

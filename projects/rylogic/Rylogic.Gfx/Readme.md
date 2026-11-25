@@ -117,10 +117,47 @@ the same cloud field as the sky, so the shadows match the visible clouds and dri
 independent of shadow maps, fade out in a full storm, and weaken with the atmosphere's blend weight, so a
 cubemap-only background casts none. Ray traced reflections are not shaded by clouds.
 
+`Strike(ground, seed)` starts a fork lightning bolt at a sky-frame ground point below the cloud base. The bolt is
+procedural (the same seed always grows the same bolt): it starts high in the cloud, wanders through it, then branches
+down to the ground point. Its leader grows in a few tens of milliseconds, the return stroke flashes and holds at full
+brightness for 60 ms, the bolt may restrike once or twice, then it fades and thins over about half a second. The cloud glows from inside around the bolt.
+Strikes follow `ProceduralSkySettings.LightningTime`, a real-time clock that the caller advances. The sky does not
+darken the scene: `Dazzle(window, lightning_time, away_scale)` (0 to 1) says how strongly the strikes dazzle the
+window's camera, full while any part of a bolt is in view and fading to `away_scale` times as much when the bolt is
+well outside it. The caller lowers `ProceduralSkySettings.Exposure` (which scales the sky's natural light but not the
+bolt or its glow) and its own scene lighting by it, so for a few frames only the bolt and the lit clouds are visible.
+The sky adds no lights either: `GroundLights(lightning_time)` gives the ground point and flash brightness of each
+strike whose return strokes are flashing, for callers that place a brief bright point light where the bolt hits.
+
 The sky does **not** generate a reflection cube map. Set `window.EnvironmentMap = null` when switching from an
 authored environment to this sky unless a separate reflection source is intended. The C ABI exposes
-`View3D_ObjectCreateProceduralSky`, `View3D_ObjectUpdateProceduralSky` and `View3D_ObjectBlendProceduralSky`;
+`View3D_ObjectCreateProceduralSky`, `View3D_ObjectUpdateProceduralSky`, `View3D_ObjectBlendProceduralSky`,
+`View3D_ObjectProceduralSkyStrike`, `View3D_ObjectProceduralSkyDazzle` and `View3D_ObjectProceduralSkyGroundLights`;
 destruction uses `View3D_ObjectDelete`.
+
+### Rain
+
+`View3d.Rain` owns rain that fills all of space around whichever camera draws it, so the density never drops however
+fast the camera moves. Drops live in four nested layers of repeating tiles (8, 24, 72 and 216 units), each drawn in a
+shell around the camera, so near drops are fine and close while far drops are sparse and merge into a haze about 100
+units away. Each drop is drawn as a thin streak along its motion relative to the camera (`FallVelocity + Wind -
+CameraVelocity`) over `StreakTime`, so moving the camera leans the streaks.
+
+```csharp
+using var rain = new View3d.Rain("Rain", View3d.RainSettings.Default);
+window.AddObject(rain.Object);
+
+// Each frame
+var settings = View3d.RainSettings.Default;
+settings.Intensity = 0.7f;              // 0 = none, small = light sparse shower, 1 = heavy downpour
+settings.CameraVelocity = camera_velocity;
+settings.Colour = sky_ambient;          // the caller lights the rain
+settings.Time = game_time;              // drops move by the change in time, so slow time gives slow-motion rain
+rain.Update(settings);
+```
+
+Rain draws after opaque geometry with premultiplied alpha. It has no fog, no shelter under roofs, and the C ABI is
+`View3D_ObjectCreateRain` and `View3D_ObjectUpdateRain`; destruction uses `View3D_ObjectDelete`.
 
 ## Game systems
 

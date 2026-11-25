@@ -135,8 +135,8 @@ namespace pr::rdr12::ldraw
 		string32 FullName() const;
 
 		// Called just prior to this object being added to a scene.
-		// Allows handlers to change the object's 'i2w' transform, visibility, etc.
-		EventHandler<LdrObject&, Scene const&, true> OnAddToScene;
+		// Allows handlers to change the object's 'i2w' transform, visibility, etc., and to add their own instances to the scene.
+		EventHandler<LdrObject&, Scene&, true> OnAddToScene;
 
 		// Recursively add this object and its children to a scene
 		void AddToScene(Scene& scene, m4x4 const& p2w = m4x4::Identity(), ELdrFlags parent_flags = ELdrFlags::None);

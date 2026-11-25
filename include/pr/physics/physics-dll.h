@@ -49,8 +49,8 @@ namespace pr::physics
 namespace pr::physics
 {
 	inline constexpr std::uint32_t PHYSICS_API_VERSION = 0x000A0000U;
-	inline constexpr std::uint32_t PHYSICS_STRUCT_VERSION = 3U;
-	inline constexpr std::uint32_t PHYSICS_CHECKPOINT_VERSION = 4U;
+	inline constexpr std::uint32_t PHYSICS_STRUCT_VERSION = 4U;
+	inline constexpr std::uint32_t PHYSICS_CHECKPOINT_VERSION = 5U;
 
 	// Reported in place of a compound child index when the shape involved has no child identity.
 	inline constexpr std::uint32_t PHYSICS_NO_CHILD = 0xFFFFFFFFU;
@@ -262,6 +262,11 @@ namespace pr::physics
 		float tangential_elasticity;
 		float torsional_elasticity;
 		float density;
+
+		// Dimensionless rolling and spin resistance coefficients, both finite and >= 0. The resisting angular impulse is limited to
+		// 'coefficient * normal_impulse * r', where 'r' is the contact-to-centre-of-mass distance along the contact normal. 0 disables the resistance.
+		float rolling_resistance;
+		float spin_resistance;
 	};
 
 	#pragma endregion

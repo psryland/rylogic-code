@@ -305,6 +305,212 @@ namespace pr::physics::tests
 		}
 	};
 
+	// Prepare the shared engine for a rolling resistance test: no terrain or boundary, and a grippy material with the given resistance coefficients.
+	inline Engine& RollingResistanceEngine(float rolling_resistance, float spin_resistance)
+	{
+		// Friction is high enough that every test body rolls rather than slides
+		auto& engine = SharedEngine();
+		ResetEngineForNextTest(engine);
+		engine.Terrain(std::nullopt);
+		engine.CylindricalBoundary(std::nullopt);
+		engine.Material(Material{
+			.m_friction_static = 0.6f,
+			.m_elasticity_norm = 0.05f,
+			.m_density = 1,
+			.m_rolling_resistance = rolling_resistance,
+			.m_spin_resistance = spin_resistance,
+		});
+		return engine;
+	}
+
+	// Rolling and spin resistance must stop round bodies without preventing tall bodies from tipping.
+	PRUnitTestClass(RollingResistanceTests)
+	{
+		// The accumulated angular impulse must oppose rolling and spin, and stay within 'coefficient * Jn * r'. Zero coefficients must change nothing.
+		PRUnitTestMethod(AngularImpulseRespectsLimit, Quick)
+		{
+			for (auto const coefficient : {0.0f, 0.2f})
+			{
+				// A ball of radius 0.5 rolls along +X without slip and also spins about the contact normal, supported by a known normal impulse.
+				auto config = EngineConfig{};
+				config.push_out_iterations = 0;
+				config.velocity_baumgarte = 0;
+				auto const radius = 0.5f;
+				auto const support = 0.1f;
+				auto sphere = collision::ShapeSphere{radius};
+				auto ground = collision::ShapeBox{v4{10, 10, 1, 0}};
+				auto body = RigidBody{&sphere, m4x4::Translation(0, 0, radius), Inertia::Sphere(radius, 1)};
+				auto fixed = RigidBody{&ground, m4x4::Translation(0, 0, -0.5f), Inertia::Infinite()};
+				body.VelocityWS(v4{0, 2, 3, 0}, v4{1, 0, 0, 0});
+				auto bodies = std::array{PackDynamics(body, 0), PackDynamics(fixed, 1)};
+				auto contacts = std::array{GpuResolveContact{
+					.axis = -v4::ZAxis(),
+					.contact_point = v4{0, 0, -radius, 1},
+					.b2a = InvertOrthonormal(body.O2W()) * fixed.O2W(),
+					.body_idx_a = 0, .body_idx_b = 1,
+					.warmstart_impulse = v4{0, 0, -support, 0},
+				}};
+				auto materials = std::array{GpuMaterial{.friction_static = 0.6f, .rolling_resistance = coefficient, .spin_resistance = coefficient}};
+				auto const energy_before = body.KineticEnergy();
+				auto runner = ResolveInteropRunner{config};
+				runner.Run({.m_dt = 1.0f / 60, .m_bodies = bodies, .m_contacts = contacts, .m_materials = materials});
+				UnpackDynamics(bodies[0], body);
+
+				// Split the accumulated angular impulse into its spin (normal) and rolling (tangent) parts
+				auto const angular_impulse = contacts[0].angular_impulse;
+				auto const spin_impulse = Abs(angular_impulse.z);
+				auto const roll_impulse = Length(v4{angular_impulse.x, angular_impulse.y, 0, 0});
+				auto const velocity = body.VelocityWS();
+				log_stream() << std::format("coefficient={:g}: roll impulse={:g} spin impulse={:g} ang=({:g},{:g},{:g})\n", coefficient, roll_impulse, spin_impulse, velocity.ang.x, velocity.ang.y, velocity.ang.z);
+				if (coefficient == 0)
+				{
+					PR_EXPECT(Length(angular_impulse) == 0);
+					PR_EXPECT(FEqlAbsolute(velocity.ang.z, 3.0f, 1.0e-5f));
+				}
+				else
+				{
+					// The ball's inertia about any axis is 0.4 * m * r^2 = 0.1, so a saturated impulse removes at most limit / 0.1 of the spin rate
+					auto const limit = coefficient * support * radius;
+					PR_EXPECT(roll_impulse > 0 && roll_impulse <= limit + 1.0e-6f);
+					PR_EXPECT(spin_impulse > 0 && spin_impulse <= limit + 1.0e-6f);
+					PR_EXPECT(velocity.ang.z < 3.0f && velocity.ang.z >= 3.0f - limit / 0.1f - 1.0e-5f);
+					PR_EXPECT(body.KineticEnergy() < energy_before);
+				}
+			}
+		}
+
+		// A rolling ball and a rolling capsule on flat ground must stop and sleep, while without resistance they keep rolling.
+		PRUnitTestMethod(RoundBodiesStopAndSleepOnFlatGround, Extended)
+		{
+			for (auto const coefficient : {0.0f, 0.1f})
+			{
+				auto& engine = RollingResistanceEngine(coefficient, coefficient);
+
+				// Both bodies roll along +Y at 2 m/s without slip. The capsule lies along the X axis.
+				auto const speed = 2.0f;
+				auto sphere = collision::ShapeSphere{0.3f};
+				auto capsule = collision::ShapeLine{1.6f, 0.25f, m4x4::Transform(v4::YAxis(), constants<float>::tau_by_4, v4::Origin())};
+				auto ground_shape = collision::ShapeBox{v4{200, 200, 2, 0}};
+				auto ball = RigidBody{&sphere, m4x4::Translation(-3, 0, 0.3f), Inertia::Sphere(0.3f, 2)};
+				auto log = RigidBody{};
+				log.Shape(collision::shape_cast(&capsule), 5.0f, false);
+				log.O2W(m4x4::Translation(3, 0, 0.25f));
+				auto ground = RigidBody{&ground_shape, m4x4::Translation(0, 0, -1), Inertia::Infinite()};
+				ball.VelocityWS(v4{-speed / 0.3f, 0, 0, 0}, v4{0, speed, 0, 0});
+				log.VelocityWS(v4{-speed / 0.25f, 0, 0, 0}, v4{0, speed, 0, 0});
+				auto bodies = std::array<RigidBody*, 3>{&ball, &log, &ground};
+				for (int tick = 0; tick != 300; ++tick)
+				{
+					ball.GravityWS(v4{0, 0, -9.81f, 0});
+					log.GravityWS(v4{0, 0, -9.81f, 0});
+					engine.Step(Engine::StepInput{.m_bodies = bodies, .m_elapsed_seconds = 1.0f / 60, .m_substep_count = 4, .m_time_s = tick / 60.0});
+				}
+
+				// Rolling resistance of 0.1 decelerates the ball at about 0.7 m/s^2, so both bodies stop within about 3 seconds and then sleep
+				auto const ball_speed = Length(ball.VelocityWS().lin);
+				auto const log_speed = Length(log.VelocityWS().lin);
+				log_stream() << std::format("coefficient={:g}: ball speed={:g} sleeping={} travel={:g}; capsule speed={:g} sleeping={} travel={:g}\n",
+					coefficient, ball_speed, ball.Sleeping(), ball.O2W().pos.y, log_speed, log.Sleeping(), log.O2W().pos.y);
+				if (coefficient == 0)
+				{
+					PR_EXPECT(ball_speed > 1.0f);
+					PR_EXPECT(log_speed > 1.0f);
+				}
+				else
+				{
+					PR_EXPECT(ball.Sleeping() && ball_speed < 0.01f);
+					PR_EXPECT(log.Sleeping() && log_speed < 0.01f);
+				}
+			}
+		}
+
+		// A round body rests on a slope whose tangent is below the rolling resistance coefficient, and still rolls down a steeper slope.
+		PRUnitTestMethod(SlopeThreshold, Extended)
+		{
+			// tan(4 deg) = 0.07 and tan(12 deg) = 0.21, either side of the 0.1 coefficient. The 4 degree case without resistance shows the slope does roll.
+			auto const cases = std::array{std::pair{4.0f, 0.1f}, std::pair{12.0f, 0.1f}, std::pair{4.0f, 0.0f}};
+			for (auto const& [slope_degrees, coefficient] : cases)
+			{
+				auto& engine = RollingResistanceEngine(coefficient, 0.0f);
+				auto const angle = DegreesToRadians(slope_degrees);
+				auto const normal = v4{-Sin(angle), 0, Cos(angle), 0};
+				auto const uphill = v4{Cos(angle), 0, Sin(angle), 0};
+				auto sphere = collision::ShapeSphere{0.5f};
+				auto ground_shape = collision::ShapeBox{v4{100, 100, 2, 0}};
+				auto ball = RigidBody{&sphere, m4x4::Translation(v4::Origin() + 0.495f * normal), Inertia::Sphere(0.5f, 1)};
+				auto ground = RigidBody{&ground_shape, m4x4{uphill, v4::YAxis(), normal, v4::Origin() - normal}, Inertia::Infinite()};
+				auto bodies = std::array<RigidBody*, 2>{&ball, &ground};
+				auto const start = ball.O2W().pos;
+				for (int tick = 0; tick != 120; ++tick)
+				{
+					ball.GravityWS(v4{0, 0, -9.81f, 0});
+					engine.Step(Engine::StepInput{.m_bodies = bodies, .m_elapsed_seconds = 1.0f / 60, .m_substep_count = 4, .m_time_s = tick / 60.0});
+				}
+
+				// Free rolling covers about 1 m in 2 s on the 4 degree slope and about 1.5 m on the 12 degree slope with resistance
+				auto const downhill_travel = -Dot3(ball.O2W().pos - start, uphill);
+				auto const holds = coefficient > 0 && Tan(angle) < coefficient;
+				log_stream() << std::format("slope={:g} coefficient={:g}: downhill travel={:g} speed={:g}\n", slope_degrees, coefficient, downhill_travel, Length(ball.VelocityWS().lin));
+				PR_EXPECT(holds ? Abs(downhill_travel) < 0.05f : downhill_travel > 0.5f);
+			}
+		}
+
+		// Spin resistance must stop a ball spinning in place about the contact normal.
+		PRUnitTestMethod(SpinDecays, Extended)
+		{
+			for (auto const coefficient : {0.0f, 0.1f})
+			{
+				// Spin resistance of 0.1 on a 0.5 m ball gives an angular deceleration of 0.1 * g * r / (0.4 * r^2), about 4.9 rad/s^2
+				auto& engine = RollingResistanceEngine(0.0f, coefficient);
+				auto sphere = collision::ShapeSphere{0.5f};
+				auto ground_shape = collision::ShapeBox{v4{100, 100, 2, 0}};
+				auto ball = RigidBody{&sphere, m4x4::Translation(0, 0, 0.495f), Inertia::Sphere(0.5f, 1)};
+				auto ground = RigidBody{&ground_shape, m4x4::Translation(0, 0, -1), Inertia::Infinite()};
+				ball.VelocityWS(v4{0, 0, 10, 0}, v4::Zero());
+				auto bodies = std::array<RigidBody*, 2>{&ball, &ground};
+				for (int tick = 0; tick != 180; ++tick)
+				{
+					ball.GravityWS(v4{0, 0, -9.81f, 0});
+					engine.Step(Engine::StepInput{.m_bodies = bodies, .m_elapsed_seconds = 1.0f / 60, .m_substep_count = 4, .m_time_s = tick / 60.0});
+				}
+
+				auto const spin = Abs(ball.VelocityWS().ang.z);
+				log_stream() << std::format("spin coefficient={:g}: spin after 3 s={:g}\n", coefficient, spin);
+				if (coefficient > 0)
+					PR_EXPECT(spin < 0.1f);
+			}
+		}
+
+		// Rolling resistance must not stop a tall box that is well past its tipping point from falling over.
+		PRUnitTestMethod(TallBoxStillTips, Extended)
+		{
+			for (auto const coefficient : {0.0f, 0.05f})
+			{
+				// A 0.4 x 0.4 x 2 box tilted 25 degrees about X rests on one bottom edge, with its centre of mass well outside that edge
+				auto& engine = RollingResistanceEngine(coefficient, coefficient);
+				auto const angle = DegreesToRadians(25.0f);
+				auto box = collision::ShapeBox{v4{0.4f, 0.4f, 2.0f, 0}};
+				auto ground_shape = collision::ShapeBox{v4{100, 100, 2, 0}};
+				auto body = RigidBody{&box, m4x4::Transform(v4::XAxis(), angle, v4{0, 0, Cos(angle) + 0.2f * Sin(angle) + 0.002f, 1}), Inertia::Box(box.m_radius, 10)};
+				auto ground = RigidBody{&ground_shape, m4x4::Translation(0, 0, -1), Inertia::Infinite()};
+				auto bodies = std::array<RigidBody*, 2>{&body, &ground};
+				auto fall_tick = -1;
+				for (int tick = 0; tick != 180; ++tick)
+				{
+					body.GravityWS(v4{0, 0, -9.81f, 0});
+					engine.Step(Engine::StepInput{.m_bodies = bodies, .m_elapsed_seconds = 1.0f / 60, .m_substep_count = 4, .m_time_s = tick / 60.0});
+					if (fall_tick < 0 && Abs(body.O2W().z.z) < 0.3f)
+						fall_tick = tick;
+				}
+
+				// The box's long axis ends close to horizontal
+				log_stream() << std::format("tipping coefficient={:g}: fall tick={} final axis z={:g}\n", coefficient, fall_tick, body.O2W().z.z);
+				PR_EXPECT(fall_tick >= 0);
+				PR_EXPECT(Abs(body.O2W().z.z) < 0.3f);
+			}
+		}
+	};
+
 	// A bounded horizontal velocity motor must carry a sliding capsule across a slope in every direction.
 	PRUnitTestClass(SlopeVelocityMotorTests)
 	{

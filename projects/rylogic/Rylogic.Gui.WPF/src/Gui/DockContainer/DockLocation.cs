@@ -1,4 +1,5 @@
 ﻿using System.Linq;
+using System.Windows;
 using System.Xml.Linq;
 using Rylogic.Extn;
 
@@ -11,12 +12,13 @@ namespace Rylogic.Gui.WPF
 		/// <summary>A record of a dock location within the dock container</summary>
 		public class DockLocation
 		{
-			public DockLocation(EDockSite[]? address = null, int index = int.MaxValue, EDockSite? auto_hide = null, int? float_window_id = null)
+			public DockLocation(EDockSite[]? address = null, int index = int.MaxValue, EDockSite? auto_hide = null, int? float_window_id = null, Rect? float_bounds = null)
 			{
 				Address = address ?? new[] { EDockSite.Centre };
 				Index = index;
 				AutoHide = auto_hide;
 				FloatingWindowId = float_window_id;
+				FloatingBounds = float_bounds;
 			}
 			public DockLocation(XElement node)
 			{
@@ -24,6 +26,7 @@ namespace Rylogic.Gui.WPF
 				Index = node.Element(XmlTag.Index).As<int>(int.MaxValue);
 				AutoHide = node.Element(XmlTag.AutoHide).As<EDockSite?>(def: null);
 				FloatingWindowId = node.Element(XmlTag.FloatingWindow).As<int?>(def: null);
+				FloatingBounds = node.Element(XmlTag.Bounds)?.As<Rect>();
 			}
 			public XElement ToXml(XElement node)
 			{
@@ -32,6 +35,11 @@ namespace Rylogic.Gui.WPF
 				{
 					// If hosted in a floating window, record the window id
 					node.Add2(XmlTag.FloatingWindow, FloatingWindowId.Value, false);
+				}
+				else if (FloatingBounds != null)
+				{
+					// If hosted in a new floating window, record its screen bounds
+					node.Add2(XmlTag.Bounds, FloatingBounds.Value, false);
 				}
 				else if (AutoHide != null)
 				{
@@ -61,11 +69,15 @@ namespace Rylogic.Gui.WPF
 			/// <summary>The Id of a floating window to dock to (or null if not in a floating window)</summary>
 			public int? FloatingWindowId { get; set; }
 
+			/// <summary>The screen bounds of a new floating window to dock to. Used when 'FloatingWindowId' is null (null if not floating)</summary>
+			public Rect? FloatingBounds { get; set; }
+
 			/// <summary></summary>
 			public override string ToString()
 			{
 				var addr = string.Join(",", Address);
 				if (FloatingWindowId != null) return $"Floating Window {FloatingWindowId.Value}: {addr} (Index:{Index})";
+				if (FloatingBounds != null) return $"New Floating Window {FloatingBounds.Value}: {addr} (Index:{Index})";
 				if (AutoHide != null) return $"Auto Hide {AutoHide.Value}: {addr} (Index:{Index})";
 				return $"Dock Container: {addr} (Index:{Index})";
 			}

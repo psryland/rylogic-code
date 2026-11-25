@@ -839,6 +839,24 @@ namespace Rylogic.Gfx
 			}
 
 			/// <summary>
+			/// How wet the window's PBR surfaces are, in [0,1]. Water darkens porous (non-metallic) surfaces, smooths them, and makes them reflect the
+			/// environment map, even when the instance itself has no reflectivity. Surfaces facing <see cref="WetnessUp"/> are fully wet, vertical
+			/// surfaces less so, and surfaces facing away from it stay dry. Zero (the default) leaves surfaces unchanged.
+			/// </summary>
+			public float Wetness
+			{
+				get => View3D_WindowWetnessGet(Handle);
+				set => View3D_WindowWetnessSet(Handle, value);
+			}
+
+			/// <summary>The world-space unit direction (w = 0) that surfaces face to be fully wet. The default is +Z.</summary>
+			public v4 WetnessUp
+			{
+				get => View3D_WindowWetnessUpGet(Handle);
+				set => View3D_WindowWetnessUpSet(Handle, value);
+			}
+
+			/// <summary>
 			/// The world-space plane whose surfaces reflect the rendered scene, as (unit normal xyz, distance w along the normal). Shaders that opt in
 			/// reflect the opaque scene visible on screen and fall back to the environment map where it has no data. v4.Zero (the default) disables it.
 			/// </summary>

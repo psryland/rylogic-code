@@ -2228,6 +2228,10 @@ namespace Rylogic.Gfx
 		// Get/Set the radius of the sphere that reflections assume the environment lies on
 		[DllImport(Dll)] private static extern BBox View3D_WindowEnvMapParallaxBoundsGet(HWindow window);
 		[DllImport(Dll)] private static extern void View3D_WindowEnvMapParallaxBoundsSet(HWindow window, BBox bounds);
+		[DllImport(Dll)] private static extern float View3D_WindowWetnessGet(HWindow window);
+		[DllImport(Dll)] private static extern void View3D_WindowWetnessSet(HWindow window, float wetness);
+		[DllImport(Dll)] private static extern v4 View3D_WindowWetnessUpGet(HWindow window);
+		[DllImport(Dll)] private static extern void View3D_WindowWetnessUpSet(HWindow window, v4 up);
 		[DllImport(Dll)] private static extern v4 View3D_WindowReflectionPlaneGet(HWindow window);
 		[DllImport(Dll)] private static extern void View3D_WindowReflectionPlaneSet(HWindow window, v4 plane);
 		[DllImport(Dll)] private static extern float View3D_WindowReflectionMinPopulationRadiusGet(HWindow window);

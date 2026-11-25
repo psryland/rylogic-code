@@ -13,4 +13,7 @@ public interface ISceneHost
 
 	/// <summary>Close and remove 'scene' using the normal UI lifecycle</summary>
 	void CloseScene(SceneUI scene);
+
+	/// <summary>Show the animation controls where they were last shown. If 'activate' is false, keyboard focus is not taken from the current window</summary>
+	void ShowAnimationControls(bool activate);
 }
