@@ -30,6 +30,23 @@ namespace pr::view3d::ui::tests
 		}
 	}
 
+	PRUnitTest(DoubleClickMessagesTranslateToButtonPresses, Quick)
+	{
+		// The second press of a quick click pair must reach controls as a press, or rapid clicks on a button are lost to the host.
+		struct Case { UINT msg; EPointerButton button; };
+		for (auto [msg, button] : { Case{ WM_LBUTTONDBLCLK, EPointerButton::Left }, Case{ WM_RBUTTONDBLCLK, EPointerButton::Right }, Case{ WM_MBUTTONDBLCLK, EPointerButton::Middle } })
+		{
+			// Each double-click message is one press of its button at the message position.
+			auto const translated = TranslateOnce(msg, 0, MAKELPARAM(40, 25));
+			PR_EXPECT(translated.recognised != 0);
+			PR_EXPECT(translated.inputs.size() == 1);
+			PR_EXPECT(translated.inputs[0].input.kind == EInputKind::PointerButtonDown);
+			PR_EXPECT(translated.inputs[0].input.button == button);
+			PR_EXPECT(translated.inputs[0].input.pointer_x == 40.0f);
+			PR_EXPECT(translated.inputs[0].input.pointer_y == 25.0f);
+		}
+	}
+
 	PRUnitTest(WmCharTranslatesABasicMultilingualPlaneCharacterToOneCharRecord, Quick)
 	{
 		// 'handled' is left to the state machine: with no focused text box the host must still let
