@@ -33,7 +33,7 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-        run: ./script/Release-NuGet.ps1 -CI
+        run: ./script/Check-NuGetRelease.ps1
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
@@ -235,7 +235,7 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-        run: ./script/Release-NuGet.ps1 -CI
+        run: ./script/Check-NuGetRelease.ps1
 
       - name: Authenticate to nuget.org
         id: login
