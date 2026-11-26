@@ -41,8 +41,8 @@ in with `$env:AZURE_CONFIG_DIR = '<dir>'; az login --tenant <rylogic-tenant>` an
 
 1. Set `RylogicLibraryVersion` in `Directory.Build.props` to a stable three-part version.
 2. Merge the release changes and ensure the normal build workflows pass.
-3. From an up-to-date `main` checkout on the release PC, run `pwsh -File .\script\Release-NuGet.ps1` to check readiness.
-   When it passes, run the same command with `-PushTag` to recheck and push the matching version tag.
+3. From an up-to-date `main` checkout, run `pwsh -File .\script\Check-NuGetRelease.ps1` to check readiness.
+   When it passes, create and push the matching product-prefixed version tag, such as `rylogic-v2.1.3`.
 4. Review the package artifact produced by the build job, then approve the `nuget-release`
    environment deployment.
 
@@ -54,16 +54,9 @@ Reusing an existing version therefore fails instead of silently succeeding.
 
 ### Release gate
 
-The local preflight requires Git and an authenticated GitHub CLI. It discovers `rylogic-code` and all `rylogic-code<number>` directories
-beside the checkout running the script. Keep the release PC's Rylogic checkouts together under that parent; the check cannot see
-copies elsewhere or on other PCs. In every discovered checkout it rejects staged, unstaged, and non-ignored untracked changes,
-and branches or detached HEAD commits not reachable from GitHub `main`. Behind-only branches are allowed.
-A squash-merged local branch can still block the release until the developer reconciles it with `main`.
-The preflight does not switch branches or clean up work; it reads workspace state and fetches `main` for the comparisons.
-
-The local command also requires the release checkout to be at the current GitHub `main` tip and rejects any open PR, including drafts.
-The workflow independently checks that the tagged commit is in GitHub `main` and that no PRs are open, both before building and after deploy approval.
-Always use `-PushTag` rather than pushing a tag by hand: CI cannot inspect local workspaces, so a manually pushed tag bypasses that part of the gate.
+The workflow requires the tagged commit to be on GitHub `main` and blocks when an open pull request targets `main`,
+including drafts. Both checks run before building and after deployment approval. Pull requests targeting other branches
+and local branches or working changes do not affect the gate. The optional local check uses Git and an authenticated GitHub CLI.
 
 ## Package sources
 
