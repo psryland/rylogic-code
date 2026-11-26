@@ -41,6 +41,9 @@ namespace render_tests
 	// Every bolt is a tree from its origin in the cloud to the ground, grown by a leader that reaches the ground at the leader time.
 	void LightningBoltShapeTests()
 	{
+		// Tendrils end inside an upright 40 degree cone over the ground point, and across all seeds some tendrils grow from low on the channel.
+		auto cone_tan = std::tan(40.0f * constants<float>::tau / 360.0f);
+		auto low_tendrils = 0;
 		for (uint32_t seed = 0; seed != 64; ++seed)
 		{
 			// The origin is the root, inside the cloud above the cloud base.
@@ -81,10 +84,21 @@ namespace render_tests
 					continue;
 
 				++tips;
-				Require(i == ground_index || bolt.m_nodes[i].m_brightness < 0.5f, "A channel tip is as bright as the main channel");
+				auto const& tip = bolt.m_nodes[i];
+				Require(i == ground_index || tip.m_brightness < 0.5f, "A channel tip is as bright as the main channel");
+				if (i == ground_index || tip.m_in_cloud)
+					continue;
+
+				// Tendril tips lie inside the cone.
+				auto offset = tip.m_pos - TestGround;
+				auto radius = (tip.m_pos.z - TestGround.z) * cone_tan;
+				Require(std::sqrt(offset.x * offset.x + offset.y * offset.y) <= radius + 1e-2f, "A tendril reaches outside the cone above the ground point");
+				if (tip.m_pos.z - TestGround.z < 0.15f * (TestCloudBase - TestGround.z))
+					++low_tendrils;
 			}
 			Require(tips >= 20, std::format("The bolt has only {} channel tips", tips).c_str());
 		}
+		Require(low_tendrils != 0, "No tendrils reach the lowest part of the bolts");
 	}
 
 	// The strike's light goes through the leader, the dazzling return stroke, and the fade, and is dark outside the strike.
