@@ -18,6 +18,7 @@ jobs:
     environment: code-signing
     permissions:
       contents: read
+      pull-requests: read
       id-token: write
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -25,6 +26,14 @@ jobs:
     steps:
       - name: Checkout tagged source
         uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Check release source and open pull requests
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./script/Release-NuGet.ps1 -CI
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
@@ -184,9 +193,15 @@ jobs:
     environment: nuget-release
     permissions:
       contents: read
+      pull-requests: read
       id-token: write
 
     steps:
+      - name: Checkout tagged source
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
       - name: Download validated packages
         uses: actions/download-artifact@v4
         with:
@@ -215,6 +230,12 @@ jobs:
               throw "Hash mismatch for '$($package.file_name)'."
             }
           }
+
+      - name: Recheck release source and open pull requests
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./script/Release-NuGet.ps1 -CI
 
       - name: Authenticate to nuget.org
         id: login
