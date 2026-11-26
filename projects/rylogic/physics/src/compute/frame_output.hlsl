@@ -27,7 +27,7 @@ struct cbFrameOutput
 	int articulation_count;
 	int position_count;
 	int velocity_count;
-	int pad1;
+	uint frame_stamp;
 };
 
 ConstantBuffer<cbFrameOutput> resource(g, b0);
@@ -154,8 +154,19 @@ void CSAppendCollisionEvents(int3 DTID(dtid))
 		return;
 
 	int contact_index = (int)g_contact_order[local_index];
+
+	// Every reserved slot is written. An invalid order entry produces an event with no endpoints, so the CPU can report it instead of reading stale data.
 	if (contact_index < 0 || contact_index >= g.max_contacts)
+	{
+		GpuCollisionEvent invalid_event = (GpuCollisionEvent)0;
+		invalid_event.body_idx_a = -1;
+		invalid_event.body_idx_b = -1;
+		invalid_event.substep_index = state.substep_index;
+		invalid_event.contact_index = contact_index;
+		invalid_event.frame_stamp = g.frame_stamp;
+		g_events[state.event_base + local_index] = invalid_event;
 		return;
+	}
 
 	GpuResolveContact contact = g_contacts[contact_index];
 	GpuRigidBody body_a = g_bodies[contact.body_idx_a];
@@ -181,6 +192,8 @@ void CSAppendCollisionEvents(int3 DTID(dtid))
 	collision_event.child_idx_a = contact.child_idx_a;
 	collision_event.child_idx_b = contact.child_idx_b;
 	collision_event.substep_index = state.substep_index;
+	collision_event.contact_index = contact_index;
+	collision_event.frame_stamp = g.frame_stamp;
 	g_events[state.event_base + local_index] = collision_event;
 }
 

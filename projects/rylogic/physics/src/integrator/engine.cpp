@@ -2109,8 +2109,20 @@ namespace pr::physics
 			for (int event_index = 0; event_index != event_count; ++event_index)
 			{
 				auto const& collision_event = events[event_index];
-				if (collision_event.body_idx_a < 0 || collision_event.body_idx_a >= body_count || collision_event.body_idx_b < 0 || collision_event.body_idx_b >= body_count)
-					throw std::runtime_error("GPU frame output returned an invalid collision endpoint");
+
+				// Report every field that identifies the producer, so one occurrence is enough to tell a stale slot from a bad contact.
+				if (collision_event.body_idx_a < 0 || collision_event.body_idx_a >= body_count || collision_event.body_idx_b < 0 || collision_event.body_idx_b >= body_count || collision_event.frame_stamp != output_header.frame_stamp)
+				{
+					throw std::runtime_error(std::format(
+						"GPU frame output returned an invalid collision endpoint: event={}/{} (capacity={}), bodies=({}, {}), body_count={}, substep={}/{}, contact_index={}, "
+						"frame_stamp={} (header {}), feature={}, mat_ids=({}, {}), child_idx=({}, {}), contacts={} (max seen {}), overflow={}",
+						event_index, event_count, output_header.event_capacity,
+						collision_event.body_idx_a, collision_event.body_idx_b, body_count,
+						collision_event.substep_index, output_header.substep_count, collision_event.contact_index,
+						collision_event.frame_stamp, output_header.frame_stamp,
+						collision_event.feature, collision_event.mat_id_a, collision_event.mat_id_b, collision_event.child_idx_a, collision_event.child_idx_b,
+						output_header.final_counters.contact_count, output_header.max_contact_count, output_header.event_overflow));
+				}
 
 				m_cache->m_contacts_cpu.emplace_back(*rigid_bodies[collision_event.body_idx_a], *rigid_bodies[collision_event.body_idx_b], collision_event);
 			}

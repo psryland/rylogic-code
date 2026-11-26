@@ -40,7 +40,7 @@ namespace pr::physics
 		int articulation_count;
 		int position_count;
 		int velocity_count;
-		int pad1;
+		uint32_t frame_stamp;
 	};
 	static_assert(sizeof(cbFrameOutput) == 48);
 
@@ -83,6 +83,7 @@ namespace pr::physics
 		, m_substep_state_active()
 		, m_dispatch_count()
 		, m_readback_count()
+		, m_frame_stamp()
 	{
 		// The serial reservation pass snapshots raw counters before the next substep resets them.
 		{
@@ -219,6 +220,7 @@ namespace pr::physics
 		m_dispatch_count = 0;
 		m_readback_count = 0;
 		m_substep_state_active = capture_substep_state;
+		++m_frame_stamp;
 		if (body_count < 0 || event_capacity < 0 || substep_count < 1)
 			throw std::runtime_error("GPU frame output requires non-negative capacities and at least one substep");
 		if (articulations.m_articulation_count < 0 || articulations.m_position_count < 0 || articulations.m_velocity_count < 0)
@@ -280,6 +282,7 @@ namespace pr::physics
 			.contact_limit_substep = -1,
 			.event_overflow_substep = -1,
 			.substep_count = substep_count,
+			.frame_stamp = m_frame_stamp,
 		};
 		auto upload = job.m_upload.Alloc<GpuFrameOutputHeader>(1);
 		*upload.ptr<GpuFrameOutputHeader>() = header;
@@ -307,6 +310,7 @@ namespace pr::physics
 			.substep_index = substep_index,
 			.substep_count = substep_count,
 			.body_count = m_layout.m_body_count,
+			.frame_stamp = m_frame_stamp,
 		};
 
 		// Frames without public events snapshot only the counters and therefore keep the resolver resources unbound.
