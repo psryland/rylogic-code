@@ -402,8 +402,8 @@ namespace pr::rdr12
 					sk.Group(ESortGroup::AlphaWeighted);
 
 				// Reject unsupported materials before a window starts recording a frame, because a frame abandoned during recording cannot be retired.
-				// Only procedural pixel families can make the pixel shader selection fail, so other draws skip the composition.
-				if (materials::ProceduralPixelFamily(material, m_step_id) != nullptr)
+				// Only overlay pixel families can make the pixel shader selection fail, so other draws skip the composition.
+				if (materials::OverlayPixelFamily(material, m_step_id) != nullptr)
 				{
 					auto desc = sk.Group() == ESortGroup::AlphaWeighted ? m_alpha_weighted_pipe_state : m_default_pipe_state;
 					ComposePipeline(desc, nug, inst, material, *pass, false, false);

@@ -56,7 +56,7 @@ namespace pr::rdr12
 	// Apply the pipeline state of the shader overlays supported by the active material render step.
 	void materials::SelectShaderOverlays(MaterialPipelineContext const& ctx, PipeStateDesc& desc, bool procedural_only)
 	{
-		ForEachShaderOverlay(ctx.m_material, ctx.m_step_id, procedural_only, [&](Shader& overlay, ProceduralShader* procedural)
+		ForEachShaderOverlay(ctx.m_material, ctx.m_step_id, procedural_only, [&](Shader& overlay, ProceduralShader*)
 		{
 			// A complete legacy overlay owns its signature as well as its shader stages.
 			if (overlay.m_signature)
@@ -66,8 +66,8 @@ namespace pr::rdr12
 			if (overlay.m_code.DS) desc.Apply(PSO<EPipeState::DS>(overlay.m_code.DS));
 			if (overlay.m_code.HS) desc.Apply(PSO<EPipeState::HS>(overlay.m_code.HS));
 			if (overlay.m_code.GS) desc.Apply(PSO<EPipeState::GS>(overlay.m_code.GS));
-			if (procedural != nullptr && procedural->HasPixelFamily())
-				ApplyForwardPixelFamily(desc, procedural->m_pixel_family);
+			if (overlay.HasPixelFamily())
+				ApplyForwardPixelFamily(desc, overlay.m_pixel_family);
 		});
 	}
 
@@ -209,13 +209,13 @@ namespace pr::rdr12
 		}
 		// Optional slots are empty when the family does not support that sub-pass.
 		if (family[*slot].pShaderBytecode == nullptr)
-			throw std::runtime_error("This procedural forward pixel family has no weighted transparency entry point, so it cannot draw AlphaWeighted nuggets");
+			throw std::runtime_error("This forward pixel family has no entry point for the current forward sub-pass (e.g. weighted transparency)");
 
 		desc.Apply(PSO<EPipeState::PS>(family[*slot]));
 	}
 
-	// Return the forward pixel family of the procedural overlay that 'material' applies for 'step'.
-	ForwardPixelFamily const* materials::ProceduralPixelFamily(Material const& material, ERenderStep step)
+	// Return the forward pixel family of the overlay that 'material' applies for 'step'.
+	ForwardPixelFamily const* materials::OverlayPixelFamily(Material const& material, ERenderStep step)
 	{
 		// Later overlays win for repeated stages, so the last matching family is the one in effect.
 		ForwardPixelFamily const* family = nullptr;
@@ -223,12 +223,12 @@ namespace pr::rdr12
 		{
 			for (auto const& overlay : overlays->m_overlays)
 			{
-				// Only procedural overlays for this step can supply a family.
+				// Only overlays for this step can supply a family.
 				if (overlay.m_rdr_step != step)
 					continue;
 
-				if (auto const* procedural = dynamic_cast<ProceduralShader const*>(overlay.m_overlay.get()); procedural != nullptr && procedural->HasPixelFamily())
-					family = &procedural->m_pixel_family;
+				if (overlay.m_overlay->HasPixelFamily())
+					family = &overlay.m_overlay->m_pixel_family;
 			}
 		}
 		return family;

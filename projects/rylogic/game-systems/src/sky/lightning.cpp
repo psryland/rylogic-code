@@ -21,9 +21,11 @@ namespace pr::game_systems
 		{
 			#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(lightning_gs.h)
 			#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(lightning_ps.h)
+			#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(lightning_weighted_ps.h)
 		}
 		static compute::ByteCode const lightning_gs(compiled::lightning_gs);
 		static compute::ByteCode const lightning_ps(compiled::lightning_ps);
+		static compute::ByteCode const lightning_weighted_ps(compiled::lightning_weighted_ps);
 	}
 
 	namespace
@@ -398,13 +400,18 @@ namespace pr::game_systems
 				.pad2 = 0,
 			}
 		{
+			// The pixel stage is chosen per forward sub-pass: weighted transparency normally, or the stock alpha blend without transparency buffers.
 			m_code = ShaderCode{
 				.VS = rdr12::shader_code::none,
-				.PS = shader_code::lightning_ps,
+				.PS = rdr12::shader_code::none,
 				.DS = rdr12::shader_code::none,
 				.HS = rdr12::shader_code::none,
 				.GS = shader_code::lightning_gs,
 				.CS = rdr12::shader_code::none,
+			};
+			m_pixel_family = ForwardPixelFamily{
+				.m_code = { shader_code::lightning_ps, rdr12::shader_code::none, rdr12::shader_code::none, shader_code::lightning_weighted_ps },
+				.m_replaces = &rdr12::shader_code::forward_family,
 			};
 		}
 
@@ -456,38 +463,21 @@ namespace pr::game_systems
 		}
 
 		// The material retains the shader, so its pointer remains valid for the lifetime of the model.
-		// Segments combine with a maximum blend so overlaps do not add up, and they do not write depth so they never hide each other.
-		// Parts beyond the far plane are drawn at the far plane (see lightning.hlsl), which only passes an inclusive depth test.
+		// The bolt is transparent, so it draws with the other transparent surfaces and blends correctly over water. It draws in the weighted
+		// (order-independent) transparency group, which shows it in front of the clouds but hides it behind nearer opaque geometry (see lightning.hlsl).
 		auto shdr = Shader::Create<LightningShader>(factory.rdr());
 		m_shader = shdr.get();
 		buf.m_ncont.push_back(
 			NuggetDesc(ETopo::LineList, EGeom::Vert | EGeom::Colr)
-				.flags(ENuggetFlag::ShadowCastExclude)
-				.pso<EPipeState::CullMode>(D3D12_CULL_MODE_NONE)
-				.pso<EPipeState::DepthWriteMask>(D3D12_DEPTH_WRITE_MASK_ZERO)
-				.pso<EPipeState::DepthFunc>(D3D12_COMPARISON_FUNC_GREATER_EQUAL)
-				.pso<EPipeState::BlendState0>(D3D12_RENDER_TARGET_BLEND_DESC{
-					.BlendEnable = TRUE,
-					.LogicOpEnable = FALSE,
-					.SrcBlend = D3D12_BLEND_ONE,
-					.DestBlend = D3D12_BLEND_ONE,
-					.BlendOp = D3D12_BLEND_OP_MAX,
-					.SrcBlendAlpha = D3D12_BLEND_ONE,
-					.DestBlendAlpha = D3D12_BLEND_ONE,
-					.BlendOpAlpha = D3D12_BLEND_OP_MAX,
-					.LogicOp = D3D12_LOGIC_OP_CLEAR,
-					.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL,
-				})
+				.flags(ENuggetFlag::ShadowCastExclude | ENuggetFlag::GeometryHasAlpha | ENuggetFlag::AlphaWeighted)
 				.mat([&](MaterialSimple& m) {
 					m.use_shader_overlay(ERenderStep::RenderForward, shdr);
 				})
 			);
 
-		// Draw after the sky, so the bolt shows in front of the clouds, but hidden by nearer scene geometry through the depth test.
 		ModelGenerator::Cache cache{buf};
 		m_inst.m_model = ModelGenerator::Create<Vert>(factory, cache);
 		m_inst.m_i2w = m4x4::Identity();
-		m_inst.m_sko.Group(ESortGroup::PostOpaques);
 	}
 
 	// Choose the light for this moment and pass it to the shader.

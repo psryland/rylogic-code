@@ -107,8 +107,8 @@
     <None Include="$(RylogicRoot)include\pr\game-systems\particles\particle_bird.hlsli" />
     <None Include="$(RylogicRoot)include\pr\game-systems\particles\particle_marker.hlsli" />
     <ShaderBuild Include="src\shaders\hlsl\sky\procedural_sky.hlsl" VertexEntryPoints="procedural_sky_vs=VSProceduralSky" PixelEntryPoints="procedural_sky_ps=PSProceduralSky" />
-    <ShaderBuild Include="src\shaders\hlsl\sky\lightning.hlsl" GeometryEntryPoints="lightning_gs=GSLightning" PixelEntryPoints="lightning_ps=PSLightning" />
-    <ShaderBuild Include="src\shaders\hlsl\sky\rain.hlsl" VertexEntryPoints="rain_vs=VSRain" PixelEntryPoints="rain_ps=PSRain" />
+    <ShaderBuild Include="src\shaders\hlsl\sky\lightning.hlsl" GeometryEntryPoints="lightning_gs=GSLightning" PixelEntryPoints="lightning_ps=PSLightning;lightning_weighted_ps=PSLightningWeighted" />
+    <ShaderBuild Include="src\shaders\hlsl\sky\rain.hlsl" VertexEntryPoints="rain_vs=VSRain" PixelEntryPoints="rain_ps=PSRain;rain_weighted_ps=PSRainWeighted" />
     <ShaderBuild Include="src\shaders\hlsl\ocean\ocean_forward_vs.hlsl" VertexEntryPoints="ocean_forward_vs=Main" />
     <ShaderBuild Include="src\shaders\hlsl\ocean\ocean_forward_ps.hlsl" PixelEntryPoints="ocean_forward_ps0=PSWaterOpaque;ocean_forward_ps1=PSWaterOpaqueReflectionAttrs;ocean_forward_ps2=PSWaterAlphaCollect" />
     <ShaderBuild Include="src\shaders\hlsl\ocean\ocean_foam_cs.hlsl" ComputeEntryPoints="ocean_foam_cs=Main" />

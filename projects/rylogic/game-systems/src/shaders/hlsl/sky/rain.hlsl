@@ -4,9 +4,11 @@
 //************************************
 // Rain shaders. They replace the vertex and pixel stages of the forward pass.
 // VS: Places each drop in its repeating tile around the camera, and expands it into a screen-facing streak along its motion relative to the camera.
-// PS: Draws the streak with soft sides, brighter toward its head.
+// PS: Draws the streak with soft sides, brighter toward its head. The streaks are transparent, so they draw in the forward pass's weighted
+//     transparency sub-pass (PSRainWeighted), where they blend with other transparent surfaces such as water. PSRain is used when the window
+//     has no transparency buffers, and outputs straight (not premultiplied) colour for the stock alpha blend.
 #include "pr/hlsl/interop.hlsli"
-#include "view3d-12/src/shaders/hlsl/types.hlsli"
+#include "view3d-12/src/shaders/hlsl/forward/forward.hlsl"
 #include "game-systems/src/shaders/hlsl/sky/rain_cbuf.hlsli"
 
 ConstantBuffer<CBufRain> g_rain : register(b3);
@@ -102,24 +104,53 @@ PSIn VSRain(VSIn In)
 	float2 end_px = is_head ? head_px : tail_px;
 	float2 corner = end_px + dir * (is_head ? drawn_hw : -drawn_hw) + perp * (across * drawn_hw);
 
+	// The world position of this corner's end gives the transparency passes the streak's view depth. The inverse of the rotation in 'w2c' is its transpose.
+	// Streaks wholly below the clip plane are not drawn; streaks that cross it are cut per pixel. See ClipToPlane.
+	float3 head_ws = g_rain.cam_pos.xyz + mul(g_rain.w2c, float4(head, 0)).xyz;
+	float3 tail_ws = g_rain.cam_pos.xyz + mul(g_rain.w2c, float4(tail, 0)).xyz;
+	if (dot(g_rain.clip_plane.xyz, head_ws) + g_rain.clip_plane.w < 0 && dot(g_rain.clip_plane.xyz, tail_ws) + g_rain.clip_plane.w < 0)
+		return Culled();
+
 	PSIn Out = (PSIn)0;
 	Out.ss_vert = float4(corner / half_screen * end_ss.w, end_ss.z, end_ss.w);
+	Out.ws_vert = float4(is_head ? head_ws : tail_ws, 1);
 	Out.diff = float4(g_rain.colour.rgb, alpha);
 	Out.tex0 = float2(along, across);
 	return Out;
 }
 
-struct PSOut
+// Soft sides, and a tail that is fainter than the head. Returns straight (not premultiplied) colour.
+float4 RainShade(PSIn In)
 {
-	float4 diff : SV_TARGET;
-};
-
-// Soft sides, and a tail that is fainter than the head. The output is premultiplied by its alpha.
-PSOut PSRain(PSIn In)
-{
-	PSOut Out = (PSOut)0;
 	float across = In.tex0.y;
 	float alpha = In.diff.a * saturate(1 - across * across) * lerp(0.5, 1.0, saturate(In.tex0.x));
-	Out.diff = float4(In.diff.rgb * alpha, alpha);
+	return float4(In.diff.rgb, alpha);
+}
+
+// Discard the parts of a streak below the clip plane, e.g. under a water surface, where the water would otherwise show them dimly.
+void ClipToPlane(PSIn In)
+{
+	// A zero plane gives zero everywhere, so it discards nothing.
+	clip(dot(g_rain.clip_plane.xyz, In.ws_vert.xyz) + g_rain.clip_plane.w);
+}
+
+// Draw the streak over the scene with the stock alpha blend.
+PSOut PSRain(PSIn In)
+{
+	// Only the part of the streak above the clip plane is drawn
+	ClipToPlane(In);
+	PSOut Out = (PSOut)0;
+	Out.diff = RainShade(In);
 	return Out;
+}
+
+// Draw the streak into the weighted transparency buffers. Streaks behind opaque surfaces are discarded here, because the sub-pass has no depth test.
+PSWeightedOut PSRainWeighted(PSIn In)
+{
+	// Only the visible part of the streak above the clip plane is drawn
+	ClipToPlane(In);
+	float visibility = AlphaOpaqueVisibility(In.ss_vert, In.ws_vert);
+	float4 diff = RainShade(In);
+	diff.a *= visibility;
+	return WeightedAlphaOut(In, diff);
 }

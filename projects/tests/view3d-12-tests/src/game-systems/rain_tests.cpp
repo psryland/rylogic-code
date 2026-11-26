@@ -83,6 +83,14 @@ namespace render_tests
 		update();
 		auto later = wet_pixels();
 		Require(later > distant / 2 && later < distant * 2, std::format("The downpour drew {} pixels after falling, {} before", later, distant).c_str());
+
+		// A clip plane above the camera hides every drop below it, and a zero plane hides none.
+		settings.m_clip_plane = api::Vec4{ 0, 0, 1, -1000.0f };
+		update();
+		Require(wet_pixels() == 0, "Rain below the clip plane was drawn");
+		settings.m_clip_plane = api::Vec4{};
+		update();
+		Require(wet_pixels() == later, "Clearing the clip plane did not restore the rain");
 		fixture.CheckErrors();
 
 		// Invalid settings and non-rain objects are rejected with an error, leaving the rain unchanged.
@@ -102,6 +110,9 @@ namespace render_tests
 		bad = settings;
 		bad.m_time = std::numeric_limits<double>::quiet_NaN();
 		expect_rejected(View3D_ObjectUpdateRain(rain, bad), "Rain at a non-finite time was accepted");
+		bad = settings;
+		bad.m_clip_plane = api::Vec4{ 0, 0, 1, std::numeric_limits<float>::infinity() };
+		expect_rejected(View3D_ObjectUpdateRain(rain, bad), "Rain with a non-finite clip plane was accepted");
 		bad = settings;
 		bad.m_streak_time = 0.0f;
 		expect_rejected(View3D_ObjectCreateRain("BadRain", bad, nullptr) == nullptr ? FALSE : TRUE, "Rain with no streak time was created");

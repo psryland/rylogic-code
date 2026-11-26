@@ -24,7 +24,6 @@ namespace pr::rdr12
 		static constexpr int TextureSlotCount = 16;
 
 		ERenderStep m_rdr_step;
-		ForwardPixelFamily m_pixel_family;
 		std::array<std::byte, ConstantsSize> m_constants;
 		std::array<D3DPtr<ID3D12Resource>, BufferSlotCount> m_buffers;
 		std::array<Texture2DPtr, TextureSlotCount> m_textures;
@@ -47,9 +46,6 @@ namespace pr::rdr12
 
 		// True if this shader replaces the stock vertex shader. Such shaders decode logical vertex IDs and need a ProceduralVertexId model.
 		bool HasVertexShader() const;
-
-		// True if this shader replaces the stock forward pixel shaders.
-		bool HasPixelFamily() const;
 
 		// True if this shader's forward pixel family replaces the stock PBR pixel shaders rather than the simple-material ones.
 		bool HasPbrPixelFamily() const;

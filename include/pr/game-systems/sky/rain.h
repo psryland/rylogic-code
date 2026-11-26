@@ -31,6 +31,10 @@ namespace pr::game_systems
 		// The colour of a lit drop (linear rgb, nonnegative). The caller lights the rain, e.g. with the sky's ambient light.
 		v4 m_colour = v4(0.6f, 0.65f, 0.7f, 1.0f);
 
+		// A world-space plane (xyz = normal, w = offset) that the rain does not fall through. Drops at points p where dot(xyz, p) + w < 0 are not drawn,
+		// so a plane on a water surface keeps the rain out of the water. A zero plane hides no drops. Must be finite.
+		v4 m_clip_plane = v4::Zero();
+
 		// The most a single streak covers what is behind it, in [0,1].
 		float m_opacity = 0.25f;
 

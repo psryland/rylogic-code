@@ -1018,7 +1018,6 @@ namespace pr::rdr12
 		auto obj = ldraw::LdrObjectPtr(new ldraw::LdrObject(ldraw::ELdrObject::Custom, nullptr, id), true);
 		obj->m_model = rain->m_inst.m_model;
 		obj->m_name = name;
-		obj->m_sko.Group(ESortGroup::PostOpaques);
 		obj->Flags(ldraw::ELdrFlags::SceneBoundsExclude | ldraw::ELdrFlags::HitTestExclude | ldraw::ELdrFlags::ShadowCastExclude | ldraw::ELdrFlags::EnvMapCaptureExclude, true);
 		obj->m_user_data.get<std::unique_ptr<game_systems::Rain>>() = std::move(rain);
 		m_sources.Add(obj);

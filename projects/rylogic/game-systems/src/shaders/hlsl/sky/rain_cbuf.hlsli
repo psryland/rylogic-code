@@ -28,11 +28,17 @@ struct CBufRain //:reg(b3)
 	row_major float4x4 w2c;
 	row_major float4x4 c2s;
 
+	// The camera's world position (xyz). Drops are placed relative to it, and it gives their world positions for depth sorting.
+	float4 cam_pos;
+
 	// The render target size in pixels (xy), and the number of pixels per world unit at clip w = 1 (z). A length at clip w covers z / w pixels.
 	float4 screen_dim;
 
 	// The colour of a lit drop (rgb), and the most a single streak covers what is behind it (a).
 	float4 colour;
+
+	// A world plane (xyz = normal, w = offset). Drops at points p where dot(xyz, p) + w < 0 are not drawn. A zero plane hides no drops.
+	float4 clip_plane;
 
 	// Per layer: the tile size (x), the number of smallest-tile drops that one drop stands for (y), and the distances over which the layer fades in (zw).
 	float4 layers[PR_RAIN_LAYERS];
