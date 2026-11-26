@@ -228,7 +228,10 @@ namespace pr::view3d::ui
 			{
 				return MakePointerMessage(EInputKind::PointerMove, EPointerButton::None, wparam, lparam, viewport, time_ms);
 			}
+			// In a window class with CS_DBLCLKS, Windows replaces the second press of a quick click pair with a double-click message.
+			// The UI has no double-click input, so that message is an ordinary press; dropping it would lose the click and let the host see an unclaimed press.
 			case WM_LBUTTONDOWN:
+			case WM_LBUTTONDBLCLK:
 			{
 				return MakePointerMessage(EInputKind::PointerButtonDown, EPointerButton::Left, wparam, lparam, viewport, time_ms);
 			}
@@ -237,6 +240,7 @@ namespace pr::view3d::ui
 				return MakePointerMessage(EInputKind::PointerButtonUp, EPointerButton::Left, wparam, lparam, viewport, time_ms);
 			}
 			case WM_RBUTTONDOWN:
+			case WM_RBUTTONDBLCLK:
 			{
 				return MakePointerMessage(EInputKind::PointerButtonDown, EPointerButton::Right, wparam, lparam, viewport, time_ms);
 			}
@@ -245,6 +249,7 @@ namespace pr::view3d::ui
 				return MakePointerMessage(EInputKind::PointerButtonUp, EPointerButton::Right, wparam, lparam, viewport, time_ms);
 			}
 			case WM_MBUTTONDOWN:
+			case WM_MBUTTONDBLCLK:
 			{
 				return MakePointerMessage(EInputKind::PointerButtonDown, EPointerButton::Middle, wparam, lparam, viewport, time_ms);
 			}
