@@ -25,6 +25,12 @@ public sealed partial class View3d
 		/// <summary>The colour of a lit drop (linear rgb, finite, nonnegative). The caller lights the rain, e.g. with the sky's ambient light.</summary>
 		public v4 Colour;
 
+		/// <summary>
+		/// A world plane (xyz = normal, w = offset) that the rain does not fall through, e.g. a water surface. Drops at points p where
+		/// dot(xyz, p) + w &lt; 0 are not drawn. A zero plane hides no drops. Must be finite.
+		/// </summary>
+		public v4 ClipPlane;
+
 		/// <summary>How hard it rains, in [0,1]. 0 is no rain, small values are a light sparse shower, and 1 is a heavy downpour.</summary>
 		public float Intensity;
 
@@ -124,11 +130,12 @@ public class RainTests
 	[Test]
 	public void SettingsLayout()
 	{
-		Assert.Equal(88, Marshal.SizeOf<View3d.RainSettings>());
+		Assert.Equal(104, Marshal.SizeOf<View3d.RainSettings>());
 		Assert.Equal(48, Marshal.OffsetOf<View3d.RainSettings>(nameof(View3d.RainSettings.Colour)).ToInt32());
-		Assert.Equal(64, Marshal.OffsetOf<View3d.RainSettings>(nameof(View3d.RainSettings.Intensity)).ToInt32());
-		Assert.Equal(76, Marshal.OffsetOf<View3d.RainSettings>(nameof(View3d.RainSettings.DropWidth)).ToInt32());
-		Assert.Equal(80, Marshal.OffsetOf<View3d.RainSettings>(nameof(View3d.RainSettings.Time)).ToInt32());
+		Assert.Equal(64, Marshal.OffsetOf<View3d.RainSettings>(nameof(View3d.RainSettings.ClipPlane)).ToInt32());
+		Assert.Equal(80, Marshal.OffsetOf<View3d.RainSettings>(nameof(View3d.RainSettings.Intensity)).ToInt32());
+		Assert.Equal(92, Marshal.OffsetOf<View3d.RainSettings>(nameof(View3d.RainSettings.DropWidth)).ToInt32());
+		Assert.Equal(96, Marshal.OffsetOf<View3d.RainSettings>(nameof(View3d.RainSettings.Time)).ToInt32());
 	}
 }
 #endif

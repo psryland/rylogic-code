@@ -4247,13 +4247,14 @@ VIEW3D_API BOOL __stdcall View3D_ObjectBlendProceduralSky(view3d::Object object,
 static game_systems::RainSettings ToRainSettings(view3d::RainSettings const& s)
 {
 	// Copy field by field because the DLL vector types differ from the renderer's
-	static_assert(sizeof(view3d::RainSettings) == 88, "Must match the managed View3d.RainSettings layout");
+	static_assert(sizeof(view3d::RainSettings) == 104, "Must match the managed View3d.RainSettings layout");
 	return game_systems::RainSettings{
 		.m_intensity = s.m_intensity,
 		.m_wind = To<v4>(s.m_wind),
 		.m_fall_velocity = To<v4>(s.m_fall_velocity),
 		.m_camera_velocity = To<v4>(s.m_camera_velocity),
 		.m_colour = To<v4>(s.m_colour),
+		.m_clip_plane = To<v4>(s.m_clip_plane),
 		.m_opacity = s.m_opacity,
 		.m_streak_time = s.m_streak_time,
 		.m_drop_width = s.m_drop_width,

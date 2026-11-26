@@ -20,9 +20,16 @@ namespace pr::rdr12
 		: RefCounted<Shader>()
 		, m_rdr(&rdr)
 		, m_code()
+		, m_pixel_family()
 		, m_signature()
 		, m_owned_code()
 	{
+	}
+
+	// True if this shader replaces the stock forward pixel shaders.
+	bool Shader::HasPixelFamily() const
+	{
+		return m_pixel_family.m_replaces != nullptr;
 	}
 
 	// Renderer access
@@ -81,7 +88,6 @@ namespace pr::rdr12
 	ProceduralShader::ProceduralShader(Renderer& rdr, ERenderStep rdr_step, std::span<BYTE const> vs_bytecode, std::span<std::span<BYTE const> const> pixel_family, ForwardPixelFamily const& replaces, std::span<std::byte const> constants, D3DPtr<ID3D12Resource> buffer, std::string_view name)
 		:Shader(rdr)
 		,m_rdr_step(rdr_step)
-		,m_pixel_family()
 		,m_constants()
 		,m_buffers{buffer}
 		,m_textures()
@@ -157,12 +163,6 @@ namespace pr::rdr12
 	bool ProceduralShader::HasVertexShader() const
 	{
 		return static_cast<bool>(m_code.VS);
-	}
-
-	// True if this shader replaces the stock forward pixel shaders.
-	bool ProceduralShader::HasPixelFamily() const
-	{
-		return static_cast<bool>(m_pixel_family.m_code[0]);
 	}
 
 	// True if this shader's forward pixel family replaces the stock PBR pixel shaders.

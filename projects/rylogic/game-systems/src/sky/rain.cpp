@@ -21,9 +21,11 @@ namespace pr::game_systems
 		{
 			#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(rain_vs.h)
 			#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(rain_ps.h)
+			#include PR_GAME_SYSTEMS_SHADER_COMPILED_DIR(rain_weighted_ps.h)
 		}
 		static compute::ByteCode const rain_vs(compiled::rain_vs);
 		static compute::ByteCode const rain_ps(compiled::rain_ps);
+		static compute::ByteCode const rain_weighted_ps(compiled::rain_weighted_ps);
 	}
 
 	namespace
@@ -84,7 +86,7 @@ namespace pr::game_systems
 		}
 	}
 
-	// Replaces the forward vertex and pixel stages, using the overlay constant buffer slot.
+	// Replaces the forward vertex stage and the pixel stages that transparent nuggets use, using the overlay constant buffer slot.
 	struct RainShader : Shader
 	{
 		sky::CBufRain m_cbuf;
@@ -110,13 +112,18 @@ namespace pr::game_systems
 			m_cbuf.min_pixels = MinPixels;
 			m_cbuf.max_length = MaxStreakLength;
 
+			// The pixel stage is chosen per forward sub-pass: weighted transparency normally, or the stock alpha blend without transparency buffers.
 			m_code = ShaderCode{
 				.VS = shader_code::rain_vs,
-				.PS = shader_code::rain_ps,
+				.PS = rdr12::shader_code::none,
 				.DS = rdr12::shader_code::none,
 				.HS = rdr12::shader_code::none,
 				.GS = rdr12::shader_code::none,
 				.CS = rdr12::shader_code::none,
+			};
+			m_pixel_family = ForwardPixelFamily{
+				.m_code = { shader_code::rain_ps, rdr12::shader_code::none, rdr12::shader_code::none, shader_code::rain_weighted_ps },
+				.m_replaces = &rdr12::shader_code::forward_family,
 			};
 		}
 
@@ -129,6 +136,7 @@ namespace pr::game_systems
 			auto c2s = cam.m_w2s * c2w;
 			m_cbuf.w2c = cam.m_w2c;
 			m_cbuf.c2s = c2s;
+			m_cbuf.cam_pos = c2w.pos;
 			m_cbuf.screen_dim = v4(size.x, size.y, c2s.x.x * size.x * 0.5f, 0);
 
 			// A drop's place in its tile is its drift relative to the camera. Work in double and wrap to the field period first, so large world
@@ -201,38 +209,22 @@ namespace pr::game_systems
 		buf.m_bbox = BBox(v4::Origin(), v4(reach, reach, reach, 0));
 
 		// The material retains the shader, so its pointer remains valid for the lifetime of the model.
-		// Streaks are premultiplied, and blend over the scene without changing its alpha. They do not write depth so they never hide each other.
+		// Streaks are transparent, so they draw with the other transparent surfaces and blend correctly over water. They are not sorted with the
+		// K-buffer layers, because there are far too many to sort, so they draw in the weighted (order-independent) transparency group.
 		auto shdr = Shader::Create<RainShader>(rdr);
 		m_shader = shdr.get();
 		buf.m_ncont.push_back(
 			NuggetDesc(ETopo::TriList, EGeom::Vert | EGeom::Colr)
-				.flags(ENuggetFlag::ShadowCastExclude)
-				.pso<EPipeState::CullMode>(D3D12_CULL_MODE_NONE)
-				.pso<EPipeState::DepthWriteMask>(D3D12_DEPTH_WRITE_MASK_ZERO)
-				.pso<EPipeState::DepthFunc>(D3D12_COMPARISON_FUNC_GREATER_EQUAL)
-				.pso<EPipeState::BlendState0>(D3D12_RENDER_TARGET_BLEND_DESC{
-					.BlendEnable = TRUE,
-					.LogicOpEnable = FALSE,
-					.SrcBlend = D3D12_BLEND_ONE,
-					.DestBlend = D3D12_BLEND_INV_SRC_ALPHA,
-					.BlendOp = D3D12_BLEND_OP_ADD,
-					.SrcBlendAlpha = D3D12_BLEND_ZERO,
-					.DestBlendAlpha = D3D12_BLEND_ONE,
-					.BlendOpAlpha = D3D12_BLEND_OP_ADD,
-					.LogicOp = D3D12_LOGIC_OP_CLEAR,
-					.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL,
-				})
+				.flags(ENuggetFlag::ShadowCastExclude | ENuggetFlag::GeometryHasAlpha | ENuggetFlag::AlphaWeighted)
 				.mat([&](MaterialSimple& m) {
 					m.use_shader_overlay(ERenderStep::RenderForward, shdr);
 				})
 			);
 
-		// Draw after the opaque scene so that nearer geometry hides drops behind it through the depth test.
 		ResourceFactory factory(rdr);
 		ModelGenerator::Cache cache{buf};
 		m_inst.m_model = ModelGenerator::Create<Vert>(factory, cache);
 		m_inst.m_i2w = m4x4::Identity();
-		m_inst.m_sko.Group(ESortGroup::PostOpaques);
 		factory.FlushToGpu(EGpuFlush::Block);
 	}
 
@@ -249,6 +241,8 @@ namespace pr::game_systems
 			throw std::invalid_argument("Rain requires a finite wind and camera velocity, and a finite nonzero fall velocity");
 		if (!IsFinite3(settings.m_colour) || settings.m_colour.x < 0 || settings.m_colour.y < 0 || settings.m_colour.z < 0 || !(settings.m_opacity >= 0 && settings.m_opacity <= 1))
 			throw std::invalid_argument("Rain requires a finite nonnegative colour and an opacity in [0,1]");
+		if (!IsFinite3(settings.m_clip_plane) || !std::isfinite(settings.m_clip_plane.w))
+			throw std::invalid_argument("Rain requires a finite clip plane");
 		if (!(settings.m_streak_time > 0) || !std::isfinite(settings.m_streak_time) || !(settings.m_drop_width > 0) || !std::isfinite(settings.m_drop_width))
 			throw std::invalid_argument("Rain requires a finite positive streak time and drop width");
 		if (!std::isfinite(settings.m_time))
@@ -273,6 +267,7 @@ namespace pr::game_systems
 
 		// Heavier rain has slightly larger drops as well as more of them.
 		cbuf.colour = v4(settings.m_colour.x, settings.m_colour.y, settings.m_colour.z, settings.m_opacity);
+		cbuf.clip_plane = settings.m_clip_plane;
 		cbuf.intensity = settings.m_intensity;
 		cbuf.streak_time = settings.m_streak_time;
 		cbuf.half_width = 0.5f * settings.m_drop_width * Lerp(0.6f, 1.0f, settings.m_intensity);

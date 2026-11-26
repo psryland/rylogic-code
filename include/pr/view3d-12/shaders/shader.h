@@ -32,7 +32,7 @@ namespace pr::rdr12
 
 	// The set of forward pixel-shader entry points that share one shading function, one per output contract.
 	// See 'pr/view3d-12/shaders/forward_pixel.hlsli' for how a family is written in HLSL.
-	// The 'AlphaWeighted' entry point is optional in procedural families. It is empty when the family cannot draw weighted transparency.
+	// Overlay families may leave slots empty for sub-passes they never draw in. Selecting an empty slot is an error.
 	struct ForwardPixelFamily
 	{
 		using ByteCode = ::pr::compute::ByteCode;
@@ -81,8 +81,11 @@ namespace pr::rdr12
 		//  - The shader contains the shader specific parameters.
 		//  - The realised shader is reused by the window/render step.
 		//  - All shaders can share one GpuUploadBuffer
+		//  - A forward overlay that must draw in more than one forward sub-pass (e.g. opaque and weighted transparency) leaves 'm_code.PS' empty and supplies
+		//    'm_pixel_family' instead. The entry point for the stock pixel shader's slot is selected when each pipeline is built.
 		Renderer*                   m_rdr;       // The renderer that owns this model
 		ShaderCode                  m_code;      // Byte code for the shader parts
+		ForwardPixelFamily          m_pixel_family; // Forward pixel entry points selected per sub-pass, or empty (no 'm_replaces') for none
 		D3DPtr<ID3D12RootSignature> m_signature; // Signature for shader, null if an overlay
 		std::vector<std::vector<BYTE>> m_owned_code; // Bytecode compiled at runtime and owned by this shader. See 'OwnByteCode'.
 		
@@ -95,6 +98,9 @@ namespace pr::rdr12
 
 		// Sort id for the shader
 		SortKeyId SortId() const;
+
+		// True if this shader replaces the stock forward pixel shaders with 'm_pixel_family'.
+		bool HasPixelFamily() const;
 
 		// Keep 'code' for the lifetime of this shader and return a reference to it. Bytecode that is not static data must be owned this way, because
 		// pipelines are identified by bytecode address. Deleting the shader releases the pipelines that use its owned bytecode or its signature, so a

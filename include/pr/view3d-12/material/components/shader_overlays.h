@@ -44,8 +44,8 @@ namespace pr::rdr12::materials
 	// Throws if the current pixel shader is not an entry point of the stock family that 'family' replaces (see ForwardPixelFamily::m_replaces).
 	void ApplyForwardPixelFamily(PipeStateDesc& desc, ForwardPixelFamily const& family);
 
-	// Return the forward pixel family of the procedural overlay that 'material' applies for 'step', or null if it has none.
-	ForwardPixelFamily const* ProceduralPixelFamily(Material const& material, ERenderStep step);
+	// Return the forward pixel family of the overlay that 'material' applies for 'step', or null if it has none.
+	ForwardPixelFamily const* OverlayPixelFamily(Material const& material, ERenderStep step);
 
 	// True if 'material' applies a procedural vertex shader for 'step'. Procedural vertex-ID models have positions only in such shaders, so a step
 	// without one cannot draw them with its stock vertex shader.

@@ -718,6 +718,7 @@ namespace pr
 		// Rain around the camera. See RainSettings in pr/game-systems/sky/rain.h for the full contract. The frame is any right-handed frame.
 		// 'm_wind' is the air's velocity (finite). 'm_fall_velocity' is a drop's velocity in still air (finite, nonzero); it decides which way is down.
 		// 'm_camera_velocity' (finite) is the camera's velocity, which leans the streaks. 'm_colour' is the lit drop colour (linear rgb, finite, >= 0).
+		// 'm_clip_plane' (finite) is a world plane (xyz = normal, w = offset); drops where dot(xyz, p) + w < 0 are not drawn. A zero plane hides none.
 		// 'm_intensity' in [0,1] is how hard it rains (0 = none, 1 = a heavy downpour). 'm_opacity' in [0,1] is the most a single streak covers.
 		// 'm_streak_time' (> 0, seconds) is the streak exposure time. 'm_drop_width' (> 0) is a drop's width in world units at full intensity.
 		// 'm_time' (finite, seconds) is the caller's clock; drops move by its change between updates, so a slow clock gives slow-motion rain.
@@ -727,6 +728,7 @@ namespace pr
 			Vec4 m_fall_velocity = { 0.0f, 0.0f, -7.0f, 0.0f };
 			Vec4 m_camera_velocity = { 0.0f, 0.0f, 0.0f, 0.0f };
 			Vec4 m_colour = { 0.6f, 0.65f, 0.7f, 1.0f };
+			Vec4 m_clip_plane = { 0.0f, 0.0f, 0.0f, 0.0f };
 			float m_intensity = 0.0f;
 			float m_opacity = 0.25f;
 			float m_streak_time = 0.02f;
