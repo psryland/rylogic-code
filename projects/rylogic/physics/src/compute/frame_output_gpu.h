@@ -76,6 +76,7 @@ namespace pr::physics
 		bool m_substep_state_active;
 		int m_dispatch_count;
 		int m_readback_count;
+		uint32_t m_frame_stamp; // Advanced by BeginFrame so stale event slots from an earlier frame are detectable.
 
 		explicit GpuFrameOutput(Gpu& gpu);
 

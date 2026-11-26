@@ -798,7 +798,7 @@ struct GpuFrameOutputHeader
 	int substep_count;
 	uint constraint_failure_slot_plus_one; // Zero means success; otherwise identifies one deterministically selected failing stable slot.
 	int selective_refresh_needed;
-	int pad2;
+	uint frame_stamp; // Identifies the frame that wrote this header. Events from the same frame carry the same stamp.
 };
 
 // Transient reservation shared by the serial event-queue setup and parallel event copy.
@@ -830,8 +830,8 @@ struct GpuCollisionEvent
 	int child_idx_a;
 	int child_idx_b;
 	int substep_index;
-	int pad0;
-	int pad1;
+	int contact_index; // Resolver contact slot that produced this event, for diagnostics.
+	uint frame_stamp;  // Equals the header's frame stamp when the event was written in that frame.
 };
 struct GpuSelectiveRefreshMetrics
 {
