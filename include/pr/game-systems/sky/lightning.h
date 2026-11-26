@@ -62,7 +62,8 @@ namespace pr::game_systems
 
 	// A procedural cloud-to-ground lightning bolt. The same inputs always make the same bolt.
 	// The bolt is one bright, thick main channel, a few dim branches spreading sideways inside the cloud, and many faint tendrils below the cloud
-	// that reach down and out from the main channel and fork again, up to four levels deep, each level dimmer and thinner than the last.
+	// that fork from the main channel's corners, reach down and out as far as an upright cone above the ground point, and fork again, up to four
+	// levels deep, each level dimmer and thinner than the last.
 	// A strike has three phases: a dim leader grows from inside the cloud toward the ground, a bright return stroke lights the whole channel
 	// when the leader touches the ground, and the channel then fades and narrows, with up to two more return strokes making it flicker.
 	struct LightningBolt

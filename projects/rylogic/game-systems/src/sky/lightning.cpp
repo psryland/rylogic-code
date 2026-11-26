@@ -162,6 +162,64 @@ namespace pr::game_systems
 			// Tendrils grow this many times faster than the main leader, so most of them are complete when the leader reaches the ground.
 			static constexpr float TendrilSpeed = 3.0f;
 
+			// Tendrils stay inside an upright cone with its tip at the ground point, so they spread wide high up and only a little near the ground.
+			// This is the angle between the cone's side and the vertical, in degrees.
+			static constexpr float TendrilConeAngle = 40.0f;
+
+			// Tendrils that would be shorter than this, in world units, are left out.
+			static constexpr float TendrilLengthMin = 10.0f;
+
+			// How far inside the tendril cone the point 'p' is, measured horizontally. Negative outside the cone.
+			float ConeMargin(v4 const& p) const
+			{
+				// The cone's radius grows with height above the ground point.
+				auto radius = (p.z - m_ground.z) * std::tan(TendrilConeAngle * constants<float>::tau / 360.0f);
+				auto offset = p - m_ground;
+				return radius - std::sqrt(offset.x * offset.x + offset.y * offset.y);
+			}
+
+			// The distance from 'start', inside the tendril cone, along the downward unit direction 'dir' to the cone's side.
+			float DistanceToCone(v4 const& start, v4 const& dir) const
+			{
+				// The path leaves the cone before it reaches the ground's height, so a root lies between the start and that distance.
+				// The margin along a straight path rises and then falls, so a binary search finds where it first leaves the cone.
+				auto lo = 0.0f;
+				auto hi = (start.z - m_ground.z) / -dir.z;
+				for (int i = 0; i != 24; ++i)
+				{
+					auto mid = 0.5f * (lo + hi);
+					if (ConeMargin(start + dir * mid) >= 0)
+						lo = mid;
+					else
+						hi = mid;
+				}
+				return lo;
+			}
+
+			// The chance of a branch growing from each node of the chain of nodes [first, last), so that the expected number of branches is 'expected'.
+			// Lightning forks where its path bends, so sharper corners are more likely to branch. Node 'i + 1' continues the chain from node 'i'.
+			std::vector<float> CornerChances(int first, int last, float expected) const
+			{
+				// Measure how sharply the path turns at each node, from 0 for straight on to 1 for doubling back.
+				std::vector<float> chances(std::max(0, last - first));
+				auto total = 0.0f;
+				for (int i = first; i != last; ++i)
+				{
+					auto const& node = m_nodes[i];
+					auto d_in = Normalise(node.m_pos - m_nodes[node.m_parent].m_pos, v4::Zero());
+					auto d_out = Normalise(m_nodes[i + 1].m_pos - node.m_pos, v4::Zero());
+					chances[i - first] = 0.5f * (1.0f - Dot(d_in, d_out));
+					total += chances[i - first];
+				}
+
+				// Scale the sharpness so the chances add up to the expected number of branches.
+				auto scale = total > 0 ? expected / total : 0.0f;
+				for (auto& c : chances)
+					c = std::min(1.0f, c * scale);
+
+				return chances;
+			}
+
 			// Add a path of points as a chain of nodes that grows from node 'parent'. Returns the index of the first new node.
 			// Arrival times continue from the parent's at 'speed_scale' times the leader's speed. Brightness tapers along the chain from 'brightness' to 'brightness * taper'.
 			int AddChain(int parent, std::span<v4 const> points, float brightness, float taper, float width, float speed_scale, bool in_cloud)
@@ -197,25 +255,27 @@ namespace pr::game_systems
 				return first;
 			}
 
-			// Grow a faint tendril below the cloud from node 'parent', reaching down and out toward the horizontal direction 'heading',
-			// and maybe smaller tendrils from it. 'depth' is 1 for a tendril of the main channel.
+			// Grow a faint tendril below the cloud from node 'parent', reaching down and out toward the horizontal direction 'heading' as far as
+			// the tendril cone, and maybe smaller tendrils from it. 'depth' is 1 for a tendril of the main channel.
 			void Tendril(int parent, v4 const& heading, int depth)
 			{
-				// Tendrils stop a tenth of the bolt's height above the ground, so ones that would start near that floor have no room and are left out.
+				// The tendril leans 25 to 70 degrees from straight down toward its heading.
 				auto start = m_nodes[parent].m_pos;
 				auto parent_brightness = m_nodes[parent].m_brightness;
 				auto parent_width = m_nodes[parent].m_width;
-				auto bolt_height = m_base - m_ground.z;
-				auto floor = m_ground.z + 0.1f * bolt_height;
-				if (start.z - floor < 0.05f * bolt_height)
-					return;
-
-				// The tendril leans 25 to 70 degrees from straight down toward its heading. Each level is shorter than the one it grows from.
 				auto angle = m_rng.Range(25.0f, 70.0f) * constants<float>::tau / 360.0f;
 				auto dir = v4(0, 0, -std::cos(angle), 0) + heading * std::sin(angle);
-				auto length = (start.z - m_ground.z) * m_rng.Range(0.3f, 0.9f) * std::pow(0.7f, s_cast<float>(depth - 1));
+
+				// Tendrils reach most of the way to the cone's side, and each level is shorter than the one it grows from. Tendrils that start
+				// outside the cone, or have too little room before its side, are left out.
+				if (ConeMargin(start) <= 0)
+					return;
+
+				auto length = DistanceToCone(start, dir) * m_rng.Range(0.5f, 1.0f) * std::pow(0.7f, s_cast<float>(depth - 1));
+				if (length < TendrilLengthMin)
+					return;
+
 				auto end = start + dir * length;
-				end.z = std::max(end.z, floor);
 				end.w = 1.0f;
 
 				// Long tendrils use longer straight steps, which bounds the number of nodes in each one. Each level is dimmer and thinner than its parent.
@@ -229,12 +289,12 @@ namespace pr::game_systems
 				if (depth >= TendrilDepthMax)
 					return;
 
-				// Smaller tendrils grow from anywhere along this one except its tip, turned up to 60 degrees either side of its heading.
-				auto chance = SubTendrils[depth - 1] / s_cast<float>(std::max(1, last - first - 1));
+				// Smaller tendrils grow from the corners along this one, except its tip, turned up to 60 degrees either side of its heading.
+				auto chances = CornerChances(first, last - 1, SubTendrils[depth - 1]);
 				for (int i = first; i != last - 1; ++i)
 				{
 					// Each node may start a smaller tendril, with its heading turned about the vertical.
-					if (m_rng.Unit() >= chance)
+					if (m_rng.Unit() >= chances[i - first])
 						continue;
 
 					auto turn = m_rng.Range(-60.0f, 60.0f) * constants<float>::tau / 360.0f;
@@ -324,13 +384,11 @@ namespace pr::game_systems
 				builder.CloudBranch(i);
 		}
 
-		// Add faint tendrils below the cloud, spreading in random directions. They are most common near the cloud: the chance rises
-		// linearly with height and averages to the expected number of tendrils over the channel.
-		auto tendril_chance = BoltBuilder::TendrilsPerBolt / s_cast<float>(std::max(1, main_end - 1 - air_first));
+		// Add faint tendrils below the cloud, spreading in random directions from the corners of the main channel, all the way down to the ground.
+		auto tendril_chances = builder.CornerChances(air_first, main_end - 1, BoltBuilder::TendrilsPerBolt);
 		for (int i = air_first; i != main_end - 1; ++i)
 		{
-			auto height_fraction = (m_nodes[i].m_pos.z - m_ground.z) / (cloud_base - m_ground.z);
-			if (rng.Unit() < tendril_chance * 2.0f * height_fraction)
+			if (rng.Unit() < tendril_chances[i - air_first])
 				builder.Tendril(i, rng.Horizontal(), 1);
 		}
 		assert(isize(m_nodes) < 0xFFFF && "Lightning bolt has too many nodes for 16-bit indices");
@@ -427,7 +485,7 @@ namespace pr::game_systems
 		}
 	};
 
-	// One line segment per non-origin node, from its parent to it. The vertex colour carries the node's timing and appearance to the shaders.
+	// One segment per non-origin node, from its parent to it, with its chain neighbours for joining. The vertex colour carries the node's timing and appearance to the shaders.
 	LightningStrike::LightningStrike(ResourceFactory& factory, LightningBolt bolt, double start_time)
 		: m_bolt(std::move(bolt))
 		, m_start_time(start_time)
@@ -452,14 +510,25 @@ namespace pr::game_systems
 			v.m_idx0 = iv2::Zero();
 			Grow(buf.m_bbox, node.m_pos);
 		}
+		// Each segment is drawn with its neighbours in the same chain, so the shader can divide the round ends that they share. A chain continues
+		// through a node into the node added right after it, because AddChain adds the nodes of a chain in order. Branches start elsewhere.
+		// Where a chain does not continue, the segment's own end node stands in for the neighbour, which gives that end a whole round end.
+		auto next_in_chain = [&](int i)
+		{
+			return i + 1 != count && nodes[i + 1].m_parent == i ? i + 1 : i;
+		};
 		for (int i = 0; i != count; ++i)
 		{
 			// The origin has no segment of its own.
-			if (nodes[i].m_parent < 0)
+			auto parent = nodes[i].m_parent;
+			if (parent < 0)
 				continue;
 
-			buf.m_icont.push_back(s_cast<uint16_t>(nodes[i].m_parent));
+			auto prev = next_in_chain(parent) == i && nodes[parent].m_parent >= 0 ? nodes[parent].m_parent : parent;
+			buf.m_icont.push_back(s_cast<uint16_t>(prev));
+			buf.m_icont.push_back(s_cast<uint16_t>(parent));
 			buf.m_icont.push_back(s_cast<uint16_t>(i));
+			buf.m_icont.push_back(s_cast<uint16_t>(next_in_chain(i)));
 		}
 
 		// The material retains the shader, so its pointer remains valid for the lifetime of the model.
@@ -468,7 +537,7 @@ namespace pr::game_systems
 		auto shdr = Shader::Create<LightningShader>(factory.rdr());
 		m_shader = shdr.get();
 		buf.m_ncont.push_back(
-			NuggetDesc(ETopo::LineList, EGeom::Vert | EGeom::Colr)
+			NuggetDesc(ETopo::LineListAdj, EGeom::Vert | EGeom::Colr)
 				.flags(ENuggetFlag::ShadowCastExclude | ENuggetFlag::GeometryHasAlpha | ENuggetFlag::AlphaWeighted)
 				.mat([&](MaterialSimple& m) {
 					m.use_shader_overlay(ERenderStep::RenderForward, shdr);
