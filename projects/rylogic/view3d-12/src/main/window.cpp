@@ -977,6 +977,7 @@ namespace pr::rdr12
 				&*rtdesc.ClearValue, __uuidof(ID3D12Resource), (void**)bb.m_render_target.address_of()));
 			DefaultResState(bb.m_render_target.get(), D3D12_RESOURCE_STATE_RENDER_TARGET);
 			DebugName(bb.m_render_target, "RenderTarget");
+			PR_GPU_MEMORY_TRACK(bb.m_render_target.get(), "Render targets");
 
 			// Save the pointer to where the RTV descriptor will be stored
 			D3D12_CPU_DESCRIPTOR_HANDLE rtv_handle = m_rtv_heap->GetCPUDescriptorHandleForHeapStart();
@@ -1005,6 +1006,7 @@ namespace pr::rdr12
 				&*dsdesc.ClearValue, __uuidof(ID3D12Resource), (void**)bb.m_depth_stencil.address_of()));
 			DefaultResState(bb.m_depth_stencil.get(), D3D12_RESOURCE_STATE_DEPTH_WRITE);
 			DebugName(bb.m_depth_stencil, "DepthStencil");
+			PR_GPU_MEMORY_TRACK(bb.m_depth_stencil.get(), "Depth stencils");
 
 			// Save the pointer to where the DSV descriptor will be stored
 			D3D12_CPU_DESCRIPTOR_HANDLE dsv_handle = m_dsv_heap->GetCPUDescriptorHandleForHeapStart();
@@ -1046,6 +1048,7 @@ namespace pr::rdr12
 			nullptr, __uuidof(ID3D12Resource), (void**)bb.m_render_target.address_of()));
 		DefaultResState(bb.m_render_target.get(), D3D12_RESOURCE_STATE_PRESENT);
 		DebugName(bb.m_render_target, "ViewTarget");
+		PR_GPU_MEMORY_TRACK(bb.m_render_target.get(), "View targets");
 		bb.m_sync_point = m_gsync.CompletedSyncPoint();
 
 		// Create the RTV as the sRGB sibling, matching the swap chain RTVs
@@ -1091,6 +1094,7 @@ namespace pr::rdr12
 			nullptr, __uuidof(ID3D12Resource), (void**)m_resolved_depth.address_of()));
 		DefaultResState(m_resolved_depth.get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
 		DebugName(m_resolved_depth, "ResolvedDepth");
+		PR_GPU_MEMORY_TRACK(m_resolved_depth.get(), "Resolved depth");
 
 		m_resolved_depth_size = size;
 		m_resolved_depth_format = m_ds_props.Format;
@@ -1170,6 +1174,7 @@ namespace pr::rdr12
 			Check(m_swap_chain->GetBuffer(s_cast<UINT>(i), __uuidof(ID3D12Resource), (void**)bb.m_render_target.address_of()));
 			DefaultResState(bb.m_render_target.get(), D3D12_RESOURCE_STATE_PRESENT);
 			DebugName(bb.m_render_target, FmtS("SwapChainRT-%d", i));
+			PR_GPU_MEMORY_TRACK(bb.m_render_target.get(), "Swap-chain buffers");
 
 			// Save the pointers to where the descriptors will be stored
 			bb.m_rtv = rtv_handle; rtv_handle.ptr += s_cast<size_t>(rtv_size); // one RTV for each back buffer

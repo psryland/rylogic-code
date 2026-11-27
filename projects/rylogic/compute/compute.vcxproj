@@ -98,6 +98,7 @@
     <ClInclude Include="$(RylogicRoot)include\pr\compute\utility\cmd_list_collection.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\compute\utility\cmd_list.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\compute\utility\gpu_sync.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\utility\gpu_memory.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\compute\utility\keep_alive.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\compute\utility\lookup.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\compute\utility\map_resource.h" />

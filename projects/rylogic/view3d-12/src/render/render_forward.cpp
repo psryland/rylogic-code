@@ -261,6 +261,7 @@ namespace pr::rdr12
 			Check(device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &bdesc, D3D12_RESOURCE_STATE_PREDICATION, nullptr, __uuidof(ID3D12Resource), (void**)m_open_predicate.address_of()));
 			DefaultResState(m_open_predicate.get(), D3D12_RESOURCE_STATE_PREDICATION);
 			DebugName(m_open_predicate, "ReflectionOpenPredicate");
+			PR_GPU_MEMORY_TRACK(m_open_predicate.get(), "ReflectionOpenPredicate");
 		}
 	};
 

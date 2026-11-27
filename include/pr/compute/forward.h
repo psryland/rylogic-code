@@ -56,6 +56,9 @@
 #include <dxgi1_4.h>
 #include <dxgitype.h>
 #include <dxcapi.h>
+#ifndef NDEBUG
+#include <wrl/implements.h>
+#endif
 
 #include "pr/algorithm/algorithm.h"
 #include "pr/common/allocator.h"

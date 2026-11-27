@@ -4,6 +4,7 @@
 //*********************************************
 #pragma once
 #include "pr/compute/forward.h"
+#include "pr/compute/utility/gpu_memory.h"
 
 namespace pr::compute
 {
