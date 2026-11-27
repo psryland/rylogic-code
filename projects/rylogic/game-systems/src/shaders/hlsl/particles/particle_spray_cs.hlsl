@@ -60,9 +60,9 @@ ParticleSteppedSpriteState ParticleInit(ParticleSprayEmitter params, ParticleSpa
 	state.size1 = params.size.y;
 	state.gravity = params.gravity;
 	state.die_on_contact = 0;
-	state.pad0 = 0;
-	state.pad1 = 0;
-	state.pad2 = 0;
+	state.curl = 0.0f;
+	state.roll_xy = 0;
+	state.roll_z = 0;
 
 	// A birth that is not kept makes no droplet. New particles are always kept for one tick, so it is drawn at zero size, away from the water's
 	// far-below height, and the next update removes it.

@@ -34,7 +34,7 @@ public sealed partial class View3d
 		/// <summary>Slow grey puffs that rise, grow and drift with the wind.</summary>
 		Smoke = 2,
 
-		/// <summary>A burst of dust that billows out, rises a little and settles.</summary>
+		/// <summary>A burst of faint dust that rolls out along the ground, curls gently upward, swirls around, and disperses on the wind as it fades.</summary>
 		Dust = 3,
 
 		/// <summary>Streaked drops that fall with the wind and die where they land.</summary>

@@ -162,6 +162,17 @@ namespace pr::game_systems::particles
 			return mesh;
 		}
 
+		// Return a value in [0, 1) for each integer pair and seed. A fixed hash gives every run the same procedural textures.
+		float TexelHash(int x, int y, uint32_t seed)
+		{
+			// Mix the inputs into one well-scrambled value.
+			auto hash = static_cast<uint32_t>(x) * 0x8da6b343U ^ static_cast<uint32_t>(y) * 0xd8163841U ^ seed * 0xcb1ab31fU;
+			hash = (hash ^ (hash >> 16)) * 0x7feb352dU;
+			hash = (hash ^ (hash >> 15)) * 0x846ca68bU;
+			hash ^= hash >> 16;
+			return static_cast<float>(hash) / 4294967296.0f;
+		}
+
 		// Texels per side of the froth texture.
 		constexpr int FrothTextureSize = 256;
 
@@ -171,16 +182,8 @@ namespace pr::game_systems::particles
 		{
 			static auto const texels = []
 			{
-				// A fixed hash gives every run the same texture. Returns a value in [0, 1) for each integer pair and seed.
-				auto const random = [](int x, int y, uint32_t seed)
-				{
-					// Mix the inputs into one well-scrambled value.
-					auto hash = static_cast<uint32_t>(x) * 0x8da6b343U ^ static_cast<uint32_t>(y) * 0xd8163841U ^ seed * 0xcb1ab31fU;
-					hash = (hash ^ (hash >> 16)) * 0x7feb352dU;
-					hash = (hash ^ (hash >> 15)) * 0x846ca68bU;
-					hash ^= hash >> 16;
-					return static_cast<float>(hash) / 4294967296.0f;
-				};
+				// The shared hash with this texture's seeds.
+				auto const random = TexelHash;
 
 				// The clump is a heap of round lumps of foam, packed most tightly at its centre. The lumps lie within the inner half of the texture, so the
 				// sprite's octagon never cuts them off. Distances are in texture widths.
@@ -259,6 +262,103 @@ namespace pr::game_systems::particles
 							alpha *= 0.5f;
 
 						auto const c = static_cast<uint32_t>(std::lround(grey * 255.0f));
+						auto const al = static_cast<uint32_t>(std::lround(alpha * 255.0f));
+						result[static_cast<size_t>(y) * n + x] = (al << 24) | (c << 16) | (c << 8) | c;
+					}
+				}
+				return result;
+			}();
+			return texels;
+		}
+
+		// Texels per side of the dust texture.
+		constexpr int DustTextureSize = 128;
+
+		// Return the stock dust texture: a thin, wispy puff of smoke. It is white, so the sprite's colour tints it, and its alpha is the smoke's density.
+		// The smoke is translucent even where it is thickest, and thins smoothly all the way out to near the sprite's rim, so overlapping puffs build
+		// up into a cloud without any one puff showing an edge. Texels are R8G8B8A8 with straight alpha.
+		std::vector<uint32_t> const& DustTexels()
+		{
+			static auto const texels = []
+			{
+				// Smooth noise in [0, 1): random values at the corners of a grid of 'cells' squares, blended smoothly across each square.
+				auto const noise = [](float u, float v, int cells, uint32_t seed)
+				{
+					// Blend the four corners of the square containing (u, v) with a smooth step, so the noise has no creases.
+					auto const x = u * cells;
+					auto const y = v * cells;
+					auto const x0 = static_cast<int>(std::floor(x));
+					auto const y0 = static_cast<int>(std::floor(y));
+					auto const fx = x - x0;
+					auto const fy = y - y0;
+					auto const sx = fx * fx * (3.0f - 2.0f * fx);
+					auto const sy = fy * fy * (3.0f - 2.0f * fy);
+					auto const top = std::lerp(TexelHash(x0, y0, seed), TexelHash(x0 + 1, y0, seed), sx);
+					auto const bot = std::lerp(TexelHash(x0, y0 + 1, seed), TexelHash(x0 + 1, y0 + 1, seed), sx);
+					return std::lerp(top, bot, sy);
+				};
+
+				// Wisps are noise at several scales, with finer scales adding less, so the smoke has soft swirls with fine detail on them.
+				auto const wisps = [&](float u, float v, uint32_t seed)
+				{
+					// Four octaves, normalised back to [0, 1).
+					auto sum = 0.0f;
+					auto weight = 0.5f;
+					auto cells = 4;
+					for (auto octave = 0; octave != 4; ++octave, weight *= 0.5f, cells *= 2)
+						sum += weight * noise(u, v, cells, seed + octave);
+
+					return sum / 0.9375f;
+				};
+
+				// The puff is a loose cluster of broad, soft clumps spread over most of the sprite. Distances are in texture widths.
+				struct Clump { float u, v, radius; };
+				constexpr auto clump_count = 9;
+				auto clumps = std::vector<Clump>{};
+				for (auto i = 0; i != clump_count; ++i)
+				{
+					// Clumps stay inside the rim, so the sprite's octagon never cuts them off.
+					auto const r = 0.2f * std::sqrt(TexelHash(i, 0, 21));
+					auto const a = 6.2831853f * TexelHash(i, 0, 22);
+					auto const radius = 0.14f + 0.1f * TexelHash(i, 0, 23);
+					clumps.push_back({ 0.5f + r * std::cos(a), 0.5f + r * std::sin(a), radius });
+				}
+
+				constexpr auto n = DustTextureSize;
+				auto result = std::vector<uint32_t>(static_cast<size_t>(n) * n);
+				for (auto y = 0; y != n; ++y)
+				{
+					// Each row of texels.
+					for (auto x = 0; x != n; ++x)
+					{
+						// The density is the sum of the clumps' soft falloffs.
+						auto const u = (x + 0.5f) / n;
+						auto const v = (y + 0.5f) / n;
+						auto density = 0.0f;
+						for (auto const& clump : clumps)
+						{
+							auto const du = (u - clump.u) / clump.radius;
+							auto const dv = (v - clump.v) / clump.radius;
+							density += std::exp(-1.5f * (du * du + dv * dv));
+						}
+
+						// The wisps cut the clumps into soft streaks with clear gaps between them, so the puff is ragged rather than round. Coverage
+						// approaches full only gradually as the density grows, and is capped at about half opaque, so even the thickest smoke is
+						// see-through. A smooth fade across the whole radius brings the smoke to zero just inside the rim.
+						auto const ru = u - 0.5f;
+						auto const rv = v - 0.5f;
+						auto const radial = std::clamp(std::sqrt(ru * ru + rv * rv) / 0.48f, 0.0f, 1.0f);
+						auto const edge = (1.0f - radial * radial) * (1.0f - radial * radial);
+						auto const streak = std::clamp((wisps(u, v, 31) - 0.2f) / 0.6f, 0.0f, 1.0f);
+						auto const swirl = streak * streak * (3.0f - 2.0f * streak);
+						auto const thick = (1.0f - std::exp(-density * swirl)) * edge;
+						auto const alpha = 0.55f * thick;
+
+						// The smoke is a muted grey, lighter where it is thick and on top of the puff, and varies slightly with the wisps. Texture v
+						// increases down the sprite, but the sprite spins, so the shading is gentle.
+						auto const shade = std::clamp(0.68f + 0.1f * thick + 0.08f * (wisps(u, v, 41) - 0.5f) - 0.04f * (v - 0.5f), 0.0f, 1.0f);
+
+						auto const c = static_cast<uint32_t>(std::lround(shade * 255.0f));
 						auto const al = static_cast<uint32_t>(std::lround(alpha * 255.0f));
 						result[static_cast<size_t>(y) * n + x] = (al << 24) | (c << 16) | (c << 8) | c;
 					}
@@ -392,28 +492,39 @@ namespace pr::game_systems::particles
 			}
 			case EParticlePreset::Dust:
 			{
-				// A burst billows outwards, slows quickly under drag, sinks slowly, and fades as it spreads.
+				// A burst of faint, smoke-like puffs is pushed out level with the ground as a ring, and rolls gently upward and swirls around as it
+				// slows, spinning with the roll. The curl is half the drag, so the roll fades long before it could turn down. The puffs ignore gravity,
+				// so they neither rise nor fall on their own, and the wind carries the fading cloud without bending its roll. Each puff's drag and roll
+				// vary, so the cloud spreads and drifts apart in the wind.
 				static ParticleSpriteConstants const constants = {
 					.key_count = 3,
 					.flicker = 0.0f,
 					.flicker_rate = 0.0f,
 					.streak = 0.0f,
-					.keys = { { 0.0f, 0.4f, 0x00FFFFFF }, { 0.08f, 0.8f, 0xB0FFFFFF }, { 1.0f, 1.0f, 0x00FFFFFF } },
+					.keys = { { 0.0f, 0.5f, 0x00FFFFFF }, { 0.1f, 0.75f, 0x22FFFFFF }, { 1.0f, 1.0f, 0x00FFFFFF } },
 				};
 				static ParticleSteppedSpriteEmitter const params = {
 					.position = { 0.0f, 0.0f, 0.0f, 2.0f },
-					.velocity = { 0.0f, 0.0f, 1.0f, 4.0f },
+					.velocity = { 0.0f, 0.0f, 0.0f, 0.3f },
 					.accel = { 0.0f, 0.0f, 0.0f, 1.2f },
-					.lifetime = { 4.0f, 8.0f },
-					.size = { 1.0f, 5.0f },
-					.colour0 = 0xFF9C8C70,
-					.colour1 = 0xFFB8AC90,
+					.lifetime = { 2.0f, 3.5f },
+					.size = { 4.0f, 14.0f },
+					.colour0 = 0xFF655441,
+					.colour1 = 0xFF786C59,
 					.radius = 0.5f,
 					.collision_set = -1,
-					.gravity = 0.3f,
+					.gravity = 0.0f,
 					.die_on_contact = 0,
+					.outward = 6.0f,
+					.curl = 0.6f,
+					.swirl = 1.5f,
+					.variety = 0.6f,
 				};
-				return SteppedSprite(constants, params, EParticleBlend::Weighted, 0.0f, 400);
+				auto dust = SteppedSprite(constants, params, EParticleBlend::Weighted, 0.0f, 400);
+				auto const& texels = DustTexels();
+				dust.m_texels = texels.data();
+				dust.m_texture_size = DustTextureSize;
+				return dust;
 			}
 			case EParticlePreset::Rain:
 			{

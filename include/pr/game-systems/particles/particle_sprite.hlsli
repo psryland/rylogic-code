@@ -77,9 +77,9 @@ struct ParticleSpriteRecord
 {
 	float4 pos_size;  // xyz = Centre. w = Diameter.
 	uint colour;      // 0xAARRGGBB.
-	float angle;      // Rotation about the view direction (radians).
+	uint angles;      // Low bits: rotation about the view direction (radians), as a half float. High bits: spin about the spin axis (radians), as a half float.
 	uint streak_xy;   // The streak: the displacement from the tail to the head of the sprite, in the object's space, as half floats. x in the low bits.
-	uint streak_z;    // The streak's z, as a half float in the low bits. A zero streak draws a round sprite.
+	uint streak_z;    // Low bits: the streak's z, as a half float. A zero streak draws a round sprite. High bits: the spin axis, see ParticlePackAxis.
 };
 
 // The sprite index list draws an octagon as a fan of triangles from the centre (logical vertex 8) to the rim (logical vertices 0-7).
@@ -163,10 +163,45 @@ ParticleSpriteRecord ParticleSpriteMakeRecord(float3 position, float3 velocity, 
 	ParticleSpriteRecord record;
 	record.pos_size = float4(position, size);
 	record.colour = ParticlePackColour(colour);
-	record.angle = 6.283185307179586f * ParticleRandom(seed, 7);
+	record.angles = f32tof16(6.283185307179586f * ParticleRandom(seed, 7));
 	record.streak_xy = f32tof16(streak.x) | (f32tof16(streak.y) << 16);
 	record.streak_z = f32tof16(streak.z);
 	return record;
+}
+
+// Pack the unit vector 'axis' into 16 bits, 8 bits per coordinate of its octahedral map. Zero is never returned, so it can mean "no axis".
+uint ParticlePackAxis(float3 axis)
+{
+	// Project onto the octahedron |x| + |y| + |z| = 1, and fold the lower half over the upper half's corners.
+	float3 n = axis / (abs(axis.x) + abs(axis.y) + abs(axis.z));
+	float2 o = n.xy;
+	if (n.z < 0.0f)
+		o = (1.0f - abs(n.yx)) * float2(n.x >= 0.0f ? 1.0f : -1.0f, n.y >= 0.0f ? 1.0f : -1.0f);
+
+	// Quantise each coordinate to [1, 255].
+	uint2 q = uint2(round((o * 0.5f + 0.5f) * 254.0f)) + 1;
+	return q.x | (q.y << 8);
+}
+
+// Unpack a unit vector packed by ParticlePackAxis. 'bits' must not be zero.
+float3 ParticleUnpackAxis(uint bits)
+{
+	// Undo the quantisation, then unfold the lower half of the octahedron.
+	float2 o = (float2(bits & 0xFF, (bits >> 8) & 0xFF) - 1.0f) / 127.0f - 1.0f;
+	float3 n = float3(o, 1.0f - abs(o.x) - abs(o.y));
+	float t = saturate(-n.z);
+	n.x += n.x >= 0.0f ? -t : t;
+	n.y += n.y >= 0.0f ? -t : t;
+	return normalize(n);
+}
+
+// Spin the sprite of 'record' by 'angle' radians, right handed about the unit 'axis' in the object's space. The sprite stays facing the camera, so
+// the spin turns it on screen by 'angle' times the part of 'axis' that points at the viewer: seen side on to the axis, it barely turns.
+void ParticleSpriteSetSpin(inout ParticleSpriteRecord record, float3 axis, float angle)
+{
+	// The spin shares its words with the base rotation and the streak's z.
+	record.angles = (record.angles & 0xFFFF) | (f32tof16(angle) << 16);
+	record.streak_z = (record.streak_z & 0xFFFF) | (ParticlePackAxis(axis) << 16);
 }
 
 // Return the position of the sprite vertex 'vertex_id' relative to the sprite's centre, in the camera's view plane, and its texture coordinates.
@@ -191,7 +226,7 @@ bool ParticleSpriteVertex(uint vertex_id, float angle, float radius, out float2 
 // Return the streak of 'record': the displacement from the tail of the sprite to its centre.
 float3 ParticleSpriteStreak(ParticleSpriteRecord record)
 {
-	return float3(f16tof32(record.streak_xy), f16tof32(record.streak_xy >> 16), f16tof32(record.streak_z));
+	return float3(f16tof32(record.streak_xy & 0xFFFF), f16tof32(record.streak_xy >> 16), f16tof32(record.streak_z & 0xFFFF));
 }
 
 // Return a sphere that contains what the sprite vertex shader draws for 'record': the disc at its centre and the streak behind it. The radius is in

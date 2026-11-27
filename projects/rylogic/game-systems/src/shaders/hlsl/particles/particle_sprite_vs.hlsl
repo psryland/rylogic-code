@@ -30,18 +30,26 @@ View3DForwardVertexOut Main(uint vertex_id : SV_VertexID, uint instance_id : SV_
 	uint4 colour_angle_streak = g_records.Load4(offset + 16);
 	float4 colour = ParticleUnpackColour(colour_angle_streak.x);
 
-	// Rim vertices sit on a circle of the sprite's radius in the camera's view plane, turned by the sprite's angle, and are transparent.
+	// Rim vertices sit on a circle of the sprite's radius in the camera's view plane, turned by the sprite's angle, and are transparent. A spun
+	// sprite also turns by its spin times the part of its spin axis that points at the viewer, so the turn on screen follows the spin's direction.
 	float radius = 0.5f * pos_size.w;
+	float angle = f16tof32(colour_angle_streak.y & 0xFFFF);
+	uint spin_axis = colour_angle_streak.w >> 16;
+	if (spin_axis != 0)
+	{
+		float3 axis_ws = mul(mul(float4(ParticleUnpackAxis(spin_axis), 0.0f), g_nugget.m2o), g_nugget.o2w).xyz;
+		angle += f16tof32(colour_angle_streak.y >> 16) * dot(normalize(axis_ws), g_frame.cam.c2w[2].xyz);
+	}
 	float2 offset_cs;
 	float2 uv;
-	if (ParticleSpriteVertex(vertex_id, asfloat(colour_angle_streak.y), radius, offset_cs, uv))
+	if (ParticleSpriteVertex(vertex_id, angle, radius, offset_cs, uv))
 		colour.a = 0.0f;
 
 	// A streak stretches the disc along the streak's direction on screen, so the sprite spans from its head (the record's position) back to its tail.
 	// Rim points are pushed out along the streak in proportion to how far they already lie along it, which keeps the outline smooth. The streak is in
 	// the object's space.
 	View3DForwardVertexOut output = View3DProceduralForwardVertex(float4(pos_size.xyz, 1.0f), float4(0.0f, 0.0f, 0.0f, 0.0f), colour, uv, float2(0, 0), g_frame, g_nugget);
-	float3 streak = float3(f16tof32(colour_angle_streak.z), f16tof32(colour_angle_streak.z >> 16), f16tof32(colour_angle_streak.w));
+	float3 streak = float3(f16tof32(colour_angle_streak.z & 0xFFFF), f16tof32(colour_angle_streak.z >> 16), f16tof32(colour_angle_streak.w & 0xFFFF));
 	float3 streak_ws = mul(mul(float4(streak, 0.0f), g_nugget.m2o), g_nugget.o2w).xyz;
 	float3 mid_ws = output.ws_vert.xyz - 0.5f * streak_ws;
 

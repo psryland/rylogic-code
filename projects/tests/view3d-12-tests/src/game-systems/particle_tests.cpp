@@ -1112,6 +1112,66 @@ namespace render_tests
 			Require(ImageDifference(images[0], images[1]) == 0, "The tick rate changed the particle's position");
 			Require(View3D_ParticleEmitterDelete(particles.m_system, emitter) != FALSE, "Particle emitter delete failed");
 
+			// The roll is exact too. Gravity along +x puts "up" along -x, and the particle ignores gravity itself. Born at x = 0 rolling outward at
+			// 10 m/s with drag k = 0.5 and curl w = 2, the roll turns up and spirals in, so after t = 8 s it has risen
+			//   10(w(1 - e·cos(wt)) - k·e·sin(wt))/(k² + w²) = 4.79, where e = e^(-kt), to x = -4.79. Its level offset of 1.17 m is within the sprite.
+			{
+				// The outward direction is random but always level, so only the height is checked.
+				particles.Environment(2.0f, 0.0f);
+				auto params = pr::game_systems::particles::ParticleSteppedSpriteEmitter{};
+				params.position = { 0.0f, 0.0f, -ParticleDepth, 0.0f };
+				params.velocity = { 0.0f, 0.0f, 0.0f, 0.0f };
+				params.accel = { 0.0f, 0.0f, 0.0f, 0.5f };
+				params.lifetime = { 100.0f, 100.0f };
+				params.size = { 8.0f, 8.0f };
+				params.colour0 = 0xFFFF0000U;
+				params.colour1 = 0xFFFF0000U;
+				params.radius = 1.0f;
+				params.collision_set = -1;
+				params.gravity = 0.0f;
+				params.outward = 10.0f;
+				params.curl = 2.0f;
+				auto curler = particles.EmitterCreate(type, &params, sizeof(params), 0.0f, 1);
+				for (auto ticks : { 1, 80 })
+				{
+					// Born at the end of the birth step, then moved for 8 s in 'ticks' equal ticks.
+					particles.Reset();
+					particles.Burst(curler, 1);
+					particles.Step(BirthStep);
+					for (auto i = 0; i != ticks; ++i)
+						particles.Step(8.0 / ticks);
+
+					auto image = fixture.Image();
+					Require(RedAt(image, -4.79f) > 0.25f, "The rolling particle did not follow the exact motion");
+					Require(RedAt(image, 0.5f) < 0.01f && RedAt(image, -10.1f) < 0.01f, "The rolling particle is at the wrong height");
+				}
+				Require(View3D_ParticleEmitterDelete(particles.m_system, curler) != FALSE, "Particle emitter delete failed");
+
+				// A swirl turns the roll about the vertical, which shortens how far it reaches. Gravity into the view makes the image the level plane.
+				// Rolling outward at 10 m/s with drag k = 0.5 and swirl W = 0.5, and no curl, each particle moves 10·(C, S) along its outward and side
+				// directions, with C and S the decaying wave integrals at frequency W. After t = 8 s that is a distance of 14.31, rather than the 19.63
+				// reached without swirl. The births' directions are random, so a burst forms a ring of that radius.
+				auto env = api::ParticleEnvironment{ .m_gravity = { 0, 0, 2.0f, 0 }, .m_wind = {}, .m_collision_iterations = 4 };
+				Require(View3D_ParticleEnvironmentSet(particles.m_system, env) != FALSE, "Particle environment set failed");
+				params.curl = 0.0f;
+				params.swirl = 0.5f;
+				auto swirler = particles.EmitterCreate(type, &params, sizeof(params), 0.0f, 1);
+				for (auto ticks : { 1, 80 })
+				{
+					// Born at the end of the birth step, then moved for 8 s in 'ticks' equal ticks.
+					particles.Reset();
+					particles.Burst(swirler, 64);
+					particles.Step(BirthStep);
+					for (auto i = 0; i != ticks; ++i)
+						particles.Step(8.0 / ticks);
+
+					auto image = fixture.Image();
+					Require(RedAt(image, 14.31f) > 0.25f && RedAt(image, -14.31f) > 0.25f, "The swirling particles did not follow the exact motion");
+					Require(RedAt(image, 0.0f) < 0.01f && RedAt(image, 20.5f) < 0.01f, "The swirling particles are at the wrong distance");
+				}
+				Require(View3D_ParticleEmitterDelete(particles.m_system, swirler) != FALSE, "Particle emitter delete failed");
+			}
+
 			// A wind grid of 25 m columns blows at 0 m/s in the left column (centre x = -25) and 20 m/s in the right one (centre x = 0).
 			// Strong drag makes particles move with the wind, which is sampled at the start of each tick and clamped beyond the outer centres.
 			particles.Environment(0.0f, 0.0f);
@@ -1378,7 +1438,7 @@ namespace render_tests
 			Require(stats(snow).m_contacts > 0 && stats(snow).m_live < 1000, "Snow did not die where it landed");
 			Require(stats(leaves_downwind).m_contacts > 0 && stats(leaves_upwind).m_contacts == 0, "Leaves did not blow downwind");
 			Require(stats(chips).m_contacts > 0, "Wood chips did not land");
-			Require(stats(dust).m_live == static_cast<uint32_t>(dust.m_effect.m_settings.m_burst), "The dust burst did not live on");
+			Require(stats(dust).m_live > 0, "The dust burst did not live on");
 			Require(stats(birds).m_live == static_cast<uint32_t>(birds.m_effect.m_settings.m_burst), "The flock did not live on");
 			Require(stats(marker).m_live > 0, "The marker emitted no pulses");
 
