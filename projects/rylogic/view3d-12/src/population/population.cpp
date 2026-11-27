@@ -129,6 +129,7 @@ namespace pr::rdr12
 			Check(device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_COMMON, nullptr, __uuidof(ID3D12Resource), (void**)res.address_of()));
 			DefaultResState(res.get(), D3D12_RESOURCE_STATE_COMMON);
 			DebugName(res, name);
+			PR_GPU_MEMORY_TRACK(res.get(), name);
 			return res;
 		}
 
@@ -778,6 +779,7 @@ namespace pr::rdr12
 		Check(m_rdr->d3d()->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_COPY_DEST, nullptr, __uuidof(ID3D12Resource), (void**)view.m_readback.address_of()));
 		DefaultResState(view.m_readback.get(), D3D12_RESOURCE_STATE_COPY_DEST);
 		DebugName(view.m_readback, "Population:Diagnostics");
+		PR_GPU_MEMORY_TRACK(view.m_readback.get(), "Population:Diagnostics");
 
 		void* mapped = nullptr;
 		Check(view.m_readback->Map(0, nullptr, &mapped));

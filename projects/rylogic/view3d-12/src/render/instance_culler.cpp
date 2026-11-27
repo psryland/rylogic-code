@@ -57,6 +57,7 @@ namespace pr::rdr12
 			Check(device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_COMMON, nullptr, __uuidof(ID3D12Resource), (void**)res.address_of()));
 			DefaultResState(res.get(), D3D12_RESOURCE_STATE_COMMON);
 			DebugName(res, "InstanceCullView");
+			PR_GPU_MEMORY_TRACK(res.get(), "InstanceCullView");
 			return res;
 		}
 	}

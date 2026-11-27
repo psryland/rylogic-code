@@ -19,6 +19,7 @@
 #include <unordered_map>
 #include <windows.h>
 #include <d3d12.h>
+#include "pr/compute/utility/gpu_memory.h"
 
 namespace pr::compute::gpu_stamps
 {
@@ -139,6 +140,10 @@ namespace pr::compute::gpu_stamps
 				.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
 			};
 			ok = ok && SUCCEEDED(device->CreateCommittedResource(&heap_props, D3D12_HEAP_FLAG_NONE, &rdesc, D3D12_RESOURCE_STATE_COPY_DEST, nullptr, __uuidof(ID3D12Resource), reinterpret_cast<void**>(&m_readback)));
+#ifndef NDEBUG
+			if (ok)
+				PR_GPU_MEMORY_TRACK(m_readback, "GPU timestamp readback");
+#endif
 
 			void* mapped = nullptr;
 			ok = ok && SUCCEEDED(m_readback->Map(0, nullptr, &mapped));

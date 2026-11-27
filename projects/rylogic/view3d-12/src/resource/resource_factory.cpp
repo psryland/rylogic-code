@@ -159,6 +159,7 @@ namespace pr::rdr12
 		// Assume common state until the resource is initialised
 		DefaultResState(res.get(), D3D12_RESOURCE_STATE_COMMON);
 		DebugName(res, name);
+		PR_GPU_MEMORY_TRACK(res.get(), name);
 
 		// If initialisation data is provided, initialise using an UploadBuffer
 		if (has_init_data)

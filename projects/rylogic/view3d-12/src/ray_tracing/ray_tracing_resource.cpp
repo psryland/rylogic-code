@@ -34,6 +34,7 @@ namespace pr::rdr12
 
 		DefaultResState(res.get(), desc.DefaultState);
 		DebugName(res, name);
+		PR_GPU_MEMORY_TRACK(res.get(), name);
 		return res;
 	}
 
@@ -59,6 +60,7 @@ namespace pr::rdr12
 
 		DefaultResState(res.get(), D3D12_RESOURCE_STATE_COMMON);
 		DebugName(res, name);
+		PR_GPU_MEMORY_TRACK(res.get(), name);
 
 		// Initial data is uploaded through the frame upload buffer so the copy executes before the AS build that consumes it.
 		if (!desc.Data.empty())

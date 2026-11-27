@@ -122,6 +122,7 @@ namespace pr::rdr12
 		};
 		Check(device->CreateHeap(&heap_desc, __uuidof(ID3D12Heap), (void**)heap.address_of()));
 		DebugName(heap, "MipMapGenHeap");
+		PR_GPU_MEMORY_TRACK(heap.get(), "Mip-map staging heaps");
 
 		// Create a placed resource that matches the description of the original resource.
 		// The original texture is copied to this resource, which is then aliased as a UAV resource.

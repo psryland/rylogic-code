@@ -243,6 +243,7 @@ namespace pr::rdr12
 		Check(m_rdr.d3d()->CreateCommittedResource(&desc.HeapProps, desc.HeapFlags, &d3d_desc, D3D12_RESOURCE_STATE_COMMON, nullptr, __uuidof(ID3D12Resource), (void**)vb.address_of()));
 		DefaultResState(vb.get(), D3D12_RESOURCE_STATE_COMMON);
 		DebugName(vb, "SkinnedGeometry:VB");
+		PR_GPU_MEMORY_TRACK(vb.get(), "SkinnedGeometry:VB");
 
 		// Create a vertex buffer view for binding to the pipeline.
 		auto vb_view = D3D12_VERTEX_BUFFER_VIEW{

@@ -6,6 +6,7 @@
 #include "pr/compute/forward.h"
 #include "pr/compute/utility/wrappers.h"
 #include "pr/compute/utility/gpu_sync.h"
+#include "pr/compute/utility/gpu_memory.h"
 
 namespace pr::compute
 {
@@ -46,6 +47,7 @@ namespace pr::compute
 				&desc, D3D12_RESOURCE_STATE_COMMON, nullptr,
 				__uuidof(ID3D12Resource), (void**)m_res.address_of()));
 			Check(m_res->SetName(L"GpuTransferBuffer:Block"));
+			PR_GPU_MEMORY_TRACK(m_res.get(), "Transfer buffer pages");
 
 			// Upload buffers can live mapped
 			Check(m_res->Map(0U, nullptr, (void**)&m_mem));
