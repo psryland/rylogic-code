@@ -6,6 +6,10 @@
 // off its collision planes, or die when they touch one. They change size and colour over their life like sprites, and draw with the sprite batch and vertex shader.
 // Stepped sprites suit sparks that bounce, wind-blown dust, rain and spray.
 //
+// "Up" is opposite to the environment's gravity. An emitter can push its births outward, level with the ground, away from its position, and can
+// roll that outward motion: it slows at the drag rate, curls upward and swirls around the vertical, so a burst spirals out and up like a ring of
+// smoke, and each sprite spins with its roll. The wind carries a rolling particle without bending its roll. Both need a non-zero gravity.
+//
 // Each tick integrates the motion over the tick and then collides it with the emitter's collision set, so motion depends only on simulated time.
 // See particle_environment.hlsli for the integration and collision contract. Positions are in the space of the type's View3D object, which must be
 // the space that the environment is described in.
@@ -34,8 +38,11 @@ struct ParticleSteppedSpriteEmitter
 	int collision_set;  // The collision set that particles bounce off, or -1 for none.
 	float gravity;      // Scale of the environment's gravity. 1 falls normally, 0 ignores gravity, and negative values rise.
 	uint die_on_contact; // Non-zero to remove particles on their first touch of a collision plane, such as rain and snow landing.
-	uint pad0;
-	uint pad1;
+	float outward;      // Speed (m/s) away from 'position', level with the ground, along each birth's offset from it. See 'curl' for how it is applied.
+	float curl;         // Rate (rad/s) that the outward motion rolls upward. The roll slows at the drag rate and the wind carries it without bending it. A curl no faster than the drag never turns back down.
+	float swirl;        // Rate (rad/s) that the outward motion turns about the vertical, right handed about up. With neither curl nor swirl, the outward speed is added to the birth velocity instead of rolling.
+	float variety;      // In [0, 1]. Each particle scales its drag, outward speed, curl and swirl by its own random factors in [1 - variety, 1 + variety], so a burst spreads and disperses.
+	float2 pad;         // Unused. Rounds the size up to the 16 byte alignment that the C++ vector types give it.
 };
 
 // The state of one stepped sprite particle.
@@ -56,13 +63,13 @@ struct ParticleSteppedSpriteState
 	float size1;        // Diameter at death.
 	float gravity;      // Scale of the environment's gravity.
 	uint die_on_contact; // Non-zero to die on touching a collision plane.
-	uint pad0;
-	uint pad1;
-	uint pad2;
+	float curl;         // Rate (rad/s) that the roll turns upward.
+	uint roll_xy;       // The level roll axis scaled by the outward roll speed (m/s), as half floats, x in the low bits. Zero for a sprite that does not roll.
+	uint roll_z;        // The scaled axis's z in the low bits, and the rate (rad/s) that the roll swirls about the vertical in the high bits, as half floats.
 };
 
 #ifdef __cplusplus
-	static_assert(sizeof(ParticleSteppedSpriteEmitter) == 96);
+	static_assert(sizeof(ParticleSteppedSpriteEmitter) == 112);
 	static_assert(sizeof(ParticleSteppedSpriteState) == 96);
 }
 #endif

@@ -1489,7 +1489,7 @@ namespace pr
 			Fire = 0,       // Flickering flames that rise and shrink. Stepped sprites.
 			Sparks = 1,     // Streaked sparks thrown up and falling under gravity. Stepped sprites.
 			Smoke = 2,      // Slow grey puffs that rise, grow and drift with the wind. Stepped sprites.
-			Dust = 3,       // A burst of dust that billows out, rises a little and settles. Stepped sprites.
+			Dust = 3,       // A burst of faint dust that rolls out along the ground, curls gently upward, swirls around, and disperses on the wind as it fades. Stepped sprites.
 			Rain = 4,       // Streaked drops that fall with the wind and die where they land. Stepped sprites.
 			Snow = 5,       // Flakes that drift down with the wind and die where they land. Stepped sprites.
 			Leaves = 6,     // Leaves that flutter and tumble down with the wind, and settle where they land. Debris.
