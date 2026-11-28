@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import bpy
-from mathutils import Euler, Matrix, Vector
+from mathutils import Matrix, Vector
 
 SCHEMA_VERSION = 4
 
@@ -61,6 +61,11 @@ def BonesParentFirst(armature: bpy.types.Armature) -> list[bpy.types.Bone]:
 		stack.extend(reversed(bone.children))
 
 	return ordered
+
+
+def AttachmentEmpties(armature_obj: bpy.types.Object) -> list[bpy.types.Object]:
+	"""Return the empties that are parented to bones of 'armature_obj', which are its attachments, sorted by name so that the order is deterministic."""
+	return sorted((child for child in armature_obj.children if child.type == "EMPTY" and child.parent_type == "BONE"), key=lambda child: child.name)
 
 
 def BuildRigDesc(armature_obj: bpy.types.Object) -> dict[str, Any]:
@@ -123,14 +128,22 @@ def BuildRigDesc(armature_obj: bpy.types.Object) -> dict[str, Any]:
 			"normal": _List(Vector(contact.normal).normalized()),
 		})
 
-	# Describe each attachment frame. Like contacts, these are in bone space, which is rigid apart from the uniform scale.
+	# Describe each attachment frame from the empties that are parented to the armature's bones. Each empty's name is the attachment's name, and its
+	# transform relative to its bone is the frame. The frame is in bone space, which is rigid apart from the uniform scale, so any scale on the empty is
+	# dropped. The relative transform does not depend on the current pose, because a bone-parented empty moves with its bone.
 	attachments: list[dict[str, Any]] = []
-	for attachment in armature.rylogic_rig.attachments:
-		rotation = Euler(attachment.rotation, "XYZ").to_quaternion().normalized()
+	for empty in AttachmentEmpties(armature_obj):
+		pose_bone = armature_obj.pose.bones.get(empty.parent_bone)
+		if pose_bone is None:
+			raise ValueError(f"Attachment '{empty.name}' is parented to bone '{empty.parent_bone}', which does not exist")
+
+		relative = (armature_obj.matrix_world @ pose_bone.matrix).inverted() @ empty.matrix_world
+		position, rotation, _ = relative.decompose()
+		rotation = rotation.normalized()
 		attachments.append({
-			"name": attachment.name,
-			"bone": attachment.bone,
-			"position": _List(Vector(attachment.offset) * space.scale),
+			"name": empty.name,
+			"bone": empty.parent_bone,
+			"position": _List(position * space.scale),
 			"rotation": [rotation.x, rotation.y, rotation.z, rotation.w],
 		})
 

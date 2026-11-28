@@ -275,7 +275,7 @@ class RYLOGIC_OT_rig_symmetrize_limits(_ArmatureOperator):
 
 class RYLOGIC_OT_rig_contact_pick(_ArmatureOperator):
 	"""Move the active contact over the armature's mesh with the mouse, facing out of the surface, and click to keep it. It goes on the bone that most
-	deforms that spot, except that a grip stays on its hand bone"""
+	deforms that spot"""
 
 	bl_idname = "rylogic_rig.contact_pick"
 	bl_label = "Pick on Surface"
@@ -346,10 +346,9 @@ class RYLOGIC_OT_rig_contact_pick(_ArmatureOperator):
 		if not hit or not _Deforms(mesh_obj, armature_obj):
 			return None
 
-		# A grip belongs to its hand bone, even over skin that a finger bone deforms more, because the runtime holds the hand's grip contact
-		keep = contact.bone if contact.kind == "GRIP" and contact.bone in armature_obj.data.bones else None
+		# Place the contact on the bone that most deforms the hit face
 		try:
-			return ContactFromSurface(armature_obj, mesh_obj.evaluated_get(depsgraph), location, face, keep)
+			return ContactFromSurface(armature_obj, mesh_obj.evaluated_get(depsgraph), location, face)
 		except ValueError:
 			return None
 
@@ -366,13 +365,12 @@ def _RedrawViews(context: bpy.types.Context) -> None:
 		area.tag_redraw()
 
 
-def ContactFromSurface(armature_obj: bpy.types.Object, mesh_eval: bpy.types.Object, location: Vector, face: int, bone: str | None = None) -> tuple[str, Vector, Vector]:
+def ContactFromSurface(armature_obj: bpy.types.Object, mesh_eval: bpy.types.Object, location: Vector, face: int) -> tuple[str, Vector, Vector]:
 	"""Return the bone, bone-space offset and bone-space normal of a contact at a world-space surface point of an evaluated (posed) mesh.
 
 	The normal is the shaded normal at the point (see ShadedNormal), so it follows the smooth surface that is rendered rather than the faceted mesh.
 
-	The bone is 'bone' when given. Otherwise it is the deforming bone with the most weight over the vertices of the hit face, and ValueError is raised if no
-	bone of the armature weights that face.
+	The bone is the deforming bone with the most weight over the vertices of the hit face. ValueError is raised if no bone of the armature weights that face.
 	"""
 	# Total each bone's weight over the hit face's vertices
 	bones = armature_obj.data.bones
@@ -384,11 +382,11 @@ def ContactFromSurface(armature_obj: bpy.types.Object, mesh_eval: bpy.types.Obje
 			if name in bones and bones[name].use_deform:
 				totals[name] = totals.get(name, 0.0) + element.weight
 
-	if bone is None and not totals:
+	if not totals:
 		raise ValueError("No bone deforms the picked face")
 
 	# Express the point and direction in the bone's current frame, which has the same axes as its rest frame
-	name = bone if bone is not None else max(totals, key=totals.get)
+	name = max(totals, key=totals.get)
 	frame = armature_obj.matrix_world @ armature_obj.pose.bones[name].matrix
 	offset = frame.inverted_safe() @ location
 	direction = (frame.to_3x3().inverted_safe() @ ShadedNormal(mesh_eval, location, face)).normalized()
@@ -439,7 +437,7 @@ def _ReportUnmatched(operator: Operator, unmatched: list[str]) -> None:
 
 # The rig's editable lists
 _COLLECTIONS = [
-	("CHAINS", "Chains", ""), ("CONTACTS", "Contacts", ""), ("ATTACHMENTS", "Attachments", ""), ("FAMILIES", "Families", ""), ("CYCLES", "Movement Cycles", ""), ("ACTIVITIES", "Activities", ""),
+	("CHAINS", "Chains", ""), ("CONTACTS", "Contacts", ""), ("FAMILIES", "Families", ""), ("CYCLES", "Movement Cycles", ""), ("ACTIVITIES", "Activities", ""),
 	("ACTIVITY_LIST", "Activity List", "The list parameter, named by 'param', of the active activity"),
 ]
 
@@ -535,7 +533,7 @@ class RYLOGIC_OT_gait_template(_ArmatureOperator):
 
 
 class RYLOGIC_OT_rig_item_add(_ArmatureOperator):
-	"""Add a chain, contact, attachment, family, movement cycle, activity or activity list item"""
+	"""Add a chain, contact, family, movement cycle, activity or activity list item"""
 
 	bl_idname = "rylogic_rig.item_add"
 	bl_label = "Add"
@@ -555,10 +553,6 @@ class RYLOGIC_OT_rig_item_add(_ArmatureOperator):
 				contact = rig.contacts.add()
 				contact.name = f"contact.{len(rig.contacts)}"
 				rig.active_contact = len(rig.contacts) - 1
-			case "ATTACHMENTS":
-				attachment = rig.attachments.add()
-				attachment.name = f"attachment.{len(rig.attachments)}"
-				rig.active_attachment = len(rig.attachments) - 1
 			case "FAMILIES":
 				family = rig.families.add()
 				family.name = f"family.{len(rig.families)}"
@@ -588,7 +582,7 @@ class RYLOGIC_OT_rig_item_add(_ArmatureOperator):
 
 
 class RYLOGIC_OT_rig_item_remove(_ArmatureOperator):
-	"""Remove the active chain, contact, attachment, family, movement cycle, activity or activity list item"""
+	"""Remove the active chain, contact, family, movement cycle, activity or activity list item"""
 
 	bl_idname = "rylogic_rig.item_remove"
 	bl_label = "Remove"
@@ -609,10 +603,6 @@ class RYLOGIC_OT_rig_item_remove(_ArmatureOperator):
 				if 0 <= rig.active_contact < len(rig.contacts):
 					rig.contacts.remove(rig.active_contact)
 					rig.active_contact = max(0, min(rig.active_contact, len(rig.contacts) - 1))
-			case "ATTACHMENTS":
-				if 0 <= rig.active_attachment < len(rig.attachments):
-					rig.attachments.remove(rig.active_attachment)
-					rig.active_attachment = max(0, min(rig.active_attachment, len(rig.attachments) - 1))
 			case "FAMILIES":
 				if 0 <= rig.active_family < len(rig.families):
 					rig.families.remove(rig.active_family)

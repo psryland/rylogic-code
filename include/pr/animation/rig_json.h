@@ -28,7 +28,7 @@
 //    "contacts": [{
 //      "name": "sole.L",
 //      "bone": "foot.L",
-//      "kind": "sole" | "toe" | "palm" | "finger" | "tail" | "grip",
+//      "kind": "sole" | "toe" | "palm" | "finger" | "tail",
 //      "offset": [x, y, z],              // bone-space point
 //      "normal": [x, y, z]               // bone-space outward surface direction
 //    }],
@@ -57,7 +57,7 @@ namespace pr::animation
 		// The file names of the description enums. Each list is in enum order.
 		inline constexpr std::array<std::string_view, 6> ChainRoleNames = { "spine", "neck", "leg", "arm", "tail", "digit" };
 		inline constexpr std::array<std::string_view, 3> SideNames = { "centre", "left", "right" };
-		inline constexpr std::array<std::string_view, 6> ContactKindNames = { "sole", "toe", "palm", "finger", "tail", "grip" };
+		inline constexpr std::array<std::string_view, 5> ContactKindNames = { "sole", "toe", "palm", "finger", "tail" };
 
 		// Return the file name of an enum value
 		template <typename E, size_t N>
