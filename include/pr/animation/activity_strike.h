@@ -10,7 +10,8 @@
 //  - Recovery: the arm and torso return to the ready position, where the next cycle starts.
 // The arm and the held tool swing as one rigid piece about the shoulder, in a plane through the shoulder and the contact point. The feet stay
 // planted, with the foot opposite the striking hand a little forward. The hips sink during the wind-up and sink further into the blow. To reach a
-// low target, the torso leans (stoops) further forward at contact until the wrist is within the arm's reach. The striking hands clench.
+// low target, the torso leans (stoops) further forward at contact until the wrist is within the arm's reach. The striking hands clench. The free
+// hand of a one-hand strike moves with the chest and balances the blow: it swings forward during the wind-up and back into the strike.
 //
 // Parameters ('.gait' file, see activities.h). Angles are in radians. Every parameter is required.
 //  "params": {
@@ -37,7 +38,9 @@
 //    "windup_crouch": 0.0,  // the hips' drop at the top of the wind-up, as a fraction of the spine's length
 //    "crouch": 0.08,        // the hips' drop at contact, as a fraction of the spine's length
 //    "max_stoop": 0.6,      // >= 0. The most extra forward lean at contact for reaching a low or distant target.
-//    "stagger": 0.1         // the distance that the foot opposite a one-hand strike stands forward, and the other foot back, as a fraction of the legs' reach
+//    "stagger": 0.1,        // the distance that the foot opposite a one-hand strike stands forward, and the other foot back, as a fraction of the legs' reach
+//    "counter_swing": 0.12  // >= 0. The distance that the free hand of a one-hand strike swings back at contact, and forward at the top of the
+//                           // wind-up, as a fraction of its arm's reach to the wrist
 //  }
 //
 // Timeline: the length is 'duration' and the activity loops. Each cycle has one "contact" mark, 'contact' of the way through it.
@@ -94,6 +97,7 @@ namespace pr::animation
 		float crouch = 0.08f;
 		float max_stoop = 0.6f;
 		float stagger = 0.1f;
+		float counter_swing = 0.12f;
 	};
 
 	// A looping swinging blow. See the top of this file.
@@ -169,6 +173,7 @@ namespace pr::animation
 				.crouch = real("crouch"),
 				.max_stoop = real("max_stoop"),
 				.stagger = real("stagger"),
+				.counter_swing = real("counter_swing"),
 			};
 			return std::make_shared<Strikes const>(swing);
 		}
@@ -210,6 +215,7 @@ namespace pr::animation
 			real("crouch", 0.0f, 0.8f, defaults.crouch);
 			real("max_stoop", 0.0f, 1.2f, defaults.max_stoop);
 			real("stagger", 0.0f, 0.4f, defaults.stagger);
+			real("counter_swing", 0.0f, 0.5f, defaults.counter_swing);
 			return json::Object{ { "root_mode", rig_json::EnumName(ERootMode::Planted, RootModeNames) }, { "params", std::move(params) } };
 		}
 
@@ -231,7 +237,7 @@ namespace pr::animation
 			return m_timeline;
 		}
 
-		// The striking arms and the first spine chain
+		// The striking arms, the free arm of a one-hand strike if the rig has one, and the first spine chain
 		std::vector<int> Chains(Rig const& rig) const override
 		{
 			// The spine carries the body drive
@@ -242,6 +248,8 @@ namespace pr::animation
 				if (auto arm = ArmChain(rig, side); arm >= 0)
 					chains.push_back(arm);
 			}
+			if (auto free = FreeArm(rig); free >= 0)
+				chains.push_back(free);
 			if (auto spine = std::ranges::find(rig.chains, EChainRole::Spine, &Chain::role); spine != rig.chains.end())
 				chains.push_back(static_cast<int>(spine - rig.chains.begin()));
 
@@ -269,6 +277,8 @@ namespace pr::animation
 				errors.push_back(std::format("{} needs ready_bend and windup_bend in (0, 1]", context));
 			if (!(s.max_stoop >= 0))
 				errors.push_back(std::format("{} needs a max_stoop of zero or more", context));
+			if (!(s.counter_swing >= 0))
+				errors.push_back(std::format("{} needs a counter_swing of zero or more", context));
 
 			// Each striking side needs an arm, whose hand has a hold frame: an attachment on the arm's end bone
 			for (auto side : HandSides())
@@ -309,6 +319,7 @@ namespace pr::animation
 				{ "crouch", s.crouch },
 				{ "max_stoop", s.max_stoop },
 				{ "stagger", s.stagger },
+				{ "counter_swing", s.counter_swing },
 			};
 		}
 
@@ -322,6 +333,7 @@ namespace pr::animation
 			auto plan = PlanBlow(input);
 
 			// Blend the torso's drives. At contact the contact drive applies alone, so the shoulders are where the plan put them.
+			auto chest_goal = input.spine >= 0 ? output.targets[input.spine].frame : xform::Identity();
 			if (input.spine >= 0)
 			{
 				auto const& guide = input.guide[input.spine];
@@ -357,6 +369,19 @@ namespace pr::animation
 					output.wrap[hand.limb->chain] = hand.wrap;
 				else
 					output.curl[hand.limb->chain] = GripCurl;
+			}
+
+			// The free hand of a one-hand strike keeps its place relative to the chest, so it turns and leans with the torso. It then balances the
+			// blow: forward at the top of the wind-up and back at contact, following the torso's blend between its two drives.
+			if (auto free = FreeArm(input.rig); free >= 0)
+			{
+				auto carry = chest * Invert(chest_goal);
+				auto& target = output.targets[free];
+				auto back = Rotate(carry.rot, v4::YAxis());
+				auto travel = (phase.contact_weight - phase.windup_weight) * m_swing.counter_swing * WristReach(input.rig, free);
+				target.frame = carry * target.frame;
+				target.frame.pos += back * travel;
+				target.pole = Rotate(carry.rot, target.pole);
 			}
 		}
 
@@ -403,6 +428,19 @@ namespace pr::animation
 				case EStrikeHands::Left: { return { ESide::Left }; }
 				case EStrikeHands::Right: { return { ESide::Right }; }
 				case EStrikeHands::Both: { return { ESide::Left, ESide::Right }; }
+				default: throw std::runtime_error("Unknown strike hands");
+			}
+		}
+
+		// The arm chain on the side opposite a one-hand strike's arm, or -1 for a two-hand strike or a rig without that arm
+		int FreeArm(Rig const& rig) const
+		{
+			// Only a one-hand strike leaves a hand free
+			switch (m_swing.hands)
+			{
+				case EStrikeHands::Left: { return ArmChain(rig, ESide::Right); }
+				case EStrikeHands::Right: { return ArmChain(rig, ESide::Left); }
+				case EStrikeHands::Both: { return -1; }
 				default: throw std::runtime_error("Unknown strike hands");
 			}
 		}

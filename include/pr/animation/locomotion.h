@@ -4427,6 +4427,46 @@ namespace pr::animation::tests
 			PR_EXPECT(timeline.marks.size() == 1 && timeline.marks[0].name == "contact");
 			PR_EXPECT(FEqlAbsolute(timeline.marks[0].time, swing.contact * swing.duration, 1e-6f));
 		}
+		PRUnitTestMethod(StrikeFreeHandCounterSwings, Quick)
+		{
+			// The free hand of a one-hand strike stays with the chest, swinging forward at the top of the wind-up and back at contact. The test rig's
+			// only arm is on the left, so a right-hand strike leaves it free.
+			auto rig = TestRig();
+			auto loco = Locomotion(rig, TestActivityGait());
+			auto limbs = std::vector<ActivityLimb>{};
+			for (auto const& limb : loco.limbs())
+				limbs.push_back(ActivityLimb{ .chain = limb.chain, .reach = limb.reach, .stance_rot = limb.stance_rot, .sole_up = limb.sole_up, .hold = limb.hold });
+
+			auto spine = static_cast<int>(std::ranges::find(rig.chains, EChainRole::Spine, &Chain::role) - rig.chains.begin());
+			auto arm = loco.limbs()[1].chain;
+			auto guide = PoseTargets(rig, rig.rest_model);
+			auto targets = ActivityTargets{};
+			auto input = ActivityInput{ .rig = rig, .limbs = limbs, .guide = guide, .guide_model = rig.rest_model, .spine = spine, .world_to_model = xform::Identity(), .targets = targets };
+			auto strike = Strikes(StrikeSwing{ .hands = EStrikeHands::Right, .duration = 1.0f, .counter_swing = 0.2f });
+			auto chains = strike.Chains(rig);
+			PR_EXPECT(std::ranges::find(chains, arm) != chains.end());
+
+			// The free hand's offset from its guide position, measured in the chest's frame and expressed in the guide chest's frame
+			auto offset = [&](float time)
+			{
+				// Undo the chest's move so only the counter-swing remains
+				auto out = guide;
+				auto curl = std::vector<float>(rig.chains.size());
+				auto wrap = std::vector<float>(rig.chains.size());
+				strike.Evaluate(time, input, ActivityOutput{ .targets = out, .curl = curl, .wrap = wrap });
+				PR_EXPECT(curl[arm] == 0 && wrap[arm] == 0);
+				auto local = guide[spine].frame * Invert(out[spine].frame) * out[arm].frame.pos;
+				return local - guide[arm].frame.pos;
+			};
+			auto swing = strike.swing();
+			auto travel = 0.2f * (rig.bones[9].length + rig.bones[10].length);
+			auto ready = offset(0);
+			auto windup = offset(swing.windup * swing.duration);
+			auto contact = offset(swing.contact * swing.duration);
+			PR_EXPECT(Length(ready) < 1e-4f);
+			PR_EXPECT(FEqlAbsolute(windup, v4(0, -travel, 0, 0), 1e-4f));
+			PR_EXPECT(FEqlAbsolute(contact, v4(0, +travel, 0, 0), 1e-4f));
+		}
 		PRUnitTestMethod(SetActivityParamsReplacesTuning, Quick)
 		{
 			// New parameters change the activity's timeline, but parameters that would change the controlled chains are refused unchanged
