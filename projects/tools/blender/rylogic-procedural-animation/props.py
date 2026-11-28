@@ -34,7 +34,6 @@ CONTACT_KINDS = [
 	("PALM", "Palm", "The underside of a hand"),
 	("FINGER", "Finger", "The tip of a finger"),
 	("TAIL", "Tail", "A point on the tail"),
-	("GRIP", "Grip", "The point on a hand that holds a grasped object, with its normal out of the gripping skin"),
 ]
 FAMILY_UPS = [
 	("SURFACE", "Surface", "The body stands up along the ground's normal, e.g. a quadruped on a slope"),
@@ -142,14 +141,6 @@ class RYLOGIC_PG_RigContact(PropertyGroup):
 	normal: FloatVectorProperty(name="Normal", size=3, default=(0.0, 0.0, -1.0), description="The outward surface direction in the bone's rest space")
 
 
-class RYLOGIC_PG_RigAttachment(PropertyGroup):
-	"""A named frame on a bone where an object is attached, e.g. a tool carried on the back. The name is the built-in 'name' property."""
-
-	bone: StringProperty(name="Bone", description="The bone that the attachment moves with")
-	offset: FloatVectorProperty(name="Offset", size=3, subtype="TRANSLATION", default=(0.0, 0.0, 0.0), description="The attached object's origin in the bone's rest space")
-	rotation: FloatVectorProperty(name="Rotation", size=3, subtype="EULER", default=(0.0, 0.0, 0.0), description="The attached object's orientation in the bone's rest space, as XYZ Euler angles")
-
-
 class RYLOGIC_PG_GaitFamily(PropertyGroup):
 	"""A posture: a group of movement cycles that share walking limbs. The name is the built-in 'name' property, which cycles and activities refer to.
 
@@ -234,16 +225,13 @@ class RYLOGIC_PG_Rig(PropertyGroup):
 	active_chain: IntProperty(name="Active Chain", default=0, update=_OnActiveChainChanged, description="The chain shown below. Selecting a chain selects its bones")
 	contacts: CollectionProperty(name="Contacts", type=RYLOGIC_PG_RigContact)
 	active_contact: IntProperty(name="Active Contact", default=0)
-	attachments: CollectionProperty(name="Attachments", type=RYLOGIC_PG_RigAttachment)
-	active_attachment: IntProperty(name="Active Attachment", default=0)
 	body_axis_from: StringProperty(name="Body Axis From", description="The bone whose head is the rear end of the body axis, e.g. the hips. The collision shapes follow the axis. Set both ends to the same bone to run the axis along that bone, from its head to its tip")
 	body_axis_to: StringProperty(name="Body Axis To", description="The bone whose head is the front end of the body axis, e.g. the neck. The collision shapes follow the axis. Set both ends to the same bone to run the axis along that bone, from its head to its tip")
 	show_overlay: BoolProperty(name="Show Overlay", default=True, description="Draw joint limits, poles, facing directions and contacts in the viewport")
 	show_limits: BoolProperty(name="Limits", default=True, description="Draw each joint's swing (orange) and twist (yellow) limits. A bone outside its limit is drawn in red even when this is off")
 	show_poles: BoolProperty(name="Poles", default=True, description="Draw the outward bend direction (magenta) of each leg and arm chain")
 	show_facing: BoolProperty(name="Facing", default=True, description="Draw the forward direction (sky blue) of each neck chain")
-	show_contacts: BoolProperty(name="Contacts", default=True, description="Draw each contact point and its surface normal (green, or blue for grips)")
-	show_attachments: BoolProperty(name="Attachments", default=True, description="Draw each attachment frame's axes (red X, green Y, blue Z)")
+	show_contacts: BoolProperty(name="Contacts", default=True, description="Draw each contact point and its surface normal")
 	rom_action: PointerProperty(name="Range of Motion", type=bpy.types.Action, description="An action whose keyframes pose the armature at the extremes of each joint's range of motion")
 	rom_mirror: BoolProperty(name="Mirror Samples", default=True, description="Derive the same, mirrored, limits for left and right bones from the poses of either side. Turn off for asymmetric rigs")
 	rom_padding: FloatProperty(name="Padding", subtype="ANGLE", min=0.0, max=math.radians(45), default=math.radians(5), description="Extra range added beyond the posed extremes when deriving limits")
@@ -294,7 +282,6 @@ CLASSES = (
 	RYLOGIC_PG_RigBoneRef,
 	RYLOGIC_PG_RigChain,
 	RYLOGIC_PG_RigContact,
-	RYLOGIC_PG_RigAttachment,
 	RYLOGIC_PG_GaitFamily,
 	RYLOGIC_PG_GaitCycle,
 	*(cls for classes in _ACTIVITY_PARAM_CLASSES.values() for cls in classes),

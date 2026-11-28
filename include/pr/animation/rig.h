@@ -69,6 +69,7 @@ namespace pr::animation
 	//  - Every range must lie in [-pi, pi] and contain zero, so the rest pose is always allowed. The default allows any rotation.
 	//  - Tail chains use only the first bone's swing about its +X axis, which limits how far the tail's base droops or lifts.
 	//  - Neck chains limit both swing and twist.
+	//  - Arm chains limit both swing and twist of all three bones (see 'SolveLimb').
 	//  - Other chains ignore limits.
 	struct JointLimit
 	{
@@ -165,7 +166,6 @@ namespace pr::animation
 		Palm,
 		Finger,
 		Tail,
-		Grip, // The point on a hand's end bone that holds a grasped object. Its normal points out of the gripping surface.
 	};
 
 	// A named point on a bone where the body touches the ground or an object. For example: a sole, a toe tip, or a palm.
@@ -382,7 +382,6 @@ namespace pr::animation
 				case EContactKind::Palm:
 				case EContactKind::Finger:
 				case EContactKind::Tail:
-				case EContactKind::Grip:
 				{
 					break;
 				}
@@ -624,10 +623,12 @@ namespace pr::animation::tests
 			Contact{ .name = "sole.L", .bone = 8, .offset = v4(0, 0.1f, 0, 1), .normal = Invert(model[8]) * down, .kind = EContactKind::Sole },
 			Contact{ .name = "palm.L", .bone = 11, .offset = v4(0, 0.05f, 0, 1), .normal = Invert(model[11]) * down, .kind = EContactKind::Palm },
 		};
-		// A tool hangs behind the chest, and the left hand has a grip frame
+		// A tool hangs behind the chest. The left hand's hold frame is on its palm, with +X out of the palm and +Y along the fingers.
+		auto palm = Invert(model[11]) * down;
+		auto hold = m3x3(palm, v4::YAxis(), Cross(palm, v4::YAxis()));
 		std::vector<Attachment> attachments = {
 			Attachment{ .name = "back", .bone = 3, .offset = xform(v4(0, 0.1f, 0.15f, 1), quat(v4::ZAxis(), 0.5f)) },
-			Attachment{ .name = "hand.L", .bone = 11, .offset = xform(v4(0, 0.05f, 0, 1), quat::Identity()) },
+			Attachment{ .name = "hand.L", .bone = 11, .offset = xform(v4(0, 0.05f, 0, 1), quat(hold)) },
 		};
 
 		// The body axis runs from the hips to the neck

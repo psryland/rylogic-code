@@ -1,4 +1,4 @@
-"""Viewport overlay that draws joint limits, limb poles, neck facing directions, contacts and attachment frames.
+"""Viewport overlay that draws joint limits, limb poles, neck facing directions and contacts.
 
 Limits are drawn about each bone's rest direction under its parent's current pose, which is how the solver applies them, so the overlay stays correct
 while the armature is posed. The swing limit is the outline that the bone's tip may reach, with spokes to its extremes on the bone's X and Z axes. The
@@ -10,7 +10,7 @@ import math
 import bpy
 import gpu
 from gpu_extras.batch import batch_for_shader
-from mathutils import Euler, Matrix, Vector
+from mathutils import Matrix, Vector
 
 from .limits import LIMIT_TOLERANCE, LimitExcess, PoseRotation, SwingRotation
 
@@ -19,10 +19,6 @@ COLOUR_TWIST = (1.0, 0.85, 0.1, 1.0)
 COLOUR_POLE = (0.9, 0.2, 0.9, 1.0)
 COLOUR_FORWARD = (0.1, 0.85, 0.95, 1.0)
 COLOUR_CONTACT = (0.2, 0.95, 0.3, 1.0)
-COLOUR_GRIP = (0.25, 0.55, 1.0, 1.0)
-COLOUR_AXIS_X = (1.0, 0.2, 0.2, 1.0)
-COLOUR_AXIS_Y = (0.2, 1.0, 0.2, 1.0)
-COLOUR_AXIS_Z = (0.2, 0.4, 1.0, 1.0)
 COLOUR_VIOLATION = (1.0, 0.1, 0.1, 1.0)
 WIDTH = 2.0
 WIDTH_ACTIVE = 5.0
@@ -106,7 +102,7 @@ def _AddArmature(obj: bpy.types.Object, lines: dict[tuple, list[Vector]]) -> Non
 			case _:
 				pass
 
-	# Contacts as a small cross with a normal line. Grips are drawn in their own colour, as they hold objects rather than touch the ground.
+	# Contacts as a small cross with a normal line.
 	# The contact that is active in the panel is drawn with thicker lines, so that the one being edited can be found.
 	for index, contact in enumerate(rig.contacts if rig.show_contacts else []):
 		pose_bone = pose.bones.get(contact.bone)
@@ -119,23 +115,7 @@ def _AddArmature(obj: bpy.types.Object, lines: dict[tuple, list[Vector]]) -> Non
 		size = pose_bone.bone.length * 0.25 * world.to_scale().y
 		side = normal.orthogonal().normalized() * size * 0.3
 		other = normal.cross(side)
-		colour = COLOUR_GRIP if contact.kind == "GRIP" else COLOUR_CONTACT
-		lines.setdefault((colour, WIDTH_ACTIVE if index == rig.active_contact else WIDTH), []).extend([point, point + normal * size, point - side, point + side, point - other, point + other])
-
-	# Attachments as their frame's axes, so that the attached object's position and orientation can be seen.
-	# The attachment that is active in the panel is drawn with thicker lines.
-	for index, attachment in enumerate(rig.attachments if rig.show_attachments else []):
-		pose_bone = pose.bones.get(attachment.bone)
-		if pose_bone is None or not Shown([attachment.bone]):
-			continue
-
-		frame = world @ pose_bone.matrix @ Matrix.LocRotScale(Vector(attachment.offset), Euler(attachment.rotation, "XYZ"), None)
-		point = frame.to_translation()
-		axes = frame.to_3x3().normalized()
-		size = 0.1 * world.to_scale().y
-		width = WIDTH_ACTIVE if index == rig.active_attachment else WIDTH
-		for axis, colour in enumerate((COLOUR_AXIS_X, COLOUR_AXIS_Y, COLOUR_AXIS_Z)):
-			lines.setdefault((colour, width), []).extend([point, point + axes.col[axis] * size])
+		lines.setdefault((COLOUR_CONTACT, WIDTH_ACTIVE if index == rig.active_contact else WIDTH), []).extend([point, point + normal * size, point - side, point + side, point - other, point + other])
 
 
 def _IsFull(low: float, high: float) -> bool:

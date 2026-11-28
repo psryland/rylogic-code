@@ -25,6 +25,8 @@
 //    "windup_bend": 0.65,   // in (0,1]. The wrist's distance from the shoulder at the top of the wind-up, as a fraction of its distance at contact.
 //    "follow_angle": 0.4,   // the arm's swing angle past the contact at the end of the follow-through
 //    "cock": 1.0,           // the wrist's turn at contact from a thumb-up grip towards the arm's line, which puts the tool's handle along the arm
+//    "windup_cock": 0.0,    // the wrist's extra turn at the top of the wind-up, in the swing's direction, which lays the tool's handle back over the
+//                           // shoulder. The wrist releases it during the strike, so the hand reaches contact with only 'cock'.
 //    "swing_tilt": 0.0,     // the turn of the swing plane about the arm's line at contact, tilting the swing across the body. Negative tilts
 //                           // the wind-up out to the striking hand's side; near -pi/2 the swing is a sideways cut. One-hand strikes only.
 //    "spacing": 0.3,        // the distance between the fists of a two-hand strike, as a fraction of the arm's reach
@@ -45,7 +47,7 @@
 //    fists of a two-hand strike meet the surface either side of that point. Without a strike, the blow lands straight ahead of the shoulders,
 //    a little below them.
 //  - 'tool': the tool that a one-hand strike holds. Its head is the tool point. Without a tool, or for a two-hand strike, the tool point is the
-//    hand's grip point.
+//    origin of the hand's hold frame.
 #pragma once
 #include "pr/animation/forward.h"
 #include "pr/animation/rig.h"
@@ -81,6 +83,7 @@ namespace pr::animation
 		float windup_bend = 0.65f;
 		float follow_angle = 0.4f;
 		float cock = 1.0f;
+		float windup_cock = 0.0f;
 		float swing_tilt = 0.0f;
 		float spacing = 0.3f;
 		float lean = 0.25f;
@@ -106,11 +109,13 @@ namespace pr::animation
 		// The number of halvings in the search for the stoop that brings a target within reach
 		static constexpr int StoopSearchSteps = 12;
 
-		// Where a blow lands without a strike target: this far forward of and below the shoulders, in units of the arm's reach
+		// Where the wrist lands without a strike target: this far forward of and below the shoulders, in units of the arm's reach. A held tool reaches
+		// further along the same line by its length.
 		static constexpr float DefaultAhead = 0.75f;
 		static constexpr float DefaultDrop = 0.3f;
 
-		// The angle (radians) by which each bone of a striking hand's digits curls towards the palm to hold a handle or make a fist
+		// The angle (radians) by which each bone of a bare striking hand's digits curls towards the palm to make a fist. A hand holding a tool closes
+		// around the tool's handle instead (see 'Tool::wrap').
 		static constexpr float GripCurl = 1.2f;
 
 		// Construct from the blow's shape. 'Validate' checks it against a rig.
@@ -153,6 +158,7 @@ namespace pr::animation
 				.windup_bend = real("windup_bend"),
 				.follow_angle = real("follow_angle"),
 				.cock = real("cock"),
+				.windup_cock = real("windup_cock"),
 				.swing_tilt = real("swing_tilt"),
 				.spacing = real("spacing"),
 				.lean = real("lean"),
@@ -193,6 +199,7 @@ namespace pr::animation
 			real("windup_bend", 0.3f, 1.0f, defaults.windup_bend);
 			real("follow_angle", 0.0f, 1.5f, defaults.follow_angle);
 			real("cock", -0.5f, 1.6f, defaults.cock);
+			real("windup_cock", 0.0f, 2.0f, defaults.windup_cock);
 			real("swing_tilt", -1.6f, 1.6f, defaults.swing_tilt);
 			real("spacing", 0.0f, 1.0f, defaults.spacing);
 			real("lean", 0.0f, 1.0f, defaults.lean);
@@ -263,11 +270,14 @@ namespace pr::animation
 			if (!(s.max_stoop >= 0))
 				errors.push_back(std::format("{} needs a max_stoop of zero or more", context));
 
-			// Each striking side needs an arm
+			// Each striking side needs an arm, whose hand has a hold frame: an attachment on the arm's end bone
 			for (auto side : HandSides())
 			{
-				if (ArmChain(rig, side) < 0)
+				auto arm = ArmChain(rig, side);
+				if (arm < 0)
 					errors.push_back(std::format("{} strikes with the {} hand, so it needs an arm chain on that side", context, rig_json::EnumName(side, rig_json::SideNames)));
+				else if (std::ranges::find(rig.attachments, rig.chains[arm].bones.back(), &Attachment::bone) == rig.attachments.end())
+					errors.push_back(std::format("{} strikes with the {} hand, so the hand needs an attachment on its end bone to hold tools by", context, rig_json::EnumName(side, rig_json::SideNames)));
 			}
 		}
 
@@ -288,6 +298,7 @@ namespace pr::animation
 				{ "windup_bend", s.windup_bend },
 				{ "follow_angle", s.follow_angle },
 				{ "cock", s.cock },
+				{ "windup_cock", s.windup_cock },
 				{ "swing_tilt", s.swing_tilt },
 				{ "spacing", s.spacing },
 				{ "lean", s.lean },
@@ -332,12 +343,20 @@ namespace pr::animation
 				auto root = LimbRoot(input, hand.limb->chain, chest);
 				auto swing = quat(hand.axis, phase.angle);
 				auto& target = output.targets[hand.limb->chain];
-				target.frame = xform(root + Rotate(swing, hand.wrist - hand.shoulder) * phase.bend, Normalise(swing * hand.orientation));
+
+				// The wrist cocks further back as the arm winds up, so the tool trails behind the arm, and releases late in the strike
+				auto cock = quat(hand.axis, phase.windup_weight * m_swing.windup_cock);
+				target.frame = xform(root + Rotate(swing, hand.wrist - hand.shoulder) * phase.bend, Normalise(swing * cock * hand.orientation));
 				// The elbow points away from the swing's 'up' direction, out to the hand's side. A tilted swing plane also lowers the elbow, so a
 				// sideways cut keeps its elbow down instead of pointing it across the chest.
 				auto droop = std::abs(std::sin(m_swing.swing_tilt));
 				target.pole = Normalise(Rotate(swing, -hand.up) + v4(hand.side * 0.5f, 0, -droop, 0));
-				output.curl[hand.limb->chain] = GripCurl;
+
+				// A hand holding a tool closes onto its handle, and a bare hand makes a fist
+				if (hand.wrap > 0)
+					output.wrap[hand.limb->chain] = hand.wrap;
+				else
+					output.curl[hand.limb->chain] = GripCurl;
 			}
 		}
 
@@ -362,6 +381,7 @@ namespace pr::animation
 			quat orientation;          // The end bone's orientation at contact
 			v4 axis;                   // The swing axis. Turning about it by a positive angle lifts the arm up and back.
 			v4 up;                     // The direction in the swing plane, perpendicular to the arm's line, that a positive turn moves the tool point
+			float wrap;                // The radius of the held tool's handle, which the digits close around, or zero for a bare fist
 		};
 
 		// The blow at contact: the torso's drives, and each striking hand
@@ -497,7 +517,12 @@ namespace pr::animation
 			centre = (centre / static_cast<float>(arms.size())).w1();
 			reach /= static_cast<float>(arms.size());
 
-			auto point = centre + v4(0, -DefaultAhead * reach, -DefaultDrop * reach, 0);
+			// Without a target the wrist lands at the default place, so a held tool's head reaches beyond it by the tool's length along the same line.
+			// Only a lone hand swings the tool.
+			auto tool = arms.size() == 1 ? input.targets.tool : std::nullopt;
+			auto ahead = v4(0, -DefaultAhead, -DefaultDrop, 0);
+			auto tool_length = tool ? Length(tool->head.pos.w0()) : 0.0f;
+			auto point = centre + Normalise(ahead) * (Length(ahead) * reach + tool_length);
 			auto radius = 0.0f;
 			if (input.targets.strike)
 			{
@@ -521,7 +546,6 @@ namespace pr::animation
 			}
 
 			// Plan each hand at contact for a given stoop. The wrist goes where the tool point meets the target.
-			auto tool = arms.size() == 1 ? input.targets.tool : std::nullopt;
 			auto plan_hands = [&](float stoop)
 			{
 				// The shoulders move with the stooping chest
@@ -580,14 +604,13 @@ namespace pr::animation
 			axis = Rotate(quat(line, HandSign() * m_swing.swing_tilt), axis);
 			auto up = Cross(axis, line);
 
-			// At contact the fingers point along the arm's line and the thumb up, turned towards the line by the cock, so a held handle runs
-			// out beyond the hand and its face points along the blow
-			auto grip = GripAxes(limb, side);
+			// At contact the hand points a held handle up, turned towards the line by the cock, so the handle runs out beyond the hand and its face
+			// points along the blow. A bare fist is oriented the same way through its hold frame.
 			auto handle = up * std::cos(m_swing.cock) + line * std::sin(m_swing.cock);
 			auto face = line * std::cos(m_swing.cock) - up * std::sin(m_swing.cock);
-			auto orientation = HandOrientation(grip, face, handle);
-			auto wrist = contact - Rotate(orientation, ToolPoint(limb, grip, tool).w0());
-			return HandPlan{ .limb = &limb, .side = sign, .shoulder = shoulder, .wrist = wrist, .orientation = orientation, .axis = axis, .up = up };
+			auto orientation = HandOrientation(limb, tool, face, handle);
+			auto wrist = contact - Rotate(orientation, ToolHead(limb, tool).pos.w0());
+			return HandPlan{ .limb = &limb, .side = sign, .shoulder = shoulder, .wrist = wrist, .orientation = orientation, .axis = axis, .up = up, .wrap = tool ? tool->wrap : 0.0f };
 		}
 
 		// The length of the arm 'chain' from its root joint to its wrist: every bone except the end bone

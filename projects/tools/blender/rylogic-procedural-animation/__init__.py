@@ -5,7 +5,7 @@ are placed on surfaces. It is written as a '.rig' JSON file next to the skinned 
 validation. The schema is owned by 'pr/animation/rig_json.h' in the Rylogic code library.
 
 The Rylogic Rig panel, in the armature's Data properties, holds the validate and export tools. Its sections are collapsible sub-panels: Overlay,
-Skeleton (Chains, Body Axis, Range of Motion), Contacts, Attachments, and Locomotion (Families, Movement Cycles, Activities). Drag a section's header to reorder it.
+Skeleton (Chains, Body Axis, Range of Motion), Contacts, and Locomotion (Families, Movement Cycles, Activities). Drag a section's header to reorder it.
 
 Joint limits bound each bone's rotation from its rest pose as a swing of the bone's direction and a twist about it (see 'limits.py'). The swing range is
 set separately about the bone's rest +X and +Z axes, so roll the bone to align those axes with the joint. A zero-width range on one swing axis makes a
@@ -29,13 +29,15 @@ part of the body that touches the surface. Add a contact in the Contacts section
 mesh. The contact follows the mouse, on the bone that most deforms the face under it and with the face's normal, and a click keeps it. This works on
 a posed mesh. Esc or right-click puts the contact back. The offset and normal can then be fine-tuned by hand.
 
-A GRIP contact on a hand bone is the point that holds a grasped object. Place it on the skin that wraps around a held thing, e.g. mid-way along the
-inside of the fingers. Picking a grip keeps it on its bone, even over a finger, so set the bone to the hand first. A hand without one grips at its
-PALM contact.
-
 Attachments are named frames on bones where objects are attached, e.g. 'back' for a tool carried on the back or 'hand.R' for a tool held in the right
-hand. Each has a bone, and an offset and rotation in that bone's rest space that give the attached object's origin and orientation. The runtime finds
-attachments by name, so use the names that the game expects. The overlay draws each attachment's axes (red X, green Y, blue Z).
+hand. Each is an empty parented to a bone of the armature (Parent > Bone): the empty's name is the attachment's name, and its location and rotation,
+relative to the bone, give the attached object's origin and orientation. Its scale is ignored. Use the Arrows display to see its axes. The runtime
+finds attachments by name, so use the names that the game expects.
+
+The first attachment, by name, on the end bone of an arm is the hand's hold frame, where it grasps things and holds tools. Put its origin on the palm's
+surface, with +X pointing out of the palm and +Z along the line of a gripped handle, from the little finger towards the thumb. A held tool's grip frame
+(see the tool's physics collection) is placed on this frame. An arm without this frame cannot grasp, and a rig whose activities strike needs it on each
+striking hand.
 
 Selecting a chain in the panel selects its bones. Selecting a bone makes a chain and a contact that use it active, unless the active ones already do.
 
@@ -43,7 +45,7 @@ The body axis is the line from the head of its 'From' bone (e.g. the hips) to th
 capsule lies along this line as the body bends and rears up. Both bones are required.
 
 The viewport overlay draws swing limits (orange), twist limits (yellow), limb poles (magenta), the neck's facing direction (sky blue) and contacts
-(green, or blue for grips). The contact that is active in the Contacts list is drawn with thicker lines. Limb poles and facing directions are fixed rest-pose model-space directions. The Overlay section's header switches the
+(green). The contact that is active in the Contacts list is drawn with thicker lines. Limb poles and facing directions are fixed rest-pose model-space directions. The Overlay section's header switches the
 overlay on and off, and its toggles hide each type. In Pose Mode
 with bones selected, only the overlays of the selected bones are drawn. A bone whose current pose is outside its joint limit is drawn in red, with its
 limit, whatever the selection and the 'Limits' toggle, so that animating past a limit is noticed while posing or playing an action. 'Check Limits'

@@ -34,12 +34,12 @@
 //    Its cycles play at the caller's stroke speed rather than the body's measured speed, because strokes push the body rather than follow it.
 //    While the body enters or leaves the water, the body's height and the tails blend between following the ground and floating.
 //    A swimmer that the caller asks to right itself turns its limbs towards its lowest side as it leans, so the low limbs reach out and the high limbs fold in.
-//  - The caller can move an arm's palm to a grasp: a world point that the palm touches, the direction that it faces, and the direction that its
-//    fingers point, so the grasp sets the hand's whole orientation and the arm's usual swing does not turn it. The hand fades to and
-//    from the grasp. A grasp beyond the arms' reach makes the body stoop: the hips sink and move back and the spine pitches forward, by the
-//    least amount that brings every grasping arm within reach. A grasping arm's elbow flares out from the body and stays outside the torso, which
-//    is the capsule around the spine that just reaches the arms' roots in the rest pose. A grasp with a wrap radius closes the hand's digits
-//    around a bar of that radius that lies against the palm at the grip point, across the fingers.
+//  - The caller can move an arm's hand to a grasp: a world frame where the hand's hold frame goes (see 'LimbState::hold'), so the grasp sets the
+//    hand's whole orientation and the arm's usual swing does not turn it. The hand fades to and from the grasp. A grasp beyond the arms' reach
+//    makes the body stoop: the hips sink and move back and the spine pitches forward, by the least amount that brings every grasping arm within
+//    reach. A grasping arm's elbow flares out from the body and stays outside the torso, which is the capsule around the spine that just reaches
+//    the arms' roots in the rest pose. A grasp with a wrap radius closes the hand's digits around a bar of that radius that lies against the palm
+//    at the hold frame's origin, along the frame's +Z.
 //  - The caller starts and stops activities (see activity.h), such as a sequence of punches, by name. The controller runs them for their types:
 //     - An activity plays at the caller's simulation time ('BodyState::time') minus the time at which the caller started it, so callers can
 //       vary bodies by their start times and know when timeline marks happen without asking the controller.
@@ -116,10 +116,8 @@ namespace pr::animation
 	// Where a hand holds something, in world space
 	struct Grasp
 	{
-		v4 point = v4::Origin();  // The point that the palm's grip point touches (w = 1), see 'LimbState::grip'
-		v4 palm = -v4::ZAxis();   // The unit direction that the palm faces, towards the held thing (w = 0)
-		v4 fingers = -v4::YAxis(); // The direction that the fingers point (w = 0), not parallel to 'palm'. Only its part across the palm is used.
-		float wrap = 0.0f;        // The radius (metres, >= 0) of a bar that the digits close around, such as a handle, or 0 to leave the digits open
+		xform frame = xform::Identity();  // Where the hand's hold frame goes (see 'LimbState::hold'). Its origin is the point on the palm that touches the held thing.
+		float wrap = 0.0f;                // The radius (metres, >= 0) of a bar that the digits close around, such as a handle, or 0 to leave the digits open
 	};
 
 	// What a walking limb's foot is doing
@@ -155,9 +153,10 @@ namespace pr::animation
 		float support = 1.0f;                  // In [0,1]. How much the limb stands on 'foot'. Otherwise it hangs from the body as in the guide pose.
 		float reach = 0.0f;                   // The limb's length from its root joint to its contact. Ground rays for the foot reach this far either side of it.
 		v4 sole_up = v4::YAxis();             // The unit normal of the sole or palm in the end bone's space, pointing away from the ground. See 'Locomotion::FindSole'.
-		v4 grip = v4::Origin();               // The point on the hand that a grasp holds, in the end bone's space. See 'Locomotion::FindSole'.
+		std::optional<xform> hold;            // The hand's hold frame in the end bone's space (see 'ActivityLimb::hold'), or none. See 'Locomotion::FindSole'.
 		float skin = 0.0f;                    // The depth (metres, >= 0) of the skin under the digits' bones on the palm side, see 'Locomotion::FindSole'
 		std::vector<int> digits;              // The digit chains attached to the limb's end bone
+		int thumb = -1;                       // The digit chain in 'digits' that opposes the others, or -1. See 'Locomotion::FindSole'.
 	};
 
 	// Animates a rig from its body's motion. See the top of this file.
@@ -200,7 +199,10 @@ namespace pr::animation
 			, m_activity_limbs()
 			, m_activity_out(rig.chains.size())
 			, m_activity_curl(rig.chains.size())
+			, m_activity_wrap(rig.chains.size())
 			, m_curl(rig.chains.size())
+			, m_wrap(rig.chains.size())
+			, m_wrap_weight(rig.chains.size())
 			, m_activity_chest(v4::Zero())
 			, m_gait_speed(0.0f)
 			, m_turn_rate(0.0f)
@@ -304,7 +306,7 @@ namespace pr::animation
 			for (auto const& activity : m_gait.activities)
 				m_activities.push_back(ActivityData{ .posture = FamilyIndex(m_gait, activity.posture), .chains = activity.activity->Chains(rig) });
 			for (auto const& limb : m_limbs)
-				m_activity_limbs.push_back(ActivityLimb{ .chain = limb.chain, .reach = limb.reach, .sole_up = limb.sole_up, .grip = limb.grip });
+				m_activity_limbs.push_back(ActivityLimb{ .chain = limb.chain, .reach = limb.reach, .sole_up = limb.sole_up, .hold = limb.hold });
 
 			// Grasping elbows stay outside the torso: the capsule around the spine whose radius reaches the nearest arm root in the rest pose
 			if (m_spine >= 0 && !m_reaches.empty())
@@ -444,7 +446,7 @@ namespace pr::animation
 			std::span<int const> chains;      // The chain indices that the activity controls, in increasing order
 			int posture;                      // The index in 'gait().families' of the family whose stance the activity plays from
 			ERootMode root_mode;              // What happens to the root while the activity plays
-			ActivityTimeline const* timeline; // The activity's length, looping and marks. Valid for the controller's lifetime.
+			ActivityTimeline const* timeline; // The activity's length, looping and marks. Valid until the activity's parameters change (see 'SetActivityParams').
 		};
 
 		// The index of the activity called 'name' in 'gait().activities', or -1 if there is none
@@ -464,6 +466,35 @@ namespace pr::animation
 				.root_mode = desc.RootMode(),
 				.timeline = &desc.Timeline(),
 			};
+		}
+
+		// Replace the parameters of the activity at 'activity' in 'gait().activities' with 'params', read as the activity's own type (see
+		// 'IActivity::WriteParams'). The new parameters must fit the rig and control the same chains. Plays of the activity continue at their current
+		// time with the new parameters. Throws 'std::runtime_error' if 'params' does not follow the type's schema, and 'std::invalid_argument' if the
+		// activity does not fit the rig, would control other chains, or would change its root mode. The activity is unchanged when it throws.
+		void SetActivityParams(int activity, json::Object const& params)
+		{
+			// Read the new activity as the same type as the old one
+			pr_assert(activity >= 0 && activity < static_cast<int>(m_activities.size()) && "Activity index out of range");
+			auto& entry = m_gait.activities[activity];
+			auto context = std::format("activity '{}'", entry.name);
+			auto desc = ReadActivity(entry.activity->Type(), params, context);
+
+			// The new parameters must fit the rig, and the chains are fixed because running plays and the caller rely on them
+			std::vector<std::string> errors;
+			desc->Validate(m_rig, context, errors);
+			if (!errors.empty())
+			{
+				std::string msg = "Invalid activity parameters:";
+				for (auto const& e : errors)
+					msg.append("\n  ").append(e);
+
+				throw std::invalid_argument(msg);
+			}
+			if (desc->Chains(m_rig) != m_activities[activity].chains || desc->RootMode() != entry.activity->RootMode())
+				throw std::invalid_argument(std::format("{}: the new parameters would control different chains or the root differently", context));
+
+			entry.activity = std::move(desc);
 		}
 
 		// Start the activity at 'activity' in 'gait().activities' at the caller's time 'start_time' (see 'BodyState::time'), fading it in over
@@ -598,15 +629,16 @@ namespace pr::animation
 			m_breath = breath;
 		}
 
-		// Move the palm of the arm on 'side' to 'grasp', given in world space, or back to the arm's usual pose if it is empty, over 'fade_s' seconds (> 0).
-		// The rig must have a walking arm on 'side'. A grasp on something that moves should be set again every step; only a change between holding
-		// and letting go starts a new fade. A grasp beyond the arm's reach makes the body stoop (see the file header).
+		// Move the hand of the arm on 'side' to 'grasp', given in world space, or back to the arm's usual pose if it is empty, over 'fade_s' seconds (> 0).
+		// The rig must have a walking arm on 'side' whose hand has a hold frame. A grasp on something that moves should be set again every step; only a
+		// change between holding and letting go starts a new fade. A grasp beyond the arm's reach makes the body stoop (see the file header).
 		void SetReach(ESide side, std::optional<Grasp> const& grasp, float fade_s)
 		{
 			// Find the arm. A hand that lets go keeps its last grasp so that it fades back from where it was.
 			pr_assert(fade_s > 0 && "Fade time must be positive");
 			auto it = std::find_if(m_reaches.begin(), m_reaches.end(), [&](Reach const& r) { return m_rig.chains[m_limbs[r.limb].chain].side == side; });
 			pr_assert(it != m_reaches.end() && "The rig has no walking arm on this side");
+			pr_assert(m_limbs[it->limb].hold && "The arm's hand has no hold frame");
 			if (grasp)
 				it->grasp = *grasp;
 
@@ -974,7 +1006,10 @@ namespace pr::animation
 		std::vector<ActivityLimb> m_activity_limbs; // Parallel to 'm_limbs', what the activities know about each limb
 		std::vector<Target> m_activity_out;     // Per chain, an activity's goals (scratch)
 		std::vector<float> m_activity_curl;     // Per chain, an activity's digit curl (scratch)
+		std::vector<float> m_activity_wrap;     // Per chain, an activity's wrap radius (scratch)
 		std::vector<float> m_curl;              // Per chain, the blended digit curl of the running activities this step, see 'CurlActivityDigits'
+		std::vector<float> m_wrap;              // Per chain, the radius of the bar that the running activities' hands close around this step, see 'CurlActivityDigits'
+		std::vector<float> m_wrap_weight;       // Per chain, how strongly the running activities close the hand around 'm_wrap' this step, in [0, 1]
 		v4 m_activity_chest;                    // The model-space move (w = 0) of the chest by the running activities this step, which the necks follow
 		float m_gait_speed;         // The smoothed speed that selects cycles and scales body motion
 		float m_turn_rate;          // The smoothed rate of turning about the body's up direction, in radians per second
@@ -1353,26 +1388,12 @@ namespace pr::animation
 			return actual * Invert(guide) * guide_end;
 		}
 
-		// The end bone frame (model space) that puts the grip point of 'limb' on the grasp point, with the palm facing the grasp's direction and the
-		// fingers pointing as near to the grasp's finger direction as the palm allows. The grasp sets the whole orientation, so the hand does not
-		// follow its usual goal's swing. The fingers run along the end bone (+Y), and the palm faces away from its 'sole_up' normal.
+		// The end bone frame (model space) that puts the hold frame of 'limb' on the grasp's frame. The grasp sets the whole orientation, so the hand
+		// does not follow its usual goal's swing.
 		xform GraspFrame(LimbState const& limb, Grasp const& grasp, xform const& world_to_model) const
 		{
-			// Turn the bone's palm direction onto the grasp's palm direction
-			auto palm = -limb.sole_up;
-			auto facing = Rotate(world_to_model.rot, grasp.palm);
-			auto turn = quat(palm, facing);
-
-			// Then twist about the palm direction so the fingers point along the part of the grasp's finger direction that lies across the palm
-			auto fingers = Rotate(turn, Normalise(v4::YAxis() - palm * Dot(v4::YAxis(), palm)));
-			auto aim = Rotate(world_to_model.rot, grasp.fingers);
-			aim = Normalise(aim - facing * Dot(aim, facing));
-			auto twist = quat(facing, std::atan2(Dot(Cross(fingers, aim), facing), Dot(fingers, aim)));
-			auto rot = Normalise(twist * turn);
-
-			// Place the bone so that its grip point is on the grasp point
-			auto point = world_to_model * grasp.point;
-			return xform(point - Rotate(rot, limb.grip.w0()), rot);
+			// The hold frame is fixed on the end bone, so the bone sits at the grasp frame less the hold frame
+			return world_to_model * grasp.frame * Invert(*limb.hold);
 		}
 
 		// The pelvis and chest frames of the spine after stooping by 's' in [0,1], from its 'pelvis' and 'chest' frames when upright. The pelvis sinks and
@@ -1410,7 +1431,7 @@ namespace pr::animation
 
 				auto const& limb = m_limbs[reach.limb];
 				auto root = chest_from_guide * m_guide.model[m_rig.chains[limb.chain].bones.front()].pos;
-				auto point = world_to_model * reach.grasp.point;
+				auto point = world_to_model * reach.grasp.frame.pos;
 				auto excess = [&](float s)
 				{
 					// Carry the root with the stooped chest
@@ -1544,7 +1565,7 @@ namespace pr::animation
 			return xform(point - Rotate(rot, contact.offset.w0()), rot);
 		}
 
-		// Set the limb's digit chains, sole normal and grip point from the rig's rest pose
+		// Set the limb's digit chains, sole normal and hold frame from the rig's rest pose
 		void FindSole(LimbState& limb) const
 		{
 			// Gather the contacts in the end bone's space. Digit chains hang directly from the end bone.
@@ -1563,27 +1584,42 @@ namespace pr::animation
 			}
 			limb.sole_up = SoleNormal(limb, points);
 
-			// A grasp holds the end bone's authored grip contact, which lies on the skin that wraps around a held thing. A limb without one grips at its contact.
-			limb.grip = m_rig.contacts[limb.contact].offset;
-			for (auto const& contact : m_rig.contacts)
-			{
-				// The first grip contact on the end bone is used
-				if (contact.kind != EContactKind::Grip || contact.bone != end)
-					continue;
+			// A hand holds things at the first attachment on its end bone. A limb without one cannot hold.
+			if (auto attachment = std::ranges::find(m_rig.attachments, end, &Attachment::bone); attachment != m_rig.attachments.end())
+				limb.hold = attachment->offset;
 
-				limb.grip = contact.offset;
-				break;
+			if (!limb.hold)
+				return;
+
+			// The thumb is the digit that points most along the hold frame's +Z (the held bar), provided it points more along the bar than along the
+			// fingers (the frame's Y). Fingers lie across the bar, so they never qualify.
+			auto along = Rotate(limb.hold->rot, v4::ZAxis());
+			auto across = Rotate(limb.hold->rot, v4::YAxis());
+			auto best = 0.0f;
+			for (auto c : limb.digits)
+			{
+				auto dir = Rotate((to_end * m_rig.rest_model[m_rig.chains[c].bones.front()]).rot, v4::YAxis());
+				if (auto d = Dot(dir, along); d > best && d > std::abs(Dot(dir, across)))
+				{
+					best = d;
+					limb.thumb = c;
+				}
 			}
 
-			// The skin depth is how far the grip point, which is on the palm's skin, lies on the palm side of the base of the digit nearest it
+			// The skin depth is how far the hold frame's origin, which is on the palm's skin, lies on the palm side of the base of the finger nearest it
+			auto grip = limb.hold->pos;
+			auto palm = Rotate(limb.hold->rot, v4::XAxis());
 			auto nearest = std::numeric_limits<float>::max();
 			for (auto c : limb.digits)
 			{
+				if (c == limb.thumb)
+					continue;
+
 				auto base = to_end * m_rig.rest_model[m_rig.chains[c].bones.front()].pos;
-				if (auto d = LengthSq(base - limb.grip); d < nearest)
+				if (auto d = LengthSq(base - grip); d < nearest)
 				{
 					nearest = d;
-					limb.skin = std::max(Dot(limb.grip - base, -limb.sole_up), 0.0f);
+					limb.skin = std::max(Dot(grip - base, palm), 0.0f);
 				}
 			}
 		}
@@ -2052,9 +2088,8 @@ namespace pr::animation
 			}
 		}
 
-		// Curl the digits of each hand whose grasp has a wrap radius around a bar of that radius, by how strongly the hand holds its grasp. The bar lies
-		// against the palm at the hand's grip point, across the fingers. Each digit bone in turn, from the base, turns towards the palm about the axis
-		// across its digit until its tip is the limb's skin depth from the bar's surface, or as near to that as it can get, so the digit closes on the bar.
+		// Curl the digits of each hand whose grasp has a wrap radius around a bar of that radius, by how strongly the hand holds its grasp (see 'WrapHand'),
+		// so the fingers and the thumb close on the bar from either side.
 		void CurlDigits()
 		{
 			// Digit bones are posed from their parents' current frames. Their descendants are updated once the pose is finished (see 'm_finish_refresh').
@@ -2065,38 +2100,96 @@ namespace pr::animation
 				if (weight == 0 || reach.grasp.wrap <= 0 || limb.digits.empty())
 					continue;
 
-				// The bar follows the posed hand rather than the grasp, so the digits close on it even when the arm cannot quite reach the grasp
-				auto const& end = m_pose.model[m_rig.chains[limb.chain].bones.back()];
-				auto palm = Rotate(end.rot, -limb.sole_up);
-				auto along = Rotate(end.rot, Normalise(Cross(-limb.sole_up, v4::YAxis())));
-				auto centre = end * limb.grip + palm * reach.grasp.wrap;
-				auto touch = reach.grasp.wrap + limb.skin;
-				for (auto c : limb.digits)
-				{
-					// Every bone of the digit turns about the same axis, so the digit curls in one plane. A digit that already points into the palm stays as it is.
-					auto const& bones = m_rig.chains[c].bones;
-					auto first = m_pose.model[m_rig.bones[bones.front()].parent] * m_pose.local[bones.front()];
-					auto axis = Cross(Rotate(first.rot, v4::YAxis()), palm);
-					if (LengthSq(axis) < 1e-6f)
-						continue;
+				WrapHand(limb, reach.grasp.wrap, weight);
+			}
+		}
 
-					axis = Normalise(axis);
-					for (auto b : bones)
-					{
-						// Turn the bone by the least angle that brings its tip onto the bar's skin surface, or the angle that brings it nearest
-						auto frame = m_pose.model[m_rig.bones[b].parent] * m_pose.local[b];
-						auto tip = Rotate(frame.rot, v4(0, m_rig.bones[b].length, 0, 0));
-						auto gap = [&](float angle)
-						{
-							// The tip's distance from the bar's axis line, less the touching distance
-							auto p = frame.pos + Rotate(quat(axis, angle), tip) - centre;
-							return Length(p - along * Dot(p, along)) - touch;
-						};
-						auto angle = CurlToTouch(gap);
-						m_pose.SetModel(m_rig, b, xform(frame.pos, Normalise(quat(axis, angle * weight) * frame.rot)));
-					}
+		// Close the digits of 'limb', which has a hold frame, around a bar of radius 'wrap' (metres, > 0) by the fraction 'weight' in [0, 1]. The bar
+		// lies against the palm at the posed hold frame's origin, along the frame's +Z. Each digit bone in turn, from the base, curls (see 'CurlHand')
+		// until its tip is the limb's skin depth from the bar's surface, or as near to that as it can get.
+		void WrapHand(LimbState const& limb, float wrap, float weight)
+		{
+			// The bar follows the posed hand, so the digits close on it even when the arm cannot quite reach where the hand should be
+			auto const& end = m_pose.model[m_rig.chains[limb.chain].bones.back()];
+			auto hold = end * *limb.hold;
+			auto palm = Rotate(hold.rot, v4::XAxis());
+			auto along = Rotate(hold.rot, v4::ZAxis());
+			auto centre = hold.pos + palm * wrap;
+			auto touch = wrap + limb.skin;
+			CurlHand(limb, palm, weight, [&](int b, xform const& frame, v4 axis)
+			{
+				// Turn the bone by the least angle that brings its tip onto the bar's skin surface, or the angle that brings it nearest
+				auto tip = Rotate(frame.rot, v4(0, m_rig.bones[b].length, 0, 0));
+				auto gap = [&](float angle)
+				{
+					// The tip's distance from the bar's axis line, less the touching distance
+					auto p = frame.pos + Rotate(quat(axis, angle), tip) - centre;
+					return Length(p - along * Dot(p, along)) - touch;
+				};
+				return CurlToTouch(gap) * weight;
+			});
+		}
+
+		// Curl the digits of 'limb' towards 'palm', the model-space unit normal out of its palm. Each finger turns towards the palm about the axis across
+		// it, so it curls in one plane; a finger that already points into the palm stays as it is. The thumb (see 'LimbState::thumb') first swings out
+		// of the palm by the fraction 'oppose' of the angle between it and the palm normal, then curls about the fingers' mean axis in the opposite
+		// sense, so it closes towards the fingers from the other side. 'angle(bone, frame, axis)' is the angle by which a digit bone, whose model frame
+		// before turning is 'frame', turns about the unit 'axis'. Bones turn in order from the base, each from its parent's current frame.
+		template <typename Angle>
+		void CurlHand(LimbState const& limb, v4 palm, float oppose, Angle angle)
+		{
+			// Turn each bone of a digit about 'axis', from the base
+			auto curl = [&](int chain, v4 axis)
+			{
+				for (auto b : m_rig.chains[chain].bones)
+				{
+					// Each bone turns from its parent's current frame
+					auto frame = m_pose.model[m_rig.bones[b].parent] * m_pose.local[b];
+					m_pose.SetModel(m_rig, b, xform(frame.pos, Normalise(quat(axis, angle(b, frame, axis)) * frame.rot)));
+				}
+			};
+
+			// The axis across a digit's base bone, perpendicular to the palm normal, or none if the digit points along the normal
+			auto across = [&](int chain) -> std::optional<v4>
+			{
+				// Bones point along their local +Y
+				auto first = m_rig.chains[chain].bones.front();
+				auto frame = m_pose.model[m_rig.bones[first].parent] * m_pose.local[first];
+				auto axis = Cross(Rotate(frame.rot, v4::YAxis()), palm);
+				if (LengthSq(axis) < 1e-6f)
+					return std::nullopt;
+
+				return Normalise(axis);
+			};
+
+			// Curl the fingers, collecting their axes for the thumb
+			auto fingers = v4::Zero();
+			for (auto c : limb.digits)
+			{
+				// The thumb follows the fingers
+				if (c == limb.thumb)
+					continue;
+				if (auto axis = across(c))
+				{
+					fingers += *axis;
+					curl(c, *axis);
 				}
 			}
+			if (limb.thumb < 0 || LengthSq(fingers) < 1e-6f)
+				return;
+
+			// Swing the thumb's base out of the palm, so the thumb stands across the held bar on the heel side of the hand rather than lying along it
+			auto first = m_rig.chains[limb.thumb].bones.front();
+			auto frame = m_pose.model[m_rig.bones[first].parent] * m_pose.local[first];
+			auto dir = Rotate(frame.rot, v4::YAxis());
+			if (auto axis = Cross(dir, palm); LengthSq(axis) >= 1e-6f)
+			{
+				auto opposition = std::atan2(Length(axis), Dot(dir, palm)) * oppose;
+				m_pose.SetModel(m_rig, first, xform(frame.pos, Normalise(quat(Normalise(axis), opposition) * frame.rot)));
+			}
+
+			// Curl the thumb against the fingers' sense, so it wraps over the bar towards them
+			curl(limb.thumb, -Normalise(fingers));
 		}
 
 		// The least angle in [0, 'MaxCurl'] at which 'gap' (the distance beyond touching, as a function of the curl angle) is not positive, or the angle
@@ -2283,12 +2376,15 @@ namespace pr::animation
 		}
 
 		// Blend the goals of each running activity at the caller's time 'time' over the gait's goals, in the order that the activities started.
-		// Each activity changes only its own chains, by its weight. The chest's move and the digits' curl are recorded for 'StepNecks' and 'CurlActivityDigits'.
+		// Each activity changes only its own chains, by its weight. The chest's move and the digits' curl and wrap are recorded for 'StepNecks' and
+		// 'CurlActivityDigits'.
 		void RunActivities(double time, xform const& world_to_model)
 		{
 			// Start from no activity motion
 			m_activity_chest = v4::Zero();
 			std::fill(m_curl.begin(), m_curl.end(), 0.0f);
+			std::fill(m_wrap.begin(), m_wrap.end(), 0.0f);
+			std::fill(m_wrap_weight.begin(), m_wrap_weight.end(), 0.0f);
 			for (auto const& run : m_running)
 			{
 				// An activity that does not show yet, or any more, changes nothing
@@ -2300,6 +2396,7 @@ namespace pr::animation
 				auto const& activity = *m_gait.activities[run.activity].activity;
 				std::copy(m_targets.begin(), m_targets.end(), m_activity_out.begin());
 				std::fill(m_activity_curl.begin(), m_activity_curl.end(), 0.0f);
+				std::fill(m_activity_wrap.begin(), m_activity_wrap.end(), 0.0f);
 				auto input = ActivityInput{
 					.rig = m_rig,
 					.limbs = m_activity_limbs,
@@ -2309,7 +2406,7 @@ namespace pr::animation
 					.world_to_model = world_to_model,
 					.targets = run.targets,
 				};
-				activity.Evaluate(ActivityTime(activity, run.start, time), input, ActivityOutput{ .targets = m_activity_out, .curl = m_activity_curl });
+				activity.Evaluate(ActivityTime(activity, run.start, time), input, ActivityOutput{ .targets = m_activity_out, .curl = m_activity_curl, .wrap = m_activity_wrap });
 
 				// Blend the activity's own chains in by its weight
 				for (auto c : m_activities[run.activity].chains)
@@ -2320,44 +2417,52 @@ namespace pr::animation
 
 					m_targets[c] = Blend(m_targets[c], m_activity_out[c], weight);
 					m_curl[c] += (m_activity_curl[c] - m_curl[c]) * weight;
+
+					// A radius does not blend, so the latest activity that wraps sets the bar, and the wrap's strength blends like the curl
+					auto wraps = m_activity_wrap[c] > 0;
+					if (wraps)
+						m_wrap[c] = m_activity_wrap[c];
+
+					m_wrap_weight[c] += ((wraps ? 1.0f : 0.0f) - m_wrap_weight[c]) * weight;
 				}
 			}
 		}
 
-		// Curl the digits of each arm by the activities' curl for that arm (see 'RunActivities'). Each digit bone turns towards the palm by the
-		// curl angle. Hands that hold a grasp are left to their grasps.
+		// Curl the digits of each arm by the activities' curl or wrap for that arm (see 'RunActivities'). A hand with a wrap, and a hold frame, closes
+		// around a bar of that radius (see 'WrapHand'), and the wrap takes precedence over the curl. Otherwise each finger bone turns towards the palm by
+		// the curl angle. The thumb opposes by the curl's fraction of 'MaxCurl', then curls by the curl angle in all, shared equally between its bones,
+		// so a fist's thumb closes across the fingers (see 'CurlHand'). Hands that hold a grasp are left to their grasps.
 		void CurlActivityDigits()
 		{
 			// Digit bones are posed from their parents' current frames. Their descendants are updated once the pose is finished (see 'm_finish_refresh').
 			for (int i = 0, iend = static_cast<int>(m_limbs.size()); i != iend; ++i)
 			{
-				// Only free hands that an activity curls change
+				// Only free hands that an activity curls or wraps change
 				auto const& limb = m_limbs[i];
 				auto curl = m_curl[limb.chain];
-				if (curl == 0 || m_rig.chains[limb.chain].role != EChainRole::Arm || limb.digits.empty())
+				auto wrap_weight = limb.hold ? m_wrap_weight[limb.chain] : 0.0f;
+				if ((curl == 0 && wrap_weight == 0) || m_rig.chains[limb.chain].role != EChainRole::Arm || limb.digits.empty())
 					continue;
 				if (std::ranges::any_of(m_reaches, [&](auto const& reach) { return reach.limb == i && reach.weight.Value() != 0; }))
 					continue;
 
+				// A hand holding a tool closes onto its handle rather than through it
+				if (wrap_weight != 0)
+				{
+					WrapHand(limb, m_wrap[limb.chain], wrap_weight);
+					continue;
+				}
+
+				// A bare hand makes a fist
 				auto const& end = m_pose.model[m_rig.chains[limb.chain].bones.back()];
 				auto palm = Rotate(end.rot, -limb.sole_up);
-				for (auto c : limb.digits)
+				auto const* thumb = limb.thumb >= 0 ? &m_rig.chains[limb.thumb].bones : nullptr;
+				auto thumb_curl = thumb != nullptr ? curl / static_cast<float>(thumb->size()) : 0.0f;
+				CurlHand(limb, palm, curl / MaxCurl, [&](int b, xform const&, v4)
 				{
-					// Every bone of the digit turns about the same axis, so the digit curls in one plane
-					auto const& bones = m_rig.chains[c].bones;
-					auto first = m_pose.model[m_rig.bones[bones.front()].parent] * m_pose.local[bones.front()];
-					auto axis = Cross(Rotate(first.rot, v4::YAxis()), palm);
-					if (LengthSq(axis) < 1e-6f)
-						continue;
-
-					axis = Normalise(axis);
-					for (auto b : bones)
-					{
-						// Each bone turns from its parent's current frame
-						auto frame = m_pose.model[m_rig.bones[b].parent] * m_pose.local[b];
-						m_pose.SetModel(m_rig, b, xform(frame.pos, Normalise(quat(axis, curl) * frame.rot)));
-					}
-				}
+					// Thumb bones share the curl between them
+					return thumb != nullptr && std::ranges::find(*thumb, b) != thumb->end() ? thumb_curl : curl;
+				});
 			}
 		}
 
@@ -2776,6 +2881,12 @@ namespace pr::animation::tests
 		}
 	};
 
+	// A grasp whose hold frame is at 'point' with its palm facing 'palm' and its fingers along 'fingers' (unit, perpendicular), matching the test rig's hand
+	inline Grasp TestGrasp(v4 point, v4 palm, v4 fingers, float wrap = 0.0f)
+	{
+		return Grasp{ .frame = xform(point, quat(m3x3(palm, fingers, Cross(palm, fingers)))), .wrap = wrap };
+	}
+
 	PRUnitTestClass(LocomotionTests)
 	{
 		PRUnitTestMethod(StandingAtRest, Quick)
@@ -2981,7 +3092,6 @@ namespace pr::animation::tests
 			add_toe("toe.0.L", v4(0.15f, -0.2f, 0, 1), v4(0.1f, -0.3f, 0, 1));
 			add_toe("toe.1.L", v4(0.2f, -0.2f, 0, 1), v4(0.2f, -0.3f, 0.05f, 1));
 			add_toe("toe.2.L", v4(0.25f, -0.2f, 0, 1), v4(0.3f, -0.3f, 0, 1));
-			desc.contacts.push_back(Contact{ .name = "grip.L", .bone = foot, .offset = v4(0.02f, 0.15f, -0.01f, 1), .normal = v4(0, 0, -1, 0), .kind = EContactKind::Grip });
 			auto rig = Rig(desc);
 
 			// Stand still on the slope until the feet settle
@@ -3005,9 +3115,6 @@ namespace pr::animation::tests
 					PR_EXPECT(FEqlAbsolute(Dot(tip.w0(), normal), 0.0f, 1e-3f));
 				}
 			}
-
-			// The grip point is the end bone's authored grip contact
-			PR_EXPECT(FEqlAbsolute(leg.grip, rig.contacts.back().offset, 1e-6f));
 		}
 		PRUnitTestMethod(ModelTransformsAreCurrent, Quick)
 		{
@@ -3499,36 +3606,35 @@ namespace pr::animation::tests
 			PR_EXPECT(loco.family_settled() && loco.family() == biped);
 			auto rest = loco.pose().model;
 
-			// The grip point is on the hand bone, and the palm faces away from the limb's sole normal. The test rig's hand has no digits, so it grips at its
-			// contact. The body is at the origin, so model space is world space.
+			// The hand holds at its hold frame, whose palm faces away from the limb's sole normal. The body is at the origin, so model space is world space.
 			auto const& arm = loco.limbs()[1];
 			auto hand = rig.chains[arm.chain].bones.back();
 			auto foot = rig.chains[loco.limbs()[0].chain].bones.back();
-			PR_EXPECT(FEqlAbsolute(arm.grip, rig.contacts[arm.contact].offset, 1e-6f));
-			auto palm_point = [&] { return loco.pose().model[hand] * arm.grip; };
+			PR_EXPECT(arm.hold.has_value());
+			auto palm_point = [&] { return (loco.pose().model[hand] * *arm.hold).pos; };
 			auto palm_facing = [&] { return Rotate(loco.pose().model[hand].rot, -arm.sole_up); };
 			auto finger_pointing = [&] { return Rotate(loco.pose().model[hand].rot, v4::YAxis()); };
 
 			// A grasp within reach needs no stoop, and the hand turns so its fingers point along the grasp's finger direction
-			auto within = Grasp{ .point = v4(0.2f, -1.3f, 0.5f, 1), .palm = v4(-1, 0, 0, 0), .fingers = v4(0, -1, 0, 0) };
+			auto within = TestGrasp(v4(0.2f, -1.3f, 0.5f, 1), v4(-1, 0, 0, 0), v4(0, -1, 0, 0));
 			loco.SetReach(ESide::Left, within, 0.25f);
 			for (int i = 0; i != 60; ++i)
 				loco.Step(dt, body, ground);
 
-			PR_EXPECT(FEqlAbsolute(palm_point(), within.point, 1e-2f));
-			PR_EXPECT(Dot(palm_facing(), within.palm) > 0.99f);
-			PR_EXPECT(Dot(finger_pointing(), within.fingers) > 0.9f);
+			PR_EXPECT(FEqlAbsolute(palm_point(), within.frame.pos, 1e-2f));
+			PR_EXPECT(Dot(palm_facing(), v4(-1, 0, 0, 0)) > 0.99f);
+			PR_EXPECT(Dot(finger_pointing(), v4(0, -1, 0, 0)) > 0.9f);
 			PR_EXPECT(loco.stoop() == 0.0f);
 
 			// A grasp near the ground beyond the arm's reach lowers the body, with the foot where it was
-			auto low = Grasp{ .point = v4(0.2f, -1.3f, 0.02f, 1), .palm = v4(-1, 0, 0, 0) };
+			auto low = TestGrasp(v4(0.2f, -1.3f, 0.02f, 1), v4(-1, 0, 0, 0), v4(0, -1, 0, 0));
 			loco.SetReach(ESide::Left, low, 0.25f);
 			for (int i = 0; i != 120; ++i)
 				loco.Step(dt, body, ground);
 
 			PR_EXPECT(loco.stoop() > 0.01f && loco.stoop() < 0.5f);
 			PR_EXPECT(loco.targets()[0].base.pos.z < rest[rig.chains[0].bones.front()].pos.z - 0.01f);
-			PR_EXPECT(FEqlAbsolute(palm_point(), low.point, 1e-2f));
+			PR_EXPECT(FEqlAbsolute(palm_point(), low.frame.pos, 1e-2f));
 			PR_EXPECT(FEqlAbsolute(loco.pose().model[foot].pos, rest[foot].pos, 1e-3f));
 
 			// Letting go returns to the pose before the reach
@@ -3559,7 +3665,7 @@ namespace pr::animation::tests
 			auto const& bones = rig.chains[arm.chain].bones;
 			auto spine_a = loco.pose().model[1].pos;
 			auto spine_b = loco.pose().Tip(rig, 3);
-			auto grasp = Grasp{ .point = Lerp(spine_a, spine_b, 0.6f) + v4(0.1f, -0.25f, 0, 0), .palm = v4(-1, 0, 0, 0), .fingers = v4(0, -1, 0, 0) };
+			auto grasp = TestGrasp(Lerp(spine_a, spine_b, 0.6f) + v4(0.1f, -0.25f, 0, 0), v4(-1, 0, 0, 0), v4(0, -1, 0, 0));
 			loco.SetReach(ESide::Left, grasp, 0.25f);
 			for (int i = 0; i != 60; ++i)
 				loco.Step(dt, body, ground);
@@ -3571,7 +3677,7 @@ namespace pr::animation::tests
 			auto ab = spine_b - spine_a;
 			auto t = Clamp(Dot(elbow - spine_a, ab) / LengthSq(ab), 0.0f, 1.0f);
 			PR_EXPECT(Length(elbow - (spine_a + ab * t)) >= 0.2f - 1e-3f);
-			PR_EXPECT(FEqlAbsolute(loco.pose().model[bones[2]] * arm.grip, grasp.point, 1e-2f));
+			PR_EXPECT(FEqlAbsolute((loco.pose().model[bones[2]] * *arm.hold).pos, grasp.frame.pos, 1e-2f));
 		}
 		PRUnitTestMethod(GraspWrapCurlsDigits, Quick)
 		{
@@ -3606,22 +3712,22 @@ namespace pr::animation::tests
 				auto dt = 1.0f / 60;
 				auto body = BodyState{ .gravity = v4(0, 0, -9.8f, 0) };
 				loco.RequestFamily(FamilyIndex(gait, "bipedal"), 0.25f);
-				loco.SetReach(ESide::Left, Grasp{ .point = v4(0.2f, -1.3f, 0.5f, 1), .palm = v4(-1, 0, 0, 0), .fingers = v4(0, -1, 0, 0), .wrap = wrap }, 0.25f);
+				loco.SetReach(ESide::Left, TestGrasp(v4(0.2f, -1.3f, 0.5f, 1), v4(-1, 0, 0, 0), v4(0, -1, 0, 0), wrap), 0.25f);
 				for (int i = 0; i != 120; ++i)
 					loco.Step(dt, body, ground);
 
 				auto const& arm = loco.limbs()[1];
-				auto const& h = loco.pose().model[hand];
-				auto palm = Rotate(h.rot, -arm.sole_up);
-				auto along = Rotate(h.rot, Normalise(Cross(-arm.sole_up, v4::YAxis())));
-				auto centre = h * arm.grip + palm * wrap;
+				auto hold = loco.pose().model[hand] * *arm.hold;
+				auto palm = Rotate(hold.rot, v4::XAxis());
+				auto along = Rotate(hold.rot, v4::ZAxis());
+				auto centre = hold.pos + palm * wrap;
 				std::vector<Tip> d;
 				for (auto tip : tips)
 				{
 					auto p = loco.pose().Tip(rig, tip);
 					auto r = p - centre;
 					d.push_back(Tip{
-						.towards_palm = Dot(p - h * arm.grip, palm),
+						.towards_palm = Dot(p - hold.pos, palm),
 						.outside_bar = Length(r - along * Dot(r, along)) - wrap - arm.skin,
 					});
 				}
@@ -3636,6 +3742,63 @@ namespace pr::animation::tests
 				PR_EXPECT(closed[i].towards_palm > open[i].towards_palm + 0.03f);
 				PR_EXPECT(closed[i].outside_bar > -2e-3f && closed[i].outside_bar < 0.01f);
 			}
+		}
+		PRUnitTestMethod(GraspWrapOpposesThumb, Quick)
+		{
+			// A hand with two fingers and a thumb grasps a bar. The thumb starts on the heel side of the palm, pointing mostly along the bar, so it is
+			// found as the thumb. Gripping, it swings out of the palm and wraps over the bar towards the fingers until it touches the bar's skin.
+			auto desc = TestRigDesc();
+			auto hand = 11;
+			auto hand_model = xform::Identity();
+			for (auto b = hand; b != -1; b = desc.bones[b].parent)
+				hand_model = desc.bones[b].rest * hand_model;
+
+			auto add_digit = [&](char const* name, v4 base, v4 dir)
+			{
+				// Each digit is two bones continuing in a straight line
+				auto model0 = xform(base, quat(v4::YAxis(), dir));
+				auto model1 = xform(base + dir * 0.04f, model0.rot);
+				desc.bones.push_back(Bone{ .name = std::string(name) + ".0", .parent = hand, .rest = Invert(hand_model) * model0, .length = 0.04f });
+				auto b0 = static_cast<int>(desc.bones.size()) - 1;
+				desc.bones.push_back(Bone{ .name = std::string(name) + ".1", .parent = b0, .rest = Invert(model0) * model1, .length = 0.04f });
+				desc.chains.push_back(Chain{ .role = EChainRole::Digit, .side = ESide::Left, .bones = { b0, b0 + 1 } });
+				return b0 + 1;
+			};
+
+			// In the rest pose the hold frame is at (0.2, -0.95, 0) with its palm normal along -Z, fingers along -Y, and the bar along -X
+			add_digit("finger.a.L", v4(0.18f, -1.0f, 0, 1), v4(0, -1, 0, 0));
+			add_digit("finger.b.L", v4(0.22f, -1.0f, 0, 1), v4(0, -1, 0, 0));
+			auto thumb_base = v4(0.19f, -0.9f, 0, 1);
+			auto thumb_tip = add_digit("thumb.L", thumb_base, Normalise(v4(-0.95f, -0.3f, 0, 0)));
+			auto rig = Rig(desc);
+
+			// Hold the grasp until it settles
+			auto wrap = 0.03f;
+			auto gait = TestGait();
+			auto loco = Locomotion(rig, gait);
+			auto ground = TestGround();
+			auto dt = 1.0f / 60;
+			auto body = BodyState{ .gravity = v4(0, 0, -9.8f, 0) };
+			loco.RequestFamily(FamilyIndex(gait, "bipedal"), 0.25f);
+			loco.SetReach(ESide::Left, TestGrasp(v4(0.2f, -1.3f, 0.5f, 1), v4(-1, 0, 0, 0), v4(0, -1, 0, 0), wrap), 0.25f);
+			for (int i = 0; i != 120; ++i)
+				loco.Step(dt, body, ground);
+
+			// The thumb tip has moved from the heel side of the bar to its far side, towards the fingers, and rests on the bar's skin
+			auto const& arm = loco.limbs()[1];
+			PR_EXPECT(arm.thumb == static_cast<int>(rig.chains.size()) - 1);
+			auto hold = loco.pose().model[hand] * *arm.hold;
+			auto palm = Rotate(hold.rot, v4::XAxis());
+			auto fingers = Rotate(hold.rot, v4::YAxis());
+			auto along = Rotate(hold.rot, v4::ZAxis());
+			auto centre = hold.pos + palm * wrap;
+			auto tip = loco.pose().Tip(rig, thumb_tip);
+			auto base = loco.pose().model[hand] * (Invert(hand_model) * thumb_base);
+			auto r = tip - centre;
+			PR_EXPECT(Dot(tip - base, fingers) > 0.03f);
+			PR_EXPECT(Dot(tip - hold.pos, palm) > wrap);
+			auto outside_bar = Length(r - along * Dot(r, along)) - wrap - arm.skin;
+			PR_EXPECT(outside_bar > -2e-3f && outside_bar < 0.01f);
 		}
 		PRUnitTestMethod(BreathingSwellsTheChest, Quick)
 		{
@@ -4066,7 +4229,7 @@ namespace pr::animation::tests
 			auto loco = Locomotion(rig, gait);
 			auto limbs = std::vector<ActivityLimb>{};
 			for (auto const& limb : loco.limbs())
-				limbs.push_back(ActivityLimb{ .chain = limb.chain, .reach = limb.reach, .stance_rot = limb.stance_rot, .sole_up = limb.sole_up, .grip = limb.grip });
+				limbs.push_back(ActivityLimb{ .chain = limb.chain, .reach = limb.reach, .stance_rot = limb.stance_rot, .sole_up = limb.sole_up, .hold = limb.hold });
 
 			auto spine = static_cast<int>(std::ranges::find(rig.chains, EChainRole::Spine, &Chain::role) - rig.chains.begin());
 			auto guide = PoseTargets(rig, rig.rest_model);
@@ -4095,7 +4258,8 @@ namespace pr::animation::tests
 					// The goals and curls at 'time', starting from the guide's goals
 					auto out = guide;
 					auto curl = std::vector<float>(rig.chains.size());
-					activity.Evaluate(time, input, ActivityOutput{ .targets = out, .curl = curl });
+					auto wrap = std::vector<float>(rig.chains.size());
+					activity.Evaluate(time, input, ActivityOutput{ .targets = out, .curl = curl, .wrap = wrap });
 					return std::pair{ out, curl };
 				};
 
@@ -4230,7 +4394,7 @@ namespace pr::animation::tests
 			auto body = BodyState{ .gravity = v4(0, 0, -9.8f, 0) };
 			auto const& arm = loco.limbs()[1];
 			auto hand = rig.chains[arm.chain].bones.back();
-			auto within = Grasp{ .point = v4(0.2f, -1.3f, 0.5f, 1), .palm = v4(-1, 0, 0, 0), .fingers = v4(0, -1, 0, 0) };
+			auto within = TestGrasp(v4(0.2f, -1.3f, 0.5f, 1), v4(-1, 0, 0, 0), v4(0, -1, 0, 0));
 			loco.StartActivity(fight, body.time, 0.5f);
 			loco.SetReach(ESide::Left, within, 0.25f);
 			for (int i = 0; i != 144; ++i, body.time += dt)
@@ -4241,7 +4405,7 @@ namespace pr::animation::tests
 			for (int i = 0; i != 144; ++i, body.time += dt)
 			{
 				loco.Step(dt, body, ground);
-				worst = std::max(worst, Length(loco.pose().model[hand] * arm.grip - within.point));
+				worst = std::max(worst, Length((loco.pose().model[hand] * *arm.hold).pos - within.frame.pos));
 			}
 			PR_EXPECT(loco.activity_running(fight));
 			PR_EXPECT(worst < 1e-2f);
@@ -4263,6 +4427,23 @@ namespace pr::animation::tests
 			PR_EXPECT(timeline.marks.size() == 1 && timeline.marks[0].name == "contact");
 			PR_EXPECT(FEqlAbsolute(timeline.marks[0].time, swing.contact * swing.duration, 1e-6f));
 		}
+		PRUnitTestMethod(SetActivityParamsReplacesTuning, Quick)
+		{
+			// New parameters change the activity's timeline, but parameters that would change the controlled chains are refused unchanged
+			auto rig = TestRig();
+			auto gait = TestActivityGait();
+			auto chop = ActivityIndex(gait, "chop");
+			auto loco = Locomotion(rig, gait);
+			auto params = loco.gait().activities[chop].activity->WriteParams();
+			auto duration = params["duration"].to<float>() * 2;
+			params["duration"] = duration;
+			loco.SetActivityParams(chop, params);
+			PR_EXPECT(loco.activity_info(chop).timeline->length == duration);
+
+			params["hands"] = std::string("both");
+			PR_THROWS(loco.SetActivityParams(chop, params), std::invalid_argument);
+			PR_EXPECT(loco.activity_info(chop).timeline->length == duration);
+		}
 		PRUnitTestMethod(StrikesHitTargetAtContact, Quick)
 		{
 			// At the "contact" mark the tool point is on the strike target's surface, facing the body at the height of the target's centre. This holds
@@ -4274,7 +4455,7 @@ namespace pr::animation::tests
 			auto dt = 1.0f / 60;
 			auto probe = Locomotion(rig, gait);
 			auto const& arm = probe.limbs()[1];
-			auto limb = ActivityLimb{ .chain = arm.chain, .reach = arm.reach, .stance_rot = arm.stance_rot, .sole_up = arm.sole_up, .grip = arm.grip };
+			auto limb = ActivityLimb{ .chain = arm.chain, .reach = arm.reach, .stance_rot = arm.stance_rot, .sole_up = arm.sole_up, .hold = arm.hold };
 			auto hand = rig.chains[arm.chain].bones.back();
 			auto shoulder = rig.rest_model[rig.chains[arm.chain].bones.front()].pos;
 			auto contact = static_cast<double>(gait.activities[chop].activity->Timeline().marks[0].time);
@@ -4292,7 +4473,7 @@ namespace pr::animation::tests
 				body.time = when;
 				loco.Step(dt, body, ground);
 				auto const& frame = loco.pose().model[hand];
-				return std::pair{ frame * ToolPoint(limb, GripAxes(limb, ESide::Left), tool), frame.pos };
+				return std::pair{ (frame * ToolHead(limb, tool)).pos, frame.pos };
 			};
 			auto on_surface = [&](Strike const& strike, v4 const& tip)
 			{
@@ -4303,7 +4484,7 @@ namespace pr::animation::tests
 				return std::abs(tip.z - strike.point.z) < 0.02f && std::abs(Length(out) - strike.radius) < 0.02f && Dot(out, facing) > 0;
 			};
 
-			auto axe = Tool{ .grip = v4(0, 0, 0, 1), .head = v4(0, 0.4f, 0.05f, 1) };
+			auto axe = Tool{ .head = xform(v4(0, -0.05f, 0.4f, 1), quat::Identity()) };
 			auto close = Strike{ .point = shoulder + v4(0, -0.55f * arm.reach, -0.45f * arm.reach, 0), .radius = 0.1f };
 			auto distant = Strike{ .point = shoulder + v4(0.1f, -0.85f * arm.reach, -0.6f * arm.reach, 0), .radius = 0.05f };
 			for (auto const& strike : { close, distant })
@@ -4319,6 +4500,77 @@ namespace pr::animation::tests
 			// Without a target the blow lands ahead of the shoulder and below it
 			auto [ahead, ahead_wrist] = blow(std::nullopt, std::nullopt);
 			PR_EXPECT(ahead.y < shoulder.y - 0.5f * arm.reach && ahead.z < shoulder.z);
+
+			// Without a target a held tool reaches beyond the fist's landing point, so the hand holding it stays out in front of the body
+			auto [axe_ahead, axe_ahead_wrist] = blow(std::nullopt, axe);
+			PR_EXPECT(axe_ahead_wrist.y < shoulder.y - 0.5f * arm.reach);
+			PR_EXPECT(axe_ahead.y < axe_ahead_wrist.y);
+		}
+		PRUnitTestMethod(StrikeToolWrapsHandle, Quick)
+		{
+			// A hand with two-bone fingers strikes holding a tool. Its finger tips close onto the tool's handle and rest on its skin, rather than
+			// curling by the fixed angle of a bare fist.
+			auto desc = TestRigDesc();
+			auto hand = 11;
+			auto hand_model = xform::Identity();
+			for (auto b = hand; b != -1; b = desc.bones[b].parent)
+			hand_model = desc.bones[b].rest * hand_model;
+
+			auto add_finger = [&](char const* name, float x)
+			{
+			// Each finger is two bones continuing from the hand's tip
+			auto model0 = xform(v4(x, -1.0f, 0, 1), quat(v4::YAxis(), v4(0, -1, 0, 0)));
+			auto model1 = xform(v4(x, -1.05f, 0, 1), model0.rot);
+			desc.bones.push_back(Bone{ .name = std::string(name) + ".0", .parent = hand, .rest = Invert(hand_model) * model0, .length = 0.05f });
+			auto b0 = static_cast<int>(desc.bones.size()) - 1;
+			desc.bones.push_back(Bone{ .name = std::string(name) + ".1", .parent = b0, .rest = Invert(model0) * model1, .length = 0.05f });
+			desc.chains.push_back(Chain{ .role = EChainRole::Digit, .side = ESide::Left, .bones = { b0, b0 + 1 } });
+			return b0 + 1;
+			};
+			int const tips[] = { add_finger("finger.a.L", 0.18f), add_finger("finger.b.L", 0.22f) };
+			auto rig = Rig(desc);
+			auto gait = TestActivityGait();
+			auto chop = ActivityIndex(gait, "chop");
+			auto contact = static_cast<double>(gait.activities[chop].activity->Timeline().marks[0].time);
+			auto wrap = 0.03f;
+
+			// Strike until the third contact, then measure how far each finger tip is outside the skin of a handle of radius 'wrap' held in the palm
+			auto measure = [&](std::optional<Tool> tool)
+			{
+			auto loco = Locomotion(rig, gait);
+			auto ground = TestGround();
+			auto dt = 1.0f / 60;
+			auto body = BodyState{ .gravity = v4(0, 0, -9.8f, 0) };
+			loco.StartActivity(chop, 0.0, 0.25f);
+			loco.SetActivityTargets(chop, ActivityTargets{ .tool = tool });
+			auto when = 2.0 + contact;
+			for (; body.time < when - 0.5 * dt; body.time += dt)
+				loco.Step(dt, body, ground);
+
+			body.time = when;
+			loco.Step(dt, body, ground);
+			auto const& arm = loco.limbs()[1];
+			auto hold = loco.pose().model[hand] * *arm.hold;
+			auto palm = Rotate(hold.rot, v4::XAxis());
+			auto along = Rotate(hold.rot, v4::ZAxis());
+			auto centre = hold.pos + palm * wrap;
+			std::vector<float> outside;
+			for (auto tip : tips)
+			{
+				auto r = loco.pose().Tip(rig, tip) - centre;
+				outside.push_back(Length(r - along * Dot(r, along)) - wrap - arm.skin);
+			}
+			return outside;
+			};
+
+			// The tool's handle stops the fingers on its skin, which the fist's fixed curl does not find
+			auto fist = measure(std::nullopt);
+			auto held = measure(Tool{ .head = xform(v4(0, -0.05f, 0.4f, 1), quat::Identity()), .wrap = wrap });
+			for (int i = 0; i != 2; ++i)
+			{
+			PR_EXPECT(held[i] > -2e-3f && held[i] < 0.01f);
+			PR_EXPECT(std::abs(fist[i] - held[i]) > 0.01f);
+			}
 		}
 		PRUnitTestMethod(SideStrikesWindUpBesideTheBody, Quick)
 		{

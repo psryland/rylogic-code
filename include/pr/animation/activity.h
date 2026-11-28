@@ -59,19 +59,20 @@ namespace pr::animation
 		float radius = 0.0f;
 	};
 
-	// A tool held in one hand, such as an axe. Points are in the tool's own space, where +Y runs along the handle from the grip towards the head,
-	// and +Z is the direction that the striking face points. A hand holds the handle with its thumb towards +Y and its fingers wrapped towards +Z.
+	// A tool held in one hand, such as an axe, described in the frame of its main grip. A hand holds the tool by placing its hold frame on the grip
+	// frame (see 'ActivityLimb::hold'), and its digits close around the handle. The grip frame's origin is on the handle's surface where the palm
+	// touches it, its +Z runs along the handle towards the head, and its +X points into the handle.
 	struct Tool
 	{
-		v4 grip = v4::Origin();  // The point on the handle that the hand holds (tool space, w = 1)
-		v4 head = v4::Origin();  // The point that strikes (tool space, w = 1)
+		xform head = xform::Identity();  // The striking head in grip space. Its origin is the point that strikes, -Y is the direction the striking face points, and +Z runs along the handle.
+		float wrap = 0.0f;               // The handle's radius (metres, > 0) at the grip, which the digits close around
 	};
 
 	// The things in the world that an activity acts on. Each type documents which members it reads, and what it does when one is empty.
 	struct ActivityTargets
 	{
 		std::optional<Strike> strike;  // What a striking motion hits
-		std::optional<Tool> tool;      // What the hand holds. Without a tool, the tool point is the hand's grip point (a bare fist).
+		std::optional<Tool> tool;      // What the hand holds. Without a tool, the hand strikes with its hold frame as a bare fist.
 	};
 
 	// What an activity can know about one of the character's limbs
@@ -81,7 +82,7 @@ namespace pr::animation
 		float reach = 0.0f;                  // The limb's length from its root joint to its contact
 		quat stance_rot = Identity<quat>();  // The end bone's model-space orientation in the current stance
 		v4 sole_up = v4::YAxis();            // The unit normal of the sole or palm in the end bone's space, pointing away from the ground
-		v4 grip = v4::Origin();              // The point on the palm that holds a handle, in the end bone's space (w = 1)
+		std::optional<xform> hold;           // The hand's hold frame in the end bone's space, from the first rig attachment on the end bone. Its origin is on the palm's surface, +X points out of the palm, and +Z runs along a held handle towards the tool's head. Holding a tool puts this frame on the tool's grip frame (see 'Tool').
 	};
 
 	// The inputs to 'IActivity::Evaluate'. All frames are in model space unless stated.
@@ -101,6 +102,7 @@ namespace pr::animation
 	{
 		std::span<Target> targets;  // One target per chain. On entry, the goals from the gait. The activity overwrites the goals of its own chains only.
 		std::span<float> curl;      // One angle (radians) per chain, zero on entry. For an arm, how far each of its digits' bones curls towards the palm.
+		std::span<float> wrap;      // One radius (metres) per chain, zero on entry. For an arm with a hold frame, the radius of a bar lying against the palm at the hold frame, along its +Z, that the digits close around. A non-zero wrap takes precedence over 'curl'.
 	};
 
 	// The interface that each activity type implements. See the top of this file.

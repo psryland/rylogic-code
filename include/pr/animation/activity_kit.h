@@ -154,43 +154,22 @@ namespace pr::animation
 		return (chest * Invert(input.guide[input.spine].frame) * root).pos;
 	}
 
-	// The directions, in the end bone's space, along which a hand holds a tool's handle. See 'Tool'.
-	struct HandGrip
+	// The head frame of the tool held by the hand at the end of 'limb', in the end bone's space: the head of 'tool' when the hand holds the tool at
+	// its main grip, or the hand's hold frame itself (a bare fist) without a tool. The limb must have a hold frame.
+	inline xform ToolHead(ActivityLimb const& limb, std::optional<Tool> const& tool)
 	{
-		v4 fingers;  // The bone's +Y, from the wrist towards the knuckles. A held tool's striking face (its +Z) points this way.
-		v4 thumb;    // Across the palm towards the thumb, perpendicular to 'fingers'. A held tool's handle (its +Y) points this way.
-	};
-
-	// The grip directions of the hand at the end of 'limb', an arm on 'side' (left or right). The thumb is on the forward side of a hand that hangs
-	// with its palm facing the body's midline, which mirrors between the sides.
-	inline HandGrip GripAxes(ActivityLimb const& limb, ESide side)
-	{
-		// The palm faces away from 'sole_up'. Remove any part along the fingers, falling back to the bone's +Z for a palm normal along the bone.
-		auto fingers = v4::YAxis();
-		auto palm = -limb.sole_up.w0();
-		palm = palm - fingers * Dot(palm, fingers);
-		palm = LengthSq(palm) > 1e-6f ? Normalise(palm) : v4::ZAxis();
-		return HandGrip{ .fingers = fingers, .thumb = -SideSign(side) * Cross(fingers, palm) };
+		// The grip frame coincides with the hold frame, so the head is carried by the hold frame
+		assert(limb.hold && "The limb has no hold frame");
+		return tool ? *limb.hold * tool->head : *limb.hold;
 	}
 
-	// The tool point of the hand at the end of 'limb', in the end bone's space (w = 1): the head of 'tool' when the hand holds the tool at its
-	// grip, or the hand's grip point itself (a bare fist) without a tool.
-	inline v4 ToolPoint(ActivityLimb const& limb, HandGrip const& grip, std::optional<Tool> const& tool)
+	// The model-space orientation of the end bone of the hand at the end of 'limb' such that the head of its tool (see 'ToolHead') has its handle
+	// direction (+Z) along 'handle' and its striking face (-Y) along 'face' (model space, unit, perpendicular)
+	inline quat HandOrientation(ActivityLimb const& limb, std::optional<Tool> const& tool, v4 const& face, v4 const& handle)
 	{
-		// Tool +X, +Y and +Z map onto the hand's 'thumb x fingers', 'thumb' and 'fingers' directions
-		if (!tool)
-			return limb.grip;
-
-		auto tool_to_bone = m3x3(Cross(grip.thumb, grip.fingers), grip.thumb, grip.fingers);
-		return limb.grip + tool_to_bone * (tool->head - tool->grip).w0();
-	}
-
-	// The model-space orientation of a hand's end bone that points its 'grip' directions along 'fingers' and 'thumb' (model space, unit, perpendicular)
-	inline quat HandOrientation(HandGrip const& grip, v4 const& fingers, v4 const& thumb)
-	{
-		// Map one orthonormal basis onto the other
-		auto bone = m3x3(Cross(grip.thumb, grip.fingers), grip.thumb, grip.fingers);
-		auto model = m3x3(Cross(thumb, fingers), thumb, fingers);
-		return Normalise(quat(model * Transpose(bone)));
+		// Map the head's axes in model space back through the head's frame on the end bone
+		auto y = -face;
+		auto model = m3x3(Cross(y, handle), y, handle);
+		return Normalise(quat(model) * ~ToolHead(limb, tool).rot);
 	}
 }
