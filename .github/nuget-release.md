@@ -45,6 +45,10 @@ in with `$env:AZURE_CONFIG_DIR = '<dir>'; az login --tenant <rylogic-tenant>` an
    When it passes, create and push the matching product-prefixed version tag, such as `rylogic-v2.1.3`.
 4. Review the package artifact produced by the build job, then approve the `nuget-release`
    environment deployment.
+5. Once the release is published, raise `RylogicLibraryVersion` on `main` to the next patch version.
+   Local Debug development packages are prereleases of `RylogicLibraryVersion` (for example `2.4.1-dev.<timestamp>`),
+   and NuGet ranks every prerelease below the stable release of the same version, so consumers would otherwise
+   restore the published package instead of newer local builds.
 
 The workflow first builds the tagged native package into its private local feed so Debug managed
 projects restore the same unpublished version, then rebuilds every package from the tagged commit,
